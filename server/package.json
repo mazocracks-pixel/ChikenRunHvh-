@@ -1,0 +1,24 @@
+{
+  "name": "@game/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix .. run dev",
+    "dev:server": "tsx watch src/index.ts --dev",
+    "build": "esbuild src/index.ts src/tools/developer.ts --bundle --platform=node --target=node22 --format=esm --external:express --external:socket.io --outdir=dist",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "developer": "tsx src/tools/developer.ts"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.3",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15"
+  }
+}

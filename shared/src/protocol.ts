@@ -1,0 +1,515 @@
+import type { DevAction, DevMods, DevResult, DevStatus } from './dev';
+import type { Appearance } from './items';
+import type { MapId, Team } from './maps/types';
+import { round } from './math';
+import type { ModeId } from './modes';
+import type { InputFrame, MoveState } from './physics';
+import type { LootPhase, PickupKind } from './pickups';
+import type { ProjectileKind } from './projectiles';
+import { weaponAt, weaponIndex, type WeaponId } from './weapons';
+
+// ---------------------------------------------------------------------------
+// Players
+// ---------------------------------------------------------------------------
+
+/** Mostly-static facts about a player in a room. Sent on join; updated with `playerUpdated`. */
+export interface PlayerInfo {
+  /** Small per-room number used everywhere in the protocol instead of the socket id. */
+  pid: number;
+  name: string;
+  team: Team;
+  appearance: Appearance;
+  loadout: WeaponId[];
+  bot: boolean;
+  kills: number;
+  deaths: number;
+  score: number;
+  /** A developer account (set on the server only): the name glows rainbow. */
+  dev?: boolean;
+}
+
+/** The fast-changing state of a player, as carried in every snapshot. */
+export interface PlayerState extends MoveState {
+  pid: number;
+  yaw: number;
+  pitch: number;
+  alive: boolean;
+  reloading: boolean;
+  /** Spawn protection (can't be damaged). */
+  shielded: boolean;
+  aiming: boolean;
+  carryingFlag: boolean;
+  hp: number;
+  armor: number;
+  weapon: WeaponId;
+  mag: number;
+  eggs: number;
+  smokes: number;
+  /** Last input `seq` the server applied (for client reconciliation). */
+  ack: number;
+  /** Vehicle being driven, 0 when on foot. */
+  vehicle: number;
+  /** Held in place by a developer (inputs are ignored). */
+  frozen: boolean;
+}
+
+const F_GROUND = 1;
+const F_ALIVE = 2;
+const F_RELOADING = 4;
+const F_JETTING = 8;
+const F_JUMP_HELD = 16;
+const F_SHIELDED = 32;
+const F_AIMING = 64;
+const F_FLAG = 128;
+const F_GLIDING = 256;
+const F_FROZEN = 512;
+const F_CROUCH = 1024;
+
+export type PackedPlayer = number[];
+
+/** Compact array form of a PlayerState. Positions are rounded to millimetres. */
+export function packPlayer(p: PlayerState): PackedPlayer {
+  const flags =
+    (p.onGround ? F_GROUND : 0) |
+    (p.alive ? F_ALIVE : 0) |
+    (p.reloading ? F_RELOADING : 0) |
+    (p.jetting ? F_JETTING : 0) |
+    (p.jumpHeld ? F_JUMP_HELD : 0) |
+    (p.shielded ? F_SHIELDED : 0) |
+    (p.aiming ? F_AIMING : 0) |
+    (p.carryingFlag ? F_FLAG : 0) |
+    (p.gliding ? F_GLIDING : 0) |
+    (p.frozen ? F_FROZEN : 0) |
+    (p.crouching ? F_CROUCH : 0);
+  return [
+    p.pid,
+    round(p.x, 3),
+    round(p.y, 3),
+    round(p.z, 3),
+    round(p.vx, 3),
+    round(p.vy, 3),
+    round(p.vz, 3),
+    round(p.yaw, 3),
+    round(p.pitch, 3),
+    flags,
+    Math.ceil(p.hp),
+    Math.ceil(p.armor),
+    weaponIndex(p.weapon),
+    p.mag,
+    round(p.fuel, 3),
+    p.eggs,
+    p.smokes,
+    p.ack,
+    p.vehicle,
+    round(p.hop, 3),
+    p.groundTicks,
+  ];
+}
+
+export function unpackPlayer(a: PackedPlayer): PlayerState {
+  const flags = a[9] ?? 0;
+  return {
+    pid: a[0] ?? 0,
+    x: a[1] ?? 0,
+    y: a[2] ?? 0,
+    z: a[3] ?? 0,
+    vx: a[4] ?? 0,
+    vy: a[5] ?? 0,
+    vz: a[6] ?? 0,
+    yaw: a[7] ?? 0,
+    pitch: a[8] ?? 0,
+    onGround: (flags & F_GROUND) !== 0,
+    alive: (flags & F_ALIVE) !== 0,
+    reloading: (flags & F_RELOADING) !== 0,
+    jetting: (flags & F_JETTING) !== 0,
+    jumpHeld: (flags & F_JUMP_HELD) !== 0,
+    shielded: (flags & F_SHIELDED) !== 0,
+    aiming: (flags & F_AIMING) !== 0,
+    carryingFlag: (flags & F_FLAG) !== 0,
+    gliding: (flags & F_GLIDING) !== 0,
+    frozen: (flags & F_FROZEN) !== 0,
+    crouching: (flags & F_CROUCH) !== 0,
+    hp: a[10] ?? 0,
+    armor: a[11] ?? 0,
+    weapon: weaponAt(a[12] ?? 0),
+    mag: a[13] ?? 0,
+    fuel: a[14] ?? 0,
+    eggs: a[15] ?? 0,
+    smokes: a[16] ?? 0,
+    ack: a[17] ?? 0,
+    vehicle: a[18] ?? 0,
+    hop: a[19] ?? 0,
+    groundTicks: a[20] ?? 255,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Vehicles, blocks, flags (packed the same way)
+// ---------------------------------------------------------------------------
+
+export interface VehicleState {
+  id: number;
+  x: number;
+  z: number;
+  yaw: number;
+  speed: number;
+  /** pid of the driver, 0 when empty. */
+  driver: number;
+  hp: number;
+}
+
+export type PackedVehicle = number[];
+
+export function packVehicle(v: VehicleState): PackedVehicle {
+  return [v.id, round(v.x, 3), round(v.z, 3), round(v.yaw, 4), round(v.speed, 3), v.driver, Math.ceil(v.hp)];
+}
+
+export function unpackVehicle(a: PackedVehicle): VehicleState {
+  return { id: a[0] ?? 0, x: a[1] ?? 0, z: a[2] ?? 0, yaw: a[3] ?? 0, speed: a[4] ?? 0, driver: a[5] ?? 0, hp: a[6] ?? 0 };
+}
+
+export type BlockKind = 'crate' | 'stone' | 'brick' | 'wood' | 'hay' | 'metal' | 'concrete';
+export const BLOCK_KINDS: readonly BlockKind[] = ['crate', 'wood', 'stone', 'brick', 'hay', 'metal', 'concrete'];
+
+/** A Sandbox block on the building grid: occupies cell (cx, cy, cz) of size BLOCK_SIZE. */
+export interface BlockState {
+  id: number;
+  cx: number;
+  cy: number;
+  cz: number;
+  kind: BlockKind;
+}
+
+export interface FlagState {
+  team: 1 | 2;
+  x: number;
+  y: number;
+  z: number;
+  /** pid carrying it, 0 if none. */
+  carrier: number;
+  atBase: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Rooms and matches
+// ---------------------------------------------------------------------------
+
+export type MatchPhase = 'waiting' | 'countdown' | 'playing' | 'ended';
+
+export interface MatchState {
+  phase: MatchPhase;
+  /** Server time (ms) when the current phase ends, or null if open-ended. */
+  endsAt: number | null;
+  /** Kills (or captures) per team: [red, blue]. */
+  teamScores: [number, number];
+  winnerTeam: Team;
+  /** pid of the winner in free-for-all modes, 0 otherwise. */
+  winnerPid: number;
+  mvpPid: number;
+}
+
+export interface RoomInfo {
+  id: string;
+  /** Share this to let friends join a private room. */
+  code: string;
+  name: string;
+  mode: ModeId;
+  map: MapId;
+  maxPlayers: number;
+  private: boolean;
+}
+
+export interface RoomSummary {
+  id: string;
+  name: string;
+  mode: ModeId;
+  map: MapId;
+  players: number;
+  maxPlayers: number;
+  phase: MatchPhase;
+}
+
+export interface LootState {
+  id: number;
+  phase: LootPhase;
+  pickup: PickupKind | null;
+}
+
+/** A bonus pickup dropped by a kill. `y` is the ground it lies on. */
+export interface DropState {
+  id: number;
+  kind: PickupKind;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface ProjectileSpawn {
+  id: number;
+  kind: ProjectileKind;
+  owner: number;
+  /** The thrower's own counter, so it can match the server's projectile to its predicted one. */
+  ownerSeq: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
+
+export interface WorldSnapshot {
+  /** Server clock in ms (monotonic, not wall-clock). */
+  t: number;
+  p: PackedPlayer[];
+  v: PackedVehicle[];
+}
+
+export type JoinResponse =
+  | {
+      ok: true;
+      selfPid: number;
+      room: RoomInfo;
+      players: PlayerInfo[];
+      snapshot: WorldSnapshot;
+      match: MatchState;
+      loot: LootState[];
+      drops: DropState[];
+      projectiles: ProjectileSpawn[];
+      smokes: SmokeEvent[];
+      blocks: BlockState[];
+      flags: FlagState[];
+    }
+  | { ok: false; error: string };
+
+export type JoinSuccess = Extract<JoinResponse, { ok: true }>;
+
+export interface CreateRoomRequest {
+  mode: ModeId;
+  map: MapId;
+  private: boolean;
+  bots?: number;
+}
+
+export interface JoinRoomRequest {
+  roomId?: string;
+  code?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Combat and gameplay events
+// ---------------------------------------------------------------------------
+
+export interface FireRequest {
+  /** Strictly increasing per player; also seeds the pellet pattern. */
+  shot: number;
+  weapon: WeaponId;
+  /** Aim direction (normalized) from the eye. */
+  dx: number;
+  dy: number;
+  dz: number;
+  /** Server time the shooter was seeing other players at (for lag compensation). */
+  t: number;
+  aiming: boolean;
+}
+
+export interface ShotEvent {
+  pid: number;
+  weapon: WeaponId;
+  /** Muzzle-ish origin (eye position). */
+  ox: number;
+  oy: number;
+  oz: number;
+  /** End point of every pellet, flattened [x, y, z, x, y, z, ...]. */
+  ends: number[];
+  /** Per pellet: 0 = missed / hit the level, 1 = hit a chicken, 2 = headshot. */
+  hits: number[];
+}
+
+export interface DamageEvent {
+  victim: number;
+  attacker: number;
+  amount: number;
+  hp: number;
+  armor: number;
+  headshot: boolean;
+  /** Where the damage came from (for the direction indicator). */
+  fromX: number;
+  fromZ: number;
+}
+
+export type KillCause = WeaponId | 'egg' | 'car' | 'world';
+
+export interface KillEvent {
+  killer: number;
+  victim: number;
+  cause: KillCause;
+  headshot: boolean;
+}
+
+export interface SpawnEvent {
+  pid: number;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+export interface ThrowRequest {
+  kind: 'egg' | 'smoke';
+  seq: number;
+  dx: number;
+  dy: number;
+  dz: number;
+}
+
+export interface ExplosionEvent {
+  id: number;
+  kind: ProjectileKind;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface SmokeEvent {
+  x: number;
+  y: number;
+  z: number;
+  /** Server time it fades out. */
+  until: number;
+}
+
+export interface PickupEvent {
+  /** Loot box id, or -1 for a kill bonus. */
+  lootId: number;
+  pid: number;
+  pickup: PickupKind;
+}
+
+/** [pid, kills, deaths, score] */
+export type ScoreRow = [number, number, number, number];
+
+export interface ScoresEvent {
+  rows: ScoreRow[];
+  teamScores: [number, number];
+}
+
+export interface ChatMessage {
+  /** 0 for system messages. */
+  pid: number;
+  name: string;
+  text: string;
+  team: Team;
+  /** Sent by a developer account. */
+  dev?: boolean;
+}
+
+export interface MatchRewardEvent {
+  coins: number;
+  total: number;
+  kills: number;
+  won: boolean;
+}
+
+export type FlagEventKind = 'taken' | 'dropped' | 'returned' | 'captured';
+
+export interface FlagEvent {
+  kind: FlagEventKind;
+  team: 1 | 2;
+  pid: number;
+  flags: FlagState[];
+}
+
+export interface BuildRequest {
+  cx: number;
+  cy: number;
+  cz: number;
+  kind: BlockKind;
+}
+
+// ---------------------------------------------------------------------------
+// Socket.IO event maps
+// ---------------------------------------------------------------------------
+
+export interface ClientToServerEvents {
+  listRooms: (ack: (rooms: RoomSummary[]) => void) => void;
+  quickPlay: (req: { mode: ModeId }, ack: (res: JoinResponse) => void) => void;
+  createRoom: (req: CreateRoomRequest, ack: (res: JoinResponse) => void) => void;
+  joinRoom: (req: JoinRoomRequest, ack: (res: JoinResponse) => void) => void;
+  leaveRoom: () => void;
+
+  input: (frame: InputFrame) => void;
+  fire: (req: FireRequest) => void;
+  reload: () => void;
+  switchWeapon: (slot: number) => void;
+  throw: (req: ThrowRequest) => void;
+  aim: (aiming: boolean) => void;
+  chat: (text: string) => void;
+  useVehicle: () => void;
+  build: (req: BuildRequest) => void;
+  unbuild: (blockId: number) => void;
+  /** Unlock developer tools for this account. The passkey is checked on the server only. */
+  devAuth: (passkey: string, ack: (res: DevResult) => void) => void;
+  devStatus: (ack: (status: DevStatus) => void) => void;
+  /** Replace your own developer modifiers (ignored unless allowed). */
+  devMods: (mods: Partial<DevMods>, ack: (status: DevStatus) => void) => void;
+  devAction: (action: DevAction, ack: (res: DevResult) => void) => void;
+  /** Round-trip probe; the server just calls `ack` with its clock. */
+  latency: (ack: (serverTime: number) => void) => void;
+}
+
+export interface ServerToClientEvents {
+  snapshot: (snapshot: WorldSnapshot) => void;
+  playerJoined: (player: PlayerInfo) => void;
+  playerLeft: (pid: number) => void;
+  playerUpdated: (player: PlayerInfo) => void;
+
+  shot: (e: ShotEvent) => void;
+  damage: (e: DamageEvent) => void;
+  kill: (e: KillEvent) => void;
+  spawn: (e: SpawnEvent) => void;
+  projectile: (e: ProjectileSpawn) => void;
+  explode: (e: ExplosionEvent) => void;
+  smoke: (e: SmokeEvent) => void;
+  loot: (e: LootState) => void;
+  pickup: (e: PickupEvent) => void;
+  drop: (d: DropState) => void;
+  /** A bonus was picked up (`pid`) or expired (pid 0). */
+  dropGone: (e: { id: number; pid: number }) => void;
+  scores: (e: ScoresEvent) => void;
+  match: (e: MatchState) => void;
+  chat: (msg: ChatMessage) => void;
+  reward: (e: MatchRewardEvent) => void;
+  flag: (e: FlagEvent) => void;
+  blockPlaced: (block: BlockState) => void;
+  blockRemoved: (blockId: number) => void;
+  /** The server removed you from the room (e.g. kicked); go back to the lobby. */
+  roomClosed: (reason: string) => void;
+}
+
+// ---------------------------------------------------------------------------
+// REST API (accounts, shop)
+// ---------------------------------------------------------------------------
+
+export interface Profile {
+  id: number;
+  name: string;
+  /** Null for guest accounts that haven't registered yet. */
+  username: string | null;
+  coins: number;
+  appearance: Appearance;
+  loadout: WeaponId[];
+  owned: string[];
+  stats: { kills: number; deaths: number; wins: number; matches: number };
+  /** Developer account: only the server can grant it (`npm run developer`). */
+  developer: boolean;
+}
+
+export interface LeaderboardRow {
+  name: string;
+  kills: number;
+  deaths: number;
+  wins: number;
+  matches: number;
+  dev?: boolean;
+}

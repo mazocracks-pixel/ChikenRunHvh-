@@ -1,0 +1,27 @@
+{
+  "name": "project-chikengun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser multiplayer game: Three.js client + Node.js/Socket.IO server",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev:server -w server\" \"npm run dev:client -w client\"",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "npm run start -w server",
+    "developer": "npm run developer -w server --",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "tsx --test \"shared/test/**/*.test.ts\" \"server/test/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "typescript": "^7.0.2"
+  }
+}

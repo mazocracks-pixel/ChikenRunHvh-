@@ -1,0 +1,297 @@
+import type { Vec3, WeaponSound } from '@game/shared';
+import { storage } from '../ui/dom';
+
+export type SoundName =
+  | WeaponSound
+  | 'meleeHit'
+  | 'bonk'
+  | 'explosion'
+  | 'hit'
+  | 'headshot'
+  | 'kill'
+  | 'hurt'
+  | 'reload'
+  | 'empty'
+  | 'switch'
+  | 'jump'
+  | 'jet'
+  | 'throw'
+  | 'pickup'
+  | 'death'
+  | 'poof'
+  | 'boxBreak'
+  | 'smokePop'
+  | 'click'
+  | 'reward'
+  | 'countdown'
+  | 'engine';
+
+const VOLUME_KEY = 'chikengun:volume';
+/** Beyond this distance a sound is silent. */
+const HEARING_RANGE = 70;
+
+interface Listener {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+/**
+ * Synthesized sound effects (no audio files). Every sound is a short graph of oscillators
+ * and filtered noise, panned and attenuated by distance from the camera.
+ */
+export class AudioEngine {
+  private ctx: AudioContext | null = null;
+  private master: GainNode | null = null;
+  private noise: AudioBuffer | null = null;
+  private listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
+  private volumeValue = Number(storage.get(VOLUME_KEY) ?? '0.6');
+
+  get volume(): number {
+    return this.volumeValue;
+  }
+
+  set volume(v: number) {
+    this.volumeValue = Math.min(1, Math.max(0, v));
+    storage.set(VOLUME_KEY, String(this.volumeValue));
+    if (this.master) this.master.gain.value = this.volumeValue;
+  }
+
+  /** Browsers only allow audio after a user gesture, so call this from a click handler. */
+  unlock(): void {
+    if (!this.ctx) {
+      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      this.ctx = new Ctor();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.volumeValue;
+      const compressor = this.ctx.createDynamicsCompressor();
+      this.master.connect(compressor).connect(this.ctx.destination);
+      this.noise = this.makeNoise();
+    }
+    if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  setListener(x: number, y: number, z: number, yaw: number): void {
+    this.listener = { x, y, z, yaw };
+  }
+
+  /** Plays a sound, optionally at a world position (attenuated and panned). */
+  play(name: SoundName, at?: Vec3, volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || ctx.state !== 'running') return;
+    let gain = volume;
+    let pan = 0;
+    if (at) {
+      const dx = at.x - this.listener.x;
+      const dz = at.z - this.listener.z;
+      const dist = Math.hypot(dx, at.y - this.listener.y, dz);
+      if (dist > HEARING_RANGE) return;
+      gain *= 1 / (1 + dist * 0.12);
+      // Project onto the listener's right vector for left/right panning.
+      const rightX = Math.cos(this.listener.yaw);
+      const rightZ = -Math.sin(this.listener.yaw);
+      pan = dist > 0.5 ? Math.max(-1, Math.min(1, (dx * rightX + dz * rightZ) / dist)) * 0.8 : 0;
+    }
+    const out = ctx.createGain();
+    out.gain.value = gain;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+    out.connect(panner).connect(this.master);
+    this.synth(name, ctx, out, ctx.currentTime);
+  }
+
+  private makeNoise(): AudioBuffer {
+    const ctx = this.ctx!;
+    const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    return buffer;
+  }
+
+  /** Filtered noise burst with an exponential decay. */
+  private burst(ctx: AudioContext, out: AudioNode, t: number, o: { dur: number; type: BiquadFilterType; freq: number; to?: number; q?: number; gain?: number; delay?: number }): void {
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = o.type;
+    filter.Q.value = o.q ?? 1;
+    const start = t + (o.delay ?? 0);
+    filter.frequency.setValueAtTime(o.freq, start);
+    if (o.to) filter.frequency.exponentialRampToValueAtTime(o.to, start + o.dur);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(o.gain ?? 1, start);
+    env.gain.exponentialRampToValueAtTime(0.001, start + o.dur);
+    src.connect(filter).connect(env).connect(out);
+    src.start(start, Math.random() * 0.5);
+    src.stop(start + o.dur + 0.05);
+  }
+
+  /** Oscillator sweep with an exponential decay. */
+  private tone(ctx: AudioContext, out: AudioNode, t: number, o: { dur: number; type: OscillatorType; freq: number; to?: number; gain?: number; delay?: number }): void {
+    const osc = ctx.createOscillator();
+    osc.type = o.type;
+    const start = t + (o.delay ?? 0);
+    osc.frequency.setValueAtTime(o.freq, start);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, start + o.dur);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(o.gain ?? 0.5, start);
+    env.gain.exponentialRampToValueAtTime(0.001, start + o.dur);
+    osc.connect(env).connect(out);
+    osc.start(start);
+    osc.stop(start + o.dur + 0.05);
+  }
+
+  /** A chicken squawk: a buzzy sawtooth through a vocal-ish filter, pitch up then down, with vibrato. */
+  private squawk(ctx: AudioContext, out: AudioNode, t: number, o: { delay: number; freq: number; peak: number; end: number; dur: number; gain: number }): void {
+    const start = t + o.delay;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(o.freq, start);
+    osc.frequency.exponentialRampToValueAtTime(o.peak, start + o.dur * 0.3);
+    osc.frequency.exponentialRampToValueAtTime(o.end, start + o.dur);
+    const vibrato = ctx.createOscillator();
+    vibrato.frequency.value = 34;
+    const depth = ctx.createGain();
+    depth.gain.value = o.peak * 0.06;
+    vibrato.connect(depth).connect(osc.frequency);
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.frequency.value = 1700;
+    formant.Q.value = 2.5;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, start);
+    env.gain.exponentialRampToValueAtTime(o.gain, start + 0.02);
+    env.gain.exponentialRampToValueAtTime(0.001, start + o.dur);
+    osc.connect(formant).connect(env).connect(out);
+    for (const n of [osc, vibrato]) {
+      n.start(start);
+      n.stop(start + o.dur + 0.05);
+    }
+  }
+
+  private synth(name: SoundName, ctx: AudioContext, out: AudioNode, t: number): void {
+    switch (name) {
+      case 'pistol':
+        this.burst(ctx, out, t, { dur: 0.09, type: 'bandpass', freq: 1600, q: 0.8, gain: 1.2 });
+        this.tone(ctx, out, t, { dur: 0.07, type: 'sine', freq: 160, to: 60, gain: 0.7 });
+        break;
+      case 'rifle':
+        this.burst(ctx, out, t, { dur: 0.08, type: 'bandpass', freq: 1100, q: 0.7, gain: 1.1 });
+        this.tone(ctx, out, t, { dur: 0.08, type: 'sine', freq: 140, to: 50, gain: 0.8 });
+        break;
+      case 'smg':
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 1900, q: 0.9, gain: 0.9 });
+        this.tone(ctx, out, t, { dur: 0.05, type: 'sine', freq: 180, to: 70, gain: 0.5 });
+        break;
+      case 'minigun':
+        this.burst(ctx, out, t, { dur: 0.04, type: 'bandpass', freq: 1400, q: 1, gain: 0.7 });
+        break;
+      case 'shotgun':
+        this.burst(ctx, out, t, { dur: 0.25, type: 'lowpass', freq: 1400, to: 200, gain: 1.4 });
+        this.tone(ctx, out, t, { dur: 0.15, type: 'sine', freq: 110, to: 40, gain: 1 });
+        break;
+      case 'sniper':
+        this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 3000, gain: 1 });
+        this.burst(ctx, out, t, { dur: 0.45, type: 'lowpass', freq: 900, to: 120, gain: 1.3 });
+        this.tone(ctx, out, t, { dur: 0.2, type: 'sine', freq: 90, to: 35, gain: 1 });
+        break;
+      case 'rocket':
+        this.burst(ctx, out, t, { dur: 0.5, type: 'bandpass', freq: 400, to: 1800, q: 1.5, gain: 1 });
+        break;
+      // Melee swings: a filtered-noise whoosh sweeping down (quick and light, heavy, or long and ringing).
+      case 'knife':
+        this.burst(ctx, out, t, { dur: 0.16, type: 'bandpass', freq: 3200, to: 1100, q: 2.2, gain: 0.55 });
+        break;
+      case 'pan':
+        this.burst(ctx, out, t, { dur: 0.26, type: 'bandpass', freq: 900, to: 300, q: 1.6, gain: 0.7 });
+        break;
+      case 'katana':
+        this.burst(ctx, out, t, { dur: 0.22, type: 'bandpass', freq: 4200, to: 1400, q: 2.6, gain: 0.6 });
+        this.tone(ctx, out, t, { dur: 0.3, type: 'sine', freq: 2600, to: 2400, gain: 0.05 });
+        break;
+      case 'meleeHit':
+        this.burst(ctx, out, t, { dur: 0.09, type: 'lowpass', freq: 1800, to: 300, gain: 1.1 });
+        this.tone(ctx, out, t, { dur: 0.08, type: 'sine', freq: 180, to: 70, gain: 0.6 });
+        break;
+      case 'bonk':
+        // A frying pan on a chicken's head: a dull thud plus a metallic ring.
+        this.tone(ctx, out, t, { dur: 0.06, type: 'sine', freq: 220, to: 90, gain: 0.9 });
+        this.tone(ctx, out, t, { dur: 0.55, type: 'triangle', freq: 640, to: 610, gain: 0.35 });
+        this.tone(ctx, out, t, { dur: 0.4, type: 'sine', freq: 1730, to: 1690, gain: 0.12 });
+        break;
+      case 'explosion':
+        this.burst(ctx, out, t, { dur: 1.1, type: 'lowpass', freq: 1500, to: 80, gain: 1.8 });
+        this.tone(ctx, out, t, { dur: 0.6, type: 'sine', freq: 70, to: 25, gain: 1.4 });
+        break;
+      case 'hit':
+        this.tone(ctx, out, t, { dur: 0.05, type: 'square', freq: 1400, gain: 0.15 });
+        break;
+      case 'headshot':
+        this.tone(ctx, out, t, { dur: 0.05, type: 'square', freq: 1800, gain: 0.15 });
+        this.tone(ctx, out, t, { dur: 0.08, type: 'square', freq: 2400, gain: 0.12, delay: 0.05 });
+        break;
+      case 'kill':
+        [880, 1320, 1760].forEach((f, i) => this.tone(ctx, out, t, { dur: 0.12, type: 'triangle', freq: f, gain: 0.3, delay: i * 0.07 }));
+        break;
+      case 'hurt':
+        this.tone(ctx, out, t, { dur: 0.15, type: 'sine', freq: 220, to: 90, gain: 0.6 });
+        this.burst(ctx, out, t, { dur: 0.1, type: 'lowpass', freq: 600, gain: 0.5 });
+        break;
+      case 'reload':
+        this.burst(ctx, out, t, { dur: 0.04, type: 'highpass', freq: 2500, gain: 0.6 });
+        this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 1800, gain: 0.7, delay: 0.25 });
+        break;
+      case 'empty':
+        this.burst(ctx, out, t, { dur: 0.03, type: 'highpass', freq: 3000, gain: 0.4 });
+        break;
+      case 'switch':
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 2200, gain: 0.4 });
+        break;
+      case 'jump':
+        this.tone(ctx, out, t, { dur: 0.08, type: 'triangle', freq: 600, to: 950, gain: 0.25 });
+        break;
+      case 'jet':
+        this.burst(ctx, out, t, { dur: 0.14, type: 'bandpass', freq: 700, q: 0.7, gain: 0.4 });
+        break;
+      case 'throw':
+        this.burst(ctx, out, t, { dur: 0.18, type: 'bandpass', freq: 800, to: 2000, q: 2, gain: 0.5 });
+        break;
+      case 'pickup':
+        [660, 880, 1100].forEach((f, i) => this.tone(ctx, out, t, { dur: 0.09, type: 'sine', freq: f, gain: 0.35, delay: i * 0.06 }));
+        break;
+      case 'death':
+        // "BA-WAWK!" and a thud as it hits the ground, with a flurry of feathers.
+        this.squawk(ctx, out, t, { delay: 0, freq: 780, peak: 1250, end: 520, dur: 0.16, gain: 0.32 });
+        this.squawk(ctx, out, t, { delay: 0.17, freq: 900, peak: 1500, end: 380, dur: 0.34, gain: 0.36 });
+        this.burst(ctx, out, t, { dur: 0.35, type: 'highpass', freq: 3500, gain: 0.18, delay: 0.05 });
+        this.tone(ctx, out, t, { dur: 0.18, type: 'sine', freq: 130, to: 45, gain: 0.7, delay: 0.5 });
+        this.burst(ctx, out, t, { dur: 0.12, type: 'lowpass', freq: 500, gain: 0.5, delay: 0.5 });
+        break;
+      case 'poof':
+        this.burst(ctx, out, t, { dur: 0.35, type: 'bandpass', freq: 1800, to: 400, q: 0.8, gain: 0.6 });
+        this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 520, to: 1400, gain: 0.25 });
+        break;
+      case 'boxBreak':
+        this.burst(ctx, out, t, { dur: 0.25, type: 'bandpass', freq: 900, q: 0.6, gain: 0.8 });
+        this.tone(ctx, out, t, { dur: 0.15, type: 'triangle', freq: 1200, to: 1800, gain: 0.15 });
+        break;
+      case 'smokePop':
+        this.burst(ctx, out, t, { dur: 0.9, type: 'lowpass', freq: 2500, to: 300, gain: 0.7 });
+        break;
+      case 'click':
+        this.tone(ctx, out, t, { dur: 0.04, type: 'sine', freq: 900, gain: 0.2 });
+        break;
+      case 'reward':
+        [523, 659, 784, 1046].forEach((f, i) => this.tone(ctx, out, t, { dur: 0.16, type: 'triangle', freq: f, gain: 0.3, delay: i * 0.09 }));
+        break;
+      case 'countdown':
+        this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 740, gain: 0.3 });
+        break;
+      case 'engine':
+        this.tone(ctx, out, t, { dur: 0.12, type: 'sawtooth', freq: 70, to: 80, gain: 0.12 });
+        break;
+    }
+  }
+}
