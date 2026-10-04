@@ -259,10 +259,40 @@ export class GameRoom {
   }
 
   updateHvhPose(p: ServerPlayer, now: number): void {
-    if (this.mode.id !== 'hvh' || !p.hvhEnabled) return;
-    const pose = hvhPose(p.lookYaw, p.hvh, now, p.lastInput?.invert === true, !p.alive || p.vehicle !== 0 || (now >= p.concealUntil && now < p.revealUntil));
+    if (this.mode.id !== 'hvh') return;
+    if (!p.hvhEnabled) { p.yaw = p.fakeYaw = p.lookYaw; p.fakePitch = p.pitch; return; }
+    const settings = p.hvh.skeet;
+    if (settings?.enabled && (settings.atTargets || settings.freestanding) && now - p.hvhCoverAt >= 100) {
+      p.hvhCoverAt = now; p.hvhCoverSide = 0; p.hvhTargetYaw = undefined;
+      let nearest: ServerPlayer | undefined, distance = 80;
+      for (const enemy of this.players.values()) {
+        if (enemy === p || !enemy.alive || enemy.vehicle || this.areTeammates(p, enemy)) continue;
+        const d = Math.hypot(enemy.state.x - p.state.x, enemy.state.z - p.state.z);
+        if (d < distance) { nearest = enemy; distance = d; }
+      }
+      if (nearest && distance > 0.1) {
+        p.hvhTargetYaw = Math.atan2(-(nearest.state.x - p.state.x), -(nearest.state.z - p.state.z));
+        if (settings.freestanding) {
+          const from = { x: nearest.state.x, y: nearest.state.y + eyeHeightOf(nearest.state), z: nearest.state.z };
+          const blocked = (side: number) => {
+            const x = p.state.x + Math.cos(p.hvhTargetYaw!) * 0.38 * side, z = p.state.z - Math.sin(p.hvhTargetYaw!) * 0.38 * side;
+            const dy = p.state.y + eyeHeightOf(p.state) - from.y;
+            const range = Math.hypot(x - from.x, dy, z - from.z);
+            return !!raycastWorld(makeRay(from, { x: (x - from.x) / range, y: dy / range, z: (z - from.z) / range }), this.world, range - 0.1);
+          };
+          const left = blocked(-1), right = blocked(1);
+          p.hvhCoverSide = left === right ? 0 : left ? -1 : 1;
+        }
+      }
+    }
+    const revealed = !p.alive || p.vehicle !== 0 || (now >= p.concealUntil && now < p.revealUntil);
+    const pose = hvhPose(p.lookYaw, p.hvh, now, p.lastInput?.invert === true, revealed,
+      { speed: p.state.horizontalSpeed, onGround: p.state.onGround, crouching: p.state.crouching,
+        targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide, seed: p.pid });
     p.yaw = pose.real;
     p.fakeYaw = pose.fake;
+    p.fakePitch = !settings?.enabled || !p.hvh.antiAim.enabled || revealed || settings.visualPitch === 'look' ? p.pitch
+      : settings.visualPitch === 'down' ? -0.65 : settings.visualPitch === 'up' ? 0.65 : 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -526,6 +556,7 @@ export class GameRoom {
     }
 
     this.io.to(this.channel).emit('shot', {
+      shot: req.shot,
       pid: p.pid,
       weapon: req.weapon,
       ox: round(eye.x, 2),

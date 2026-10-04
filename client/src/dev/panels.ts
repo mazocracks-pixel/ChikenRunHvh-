@@ -19,6 +19,12 @@ export const HVH_PANELS: Readonly<Record<HvhPanelId, HvhPanel>> = {
     resolveYaw: (p, c) => c.hvh.feedback.resolver ? p.yaw : p.latest?.fakeYaw ?? p.yaw,
     loadout: c => sanitizeHvhLoadout(c.hvh),
   },
+  skeet: {
+    id: 'skeet', name: 'Skeet', assisted: true,
+    description: 'Weapon profiles, adaptive stance analysis, safe points and movement-state anti-aim.',
+    resolveYaw: (p, c) => c.skeet.resolver.mode === 'visual' ? p.fakeYaw : p.yaw,
+    loadout: c => sanitizeHvhLoadout({ ...c.hvh, skeet: c.skeet.antiAim }),
+  },
   manual: {
     id: 'manual', name: 'Manual play', assisted: false,
     description: 'Aim and fire yourself. Shared HvH wall vision stays available; panel assists are off.',

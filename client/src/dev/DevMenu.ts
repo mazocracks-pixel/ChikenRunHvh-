@@ -4,11 +4,12 @@ import { keyName, renderControl, type Control, type Rendered, type Section, type
 import type { Dev } from './Dev';
 import { applyTheme } from './passkey';
 import { buildTabs } from './tabs';
+import { buildSkeetTabs } from './skeet/tabs';
 
 const POSITION_KEY = 'chikengun:dev-pos';
 /** Live values (player list, readouts) refresh this often while the menu is open. */
 const LIVE_REFRESH_MS = 250;
-let lastTab = 'aim';
+const lastTabs = { lab: 'aim', skeet: 'rage' };
 
 interface Placed {
   control: Control;
@@ -29,21 +30,26 @@ export class DevMenu {
   private readonly configSelect = h('select', { class: 'dev-select', 'aria-label': 'Config' });
   private readonly hint = h('span', { class: 'dev-hint' });
   private placed: Placed[] = [];
-  private tab = lastTab;
+  private tab: string;
+  private readonly panelId: 'lab' | 'skeet';
+  private readonly positionKey: string;
   private readonly timer: number;
   private readonly unsubscribe: () => void;
 
   constructor(dev: Dev, onClose: () => void) {
     this.dev = dev;
-    this.tabs = buildTabs(dev);
-    if (!this.tabs.some((t) => t.id === this.tab)) this.tab = 'aim';
+    this.panelId = dev.panelId === 'skeet' ? 'skeet' : 'lab';
+    this.positionKey = this.panelId === 'skeet' ? `${POSITION_KEY}:skeet` : POSITION_KEY;
+    this.tab = lastTabs[this.panelId];
+    this.tabs = this.panelId === 'skeet' ? buildSkeetTabs(dev) : buildTabs(dev);
+    if (!this.tabs.some((t) => t.id === this.tab)) this.tab = this.tabs[0]!.id;
 
     const close = h('button', { type: 'button', class: 'dev-icon-btn', 'aria-label': 'Close menu' }, '✕');
     close.addEventListener('click', onClose);
     const header = h(
       'header',
       { class: 'dev-header' },
-      h('div', { class: 'dev-brand' }, h('span', { class: 'dev-logo' }, '◆'), h('b', null, 'CHICKEN'), h('span', null, '//HVH LAB')),
+      h('div', { class: 'dev-brand' }, h('span', { class: 'dev-logo' }, '◆'), h('b', null, this.panelId === 'skeet' ? 'skeet' : 'CHICKEN'), h('span', null, this.panelId === 'skeet' ? 'chicken hvh' : '//HVH LAB')),
       this.pill,
       this.search,
       close,
@@ -58,10 +64,10 @@ export class DevMenu {
       this.tabBar.append(b);
     }
     this.tabBar.addEventListener('keydown', (e) => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
       e.preventDefault();
       const current = this.tabs.findIndex(t => t.id === this.tab);
-      const index = e.key === 'Home' ? 0 : e.key === 'End' ? this.tabs.length - 1 : (current + (e.key === 'ArrowRight' ? 1 : -1) + this.tabs.length) % this.tabs.length;
+      const index = e.key === 'Home' ? 0 : e.key === 'End' ? this.tabs.length - 1 : (current + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + this.tabs.length) % this.tabs.length;
       this.search.value = '';
       this.show(this.tabs[index]!.id);
       const button = this.tabBar.children[index] as HTMLElement;
@@ -78,8 +84,8 @@ export class DevMenu {
     save.addEventListener('click', () => this.quickConfig('save'));
     const footer = h('footer', { class: 'dev-footer' }, reset, h('span', { class: 'dev-spacer' }), this.hint, this.configSelect, load, save);
 
-    this.window = h('div', { class: 'dev-window', role: 'dialog', 'aria-label': 'mega?dev' }, header, this.tabBar, h('div', { class: 'dev-body' }, this.nav, this.panel), footer);
-    this.root = h('div', { class: 'dev-root dev-layer' }, this.window);
+    this.window = h('div', { class: 'dev-window', role: 'dialog', 'aria-label': this.panelId === 'skeet' ? 'Skeet HvH panel' : 'HvH Lab panel' }, header, this.tabBar, h('div', { class: 'dev-body' }, this.nav, this.panel), footer);
+    this.root = h('div', { class: `dev-root dev-layer${this.panelId === 'skeet' ? ' skeet-menu' : ''}` }, this.window);
     document.body.append(this.root);
     this.makeDraggable(header);
     this.restorePosition();
@@ -108,7 +114,7 @@ export class DevMenu {
   }
 
   private show(id: string): void {
-    this.tab = lastTab = id;
+    this.tab = lastTabs[this.panelId] = id;
     for (const b of this.tabBar.children) {
       const active = (b as HTMLElement).dataset.tab === id;
       b.classList.toggle('active', active);
@@ -169,6 +175,7 @@ export class DevMenu {
 
   private onConfigChange(): void {
     applyTheme(this.root, this.dev.config.settings);
+    this.onResize();
     this.hint.textContent = `${keyName(this.dev.config.settings.menuKey)} to toggle`;
     this.updatePill();
     this.fillConfigSelect();
@@ -216,7 +223,7 @@ export class DevMenu {
   private resetTab(): void {
     const tab = this.tabs.find((t) => t.id === this.tab);
     if (!tab?.configKey) return this.dev.notify('Nothing to reset on this tab');
-    const fresh = defaultConfig();
+    const fresh = defaultConfig(this.panelId);
     const next = structuredClone(this.dev.config);
     for (const path of typeof tab.configKey === 'string' ? [tab.configKey] : tab.configKey) setPath(next, path, structuredClone(getPath(fresh, path)));
     this.dev.replaceConfig(next);
@@ -254,7 +261,7 @@ export class DevMenu {
         handle.removeEventListener('pointerup', up);
         this.window.classList.remove('dragging');
         const r = this.window.getBoundingClientRect();
-        storage.set(POSITION_KEY, JSON.stringify({ x: r.left, y: r.top }));
+        storage.set(this.positionKey, JSON.stringify({ x: r.left, y: r.top }));
       };
       handle.addEventListener('pointermove', move);
       handle.addEventListener('pointerup', up);
@@ -267,18 +274,18 @@ export class DevMenu {
     this.place(r.left, r.top);
   };
 
-  /** Moves the window, keeping its title bar on screen. */
+  /** Keep the scaled window on screen, including while its opening animation is running. */
   private place(x: number, y: number): void {
-    const r = this.window.getBoundingClientRect();
-    const maxX = Math.max(0, window.innerWidth - Math.min(r.width, window.innerWidth));
-    const maxY = Math.max(0, window.innerHeight - 48);
+    const scale = this.dev.config.settings.scale;
+    const maxX = Math.max(0, window.innerWidth - Math.min(this.window.offsetWidth * scale, window.innerWidth));
+    const maxY = Math.max(0, window.innerHeight - Math.min(this.window.offsetHeight * scale, window.innerHeight));
     this.window.style.left = `${Math.round(Math.min(maxX, Math.max(0, x)))}px`;
     this.window.style.top = `${Math.round(Math.min(maxY, Math.max(0, y)))}px`;
   }
 
   private restorePosition(): void {
     try {
-      const saved = JSON.parse(storage.get(POSITION_KEY) ?? 'null') as { x?: unknown; y?: unknown } | null;
+      const saved = JSON.parse(storage.get(this.positionKey) ?? 'null') as { x?: unknown; y?: unknown } | null;
       if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
         this.place(saved.x, saved.y);
         return;
