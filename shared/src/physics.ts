@@ -134,7 +134,8 @@ export function stepPlayer(s: MoveState, input: InputFrame, dt: number, world: C
     s.gliding = false;
     if (input.jump) {
       const chained = s.groundTicks <= HOP.windowTicks;
-      s.hop = moving && chained ? Math.min(hopMax, s.hop + HOP.gain) : 0;
+      // Crouch-jumping never builds (or keeps) bunny-hop speed: hopping only works standing.
+      s.hop = moving && chained && !s.crouching ? Math.min(hopMax, s.hop + HOP.gain) : 0;
       s.vy = PLAYER.jumpVelocity * (mods?.jump ?? 1);
       s.onGround = false;
     } else if (s.groundTicks > HOP.windowTicks) {

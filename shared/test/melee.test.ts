@@ -96,3 +96,16 @@ describe('meleeHit', () => {
     assert.equal(head?.headshot, true);
   });
 });
+
+describe('bunny hop while crouching', () => {
+  it('builds no speed, and loses what it had', () => {
+    const crouchHop = (seq: number): InputFrame => ({ ...hopFrame(seq), crouch: true });
+    const s = createMoveState(0, 0, 90);
+    for (let i = 0; i < 6 / SIM_DT; i++) stepPlayer(s, crouchHop(i), SIM_DT, flat, null, HOP.max);
+    assert.equal(s.hop, 0, 'crouched hops give nothing');
+    const fast = hopFor(6, HOP.max);
+    assert.ok(fast.hop > 0.3);
+    for (let i = 0; i < 2 / SIM_DT; i++) stepPlayer(fast, crouchHop(i), SIM_DT, flat, null, HOP.max);
+    assert.equal(fast.hop, 0, 'holding Ctrl drops the bonus on the next hop');
+  });
+});
