@@ -79,6 +79,8 @@ export class Input {
   enabled = true;
   /** App menus suspend play without disturbing the chat input state. */
   suspended = false;
+  /** A panel may request normal ADS; this cannot remove recoil or movement spread. */
+  assistedAds = false;
   /** On touch devices there's no pointer lock: input is active whenever a match is shown. */
   touchMode = false;
   touchActive = false;
@@ -142,7 +144,7 @@ export class Input {
   }
 
   get aiming(): boolean {
-    return this.active && (this.aimHeld || this.touchButtons.aim);
+    return this.active && (this.aimHeld || this.touchButtons.aim || this.assistedAds);
   }
 
   get scoreboardHeld(): boolean {

@@ -117,6 +117,6 @@ describe('protocol packing', () => {
       fakeYaw: 2, hvhCharge: 0.5, hvhBurst: true, hvhConcealed: true,
     };
     const back = unpackPlayer(packPlayer(p));
-    assert.deepEqual(back, { ...p, x: 1.235 });
+    assert.deepEqual(back, { ...p, x: 1.235, fakePitch: p.pitch });
   });
 });

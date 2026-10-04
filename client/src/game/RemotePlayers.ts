@@ -24,6 +24,7 @@ export class RemotePlayer {
   /** Position as currently drawn. */
   readonly position = new THREE.Vector3();
   yaw = 0;
+  fakeYaw = 0;
   private readonly realHeading = new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0.12, 0), 0.9, 0x6bf5e5, 0.22, 0.12);
   alive = true;
 
@@ -95,16 +96,16 @@ export class RemotePlayer {
     if (!b || renderTime <= a.t) {
       this.position.set(s.x, s.y, s.z);
       this.yaw = s.yaw;
-      this.chicken.setAim(s.pitch);
     } else {
       const t = (renderTime - a.t) / (b.t - a.t);
       this.position.set(lerp(a.s.x, b.s.x, t), lerp(a.s.y, b.s.y, t), lerp(a.s.z, b.s.z, t));
       this.yaw = lerpAngle(a.s.yaw, b.s.yaw, t);
-      this.chicken.setAim(lerp(a.s.pitch, b.s.pitch, t));
       if (t >= 0.5) s = b.s;
     }
     root.position.copy(this.position);
     const fakeYaw = b && renderTime > a.t ? lerpAngle(a.s.fakeYaw ?? a.s.yaw, b.s.fakeYaw ?? b.s.yaw, (renderTime-a.t)/(b.t-a.t)) : s.fakeYaw ?? this.yaw;
+    this.fakeYaw = fakeYaw;
+    this.chicken.setAim(b && renderTime > a.t ? lerp(a.s.fakePitch ?? a.s.pitch, b.s.fakePitch ?? b.s.pitch, (renderTime-a.t)/(b.t-a.t)) : s.fakePitch ?? s.pitch);
     if (this.alive) root.rotation.y = fakeYaw;
     this.realHeading.visible = this.hvh && this.alive && Math.abs(fakeYaw-this.yaw)>0.05;
     const heading = this.yaw-fakeYaw;

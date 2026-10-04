@@ -7,9 +7,13 @@ import type { DevHooks } from '../game/GameSession';
  */
 export function combineDevHooks(a: DevHooks, b: DevHooks): DevHooks {
   return {
-    onShot: (s) => {
-      a.onShot?.(s);
-      b.onShot?.(s);
+    onShot: (s, assisted) => {
+      a.onShot?.(s, assisted);
+      b.onShot?.(s, assisted);
+    },
+    onServerShot: (s, shot) => {
+      a.onServerShot?.(s, shot);
+      b.onServerShot?.(s, shot);
     },
     attach: (s) => {
       a.attach(s);

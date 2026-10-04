@@ -71,7 +71,7 @@ Environment variables:
 | `DB_PATH` | SQLite file (default `server/data/game.db`) |
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
 | `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
-| `HVH_PUBLIC_PANEL=1` | Opt-in public HvH Lab for all HvH players; normal stats and bounded abilities, no player administration. Default off |
+| `HVH_PUBLIC_PANEL=1` | Opt-in public HvH Lab and Skeet panels for all HvH players; normal stats and bounded abilities, no player administration. Default off |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Optional restriction for servers that require developer accounts |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
@@ -172,10 +172,23 @@ colour, size, thickness, gap, opacity, outline and dynamic spread. Everything is
 browser and applies immediately, even mid-match.
 
 **HvH setup.** Every human joining HvH starts outside combat, with a personal setup pause.
-Choose **HvH Lab** or **Manual play**, configure your tools, and press **Begin match** to spawn.
-Lab access still follows the passkey/public-rollout policy; Manual play is always available.
+Choose **HvH Lab**, **Skeet**, or **Manual play**, configure your tools, and press **Begin match** to spawn.
+Assisted panel access follows the passkey/public-rollout policy; Manual play is always available.
 Changing panels later does not restore health, ammo or exploit charge. The typed panel registry
 (`client/src/dev/panels.ts`) provides separate resolver and anti-aim configuration hooks for future panels.
+
+**Skeet.** A separate nine-tab panel adapts the readable Skeet SDK's menu categories to this game.
+It adds seven weapon profiles with multipoint, safe points, auto-stop and auto-scope; public-stance
+history with confidence/body fallback; and standing, moving, crouching and airborne anti-aim policies.
+The server computes target-facing/freestanding cover, deterministic jitter and bounded desync.
+Visual pitch changes only the rendered chicken. Real pitch, hitboxes, spread, recoil and resources
+keep the normal rules. Double Tap and Hide Shots retain their shared charge limits.
+
+Skins tint your local first-person weapon. Players offers per-match targeting overrides. Configs
+are stored separately from HvH Lab. Extensions applies native recipes; it does not run CSGO Lua.
+The supplied SDK wraps compiled gameplay code, so its original resolver/anti-aim algorithms cannot
+be verified or ported exactly. See [the adaptation map](docs/skeet-adaptation.md) for implemented
+counterparts and deliberate substitutions. No SDK loader, binaries, hooks or offsets are bundled.
 
 **HvH Lab.** Press `Insert`, choose *Pause → HvH panels*, or tap the lobby title five times on a phone.
 The panel now has Aim, Anti-aim, Exploits, Movement, Visuals, Weapons, World, Telemetry,

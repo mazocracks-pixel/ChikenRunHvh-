@@ -505,6 +505,8 @@ export class DevRuntime implements DevHooks {
 
   private applyHud(): void {
     const on = this.active;
+    // The public HvH panel owns these choices while the private classic panel is inactive.
+    if (!on && this.session?.mode.id === 'hvh') return;
     const m = this.dev.config.misc;
     const hud = this.dev.hud;
     hud.showCrosshair = !on || m.crosshair;

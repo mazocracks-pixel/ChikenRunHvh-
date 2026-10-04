@@ -3,7 +3,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { Server } from 'socket.io';
-import { DEFAULT_MODS, MODES, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus } from '@game/shared';
+import { DEFAULT_MODS, MODES, HVH_PANEL_IDS, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus } from '@game/shared';
 import { createApiRouter } from './api';
 import { SESSION_COOKIE, hashToken, readCookie } from './auth';
 import { GameDatabase } from './db/Database';
@@ -290,9 +290,9 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
     if (typeof ack !== 'function') return;
     if (!limiter.take()) return ack({ ok: false, error: 'Slow down a little.' });
     const { room, player, allowed, profile } = context();
-    if (panel !== 'lab' && panel !== 'manual') return ack({ ok: false, error: 'Unknown HvH panel.' });
+    if (!HVH_PANEL_IDS.includes(panel)) return ack({ ok: false, error: 'Unknown HvH panel.' });
     if (!room || !player || room.mode.id !== 'hvh') return ack({ ok: false, error: 'Join an HvH match first.' });
-    if (panel === 'lab' && (!allowed || profile !== 'hvh')) return ack({ ok: false, error: 'Unlock HvH Lab or choose Manual play.' });
+    if (panel !== 'manual' && (!allowed || profile !== 'hvh')) return ack({ ok: false, error: 'Unlock panel access or choose Manual play.' });
     ack(room.finishHvhSetup(player, panel) ? { ok: true } : { ok: false, error: 'This match has ended.' });
   });
 
@@ -300,7 +300,7 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
     if (typeof ack !== 'function') return;
     if (!limiter.take()) return ack(status());
     const { room, player, profile } = context();
-    if (room && player && profile === 'hvh' && (player.hvhPreparing || player.hvhPanel === 'lab')) {
+    if (room && player && profile === 'hvh' && (player.hvhPreparing || player.hvhPanel !== 'manual')) {
       player.hvh = sanitizeHvhLoadout(raw);
       player.hvhEnabled = true;
       room.updateHvhPose(player, performance.now());

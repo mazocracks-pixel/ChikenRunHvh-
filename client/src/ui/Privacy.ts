@@ -3,7 +3,7 @@ import { openModal } from './Modal';
 
 const NOTICE_KEY = 'chikengun:cookie-notice';
 /** Bump this when what the game stores changes, so everyone sees the notice again. */
-const NOTICE_VERSION = '1';
+const NOTICE_VERSION = '2';
 
 /** "Cookies & privacy": what the game stores, where, for how long, and how to remove it. */
 export function openPrivacy(): void {
@@ -25,7 +25,7 @@ export function openPrivacy(): void {
       ),
       section(
         '💾 Saved in your browser',
-        h('p', null, 'Your settings (controls, crosshair, graphics, sound, camera view) and that you closed the cookie notice. These stay in this browser.'),
+        h('p', null, 'Your settings (controls, crosshair, graphics, sound, camera view), HvH panel settings and saved configs, panel window positions, and that you closed the cookie notice. These stay in this browser until you clear site data. Each HvH panel keeps its own configs. Opponent overrides and resolver history last only for the current match and are not saved.'),
       ),
       section(
         '🗄️ Saved on our server',
