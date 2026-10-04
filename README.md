@@ -41,7 +41,7 @@ Environment variables:
 | `DB_PATH` | SQLite file (default `server/data/game.db`) |
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it developer tools are **off**. Use 12+ random characters on a public server |
 | `DEV_PUBLIC_ROOMS=0` | Developer tools in private rooms only (by default they work in public matches too, still behind the passkey) |
-| `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Always on for a production server; this turns it on for `npm run dev` too |
+| `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey (by default anyone who knows it can) |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
 | `MAX_SOCKETS_PER_IP` | Simultaneous connections per IP (default 32; raise for LAN parties behind one IP) |
@@ -103,14 +103,15 @@ damage, recoil, spread, magazine), World (recolour every surface, sky, fog and l
 Misc (free camera, readouts) and saved configs. It asks for the
 developer passkey first, which **only the server knows**. Set it with `DEV_PASSKEY` (in `server/.env` for
 `npm run dev`; a public server sets its own variable). The server checks every request, and the tools work
-in every room, public matches included (set `DEV_PUBLIC_ROOMS=0` for private rooms only). On a production server only **developer accounts** may even try the
-passkey; everyone else is refused without it being checked, so it can't be guessed.
+in every room, public matches included (set `DEV_PUBLIC_ROOMS=0` for private rooms only). Anyone who knows the passkey can unlock them, so use a long one on a public server (guesses are
+rate limited per account and network). With `DEV_ACCOUNTS_ONLY=1` only **developer accounts** may
+even try the passkey.
 
 **Developer accounts.** Register an account in the game (*Save progress*), then on the server run
 `npm run developer -- <username>` (on a built server: `node server/dist/tools/developer.js
 <username>`). The account gets the name *Developer*, 9,999,999 coins (`--name` / `--coins` to
 change), a rainbow glowing name for everyone (name tag, chat, kill feed, scoreboard,
-leaderboard), and developer-menu access on production servers. There's no API or in-game way to
+leaderboard), and developer-menu access when `DEV_ACCOUNTS_ONLY=1` is set. There's no API or in-game way to
 become a developer, only this command. *Developer*, *Admin*, *Moderator* and look-alikes
 ("Deve1oper", "D.e.v") are reserved: other players can't register or rename to them.
 

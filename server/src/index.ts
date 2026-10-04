@@ -42,8 +42,9 @@ const server = await startGameServer({
   // Developer tools work in public matches too (still only for developer accounts with the
   // passkey). DEV_PUBLIC_ROOMS=0 limits them to private rooms.
   devInPublicRooms: process.env.DEV_PUBLIC_ROOMS !== '0',
-  // A public server only lets developer accounts (npm run developer) try the passkey.
-  devAccountsOnly: !isDev || process.env.DEV_ACCOUNTS_ONLY === '1',
+  // Anyone who knows the passkey may use developer tools. DEV_ACCOUNTS_ONLY=1 limits them to
+  // developer accounts (npm run developer).
+  devAccountsOnly: process.env.DEV_ACCOUNTS_ONLY === '1',
   // Behind nginx / a load balancer: set TRUST_PROXY=1 (number of proxies) so rate limits see real IPs.
   trustProxyHops: Number(process.env.TRUST_PROXY) || 0,
   // If the page is served from another origin than the API: ALLOWED_ORIGINS=https://game.example.com
