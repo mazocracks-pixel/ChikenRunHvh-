@@ -1,4 +1,4 @@
-import { JETPACK, MODES, PLAYER, TEAM_COLORS, WEAPONS, teamName, type ChatMessage, type KillCause, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
+import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
 import { watchSettings } from '../settings';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
@@ -19,9 +19,15 @@ function nameEl(name: string, team: Team, self: boolean, dev = false): HTMLEleme
   return h('span', { class: `name${self ? ' self' : ''}${dev ? ' rainbow' : ''}`, style: team ? `color:${hex(TEAM_COLORS[team])}` : undefined }, name);
 }
 
-/** A plain name for tables: rainbow for developers. */
-function nameText(info: PlayerInfo): HTMLElement | string {
-  return info.dev ? h('span', { class: 'rainbow' }, info.name) : info.name;
+/** A player's rank badge (level 1–10). */
+function rankBadge(level: number | undefined): HTMLElement {
+  const rank = rankOf(level ?? MIN_LEVEL);
+  return h('span', { class: `rank-badge r${rank.level}`, title: `Level ${rank.level} · ${rank.name}` }, rank.icon, h('b', null, rank.level));
+}
+
+/** A plain name for tables: rank badge, and rainbow for developers. */
+function nameText(info: PlayerInfo): HTMLElement {
+  return h('span', { class: 'ranked' }, rankBadge(info.rank), info.dev ? h('span', { class: 'rainbow' }, info.name) : info.name);
 }
 
 export interface ScoreLine {
@@ -63,6 +69,9 @@ export class Hud {
   private readonly deathText = h('div', { class: 'death-title' });
   private readonly deathTimer = h('div', { class: 'death-timer' });
   private readonly scoreboard = h('div', { class: 'scoreboard panel' });
+  /** The live top three (and you), in every mode. */
+  private readonly miniBoard = h('div', { class: 'mini-board' });
+  private miniKey = '';
   private readonly results = h('div', { class: 'results panel' });
   private readonly chatLog = h('div', { class: 'chat-log' });
   private readonly hint = h('div', { class: 'hint-bar' });
@@ -98,7 +107,7 @@ export class Hud {
     this.root = h(
       'div',
       { id: 'hud', class: 'hud' },
-      h('div', { class: 'hud-top-left' }, this.stats, this.roomCode),
+      h('div', { class: 'hud-top-left' }, this.stats, this.roomCode, this.miniBoard),
       h('div', { class: 'hud-top-center' }, this.modeLabel, this.timer, this.teamScores, this.roundLine),
       h('div', { class: 'hud-top-right' }, this.killfeed),
       this.scope,
@@ -127,6 +136,7 @@ export class Hud {
 
   setRoom(room: RoomInfo): void {
     this.mode = MODES[room.mode];
+    this.miniKey = '';
     this.modeLabel.textContent = this.mode.name;
     this.roomCode.textContent = room.private ? `Room code: ${room.code}` : '';
     this.teamScores.hidden = !this.mode.teams;
@@ -416,9 +426,48 @@ export class Hud {
     if (el) el.textContent = `Next match in ${Math.max(0, Math.ceil(msLeft / 1000))}s`;
   }
 
-  showReward(coins: number, total: number): void {
+  showReward(coins: number, total: number, xp: number, xpTotal: number): void {
     const el = this.results.querySelector('.reward');
-    if (el) el.textContent = `+${coins} coins (you have ${total})`;
+    if (!el) return;
+    const { rank, next, progress } = rankProgress(xpTotal);
+    clear(el);
+    el.append(
+      h('div', null, `+${coins} coins (you have ${total}) · +${xp} XP`),
+      h(
+        'div',
+        { class: 'rank-line' },
+        `${rank.icon} Level ${rank.level} · ${rank.name}`,
+        h('small', null, next ? ` · ${next.xp - xpTotal} XP to ${next.icon} ${next.name}` : ' · top rank!'),
+      ),
+      h('div', { class: 'xp-bar' }, h('i', { style: `width:${Math.round(progress * 100)}%` })),
+    );
+  }
+
+  /** The live leaders: top three, plus you if you're further down. Skipped in Sandbox. */
+  renderMiniBoard(lines: ScoreLine[]): void {
+    const sorted = this.mode.building ? [] : [...lines].sort((a, b) => b.info.score - a.info.score || b.info.kills - a.info.kills);
+    const mine = sorted.findIndex((l) => l.self);
+    const shown = sorted.slice(0, 3);
+    if (mine >= 3) shown.push(sorted[mine]!);
+    const score = (info: PlayerInfo) => (this.mode.armsRace ? `${info.score}/${ARMS_LADDER.length}` : String(info.score));
+    const key = shown.map((l) => `${sorted.indexOf(l)}:${l.info.pid}:${l.info.name}:${l.info.team}:${l.info.rank}:${score(l.info)}`).join('|');
+    if (key === this.miniKey) return;
+    this.miniKey = key;
+    this.miniBoard.hidden = shown.length === 0;
+    clear(this.miniBoard);
+    this.miniBoard.append(h('div', { class: 'mini-title' }, this.mode.armsRace ? '🏁 Leaders · weapon' : '🏆 Leaders'));
+    for (const l of shown) {
+      this.miniBoard.append(
+        h(
+          'div',
+          { class: `mini-row${l.self ? ' self' : ''}` },
+          h('span', { class: 'mini-place' }, sorted.indexOf(l) + 1),
+          rankBadge(l.info.rank),
+          nameEl(l.info.name, l.info.team, l.self, l.info.dev),
+          h('span', { class: 'mini-score' }, score(l.info)),
+        ),
+      );
+    }
   }
 
   update(): void {

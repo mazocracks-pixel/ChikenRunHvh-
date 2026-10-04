@@ -120,7 +120,7 @@ describe('developer accounts', () => {
     assert.deepEqual(await call((ack) => devSocket.emit('devAuth', '2010', ack)), { ok: true });
     assert.deepEqual(await call((ack) => otherSocket.emit('devAuth', '2010', ack)), { ok: false, error: 'Developer tools are not available.' });
 
-    server.db.recordMatch([{ userId: me.id, kills: 3, deaths: 1, won: true, coins: 0 }]);
+    server.db.recordMatch([{ userId: me.id, kills: 3, deaths: 1, won: true, coins: 0, xp: 115 }], 'ffa');
     const rows = ((await (await fetch(`${base}/api/leaderboard`)).json()) as { rows: LeaderboardRow[] }).rows;
     assert.equal(rows.find((r) => r.name === 'Developer')?.dev, true);
   });

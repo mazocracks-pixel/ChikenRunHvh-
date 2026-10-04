@@ -45,7 +45,7 @@ export class App {
       createRoom: () => openCreateRoom((req: CreateRoomRequest) => this.enter(() => this.net.createRoom(req), true)),
       joinCode: () => openJoinCode((code) => this.enter(() => this.net.joinRoom({ code }), true)),
       customize: () => this.showShop(),
-      leaderboard: () => void openLeaderboard(this.api),
+      leaderboard: (mode) => void openLeaderboard(this.api, mode),
       account: () => openAccount(this.api, () => this.net.reconnect()),
       settings: () => openSettings(this.game.audio),
       privacy: () => openPrivacy(),
@@ -232,7 +232,7 @@ export class App {
     this.menu.setVisible(false);
     this.shop.close();
     this.game.startSession(this.net, join, {
-      onCoins: (total) => this.api.setCoins(total),
+      onReward: (coins, xp) => this.api.setRewards(coins, xp),
       onClosed: (reason) => {
         this.lastRoom = null;
         this.game.endSession();

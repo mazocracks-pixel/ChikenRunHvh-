@@ -66,6 +66,8 @@ import {
   type SpawnEvent,
   type Vec3,
   type WorldSnapshot,
+  levelFor,
+  rankOf,
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
@@ -104,8 +106,8 @@ export interface SessionContext {
   audio: AudioEngine;
   hud: Hud;
   join: JoinSuccess;
-  /** Coins changed (match reward). */
-  onCoins: (total: number) => void;
+  /** Match reward: the new coin and XP totals. */
+  onReward: (coins: number, xp: number) => void;
   /** The server closed the room. */
   onClosed: (reason: string) => void;
   /** Developer tools, if loaded. */
@@ -443,6 +445,7 @@ export class GameSession {
     hud.setHint(this.hintText());
     hud.setScoreboardVisible(input.scoreboardHeld && this.match.phase !== 'ended');
     if (input.scoreboardHeld) hud.renderScoreboard(this.scoreLines(), this.teamScores, net.ping);
+    hud.renderMiniBoard(this.scoreLines());
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
   }
 
@@ -1224,10 +1227,16 @@ export class GameSession {
   }
 
   private onReward(e: MatchRewardEvent): void {
-    this.ctx.hud.showReward(e.coins, e.total);
-    this.ctx.hud.toast(`+${e.coins} coins`, 'good');
+    this.ctx.hud.showReward(e.coins, e.total, e.xp, e.xpTotal);
+    this.ctx.hud.toast(`+${e.coins} coins · +${e.xp} XP`, 'good');
+    const before = levelFor(e.xpTotal - e.xp);
+    const after = levelFor(e.xpTotal);
+    if (after > before) {
+      const rank = rankOf(after);
+      this.ctx.hud.toast(`Rank up! ${rank.icon} Level ${rank.level} · ${rank.name}`, 'good');
+    }
     this.ctx.audio.play('reward');
-    this.ctx.onCoins(e.total);
+    this.ctx.onReward(e.total, e.xpTotal);
   }
 
   private scoreLines(): ScoreLine[] {

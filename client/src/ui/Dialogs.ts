@@ -1,4 +1,5 @@
-import { MAPS, MODES, MODE_IDS, type CreateRoomRequest, type LeaderboardRow, type MapId, type ModeId, type Profile, type RoomSummary } from '@game/shared';
+import { MAPS, MODES, MODE_IDS, rankOf, type CreateRoomRequest, type LeaderboardRow, type MapId, type ModeId, type Profile, type RoomSummary } from '@game/shared';
+import { MODE_ICONS } from './MainMenu';
 import type { AudioEngine } from '../game/Audio';
 import { getCameraMode, setCameraMode, type CameraMode } from '../game/CameraRig';
 import { exitPlayFullscreen, keyboardLockSupported } from '../fullscreen';
@@ -230,23 +231,57 @@ export function openAccount(api: Api, onChanged: () => void): void {
   render();
 }
 
-export async function openLeaderboard(api: Api): Promise<void> {
-  const content = h('div', null, 'Loading…');
-  openModal('Leaderboard', content, { wide: true });
-  try {
-    const rows: LeaderboardRow[] = await api.leaderboard();
-    clear(content);
-    if (rows.length === 0) {
-      content.append(h('p', { class: 'muted' }, 'No finished matches yet. Be the first!'));
-      return;
+/** Modes with their own leaderboard (everything but Sandbox). */
+const BOARD_MODES = MODE_IDS.filter((id) => !MODES[id].building);
+
+/** Top chickens overall (by rank) or in one mode (by wins), one tab each. */
+export async function openLeaderboard(api: Api, initial?: ModeId): Promise<void> {
+  const tabs = h('div', { class: 'tabs board-tabs', role: 'tablist' });
+  const content = h('div', { class: 'board' });
+  let request = 0;
+  const show = async (mode: ModeId | null) => {
+    for (const b of tabs.children) b.classList.toggle('active', (b as HTMLElement).dataset.tab === (mode ?? 'all'));
+    const mine = ++request;
+    content.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
+    try {
+      const rows: LeaderboardRow[] = await api.leaderboard(mode ?? undefined);
+      if (mine !== request) return;
+      clear(content);
+      content.append(h('p', { class: 'muted board-note' }, mode ? `Best in ${MODES[mode].name}, by wins then kills.` : 'Best chickens in every mode, by rank (XP).'));
+      if (rows.length === 0) {
+        content.append(h('p', { class: 'muted' }, mode ? `No finished ${MODES[mode].name} matches yet. Be the first!` : 'No finished matches yet. Be the first!'));
+        return;
+      }
+      const table = h('table', { class: 'rooms board-table' }, h('tr', null, h('th', null, '#'), h('th', null, 'Chicken'), h('th', null, 'Rank'), h('th', null, 'Wins'), h('th', null, 'Kills'), h('th', null, 'Deaths'), h('th', null, 'Matches')));
+      rows.forEach((r, i) => {
+        const rank = rankOf(r.level);
+        table.append(
+          h(
+            'tr',
+            { class: i < 3 ? `top top${i + 1}` : '' },
+            h('td', null, i < 3 ? ['🥇', '🥈', '🥉'][i]! : i + 1),
+            h('td', null, r.dev ? h('span', { class: 'rainbow' }, r.name) : r.name),
+            h('td', { class: 'board-rank', title: rank.name }, `${rank.icon} ${rank.level}`),
+            h('td', null, r.wins),
+            h('td', null, r.kills),
+            h('td', null, r.deaths),
+            h('td', null, r.matches),
+          ),
+        );
+      });
+      content.append(table);
+    } catch {
+      if (mine !== request) return;
+      clear(content);
+      content.append(h('p', { class: 'error' }, 'Could not load the leaderboard.'));
     }
-    const table = h('table', { class: 'rooms' }, h('tr', null, h('th', null, '#'), h('th', null, 'Chicken'), h('th', null, 'Kills'), h('th', null, 'Deaths'), h('th', null, 'Wins'), h('th', null, 'Matches')));
-    rows.forEach((r, i) => table.append(h('tr', null, h('td', null, i + 1), h('td', null, r.dev ? h('span', { class: 'rainbow' }, r.name) : r.name), h('td', null, r.kills), h('td', null, r.deaths), h('td', null, r.wins), h('td', null, r.matches))));
-    content.append(table);
-  } catch {
-    clear(content);
-    content.append(h('p', { class: 'error' }, 'Could not load the leaderboard.'));
-  }
+  };
+  const tab = (id: string, label: string, mode: ModeId | null) => h('button', { type: 'button', class: 'tab', role: 'tab', 'data-tab': id, onclick: () => void show(mode) }, label);
+  tabs.append(tab('all', '🌍 All modes', null), ...BOARD_MODES.map((id) => tab(id, `${MODE_ICONS[id]} ${MODES[id].name}`, id)));
+  openModal('Leaderboard', h('div', { class: 'board-wrap' }, tabs, content), { wide: true });
+  const start = initial && BOARD_MODES.includes(initial) ? initial : null;
+  tabs.querySelector<HTMLElement>(`[data-tab="${start ?? 'all'}"]`)?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  await show(start);
 }
 
 type SettingsTab = 'controls' | 'crosshair' | 'graphics' | 'sound';

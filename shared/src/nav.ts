@@ -1,4 +1,5 @@
 import type { CollisionWorld } from './collision';
+import { isSpaceFree } from './physics';
 import { makeRay, raycastWorld } from './raycast';
 
 export interface NavPoint {
@@ -34,6 +35,41 @@ export function walkable(a: NavPoint, b: NavPoint, world: CollisionWorld): boole
     }
   }
   return true;
+}
+
+/**
+ * Spots spread over every part of the map a chicken can walk to from `starts`: a flood fill over
+ * a grid `step` metres apart, each step a straight walkable line. Free-for-all modes spawn and
+ * roam here so nobody bunches up at the handful of spawn points.
+ */
+export function openSpots(starts: readonly NavPoint[], world: CollisionWorld, halfSize: number, step = 4): NavPoint[] {
+  const cells = Math.floor((halfSize * 2 - 2) / step);
+  const at = (i: number) => -halfSize + 1 + step * (i + 0.5);
+  const seen = new Set<number>();
+  const out: NavPoint[] = [];
+  const queue: [number, number][] = [];
+  const visit = (i: number, j: number, from: NavPoint) => {
+    if (i < 0 || j < 0 || i >= cells || j >= cells || seen.has(i * cells + j)) return;
+    const spot = { x: at(i), z: at(j) };
+    if (!isSpaceFree(spot.x, 0, spot.z, world) || !walkable(from, spot, world)) return;
+    seen.add(i * cells + j);
+    out.push(spot);
+    queue.push([i, j]);
+  };
+  for (const s of starts) {
+    const i = Math.round((s.x + halfSize - 1) / step - 0.5);
+    const j = Math.round((s.z + halfSize - 1) / step - 0.5);
+    visit(i, j, s);
+  }
+  while (queue.length > 0) {
+    const [i, j] = queue.shift()!;
+    const from = { x: at(i), z: at(j) };
+    visit(i + 1, j, from);
+    visit(i - 1, j, from);
+    visit(i, j + 1, from);
+    visit(i, j - 1, from);
+  }
+  return out;
 }
 
 export function buildNavGraph(points: readonly NavPoint[], world: CollisionWorld): NavGraph {

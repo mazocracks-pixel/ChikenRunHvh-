@@ -86,7 +86,9 @@ with your current weapon moves you up a 17-weapon ladder (Rifle → Golden Rifle
 LMG → Minigun → SMG → Machine Pistol → Auto Shotgun → Shotgun → Sniper → Scout → Crossbow → Egg
 Launcher → Revolver → Pistol → Golden Knife). A knife kill also counts, knocks the victim back a
 level, and the last level is the Golden Knife alone: the first kill with it wins. No grenades, no
-loot boxes. When time runs out, the highest level wins.
+loot boxes. When time runs out, the highest level wins. Chickens spawn anywhere open on the map,
+as far as possible from enemies and out of their sight, with 2.5 s of spawn protection (Against All
+spreads spawns the same way, and bots roam the whole map instead of the spawn points).
 
 **Maps.** Farmyard, Town (enterable houses, rooftops, streets), Sandstown (a desert town with two
 bomb sites, Long A, Mid and B tunnels), Harbor (a dock maze of stacked shipping containers and cranes,
@@ -96,7 +98,17 @@ fights), and Flat World for building.
 
 **Progress.** A guest account is created automatically; register to keep progress across devices.
 You earn coins after every match and spend them in the shop on skins, hats, beaks, sneakers and
-weapons. There's a loadout of up to 4 guns plus a melee weapon, and a leaderboard.
+weapons. There's a loadout of up to 4 guns plus a melee weapon.
+
+**Ranks.** Every finished match gives XP (25, +10 a kill, +60 for a win, up to 400), counted only by
+the server. XP sets your rank, from level 1 to level 10: 🥚 Egg, 🐣 Chick, 🐥 Hatchling, 🐤 Pullet,
+🐔 Hen, 🐓 Rooster, 🦅 Eagle, 🔥 Phoenix, 🏆 Legend, 👑 Chicken King. Your rank and XP bar are on the
+menu, everyone's badge is on the scoreboard, and the results screen shows what you earned. Accounts
+from before ranks got XP for the matches they had already played.
+
+**Leaderboards.** One overall (by rank) and one for every mode (by wins, then kills): the 🏆 button on
+a mode card opens that mode's board. In a match, a small live board in the top-left corner shows the
+top three (and you).
 
 **Graphics.** A gradient sky with a sun and drifting clouds, hazy hills on the horizon, and sky-based
 ambient light and reflections. Sharp shadows that follow the camera. Grass and flowers that sway in
@@ -109,8 +121,9 @@ zoom level), invert Y, and a crosshair editor with a live preview: style (cross,
 colour, size, thickness, gap, opacity, outline and dynamic spread. Everything is saved in the
 browser and applies immediately, even mid-match.
 
-**Developer tools.** Press `Insert` (or tap the title five times on a phone) to open a
-developer/testing menu: Legit (aim assist, trigger, movement helpers), Rage (aim lock, no
+**Developer tools (mega?dev).** Press `Insert` (or tap the title five times on a phone) to open
+mega?dev, the developer/testing menu (a light, warm theme by default; Settings → Theme has the dark
+ones): Legit (aim assist, trigger, movement helpers), Rage (aim lock, no
 recoil/spread, infinite ammo, no rocket cooldown, no rocket damage, speed, fly, noclip, low gravity), Visuals (ESP, hitboxes, collision
 boxes), Players (spectate, teleport, freeze, respawn, health, armor, weapons), Weapons (fire rate,
 damage, recoil, spread, magazine), World (recolour every surface, sky, fog and light, with presets),

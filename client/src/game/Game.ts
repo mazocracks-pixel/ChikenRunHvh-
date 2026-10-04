@@ -44,7 +44,8 @@ const QUALITY: Record<Quality, QualityPreset> = {
 };
 
 export interface SessionCallbacks {
-  onCoins: (total: number) => void;
+  /** Match reward: the new coin and XP totals. */
+  onReward: (coins: number, xp: number) => void;
   onClosed: (reason: string) => void;
 }
 

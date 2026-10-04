@@ -37,6 +37,10 @@ export interface ModeDef {
   bomb?: boolean;
   /** Every kill gives you the next weapon on the ladder (Arms Race). */
   armsRace?: boolean;
+  /** Free for all: spawn anywhere open on the map, away from and out of sight of enemies. */
+  spreadSpawns?: boolean;
+  /** Spawn protection, if not the usual PLAYER.spawnProtectionMs. */
+  spawnProtectionMs?: number;
   /** Quick play tops the room up with bots to this many players (default 4, 2 in duels). */
   fillBots?: number;
 }
@@ -46,6 +50,7 @@ const DEFS: ModeDef[] = [
     id: 'ffa', name: 'Against All', description: 'Everyone for themselves. First to 25 kills wins.',
     teams: false, maxPlayers: 12, scoreLimit: 25, timeLimitMs: 5 * 60_000, respawnMs: 3000, minPlayers: 2,
     maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, wallbang: true,
+    spreadSpawns: true,
   },
   {
     id: 'tdm', name: 'Team Fight', description: 'Red vs Blue, 5 vs 5. First team to 40 kills wins.',
@@ -67,6 +72,7 @@ const DEFS: ModeDef[] = [
     id: 'arms', name: 'Arms Race', description: 'Every kill gives you the next gun, 17 in all. First kill with the Golden Knife wins.',
     teams: false, maxPlayers: 12, scoreLimit: 0, timeLimitMs: 10 * 60_000, respawnMs: 1000, minPlayers: 2,
     maps: ['factory', 'farm', 'town', 'sandstown', 'harbor', 'frostbite'], building: false, vehicles: false, wallbang: true, fillBots: 6, noDrops: true, armsRace: true,
+    spreadSpawns: true, spawnProtectionMs: 2500,
   },
   {
     id: 'knife', name: 'Knife Fight', description: 'Red vs Blue, 3 vs 3, knives only. Bunny hop in fast. First team to 15 kills.',

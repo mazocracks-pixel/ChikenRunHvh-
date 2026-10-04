@@ -6,7 +6,9 @@ import {
   sanitizeAppearance,
   sanitizeLoadout,
   type Appearance,
+  levelFor,
   type LeaderboardRow,
+  type ModeId,
   type Profile,
   type WeaponId,
 } from '@game/shared';
@@ -20,6 +22,13 @@ export interface MatchRecord {
   deaths: number;
   won: boolean;
   coins: number;
+  xp: number;
+}
+
+/** What a user has after a match is saved. */
+export interface MatchTotals {
+  coins: number;
+  xp: number;
 }
 
 interface UserRow {
@@ -35,6 +44,7 @@ interface UserRow {
   wins: number;
   matches: number;
   developer: number;
+  xp: number;
 }
 
 export type BuyResult = 'ok' | 'owned' | 'insufficient' | 'missing';
@@ -74,6 +84,21 @@ const MIGRATIONS = [
    CREATE INDEX users_guest_seen ON users(last_seen) WHERE username IS NULL;`,
   // v3: developer accounts (granted only from the server command line).
   `ALTER TABLE users ADD COLUMN developer INTEGER NOT NULL DEFAULT 0;`,
+  // v4: ranks (XP; existing accounts get XP for the matches they already played, at
+  // 25 a match + 10 a kill + 60 a win) and stats per game mode for the mode leaderboards.
+  `ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0;
+   UPDATE users SET xp = matches * 25 + kills * 10 + wins * 60;
+   CREATE TABLE mode_stats (
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     mode TEXT NOT NULL,
+     kills INTEGER NOT NULL DEFAULT 0,
+     deaths INTEGER NOT NULL DEFAULT 0,
+     wins INTEGER NOT NULL DEFAULT 0,
+     matches INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (user_id, mode)
+   );
+   CREATE INDEX mode_stats_board ON mode_stats(mode, wins DESC, kills DESC);
+   CREATE INDEX users_xp ON users(xp DESC);`,
 ];
 
 /** Limits for session lifetime and housekeeping. */
@@ -280,6 +305,7 @@ export class GameDatabase {
       loadout: sanitizeLoadout(parseJson(row.loadout), owns, LOADOUT_SIZE, DEFAULT_LOADOUT),
       owned: [...owned],
       stats: { kills: row.kills, deaths: row.deaths, wins: row.wins, matches: row.matches },
+      xp: row.xp,
       developer: row.developer === 1,
     };
   }
@@ -303,27 +329,42 @@ export class GameDatabase {
     });
   }
 
-  /** Saves match results and rewards in one transaction; returns each user's new coin total. */
-  recordMatch(records: MatchRecord[]): Map<number, number> {
+  /**
+   * Saves match results and rewards in one transaction (account totals and the stats for
+   * `mode`); returns each user's new coin and XP totals.
+   */
+  recordMatch(records: MatchRecord[], mode: ModeId | null = null): Map<number, MatchTotals> {
     return this.transaction(() => {
       const update = this.db.prepare(
-        'UPDATE users SET coins = coins + ?, kills = kills + ?, deaths = deaths + ?, wins = wins + ?, matches = matches + 1 WHERE id = ?',
+        'UPDATE users SET coins = coins + ?, xp = xp + ?, kills = kills + ?, deaths = deaths + ?, wins = wins + ?, matches = matches + 1 WHERE id = ?',
       );
-      const select = this.db.prepare('SELECT coins FROM users WHERE id = ?');
-      const totals = new Map<number, number>();
+      const perMode = this.db.prepare(
+        `INSERT INTO mode_stats (user_id, mode, kills, deaths, wins, matches) VALUES (?, ?, ?, ?, ?, 1)
+         ON CONFLICT (user_id, mode) DO UPDATE SET kills = kills + excluded.kills, deaths = deaths + excluded.deaths, wins = wins + excluded.wins, matches = matches + 1`,
+      );
+      const select = this.db.prepare('SELECT coins, xp FROM users WHERE id = ?');
+      const totals = new Map<number, MatchTotals>();
       for (const r of records) {
-        update.run(r.coins, r.kills, r.deaths, r.won ? 1 : 0, r.userId);
-        const row = select.get(r.userId) as { coins: number } | undefined;
-        if (row) totals.set(r.userId, row.coins);
+        update.run(r.coins, r.xp, r.kills, r.deaths, r.won ? 1 : 0, r.userId);
+        if (mode) perMode.run(r.userId, mode, r.kills, r.deaths, r.won ? 1 : 0);
+        const row = select.get(r.userId) as MatchTotals | undefined;
+        if (row) totals.set(r.userId, { coins: row.coins, xp: row.xp });
       }
       return totals;
     });
   }
 
-  leaderboard(limit = 20): LeaderboardRow[] {
-    const rows = this.db
-      .prepare('SELECT name, kills, deaths, wins, matches, developer FROM users WHERE matches > 0 ORDER BY kills DESC, wins DESC LIMIT ?')
-      .all(limit) as unknown as (LeaderboardRow & { developer: number })[];
-    return rows.map(({ developer, ...row }) => (developer === 1 ? { ...row, dev: true } : row));
+  /** Top players overall (by XP), or in one game mode (by wins, then kills). */
+  leaderboard(limit = 20, mode: ModeId | null = null): LeaderboardRow[] {
+    const rows = (
+      mode
+        ? this.db
+            .prepare(
+              'SELECT u.name, m.kills, m.deaths, m.wins, m.matches, u.developer, u.xp FROM mode_stats m JOIN users u ON u.id = m.user_id WHERE m.mode = ? AND m.matches > 0 ORDER BY m.wins DESC, m.kills DESC LIMIT ?',
+            )
+            .all(mode, limit)
+        : this.db.prepare('SELECT name, kills, deaths, wins, matches, developer, xp FROM users WHERE matches > 0 ORDER BY xp DESC, kills DESC LIMIT ?').all(limit)
+    ) as unknown as (Omit<LeaderboardRow, 'level'> & { developer: number; xp: number })[];
+    return rows.map(({ developer, xp, ...row }) => ({ ...row, level: levelFor(xp), ...(developer === 1 ? { dev: true } : {}) }));
   }
 }

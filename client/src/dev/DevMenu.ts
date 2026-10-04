@@ -25,7 +25,7 @@ export class DevMenu {
   private readonly nav = h('aside', { class: 'dev-nav' });
   private readonly panel = h('main', { class: 'dev-panel' });
   private readonly pill = h('span', { class: 'dev-pill' });
-  private readonly search = h('input', { class: 'dev-search', type: 'search', placeholder: 'Search features…', 'aria-label': 'Search features' });
+  private readonly search = h('input', { class: 'dev-search', type: 'search', placeholder: 'Find a feature…', 'aria-label': 'Search features' });
   private readonly configSelect = h('select', { class: 'dev-select', 'aria-label': 'Config' });
   private readonly hint = h('span', { class: 'dev-hint' });
   private placed: Placed[] = [];
@@ -43,7 +43,7 @@ export class DevMenu {
     const header = h(
       'header',
       { class: 'dev-header' },
-      h('div', { class: 'dev-brand' }, h('span', { class: 'dev-logo' }, '◆'), h('b', null, 'CHICKEN'), h('span', null, '//DEV')),
+      h('div', { class: 'dev-brand' }, h('span', { class: 'dev-logo', 'aria-hidden': 'true' }, '✻'), h('b', null, 'mega', h('span', { class: 'dev-q' }, '?'), 'dev')),
       this.pill,
       this.search,
       close,
@@ -67,7 +67,7 @@ export class DevMenu {
     save.addEventListener('click', () => this.quickConfig('save'));
     const footer = h('footer', { class: 'dev-footer' }, reset, h('span', { class: 'dev-spacer' }), this.hint, this.configSelect, load, save);
 
-    this.window = h('div', { class: 'dev-window', role: 'dialog', 'aria-label': 'Developer menu' }, header, this.tabBar, h('div', { class: 'dev-body' }, this.nav, this.panel), footer);
+    this.window = h('div', { class: 'dev-window', role: 'dialog', 'aria-label': 'mega?dev' }, header, this.tabBar, h('div', { class: 'dev-body' }, this.nav, this.panel), footer);
     this.root = h('div', { class: 'dev-root dev-layer' }, this.window);
     document.body.append(this.root);
     this.makeDraggable(header);
@@ -166,10 +166,10 @@ export class DevMenu {
     const d = this.dev;
     const inMatch = d.runtime.currentSession !== null;
     const [text, kind, title] = !inMatch
-      ? ['NOT IN MATCH', 'idle', 'Settings are saved and apply when you join a room that allows developer tools.']
+      ? ['Not in a match', 'idle', 'Settings are saved and apply when you join a room that allows developer tools.']
       : d.active
-        ? ['ACTIVE', 'on', 'Developer tools are active in this room.']
-        : ['LOCKED HERE', 'locked', 'This room does not allow developer tools. Use a private room.'];
+        ? ['Active', 'on', 'Developer tools are active in this room.']
+        : ['Locked here', 'locked', 'This room does not allow developer tools. Use a private room.'];
     if (this.pill.textContent !== text) {
       this.pill.textContent = text;
       this.pill.dataset.kind = kind;

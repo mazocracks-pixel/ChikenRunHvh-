@@ -18,6 +18,7 @@ import {
   fireIntervalFor,
   hopMaxFor,
   moveSpeedFor,
+  openSpots,
   isWeaponId,
   makeRay,
   meleeHit,
@@ -66,6 +67,9 @@ import {
   type WeaponDef,
   type WeaponId,
   type WorldSnapshot,
+  MIN_LEVEL,
+  levelFor,
+  matchXp,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -105,6 +109,8 @@ export interface PlayerProfile {
   bot?: boolean;
   /** Developer account: the name glows rainbow for everyone. */
   dev?: boolean;
+  /** Rank level, 1–10. */
+  rank?: number;
 }
 
 export interface MatchResult {
@@ -114,11 +120,12 @@ export interface MatchResult {
   deaths: number;
   won: boolean;
   coins: number;
+  xp: number;
 }
 
 export interface RoomHooks {
-  /** Persist rewards; returns each user's new coin total. */
-  onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, number>;
+  /** Persist rewards; returns each user's new coin and XP totals. */
+  onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, { coins: number; xp: number }>;
   /** Called when the last human leaves. */
   onEmpty?(room: GameRoom): void;
 }
@@ -127,6 +134,8 @@ const THROW_COOLDOWN_MS = 600;
 /** Fire-rate checks allow a little jitter: packets bunch up on the way to the server. */
 const FIRE_RATE_TOLERANCE = 0.8;
 const KILL_SCORE = 100;
+/** Spread spawns: further than this from every enemy counts as safe. */
+const SPREAD_SAFE = 28;
 const HEADSHOT_BONUS = 25;
 const SUICIDE_PENALTY = 50;
 
@@ -253,6 +262,7 @@ export class GameRoom {
       kills: 0,
       deaths: 0,
       score: 0,
+      rank: profile.rank ?? MIN_LEVEL,
       ...(profile.dev ? { dev: true } : {}),
     };
     const player = new ServerPlayer(info, socket, profile.userId);
@@ -672,14 +682,55 @@ export class GameRoom {
 
   protected spawn(p: ServerPlayer, now: number, announce: boolean): void {
     const point = this.pickSpawn(p);
-    p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now);
+    p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
     if (this.mode.weapons) p.eggs = p.smokes = 0;
     if (announce) this.io.to(this.channel).emit('spawn', { pid: p.pid, x: point.x, y: 0, z: point.z, yaw: p.yaw });
   }
 
+  /** Open spots all over the map (spread-spawn modes), worked out once per room. */
+  private spread: SpawnPoint[] | null = null;
+
+  /** Where free-for-all chickens spawn and bots wander. */
+  roamSpots(): readonly { x: number; z: number }[] {
+    if (!this.mode.spreadSpawns || this.mode.building) return [...this.map.spawns, ...this.map.loot, ...this.map.flags];
+    this.spread ??= [...this.map.spawns.map((s) => ({ x: s.x, z: s.z })), ...openSpots(this.map.spawns, this.world, this.map.halfSize)];
+    return this.spread;
+  }
+
+  /**
+   * Spread-spawn modes: anywhere open, as far as possible from living enemies and never in their
+   * sight, so nobody is shot the moment they appear.
+   */
+  private pickSpreadSpawn(p: ServerPlayer): SpawnPoint {
+    const enemies = [...this.players.values()].filter((o) => o !== p && o.alive && !this.areTeammates(p, o));
+    const scored = this.roamSpots().map((spot) => {
+      // Beyond SPREAD_SAFE metres every spot is as good as any other, so spawns vary.
+      let nearest = SPREAD_SAFE;
+      for (const e of enemies) nearest = Math.min(nearest, Math.hypot(e.state.x - spot.x, e.state.z - spot.z));
+      return { spot, score: nearest + Math.random() * 6 };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    // Of the furthest few, the first that no enemy can see.
+    const shortlist = scored.slice(0, 16);
+    const hidden = shortlist.find(({ spot }) => !enemies.some((e) => this.canSeeSpot(e, spot)));
+    return (hidden ?? shortlist[0])?.spot ?? this.map.spawns[0]!;
+  }
+
+  /** Could `viewer` see a chicken standing at `spot`? */
+  private canSeeSpot(viewer: ServerPlayer, spot: { x: number; z: number }): boolean {
+    const eye = { x: viewer.state.x, y: viewer.state.y + eyeHeightOf(viewer.state), z: viewer.state.z };
+    const dx = spot.x - eye.x;
+    const dy = 0.9 - eye.y;
+    const dz = spot.z - eye.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist > 70) return false;
+    return !raycastWorld(makeRay(eye, { x: dx / dist, y: dy / dist, z: dz / dist }), this.world, dist);
+  }
+
   /** Team spawns in team modes; otherwise the free spot furthest from living enemies. */
   private pickSpawn(p: ServerPlayer): SpawnPoint {
+    if (this.mode.spreadSpawns && !this.mode.teams && !this.mode.building) return this.pickSpreadSpawn(p);
     const all = this.map.spawns;
     const team = p.info.team;
     const pool = this.mode.teams && team !== 0 ? all.filter((s) => s.team === team) : all;
@@ -821,14 +872,21 @@ export class GameRoom {
       if (p.userId === null) continue;
       const won = this.mode.teams ? p.info.team === this.match.winnerTeam && p.info.team !== 0 : p.pid === this.match.winnerPid;
       const coins = Math.min(COINS.max, COINS.perMatch + COINS.perKill * p.info.kills + (won ? COINS.win : 0));
-      results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won, coins });
+      results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won, coins, xp: matchXp(p.info.kills, won) });
     }
     if (results.length === 0 || !this.hooks.onMatchEnd) return;
     const totals = this.hooks.onMatchEnd(this, results);
     for (const r of results) {
       const total = totals.get(r.userId);
-      if (total === undefined) continue;
-      this.players.get(r.pid)?.socket?.emit('reward', { coins: r.coins, total, kills: r.kills, won: r.won });
+      const p = this.players.get(r.pid);
+      if (total === undefined || !p) continue;
+      p.socket?.emit('reward', { coins: r.coins, total: total.coins, kills: r.kills, won: r.won, xp: r.xp, xpTotal: total.xp });
+      // Ranked up: everyone's scoreboard shows the new badge.
+      const rank = levelFor(total.xp);
+      if (rank !== p.info.rank) {
+        p.info.rank = rank;
+        this.announcePlayer(p);
+      }
     }
   }
 

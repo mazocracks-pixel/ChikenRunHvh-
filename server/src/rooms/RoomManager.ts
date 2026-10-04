@@ -1,4 +1,4 @@
-import { MODES, type JoinResponse, type MapId, type ModeId, type RoomSummary } from '@game/shared';
+import { MODES, levelFor, type JoinResponse, type MapId, type ModeId, type RoomSummary } from '@game/shared';
 import type { GameDatabase } from '../db/Database';
 import type { GameServer, GameSocket } from '../types';
 import { randomRoomCode, randomString } from '../util';
@@ -20,7 +20,7 @@ export class RoomManager {
     this.io = io;
     this.db = db;
     this.hooks = {
-      onMatchEnd: (_room, results) => this.db.recordMatch(results),
+      onMatchEnd: (room, results) => this.db.recordMatch(results, room.mode.id),
       onEmpty: (room) => this.close(room),
     };
   }
@@ -92,6 +92,7 @@ export class RoomManager {
       appearance: profile.appearance,
       loadout: profile.loadout,
       dev: profile.developer,
+      rank: levelFor(profile.xp),
     };
     const res = room.join(socket, playerProfile);
     if (res.ok) this.socketRooms.set(socket.id, room);

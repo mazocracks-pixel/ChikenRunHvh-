@@ -1,4 +1,4 @@
-import type { Appearance, LeaderboardRow, Profile, WeaponId } from '@game/shared';
+import type { Appearance, LeaderboardRow, ModeId, Profile, WeaponId } from '@game/shared';
 import { storage } from '../ui/dom';
 
 /** Where older versions kept the session token. Moved into an HttpOnly cookie on first load. */
@@ -85,13 +85,19 @@ export class Api {
     return this.setProfile((await this.request<{ profile: Profile }>('GET', '/api/me')).profile);
   }
 
-  async leaderboard(): Promise<LeaderboardRow[]> {
-    return (await this.request<{ rows: LeaderboardRow[] }>('GET', '/api/leaderboard')).rows;
+  /** Overall, or for one game mode. */
+  async leaderboard(mode?: ModeId): Promise<LeaderboardRow[]> {
+    return (await this.request<{ rows: LeaderboardRow[] }>('GET', mode ? `/api/leaderboard?mode=${mode}` : '/api/leaderboard')).rows;
   }
 
   /** Coins changed in-game (match reward): update locally without a round trip. */
   setCoins(total: number): void {
     if (this.profile) this.setProfile({ ...this.profile, coins: total });
+  }
+
+  /** After a match: the new coin and XP totals the server sent. */
+  setRewards(coins: number, xp: number): void {
+    if (this.profile) this.setProfile({ ...this.profile, coins, xp });
   }
 
   /** Older versions stored the token in localStorage; swap it for the cookie and forget it. */

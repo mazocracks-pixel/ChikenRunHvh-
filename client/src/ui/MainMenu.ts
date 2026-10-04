@@ -1,4 +1,4 @@
-import { MAPS, MODES, MODE_IDS, isMapId, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
+import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
 import { h, storage } from './dom';
 
 export interface MenuActions {
@@ -8,13 +8,14 @@ export interface MenuActions {
   createRoom(): void;
   joinCode(): void;
   customize(): void;
-  leaderboard(): void;
+  /** Opens on that mode's tab, or overall. */
+  leaderboard(mode?: ModeId): void;
   account(): void;
   settings(): void;
   privacy(): void;
 }
 
-const MODE_ICONS: Record<ModeId, string> = { ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
+export const MODE_ICONS: Record<ModeId, string> = { ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
 
 /** Mode tabs. Any mode not listed lands in the last one. */
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
@@ -41,6 +42,9 @@ export class MainMenu {
   private readonly name = h('span', { class: 'profile-name' });
   private readonly coins = h('span', { class: 'coins' });
   private readonly record = h('span', { class: 'record' });
+  private readonly rank = h('span', { class: 'rank-chip' });
+  private readonly xpFill = h('i');
+  private readonly xpBar = h('span', { class: 'xp-bar small' }, this.xpFill);
   private readonly accountBtn = h('button', { class: 'chip-btn', type: 'button' });
   private readonly status = h('p', { class: 'status', role: 'status', 'aria-live': 'polite' });
   private readonly buttons: HTMLButtonElement[] = [];
@@ -65,7 +69,13 @@ export class MainMenu {
       const card = h(
         'div',
         { class: `mode-card mode-${id}` },
-        h('div', { class: 'mode-top' }, h('div', { class: 'mode-icon' }, MODE_ICONS[id]), h('span', { class: 'mode-players' }, playersLine(m))),
+        h(
+          'div',
+          { class: 'mode-top' },
+          h('div', { class: 'mode-icon' }, MODE_ICONS[id]),
+          h('span', { class: 'mode-players' }, playersLine(m)),
+          m.building ? null : h('button', { type: 'button', class: 'mode-board', title: `${m.name} leaderboard`, 'aria-label': `${m.name} leaderboard`, onclick: () => actions.leaderboard(id) }, '🏆'),
+        ),
         h('h3', null, m.name),
         h('p', null, m.description),
         m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, `🗺️ ${MAPS[m.maps[0]!].name}`),
@@ -85,7 +95,7 @@ export class MainMenu {
         'header',
         { class: 'menu-header' },
         h('h1', { class: 'logo' }, 'ChikenRun', h('span', { class: 'accent' }, 'Hvh')),
-        h('div', { class: 'profile-chip' }, h('span', { class: 'avatar' }, '🐔'), h('span', { class: 'who' }, this.name, this.record), this.coins, this.accountBtn),
+        h('div', { class: 'profile-chip' }, this.rank, h('span', { class: 'who' }, this.name, this.record, this.xpBar), this.coins, this.accountBtn),
       ),
       this.tabs,
       modes,
@@ -96,7 +106,7 @@ export class MainMenu {
         button('🌐 Server browser', actions.browse, 'secondary'),
         button('➕ Create room', actions.createRoom, 'secondary'),
         button('🔑 Join with code', actions.joinCode, 'secondary'),
-        button('🏆 Leaderboard', actions.leaderboard, 'secondary'),
+        button('🏆 Leaderboard', () => actions.leaderboard(), 'secondary'),
         button('⚙️ Settings', actions.settings, 'secondary'),
       ),
       this.status,
@@ -129,7 +139,12 @@ export class MainMenu {
   setProfile(p: Profile): void {
     this.name.textContent = p.name;
     this.name.classList.toggle('rainbow', p.developer);
-    this.record.textContent = p.stats.matches > 0 ? `${p.stats.wins} wins · ${p.stats.kills} kills` : 'New chicken';
+    const { rank, next, progress } = rankProgress(p.xp);
+    this.rank.textContent = rank.icon;
+    this.rank.dataset.level = String(rank.level);
+    this.rank.title = next ? `Level ${rank.level} · ${rank.name} — ${p.xp - rank.xp}/${next.xp - rank.xp} XP to ${next.name}` : `Level ${rank.level} · ${rank.name} (top rank)`;
+    this.record.textContent = `Lv ${rank.level} ${rank.name}` + (p.stats.matches > 0 ? ` · ${p.stats.wins} wins · ${p.stats.kills} kills` : '');
+    this.xpFill.style.width = `${Math.round(progress * 100)}%`;
     this.coins.textContent = `🪙 ${p.coins.toLocaleString()}`;
     this.accountBtn.textContent = p.username ? 'Account' : 'Save progress';
   }

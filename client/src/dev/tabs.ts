@@ -443,7 +443,18 @@ export function buildTabs(dev: Dev): Tab[] {
         title: 'Look & feedback',
         icon: '◐',
         items: [
-          { type: 'select', label: 'Theme', path: 'settings.theme' },
+          {
+            type: 'select',
+            label: 'Theme',
+            path: 'settings.theme',
+            options: [
+              { value: 'claude', label: 'mega?dev (light)' },
+              { value: 'midnight', label: 'Midnight' },
+              { value: 'carbon', label: 'Carbon' },
+              { value: 'crimson', label: 'Crimson' },
+              { value: 'ocean', label: 'Ocean' },
+            ],
+          },
           { type: 'color', label: 'Accent color', path: 'settings.accent' },
           { type: 'toggle', label: 'Sound effects', path: 'settings.sounds' },
           { type: 'toggle', label: 'Notifications', path: 'settings.notifications' },

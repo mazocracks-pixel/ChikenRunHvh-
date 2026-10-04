@@ -13,7 +13,7 @@ export function applyTheme(el: HTMLElement, s: DevConfig['settings']): void {
 }
 
 /**
- * "Developer Access" dialog. The passkey is sent to the server, which is the only place it is
+ * The mega?dev passkey dialog. The passkey is sent to the server, which is the only place it is
  * known; resolves true once the server accepts it, false if the dialog is cancelled.
  */
 export function showPasskeyPrompt(unlock: (passkey: string) => Promise<DevResult>, settings: DevConfig['settings']): Promise<boolean> {
@@ -25,9 +25,9 @@ export function showPasskeyPrompt(unlock: (passkey: string) => Promise<DevResult
     const card = h(
       'form',
       { class: 'dev-auth' },
-      h('div', { class: 'dev-auth-icon', 'aria-hidden': 'true' }, '◆'),
-      h('h2', null, 'Developer Access'),
-      h('label', { class: 'dev-auth-label' }, 'Enter Passkey'),
+      h('div', { class: 'dev-auth-icon', 'aria-hidden': 'true' }, '✻'),
+      h('h2', null, 'mega', h('span', { class: 'dev-q' }, '?'), 'dev'),
+      h('label', { class: 'dev-auth-label' }, 'Enter your passkey'),
       input,
       message,
       h('div', { class: 'dev-auth-actions' }, cancel, submit),

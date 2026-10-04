@@ -29,6 +29,8 @@ export interface PlayerInfo {
   dev?: boolean;
   /** Arms Race: the step of the weapon ladder this player is on (0 = first). */
   level?: number;
+  /** Account rank, 1–10 (from XP earned in matches). */
+  rank?: number;
 }
 
 /** The fast-changing state of a player, as carried in every snapshot. */
@@ -421,6 +423,9 @@ export interface MatchRewardEvent {
   total: number;
   kills: number;
   won: boolean;
+  /** XP from this match, and the account's new XP total. */
+  xp: number;
+  xpTotal: number;
 }
 
 export type FlagEventKind = 'taken' | 'dropped' | 'returned' | 'captured';
@@ -520,6 +525,8 @@ export interface Profile {
   loadout: WeaponId[];
   owned: string[];
   stats: { kills: number; deaths: number; wins: number; matches: number };
+  /** Experience from finished matches; sets the rank (see ranks.ts). */
+  xp: number;
   /** Developer account: only the server can grant it (`npm run developer`). */
   developer: boolean;
 }
@@ -530,5 +537,7 @@ export interface LeaderboardRow {
   deaths: number;
   wins: number;
   matches: number;
+  /** Rank level, 1–10. */
+  level: number;
   dev?: boolean;
 }

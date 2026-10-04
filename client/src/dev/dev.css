@@ -151,6 +151,7 @@
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.1em;
+  text-transform: uppercase;
   border: 1px solid currentColor;
   border-radius: 3px;
   white-space: nowrap;
@@ -1078,4 +1079,404 @@
   .dev-pill {
     display: none;
   }
+}
+
+/* ---------- mega?dev theme (default): warm paper, terracotta accent, serif headings ---------- */
+
+.dev-root[data-theme='claude'] {
+  --dev-bg: #f0eee6;
+  --dev-panel: #faf9f5;
+  --dev-card: #ffffff;
+  --dev-border: #e2ddd0;
+  --dev-text: #3d3929;
+  --dev-strong: #1f1e1d;
+  --dev-muted: #8a8577;
+  --dev-good: #4f8a43;
+  --dev-bad: #c2402a;
+  --dev-warn: #a8701a;
+  --dev-serif: ui-serif, 'Iowan Old Style', 'Palatino Linotype', Georgia, Cambria, 'Times New Roman', serif;
+  font: 450 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  letter-spacing: 0;
+}
+
+.dev-root[data-theme='claude'] .dev-window {
+  border-color: var(--dev-border);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(31, 30, 29, 0.06),
+    0 18px 50px rgba(31, 30, 29, 0.22);
+}
+
+.dev-root[data-theme='claude'] .dev-window::before {
+  display: none;
+}
+
+.dev-root[data-theme='claude'] .dev-header {
+  gap: 12px;
+  padding: 12px 12px 10px 18px;
+  background: var(--dev-panel);
+  border-bottom: 0;
+}
+
+.dev-root[data-theme='claude'] .dev-brand {
+  align-items: center;
+  gap: 8px;
+  font: 500 19px/1 var(--dev-serif);
+  letter-spacing: -0.01em;
+  color: var(--dev-strong);
+}
+
+.dev-root[data-theme='claude'] .dev-brand b {
+  color: var(--dev-strong);
+  font-weight: 500;
+}
+
+.dev-root .dev-q {
+  color: var(--dev-accent);
+  font-weight: 600;
+}
+
+.dev-root[data-theme='claude'] .dev-logo {
+  display: inline-block;
+  margin: 0;
+  font-size: 20px;
+  text-shadow: none;
+  animation: dev-spark calc(14s * var(--dev-anim)) linear infinite;
+}
+
+@keyframes dev-spark {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dev-root[data-theme='claude'] .dev-pill {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dev-bg);
+  box-shadow: none;
+}
+
+.dev-root[data-theme='claude'] .dev-pill[data-kind='on'] {
+  background: color-mix(in srgb, var(--dev-good) 14%, transparent);
+}
+
+.dev-root[data-theme='claude'] .dev-pill[data-kind='locked'] {
+  background: color-mix(in srgb, var(--dev-warn) 14%, transparent);
+}
+
+.dev-root[data-theme='claude'] .dev-search {
+  max-width: 300px;
+  padding: 8px 14px;
+  background: var(--dev-card);
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(31, 30, 29, 0.06);
+}
+
+.dev-root[data-theme='claude'] .dev-search:focus,
+.dev-root[data-theme='claude'] .dev-text:focus,
+.dev-root[data-theme='claude'] .dev-num:focus,
+.dev-root[data-theme='claude'] .dev-select:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dev-accent) 18%, transparent);
+}
+
+.dev-root[data-theme='claude'] .dev-icon-btn {
+  border: 0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.dev-root[data-theme='claude'] .dev-icon-btn:hover {
+  color: var(--dev-strong);
+  background: var(--dev-bg);
+}
+
+.dev-root[data-theme='claude'] .dev-tabs {
+  gap: 4px;
+  padding: 0 14px 10px;
+  background: var(--dev-panel);
+  border-bottom: 1px solid var(--dev-border);
+}
+
+.dev-root[data-theme='claude'] .dev-tab {
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 999px;
+}
+
+.dev-root[data-theme='claude'] .dev-tab::after {
+  display: none;
+}
+
+.dev-root[data-theme='claude'] .dev-tab:hover {
+  color: var(--dev-strong);
+  background: var(--dev-bg);
+}
+
+.dev-root[data-theme='claude'] .dev-tab.active {
+  color: var(--dev-strong);
+  background: color-mix(in srgb, var(--dev-accent) 14%, var(--dev-card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dev-accent) 35%, transparent);
+}
+
+.dev-root[data-theme='claude'] .dev-nav {
+  gap: 2px;
+  padding: 12px 10px;
+}
+
+.dev-root[data-theme='claude'] .dev-nav-item {
+  padding: 7px 10px;
+  font-weight: 500;
+  color: var(--dev-text);
+  border: 0;
+  border-radius: 8px;
+}
+
+.dev-root[data-theme='claude'] .dev-nav-item:hover {
+  color: var(--dev-strong);
+  background: color-mix(in srgb, var(--dev-strong) 6%, transparent);
+}
+
+.dev-root[data-theme='claude'] .dev-panel {
+  padding: 16px;
+}
+
+.dev-root[data-theme='claude'] .dev-grid {
+  gap: 14px;
+}
+
+.dev-root[data-theme='claude'] .dev-card {
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(31, 30, 29, 0.05);
+}
+
+.dev-root[data-theme='claude'] .dev-card h3 {
+  gap: 8px;
+  padding: 12px 14px 6px;
+  font: 500 15.5px/1.2 var(--dev-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--dev-strong);
+  border-bottom: 0;
+}
+
+.dev-root[data-theme='claude'] .dev-card-body {
+  padding: 2px 14px 10px;
+}
+
+.dev-root[data-theme='claude'] .dev-row {
+  border-bottom-color: color-mix(in srgb, var(--dev-border) 70%, transparent);
+}
+
+.dev-root[data-theme='claude'] .dev-row.toggle:hover .dev-label span,
+.dev-root[data-theme='claude'] .dev-row.check:hover .dev-label span,
+.dev-root[data-theme='claude'] .dev-info-value,
+.dev-root[data-theme='claude'] .dev-ptitle {
+  color: var(--dev-strong);
+}
+
+.dev-root[data-theme='claude'] .dev-ptitle {
+  font: 500 17px/1.2 var(--dev-serif);
+}
+
+.dev-root[data-theme='claude'] .dev-sub {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.dev-root[data-theme='claude'] .dev-switch {
+  width: 34px;
+  height: 20px;
+  background: #d9d4c6;
+  border: 0;
+  border-radius: 999px;
+}
+
+.dev-root[data-theme='claude'] .dev-switch::after {
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(31, 30, 29, 0.25);
+}
+
+.dev-root[data-theme='claude'] .dev-switch:checked {
+  background: var(--dev-accent);
+  box-shadow: none;
+}
+
+.dev-root[data-theme='claude'] .dev-switch:checked::after {
+  transform: translateX(14px);
+}
+
+.dev-root[data-theme='claude'] .dev-check {
+  background-color: var(--dev-card);
+  border-color: #cfc9b9;
+  border-radius: 5px;
+}
+
+.dev-root[data-theme='claude'] .dev-check:checked {
+  background-color: var(--dev-accent);
+  border-color: var(--dev-accent);
+}
+
+.dev-root[data-theme='claude'] .dev-range {
+  background: linear-gradient(90deg, var(--dev-accent) var(--fill), #e2ddd0 var(--fill));
+}
+
+.dev-root[data-theme='claude'] .dev-range::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  box-shadow: 0 1px 3px rgba(31, 30, 29, 0.25);
+}
+
+.dev-root[data-theme='claude'] .dev-num,
+.dev-root[data-theme='claude'] .dev-text,
+.dev-root[data-theme='claude'] .dev-select,
+.dev-root[data-theme='claude'] .dev-key {
+  background: var(--dev-card);
+  border-radius: 8px;
+}
+
+.dev-root[data-theme='claude'] .dev-color {
+  border-radius: 6px;
+}
+
+.dev-root[data-theme='claude'] .dev-btn {
+  padding: 7px 13px;
+  font-weight: 500;
+  color: var(--dev-strong);
+  background: var(--dev-card);
+  border-radius: 8px;
+}
+
+.dev-root[data-theme='claude'] .dev-btn:hover:not(:disabled) {
+  color: var(--dev-strong);
+  background: var(--dev-bg);
+  border-color: #cfc9b9;
+}
+
+.dev-root[data-theme='claude'] .dev-btn.primary {
+  color: #fff;
+  background: var(--dev-accent);
+  border-color: var(--dev-accent);
+}
+
+.dev-root[data-theme='claude'] .dev-btn.primary:hover:not(:disabled) {
+  color: #fff;
+  background: color-mix(in srgb, var(--dev-accent) 86%, #000);
+  box-shadow: none;
+}
+
+.dev-root[data-theme='claude'] .dev-btn.danger:hover:not(:disabled) {
+  color: #fff;
+  background: var(--dev-bad);
+}
+
+.dev-root[data-theme='claude'] .dev-footer {
+  padding: 10px 14px;
+  background: var(--dev-panel);
+}
+
+.dev-root[data-theme='claude'] .dev-plist,
+.dev-root[data-theme='claude'] .dev-clist {
+  border-radius: 10px;
+}
+
+.dev-root[data-theme='claude'] .dev-prow,
+.dev-root[data-theme='claude'] .dev-crow {
+  border-radius: 8px;
+}
+
+.dev-root[data-theme='claude'] .dev-php {
+  background: #e2ddd0;
+}
+
+.dev-root[data-theme='claude'] .dev-note {
+  border-radius: 10px;
+}
+
+.dev-root[data-theme='claude'] .dev-card.flash {
+  animation-name: dev-flash-soft;
+}
+
+@keyframes dev-flash-soft {
+  30% {
+    border-color: var(--dev-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dev-accent) 20%, transparent);
+  }
+}
+
+/* Passkey dialog */
+.dev-auth-backdrop[data-theme='claude'] {
+  background: rgba(31, 30, 29, 0.42);
+}
+
+.dev-root[data-theme='claude'] .dev-auth {
+  gap: 12px;
+  padding: 28px 26px 22px;
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(31, 30, 29, 0.3);
+}
+
+.dev-root[data-theme='claude'] .dev-auth h2 {
+  font: 500 26px/1.1 var(--dev-serif);
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--dev-strong);
+}
+
+.dev-root[data-theme='claude'] .dev-auth-icon {
+  font-size: 30px;
+  text-shadow: none;
+}
+
+.dev-root[data-theme='claude'] .dev-auth-label,
+.dev-root[data-theme='claude'] .dev-auth-msg {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.dev-root[data-theme='claude'] .dev-auth-input {
+  color: var(--dev-strong);
+  background: var(--dev-card);
+  border-radius: 12px;
+}
+
+.dev-root[data-theme='claude'] .dev-auth-msg.good {
+  text-shadow: none;
+}
+
+.dev-root[data-theme='claude'] .dev-auth.granted {
+  border-color: var(--dev-good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dev-good) 25%, transparent), 0 24px 60px rgba(31, 30, 29, 0.3);
+}
+
+/* Notifications follow the same look. */
+.dev-toast {
+  color: #3d3929;
+  background: #faf9f5;
+  border-color: #e2ddd0;
+  border-left-color: #d97757;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(31, 30, 29, 0.22);
+}
+
+.dev-toast.good {
+  border-left-color: #4f8a43;
+}
+
+.dev-toast.bad {
+  border-left-color: #c2402a;
 }

@@ -3,9 +3,11 @@ import {
   DEFAULT_LOADOUT,
   ITEMS_BY_ID,
   LOADOUT_SIZE,
+  MODE_IDS,
   NAME_MAX_LENGTH,
   sanitizeAppearance,
   sanitizeLoadout,
+  type ModeId,
 } from '@game/shared';
 import {
   SESSION_COOKIE,
@@ -263,8 +265,10 @@ export function createApiRouter(db: GameDatabase, rooms: RoomManager, options: A
     sendProfile(req, res, userId);
   });
 
-  router.get('/leaderboard', (_req, res) => {
-    res.json({ rows: db.leaderboard(20) });
+  // Overall, or for one game mode (`?mode=arms`).
+  router.get('/leaderboard', (req, res) => {
+    const mode = typeof req.query.mode === 'string' && (MODE_IDS as readonly string[]).includes(req.query.mode) ? (req.query.mode as ModeId) : null;
+    res.json({ rows: db.leaderboard(20, mode) });
   });
 
   // Unknown API paths: a JSON 404 rather than the web page.

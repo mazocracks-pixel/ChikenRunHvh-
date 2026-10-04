@@ -82,7 +82,7 @@ export interface DevConfig {
     opacity: number;
     /** Multiplier on animation durations; 0 turns animations off. */
     animSpeed: number;
-    theme: 'midnight' | 'carbon' | 'crimson' | 'ocean';
+    theme: 'claude' | 'midnight' | 'carbon' | 'crimson' | 'ocean';
     accent: string;
     sounds: boolean;
     notifications: boolean;
@@ -124,7 +124,7 @@ export function defaultConfig(): DevConfig {
       spectator: false,
       mapInfo: false,
     },
-    settings: { menuKey: 'Insert', scale: 1, opacity: 0.97, animSpeed: 1, theme: 'midnight', accent: '#7c5cff', sounds: true, notifications: true },
+    settings: { menuKey: 'Insert', scale: 1, opacity: 0.97, animSpeed: 1, theme: 'claude', accent: '#d97757', sounds: true, notifications: true },
   };
 }
 
@@ -166,7 +166,7 @@ export const CHOICES: Record<string, readonly string[]> = {
   'rage.antiAim.direction': ['right', 'left', 'jitter'],
   'rage.antiAim.pitch': ['normal', 'down', 'up'],
   'weapons.selected': WEAPON_IDS,
-  'settings.theme': ['midnight', 'carbon', 'crimson', 'ocean'],
+  'settings.theme': ['claude', 'midnight', 'carbon', 'crimson', 'ocean'],
 };
 
 // ---------------------------------------------------------------------------
@@ -216,6 +216,11 @@ export function sanitizeConfig(raw: unknown): DevConfig {
   };
   walk(out as unknown as Record<string, unknown>, raw, '');
   if (!out.settings.menuKey) out.settings.menuKey = 'Insert';
+  // Saved before the mega?dev look and never customised: move to the new default theme.
+  if (out.settings.theme === 'midnight' && out.settings.accent === '#7c5cff') {
+    out.settings.theme = 'claude';
+    out.settings.accent = '#d97757';
+  }
   return out;
 }
 

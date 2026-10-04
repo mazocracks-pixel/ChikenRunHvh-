@@ -113,14 +113,14 @@ export class ServerPlayer {
   }
 
   /** Fresh life at a spawn point: full health, full magazines, starting grenades. */
-  respawn(x: number, z: number, yaw: number, now: number): void {
+  respawn(x: number, z: number, yaw: number, now: number, protectMs: number = PLAYER.spawnProtectionMs): void {
     this.state = createMoveState(x, 0, z);
     this.yaw = yaw;
     this.pitch = 0;
     this.alive = true;
     this.hp = PLAYER.maxHealth;
     this.armor = 0;
-    this.shieldUntil = now + PLAYER.spawnProtectionMs;
+    this.shieldUntil = now + protectMs;
     this.reloadUntil = 0;
     this.switchReadyAt = 0;
     this.aiming = false;

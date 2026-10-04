@@ -88,7 +88,7 @@ export class BotSystem {
     let name = pick(NAMES);
     for (let i = 0; i < NAMES.length && this.usedNames.has(name); i++) name = NAMES[(NAMES.indexOf(name) + 1) % NAMES.length]!;
     this.usedNames.add(name);
-    const res = this.room.join(null, { userId: null, name: `🤖 ${name}`, appearance: randomAppearance(), loadout: ['rifle', 'shotgun', 'pistol'], bot: true });
+    const res = this.room.join(null, { userId: null, name: `🤖 ${name}`, appearance: randomAppearance(), loadout: ['rifle', 'shotgun', 'pistol'], bot: true, rank: 1 + Math.floor(Math.random() * 6) });
     if (!res.ok) return false;
     const p = this.room.players.get(res.selfPid)!;
     const now = performance.now();
@@ -190,9 +190,7 @@ export class BotSystem {
   }
 
   private newWaypoint(b: Brain): void {
-    const map = this.room.map;
-    const spots = [...map.spawns, ...map.loot, ...map.flags];
-    const s = pick(spots);
+    const s = pick(this.room.roamSpots());
     b.waypoint = { x: s.x + (Math.random() - 0.5) * 4, z: s.z + (Math.random() - 0.5) * 4 };
   }
 

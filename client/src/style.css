@@ -2009,3 +2009,190 @@ code {
     font-size: 0.9rem;
   }
 }
+
+/* ---------- ranks and leaderboards ---------- */
+
+.rank-chip {
+  position: relative;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.rank-chip::after {
+  content: attr(data-level);
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  min-width: 15px;
+  padding: 1px 3px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.xp-bar {
+  display: block;
+  height: 5px;
+  margin-top: 4px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.xp-bar.small {
+  width: 100%;
+  min-width: 90px;
+  height: 3px;
+  margin-top: 3px;
+}
+
+.xp-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #ffe27a);
+  border-radius: inherit;
+  transition: width 0.6s ease;
+}
+
+.rank-line {
+  margin-top: 4px;
+  font-weight: 700;
+}
+
+.rank-line small {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ranked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.rank-badge b {
+  font-size: 0.7em;
+  font-weight: 800;
+  opacity: 0.75;
+}
+
+.mode-top .mode-board {
+  margin-left: 6px;
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.mode-top .mode-board:hover {
+  border-color: var(--accent);
+}
+
+.mode-top .mode-players {
+  margin-left: auto;
+}
+
+.board-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.board-tabs {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.board-tabs .tab {
+  padding: 6px 11px;
+  font-size: 0.85rem;
+}
+
+.board-note {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+}
+
+.board-table .board-rank {
+  white-space: nowrap;
+}
+
+.board-table tr.top td {
+  font-weight: 700;
+}
+
+.board-table tr.top1 td {
+  color: #ffd76a;
+}
+
+.mini-board {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  max-width: 220px;
+  margin-top: 4px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.32);
+  border-radius: 8px;
+}
+
+.mini-title {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mini-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.mini-row .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-row.self {
+  font-weight: 800;
+}
+
+.mini-place {
+  width: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 800;
+}
+
+.mini-score {
+  margin-left: auto;
+  padding-left: 8px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phones: the HUD corners are busy with touch buttons. */
+@media (max-width: 700px), (pointer: coarse) and (max-height: 500px) {
+  .mini-board {
+    display: none;
+  }
+}
