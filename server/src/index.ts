@@ -24,7 +24,13 @@ mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
 
 /** Developer menu passkey. Never written in the code: set DEV_PASSKEY (server/.env locally). */
 // Forgive copy-paste slips in a host's variables screen: surrounding spaces or quotes.
-const devPasskey = (process.env.DEV_PASSKEY ?? '').trim().replace(/^(['"])(.*)$/, '$2').trim() || undefined;
+function cleanSecret(raw: string | undefined): string | undefined {
+  let value = (raw ?? '').trim();
+  const quoted = value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.at(-1) === value[0];
+  if (quoted) value = value.slice(1, -1).trim();
+  return value || undefined;
+}
+const devPasskey = cleanSecret(process.env.DEV_PASSKEY);
 const list = (value: string | undefined) => (value ?? '').split(',').map((x) => x.trim()).filter(Boolean);
 
 const server = await startGameServer({
