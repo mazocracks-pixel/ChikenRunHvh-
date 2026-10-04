@@ -1,14 +1,13 @@
-import { DEFAULT_MODS, type DevAction, type DevResult, type DevStatus, type HvhPanelId } from '@game/shared';
-import type { AudioEngine } from '../game/Audio';
-import type { Input } from '../game/Input';
-import type { GameSocket } from '../net/Network';
-import type { Hud } from '../ui/Hud';
-import { defaultConfig, getPath, loadConfigs, loadCurrent, sanitizeConfig, saveConfigs, saveCurrent, setPath, type DevConfig, type NamedConfig } from './config';
-import { HVH_PANELS } from './panels';
+import { DEFAULT_MODS, type DevAction, type DevResult, type DevStatus } from '@game/shared';
+import type { AudioEngine } from '../../game/Audio';
+import type { Input } from '../../game/Input';
+import type { GameSocket } from '../../net/Network';
+import type { Hud } from '../../ui/Hud';
+import { defaultConfig, getPath, loadConfigs, loadCurrent, saveConfigs, saveCurrent, setPath, toServerMods, type DevConfig, type NamedConfig } from './config';
 import { DevMenu } from './DevMenu';
 import { DevRuntime } from './DevRuntime';
 import { showPasskeyPrompt } from './passkey';
-import './dev.css';
+import '../dev.css';
 
 const REQUEST_TIMEOUT_MS = 5000;
 /** Config changes are sent to the server at most this often (sliders fire many events). */
@@ -38,7 +37,6 @@ export interface DevContext {
  */
 export class Dev {
   config: DevConfig = loadCurrent();
-  panelId: HvhPanelId = 'lab';
   configs: NamedConfig[] = loadConfigs();
   status: DevStatus = { granted: false, allowedHere: false, profile: 'off', publicHvh: false, mods: { ...DEFAULT_MODS } };
   readonly runtime: DevRuntime;
@@ -52,7 +50,6 @@ export class Dev {
   private prompting = false;
   private readonly listeners = new Set<() => void>();
   private syncTimer: number | undefined;
-  private sessionVersion = 0;
   private toasts: HTMLElement | null = null;
 
   constructor(ctx: DevContext) {
@@ -67,15 +64,12 @@ export class Dev {
     window.addEventListener('keydown', this.onKey, true);
     // Grants live on the server; after a reconnect (e.g. server restart) ask again.
     this.socket.on('connect', () => void this.refreshStatus());
-    this.socket.on('disconnect', () => {
-      this.sessionVersion++;
-      this.setStatus({ ...this.status, granted: false, allowedHere: false, profile: 'off', mods: { ...DEFAULT_MODS } });
-    });
   }
 
   /** Developer features are on: access granted and allowed in the current room. */
   get active(): boolean {
-    return this.status.granted && this.status.allowedHere && (this.runtime.currentSession?.mode.id !== 'hvh' || HVH_PANELS[this.panelId].assisted);
+    // Not in HvH: that mode keeps everyone's stats equal (its own HvH Lab is on Insert).
+    return this.status.granted && this.status.allowedHere && this.status.profile === 'admin';
   }
 
   get menuOpen(): boolean {
@@ -108,13 +102,6 @@ export class Dev {
     this.changed();
   }
 
-  selectPanel(id: HvhPanelId): void {
-    this.panelId = id;
-    this.runtime.applyServerMods();
-    for (const fn of this.listeners) fn();
-    this.syncNow();
-  }
-
   resetAll(): void {
     this.config = defaultConfig();
     this.changed();
@@ -130,7 +117,6 @@ export class Dev {
   }
 
   private changed(): void {
-    this.config = sanitizeConfig(this.config);
     saveCurrent(this.config);
     this.ctx.applyWorldLook(this.config.world);
     for (const fn of this.listeners) fn();
@@ -142,10 +128,8 @@ export class Dev {
   // ---------------------------------------------------------------------------
 
   async refreshStatus(): Promise<DevStatus> {
-    const version = this.sessionVersion;
     try {
-      const status = await this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devStatus');
-      if (version === this.sessionVersion) this.setStatus(status);
+      this.setStatus(await this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devStatus'));
     } catch {
       // Offline: keep what we had.
     }
@@ -191,31 +175,26 @@ export class Dev {
   syncNow(): void {
     window.clearTimeout(this.syncTimer);
     if (!this.status.granted || !this.runtime.currentSession) return;
-    // Outside HvH the modifiers belong to classic mega?dev (L); this one only sends defaults.
-    if (this.status.profile !== 'hvh') return;
-    const version = this.sessionVersion;
     this.socket
       .timeout(REQUEST_TIMEOUT_MS)
-      .emitWithAck('devHvh', HVH_PANELS[this.panelId].loadout(this.config))
-      .then((s) => { if (version === this.sessionVersion) this.setStatus(s); })
+      .emitWithAck('devMods', toServerMods(this.config))
+      .then((s) => this.setStatus(s))
       .catch(() => undefined);
   }
 
   private setStatus(s: DevStatus): void {
-    const old = `${this.active}:${this.status.profile}:${this.status.publicHvh}`;
+    const wasActive = this.active;
     this.status = s;
     this.runtime.applyServerMods();
-    if (old !== `${this.active}:${s.profile}:${s.publicHvh}`) for (const fn of this.listeners) fn();
+    if (wasActive !== this.active) for (const fn of this.listeners) fn();
   }
 
   sessionStarted(): void {
-    this.sessionVersion++;
     // New room, new permissions: check them, then send our modifiers.
     void this.refreshStatus().then(() => this.syncNow());
   }
 
   sessionEnded(): void {
-    this.sessionVersion++;
     this.status = { ...this.status, allowedHere: false, profile: 'off', mods: { ...DEFAULT_MODS } };
     for (const fn of this.listeners) fn();
   }
@@ -236,7 +215,7 @@ export class Dev {
     this.input.releaseLock();
     this.ctx.onMenuChange();
     const status = await this.refreshStatus();
-    if (!status.granted && !status.publicHvh) {
+    if (!status.granted) {
       const unlocked = await showPasskeyPrompt((key) => this.unlock(key), this.config.settings);
       if (!unlocked) {
         this.prompting = false;

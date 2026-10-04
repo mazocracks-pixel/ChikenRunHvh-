@@ -1,4 +1,6 @@
 import { MODES, type CreateRoomRequest, type JoinResponse, type JoinSuccess, type ModeId } from '@game/shared';
+import { Dev as ClassicDev } from '../dev/classic/Dev';
+import { combineDevHooks } from '../dev/combine';
 import { Dev } from '../dev/Dev';
 import { exitPlayFullscreen } from '../fullscreen';
 import { Game } from '../game/Game';
@@ -21,6 +23,8 @@ export class App {
   private readonly net = new Network();
   private readonly game: Game;
   private readonly dev: Dev;
+  /** The old mega?dev menu, on L (the HvH Lab above is on Insert). */
+  private readonly classicDev: ClassicDev;
   private readonly menu: MainMenu;
   private readonly shop: ShopScreen;
   private readonly touch: TouchControls | null;
@@ -67,7 +71,19 @@ export class App {
       onMenuChange: () => this.refreshOverlays(),
       applyWorldLook: (look) => this.game.setLook(look),
     });
-    this.game.dev = this.dev.runtime;
+    this.classicDev = new ClassicDev({
+      socket: this.net.socket,
+      input: this.game.input,
+      hud: this.game.hud,
+      audio: this.game.audio,
+      fps: () => this.game.fps,
+      ping: () => this.net.ping,
+      openCrosshairSettings: () => openSettings(this.game.audio, 'crosshair'),
+      inGame: () => this.screen === 'game' && !this.hvhSetup,
+      onMenuChange: () => this.refreshOverlays(),
+      applyWorldLook: (look) => this.game.setLook(look),
+    });
+    this.game.dev = combineDevHooks(this.dev.runtime, this.classicDev.runtime);
     this.bindSecretTaps();
     // Ctrl is crouch, and windowed (or outside Chrome / Edge) Ctrl+W can't be blocked: ask before leaving a match.
     window.addEventListener('beforeunload', (e) => {
@@ -195,7 +211,7 @@ export class App {
     const inGame = this.screen === 'game';
     const locked = this.game.input.isLocked;
     const paused = inGame && (this.isTouch ? this.touchPaused : !locked);
-    const devMenu = this.dev.menuOpen;
+    const devMenu = this.dev.menuOpen || this.classicDev.menuOpen;
     const buyMenu = this.game.activeSession?.buyMenuOpen ?? false;
     const overlay = devMenu || buyMenu;
     this.game.input.suspended = Boolean(this.hvhSetup) || overlay || paused;

@@ -181,6 +181,13 @@ Changing panels later does not restore health, ammo or exploit charge. The typed
 The panel now has Aim, Anti-aim, Exploits, Movement, Visuals, Weapons, World, Telemetry,
 Settings and Configs tabs. Old configs migrate automatically: retired stat-changing powers are removed.
 
+**Classic mega?dev.** Press `L` for the old developer menu, exactly as it was: Legit, Rage (speed, fly,
+noclip, infinite ammo, no recoil/spread, rapid fire, no rocket cooldown/damage...), Visuals, World,
+Players, Weapons, Misc, Configs and Settings. It asks for the same passkey and keeps its own saved
+settings (the first time it picks up the ones saved before the HvH Lab). It works wherever the server
+allows developer tools except HvH (equal stats there: use the HvH Lab) and ranked; player
+administration (teleport, heal, give weapons) only works in private rooms.
+
 - Aim: target priority/lock, head or body aim, body-if-lethal, minimum health damage after armor,
   estimated hitchance from velocity-based spread, bounded turns, reaction/switch delays, and optional
   trigger/auto-fire. Autofire uses normal weapon cadence, including semi-auto and bursts;
@@ -245,7 +252,7 @@ or first person (`V`). Synthesized sound effects.
 | B             | Build mode (Sandbox) / buy menu (ChikenBomb) | X | Next block type (Sandbox) |
 | E (hold)      | Plant / defuse the bomb (ChikenBomb) |  |                     |
 | Ctrl / C      | Crouch (slower, smaller)  |         |                              |
-| Insert        | Developer menu (passkey)  |         |                              |
+| Insert        | HvH Lab menu (passkey)    | L       | Classic mega?dev (passkey)   |
 
 ## Deploying (GitHub + Railway)
 

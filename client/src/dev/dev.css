@@ -1496,3 +1496,11 @@
 .dev-toast.bad {
   border-left-color: #c2402a;
 }
+
+/* Classic mega?dev (L) says which one it is. */
+.dev-brand .dev-edition {
+  margin-left: 4px;
+  font: 600 11px/1 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  letter-spacing: 0;
+  color: var(--dev-muted);
+}
