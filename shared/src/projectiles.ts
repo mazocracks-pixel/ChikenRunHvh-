@@ -1,7 +1,7 @@
 import type { CollisionWorld } from './collision';
 import { makeRay, raycastWorld } from './raycast';
 
-export type ProjectileKind = 'egg' | 'smoke' | 'rocket';
+export type ProjectileKind = 'egg' | 'smoke' | 'rocket' | 'bolt';
 
 export interface ProjectileDef {
   speed: number;
@@ -34,6 +34,11 @@ export const PROJECTILES: Record<ProjectileKind, ProjectileDef> = {
   rocket: {
     speed: 30, upBoost: 0, gravity: 0, radius: 0.15, fuseMs: 5000, explodeOnImpact: true, bounce: 0,
     damage: 110, splashRadius: 4, knockback: 16, selfDamageScale: 0.4,
+  },
+  /** Crossbow bolt: fast, drops a little, and hits whatever it strikes directly (no blast). */
+  bolt: {
+    speed: 70, upBoost: 0, gravity: 7, radius: 0.04, fuseMs: 3000, explodeOnImpact: true, bounce: 0,
+    damage: 0, splashRadius: 0, knockback: 0, selfDamageScale: 0,
   },
 };
 

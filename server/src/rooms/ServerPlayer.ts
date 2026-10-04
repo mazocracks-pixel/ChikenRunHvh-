@@ -49,6 +49,9 @@ export class ServerPlayer {
   readonly mags = new Map<WeaponId, number>();
   reloadUntil = 0;
   lastFireAt = -Infinity;
+  /** Burst weapons: when the current burst began and how many of its shots went out. */
+  burstStart = -Infinity;
+  burstShots = 0;
   switchReadyAt = 0;
   lastShotSeq = 0;
   aiming = false;

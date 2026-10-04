@@ -39,6 +39,19 @@ function buildMesh(kind: ProjectileKind): THREE.Group {
     case 'smoke':
       g.add(part(cylinder(0.07, 0.07, 0.22, 10), solid(0x607d8b)), part(cylinder(0.03, 0.03, 0.05, 8), solid(0xb0bec5), 0, 0.13, 0));
       break;
+    case 'bolt': {
+      const shaft = part(cylinder(0.012, 0.012, 0.5, 6), solid(0x6b4a2e));
+      shaft.rotation.x = Math.PI / 2;
+      const tip = part(cone(0.022, 0.06, 6), solid(0x9aa0a8, { flat: false }), 0, 0, -0.27);
+      tip.rotation.x = -Math.PI / 2;
+      g.add(shaft, tip);
+      for (const r of [0, Math.PI / 2]) {
+        const fin = part(cylinder(0.035, 0.035, 0.002, 3), solid(0xd84343), 0, 0, 0.22);
+        fin.rotation.set(Math.PI / 2, r, 0);
+        g.add(fin);
+      }
+      break;
+    }
     case 'rocket': {
       const body = part(cylinder(0.06, 0.06, 0.45, 10), solid(0x4f6b3a));
       body.rotation.x = Math.PI / 2;
@@ -122,10 +135,10 @@ export class ClientProjectiles {
         this.step(v);
       }
       v.mesh.position.set(v.body.x, v.body.y, v.body.z);
-      if (v.kind === 'rocket') {
+      if (v.kind === 'rocket' || v.kind === 'bolt') {
         this.look.set(v.body.x + v.body.vx, v.body.y + v.body.vy, v.body.z + v.body.vz);
         v.mesh.lookAt(this.look);
-        this.effects.exhaust(v.mesh.position);
+        if (v.kind === 'rocket') this.effects.exhaust(v.mesh.position);
       } else {
         v.mesh.rotation.x += dt * 9;
         v.mesh.rotation.z += dt * 5;

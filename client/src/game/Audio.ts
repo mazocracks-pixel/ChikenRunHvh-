@@ -201,6 +201,28 @@ export class AudioEngine {
       case 'rocket':
         this.burst(ctx, out, t, { dur: 0.5, type: 'bandpass', freq: 400, to: 1800, q: 1.5, gain: 1 });
         break;
+      case 'revolver':
+        this.burst(ctx, out, t, { dur: 0.16, type: 'lowpass', freq: 2600, to: 400, gain: 1.4 });
+        this.tone(ctx, out, t, { dur: 0.14, type: 'sine', freq: 120, to: 45, gain: 1 });
+        break;
+      case 'battle':
+        this.burst(ctx, out, t, { dur: 0.06, type: 'highpass', freq: 2200, gain: 0.8 });
+        this.burst(ctx, out, t, { dur: 0.22, type: 'lowpass', freq: 1200, to: 180, gain: 1.2 });
+        this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 110, to: 40, gain: 0.9 });
+        break;
+      case 'lmg':
+        this.burst(ctx, out, t, { dur: 0.07, type: 'bandpass', freq: 900, q: 0.8, gain: 1 });
+        this.tone(ctx, out, t, { dur: 0.07, type: 'sine', freq: 100, to: 45, gain: 0.7 });
+        break;
+      case 'crossbow':
+        // The string's twang and the bolt leaving.
+        this.tone(ctx, out, t, { dur: 0.16, type: 'triangle', freq: 190, to: 120, gain: 0.5 });
+        this.burst(ctx, out, t, { dur: 0.1, type: 'highpass', freq: 3500, gain: 0.35 });
+        break;
+      case 'launcher':
+        this.burst(ctx, out, t, { dur: 0.18, type: 'lowpass', freq: 700, to: 150, gain: 1.1 });
+        this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 85, to: 40, gain: 1 });
+        break;
       // Melee swings: a filtered-noise whoosh sweeping down (quick and light, heavy, or long and ringing).
       case 'knife':
         this.burst(ctx, out, t, { dur: 0.16, type: 'bandpass', freq: 3200, to: 1100, q: 2.2, gain: 0.55 });

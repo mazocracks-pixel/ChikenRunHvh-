@@ -43,7 +43,7 @@ export class LocalPlayer {
   private readonly prev = new THREE.Vector3();
   private readonly errorOffset = new THREE.Vector3();
   /** Inputs the server hasn't confirmed yet, with the hop cap of the weapon held at the time. */
-  private pending: { frame: InputFrame; hopMax: number }[] = [];
+  private pending: { frame: InputFrame; hopMax: number; speed: number }[] = [];
   private speed = 0;
   /** Predicted buggy while driving, else null. */
   car: CarState | null = null;
@@ -72,19 +72,19 @@ export class LocalPlayer {
   }
 
   /** @param hopMax bunny-hop cap for the weapon in hand (the server uses the same, see hopMaxFor). */
-  predict(frame: InputFrame, world: CollisionWorld, hopMax: number): void {
+  predict(frame: InputFrame, world: CollisionWorld, hopMax: number, speed = 1): void {
     this.prev.set(this.state.x, this.state.y, this.state.z);
-    this.step(frame, world, hopMax);
+    this.step(frame, world, hopMax, speed);
     this.speed = Math.hypot(this.state.x - this.prev.x, this.state.z - this.prev.z) / SIM_DT;
-    this.pending.push({ frame, hopMax });
+    this.pending.push({ frame, hopMax, speed });
     if (this.pending.length > MAX_PENDING) this.pending.shift();
   }
 
-  private step(frame: InputFrame, world: CollisionWorld, hopMax: number): void {
+  private step(frame: InputFrame, world: CollisionWorld, hopMax: number, speed: number): void {
     // A developer froze us: the server ignores our inputs, so don't predict any movement.
     if (this.server.frozen) return;
     if (this.car) this.drive(frame, world);
-    else stepPlayer(this.state, frame, SIM_DT, world, this.mods, hopMax);
+    else stepPlayer(this.state, frame, SIM_DT, world, this.mods, hopMax, speed);
   }
 
   /** While driving, inputs steer the car and the chicken rides along. */
@@ -109,7 +109,7 @@ export class LocalPlayer {
     this.vehicleId = server.vehicle;
     this.car = server.vehicle && car ? { x: car.x, z: car.z, yaw: car.yaw, speed: car.speed } : null;
     if (!server.alive) this.pending = [];
-    for (const p of this.pending) this.step(p.frame, world, p.hopMax);
+    for (const p of this.pending) this.step(p.frame, world, p.hopMax, p.speed);
 
     // Normally tiny, because both sides run the same deterministic stepPlayer.
     const ex = bx - this.state.x;

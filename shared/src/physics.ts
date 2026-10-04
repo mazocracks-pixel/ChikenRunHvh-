@@ -101,7 +101,8 @@ const scratch: Aabb[] = [];
  * result, so keep it free of randomness, wall-clock time and per-side special cases.
  */
 /** @param hopMax bunny-hop speed cap for the weapon in hand (hopMaxFor); both sides pass the same. */
-export function stepPlayer(s: MoveState, input: InputFrame, dt: number, world: CollisionWorld, mods?: MoveMods | null, hopMax: number = HOP.max): void {
+/** @param weaponSpeed walking speed multiplier of the weapon in hand (moveSpeedFor; the LMG is slower). */
+export function stepPlayer(s: MoveState, input: InputFrame, dt: number, world: CollisionWorld, mods?: MoveMods | null, hopMax: number = HOP.max, weaponSpeed = 1): void {
   let f = clamp(input.forward, -1, 1);
   let r = clamp(input.right, -1, 1);
   const len = Math.hypot(f, r);
@@ -160,7 +161,7 @@ export function stepPlayer(s: MoveState, input: InputFrame, dt: number, world: C
     s.vy = Math.max(s.vy - gravity * dt, -MAX_FALL_SPEED);
     if (s.gliding && s.vy < -PLAYER.glideFallSpeed) s.vy = -PLAYER.glideFallSpeed;
   }
-  const walk = PLAYER.speed * (1 + s.hop) * (mods?.speed ?? 1) * (s.crouching ? CROUCH.speed : 1);
+  const walk = PLAYER.speed * (1 + s.hop) * (mods?.speed ?? 1) * (s.crouching ? CROUCH.speed : 1) * weaponSpeed;
 
   // Knockback fades quickly on the ground, slowly in the air.
   const keep = Math.max(0, 1 - (s.onGround ? GROUND_DRAG : AIR_DRAG) * dt);

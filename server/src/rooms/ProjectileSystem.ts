@@ -1,4 +1,5 @@
 import {
+  WEAPONS,
   PROJECTILES,
   SIM_DT,
   SMOKE_DURATION_MS,
@@ -34,6 +35,9 @@ interface Projectile {
   body: ProjectileBody;
   bornAt: number;
   fuseAt: number;
+  cause: KillCause;
+  /** Set when it flew into a chicken (bolts use it for direct damage). */
+  struck: { target: ServerPlayer; headshot: boolean } | null;
 }
 
 /** Eggs, smoke grenades and rockets: simulated here at 60 Hz, the server is the authority on where they go off. */
@@ -48,7 +52,10 @@ export class ProjectileSystem {
   }
 
   /** Launches a projectile from `origin` along `dir` and tells everyone. */
-  launch(kind: ProjectileKind, owner: ServerPlayer, origin: Vec3, dir: Vec3, ownerSeq: number, now: number, speedScale = 1): void {
+/**
+   * @param cause what kills count as (thrown eggs: 'egg'; the Egg Launcher's: 'launcher')
+   */
+  launch(kind: ProjectileKind, owner: ServerPlayer, origin: Vec3, dir: Vec3, ownerSeq: number, now: number, speedScale = 1, cause: KillCause = kind === 'rocket' ? 'rocket' : kind === 'bolt' ? 'crossbow' : 'egg'): void {
     const def = PROJECTILES[kind];
     const d = normalize(dir);
     const speed = def.speed * speedScale;
@@ -61,6 +68,8 @@ export class ProjectileSystem {
       body: { x: origin.x, y: origin.y, z: origin.z, vx: d.x * speed, vy: d.y * speed + def.upBoost, vz: d.z * speed },
       bornAt: now,
       fuseAt: now + def.fuseMs,
+      cause,
+      struck: null,
     };
     this.active.set(p.id, p);
     this.room.io.to(this.room.channel).emit('projectile', this.toSpawn(p));
@@ -92,9 +101,10 @@ export class ProjectileSystem {
       if (p.def.explodeOnImpact) {
         const player = this.hitPlayer(p, prev, now);
         if (player) {
-          b.x = player.x;
-          b.y = player.y;
-          b.z = player.z;
+          b.x = player.point.x;
+          b.y = player.point.y;
+          b.z = player.point.z;
+          p.struck = { target: player.target, headshot: player.headshot };
           hit = true;
         }
       }
@@ -109,7 +119,7 @@ export class ProjectileSystem {
   }
 
   /** First chicken the projectile passed through this tick, if any. */
-  private hitPlayer(p: Projectile, prev: Vec3, now: number): Vec3 | null {
+  private hitPlayer(p: Projectile, prev: Vec3, now: number): { point: Vec3; target: ServerPlayer; headshot: boolean } | null {
     const b = p.body;
     const dx = b.x - prev.x;
     const dy = b.y - prev.y;
@@ -118,14 +128,18 @@ export class ProjectileSystem {
     if (len < 1e-6) return null;
     const ray = makeRay(prev, { x: dx / len, y: dy / len, z: dz / len });
     let best = Infinity;
+    let struck: { target: ServerPlayer; headshot: boolean } | null = null;
     for (const target of this.room.players.values()) {
       if (!target.alive || target.vehicle) continue;
       if (target.pid === p.ownerPid && now - p.bornAt < OWNER_GRACE_MS) continue;
       const hit = rayChicken(ray, target.state.x, target.state.y, target.state.z, target.yaw, len + p.def.radius, bodyScale(target.state));
-      if (hit && hit.t < best) best = hit.t;
+      if (hit && hit.t < best) {
+        best = hit.t;
+        struck = { target, headshot: hit.headshot };
+      }
     }
-    if (!Number.isFinite(best)) return null;
-    return { x: ray.ox + ray.dx * best, y: ray.oy + ray.dy * best, z: ray.oz + ray.dz * best };
+    if (!struck) return null;
+    return { point: { x: ray.ox + ray.dx * best, y: ray.oy + ray.dy * best, z: ray.oz + ray.dz * best }, ...struck };
   }
 
   private detonate(p: Projectile, now: number): void {
@@ -140,7 +154,15 @@ export class ProjectileSystem {
       return;
     }
     const owner = this.room.players.get(p.ownerPid) ?? null;
-    this.blastAt({ x, y, z }, p.def, owner, p.kind === 'rocket' ? 'rocket' : 'egg', now, p.ownerPid);
+    if (p.kind === 'bolt') {
+      // A crossbow bolt: no blast, just whoever it struck.
+      if (p.struck) {
+        const w = WEAPONS.crossbow;
+        this.room.damage(p.struck.target, owner, w.damage * (p.struck.headshot ? w.headshotMultiplier : 1), p.struck.headshot, 'crossbow', { x, y, z }, now);
+      }
+      return;
+    }
+    this.blastAt({ x, y, z }, p.def, owner, p.cause, now, p.ownerPid);
   }
 
   /** Splash damage and knockback, blocked by walls. Also smashes loot boxes and damages cars in range. */

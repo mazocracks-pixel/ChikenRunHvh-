@@ -3,12 +3,36 @@ import { clamp, lerp, normalize, type Vec3 } from './math';
 import type { ProjectileKind } from './projectiles';
 import { mulberry32 } from './rng';
 
-export type WeaponId = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'golden' | 'knife' | 'pan' | 'katana';
+export type WeaponId =
+  | 'pistol'
+  | 'rifle'
+  | 'shotgun'
+  | 'sniper'
+  | 'smg'
+  | 'minigun'
+  | 'rocket'
+  | 'golden'
+  | 'knife'
+  | 'pan'
+  | 'katana'
+  | 'mpistol'
+  | 'revolver'
+  | 'burst'
+  | 'battle'
+  | 'autoshotgun'
+  | 'lmg'
+  | 'scout'
+  | 'crossbow'
+  | 'launcher'
+  | 'goldknife';
 
 /** Index order is part of the network protocol (snapshots send the index). Only append. */
-export const WEAPON_IDS: readonly WeaponId[] = ['pistol', 'rifle', 'shotgun', 'sniper', 'smg', 'minigun', 'rocket', 'golden', 'knife', 'pan', 'katana'];
+export const WEAPON_IDS: readonly WeaponId[] = [
+  'pistol', 'rifle', 'shotgun', 'sniper', 'smg', 'minigun', 'rocket', 'golden', 'knife', 'pan', 'katana',
+  'mpistol', 'revolver', 'burst', 'battle', 'autoshotgun', 'lmg', 'scout', 'crossbow', 'launcher', 'goldknife',
+];
 
-export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana';
+export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana' | 'revolver' | 'battle' | 'lmg' | 'crossbow' | 'launcher';
 
 export interface WeaponDef {
   id: WeaponId;
@@ -36,6 +60,15 @@ export interface WeaponDef {
   /** Camera kick per shot, radians. */
   recoil: number;
   projectile?: ProjectileKind;
+  /** Launch speed multiplier for the projectile (the Egg Launcher throws eggs much harder than a hand). */
+  projectileSpeed?: number;
+  /**
+   * Burst fire: one trigger pull fires `count` shots, `gapMs` apart. `fireInterval` is then the
+   * time from the start of one burst to the next.
+   */
+  burst?: { count: number; gapMs: number };
+  /** Walking speed while holding it (heavy guns are slower). */
+  moveSpeed?: number;
   /**
    * Melee weapons: `range` is the reach, and a swing also hits a chest within `arc` (cone
    * half-angle, radians) of the crosshair. No ammo; see meleeHit.
@@ -116,6 +149,67 @@ const DEFS: WeaponDef[] = [
     range: 2.9, falloffStart: 2.9, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.015,
     melee: { arc: 0.5 }, price: 1800, sound: 'katana', model: { length: 0.95, color: 0x1d1a2a, accent: 0xc9a33a },
   },
+  // ---- Second wave: more variety for every slot (and the Arms Race ladder) ----
+  {
+    id: 'mpistol', name: 'Machine Pistol', damage: 12, headshotMultiplier: 1.8, fireInterval: 65, automatic: true,
+    magazine: 20, reloadTime: 1500, pellets: 1, spread: 0.03, moveSpread: 0.02, airSpread: 0.06,
+    range: 45, falloffStart: 12, minDamageScale: 0.5, zoom: 1.1, scope: false, recoil: 0.008,
+    price: 500, sound: 'smg', model: { length: 0.3, color: 0x2a2d33, accent: 0x6f7680 },
+  },
+  {
+    id: 'revolver', name: 'Revolver', damage: 52, headshotMultiplier: 2, fireInterval: 520, automatic: false,
+    magazine: 6, reloadTime: 2300, pellets: 1, spread: 0.006, moveSpread: 0.03, airSpread: 0.07,
+    range: 90, falloffStart: 30, minDamageScale: 0.65, zoom: 1.25, scope: false, recoil: 0.06,
+    price: 700, sound: 'revolver', model: { length: 0.36, color: 0x8a8f99, accent: 0x6b4a2e },
+  },
+  {
+    id: 'burst', name: 'Burst Rifle', damage: 22, headshotMultiplier: 2, fireInterval: 380, automatic: false,
+    magazine: 30, reloadTime: 2000, pellets: 1, spread: 0.008, moveSpread: 0.03, airSpread: 0.08,
+    range: 110, falloffStart: 40, minDamageScale: 0.6, zoom: 1.4, scope: false, recoil: 0.012,
+    burst: { count: 3, gapMs: 70 }, price: 1600, sound: 'rifle', model: { length: 0.74, color: 0x3b4652, accent: 0xd0d4da },
+  },
+  {
+    id: 'battle', name: 'Battle Rifle', damage: 38, headshotMultiplier: 2.2, fireInterval: 300, automatic: false,
+    magazine: 20, reloadTime: 2300, pellets: 1, spread: 0.004, moveSpread: 0.035, airSpread: 0.09,
+    range: 150, falloffStart: 60, minDamageScale: 0.7, zoom: 2.2, scope: false, recoil: 0.03,
+    price: 2000, sound: 'battle', model: { length: 0.86, color: 0x7a6a4a, accent: 0x2b2e33 },
+  },
+  {
+    id: 'autoshotgun', name: 'Auto Shotgun', damage: 8, headshotMultiplier: 1.5, fireInterval: 260, automatic: true,
+    magazine: 8, reloadTime: 2800, pellets: 8, spread: 0.09, moveSpread: 0.02, airSpread: 0.04,
+    range: 26, falloffStart: 7, minDamageScale: 0.25, zoom: 1.1, scope: false, recoil: 0.04,
+    price: 1700, sound: 'shotgun', model: { length: 0.7, color: 0x2f3236, accent: 0x9a2c2c },
+  },
+  {
+    id: 'lmg', name: 'LMG', damage: 15, headshotMultiplier: 1.8, fireInterval: 85, automatic: true,
+    magazine: 100, reloadTime: 4500, pellets: 1, spread: 0.025, moveSpread: 0.05, airSpread: 0.1,
+    range: 100, falloffStart: 35, minDamageScale: 0.6, zoom: 1.3, scope: false, recoil: 0.009,
+    moveSpeed: 0.85, price: 2200, sound: 'lmg', model: { length: 0.95, color: 0x3a3f35, accent: 0x8f8a6a },
+  },
+  {
+    id: 'scout', name: 'Scout', damage: 68, headshotMultiplier: 2.5, fireInterval: 1000, automatic: false,
+    magazine: 8, reloadTime: 2600, pellets: 1, spread: 0.003, moveSpread: 0.012, airSpread: 0.02,
+    range: 220, falloffStart: 220, minDamageScale: 1, zoom: 3.2, scope: true, recoil: 0.05,
+    price: 1400, sound: 'sniper', model: { length: 0.95, color: 0x3d4f3a, accent: 0x1c1e21 },
+  },
+  {
+    id: 'crossbow', name: 'Crossbow', damage: 85, headshotMultiplier: 2, fireInterval: 1100, automatic: false,
+    magazine: 1, reloadTime: 1500, pellets: 1, spread: 0.002, moveSpread: 0.02, airSpread: 0.05,
+    range: 150, falloffStart: 150, minDamageScale: 1, zoom: 1.8, scope: false, recoil: 0.03,
+    projectile: 'bolt', price: 1900, sound: 'crossbow', model: { length: 0.75, color: 0x6b4a2e, accent: 0x2b2e33 },
+  },
+  {
+    id: 'launcher', name: 'Egg Launcher', damage: 0, headshotMultiplier: 1, fireInterval: 700, automatic: false,
+    magazine: 4, reloadTime: 3000, pellets: 1, spread: 0.01, moveSpread: 0.02, airSpread: 0.04,
+    range: 60, falloffStart: 60, minDamageScale: 1, zoom: 1.2, scope: false, recoil: 0.06,
+    projectile: 'egg', projectileSpeed: 1.6, price: 2400, sound: 'launcher', model: { length: 0.7, color: 0xd9a441, accent: 0x3a3a3a },
+  },
+  {
+    id: 'goldknife', name: 'Golden Knife', damage: 60, headshotMultiplier: 2, fireInterval: 400, automatic: true,
+    magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
+    range: 2.4, falloffStart: 2.4, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
+    melee: { arc: 0.6 }, price: 5000, sound: 'knife', model: { length: 0.32, color: 0x2a2c31, accent: 0xe8b93e },
+  },
 ];
 
 export const WEAPONS = Object.fromEntries(DEFS.map((w) => [w.id, w])) as Record<WeaponId, WeaponDef>;
@@ -139,6 +233,41 @@ export function isMelee(id: WeaponId): boolean {
 /** How much speed bunny hops can build while holding this weapon (melee: more). */
 export function hopMaxFor(id: WeaponId): number {
   return isMelee(id) ? HOP.meleeMax : HOP.max;
+}
+
+/** Walking speed multiplier while holding this weapon (1 for most). */
+export function moveSpeedFor(id: WeaponId): number {
+  return WEAPONS[id].moveSpeed ?? 1;
+}
+
+/** Shot timing for one weapon: when the last burst started and how many of its shots went out. */
+export interface FireTiming {
+  lastFireAt: number;
+  burstStart: number;
+  burstShots: number;
+}
+
+/**
+ * Can the next shot go out at `now`? Normal weapons wait `interval` between shots; burst weapons
+ * fire `count` shots `gapMs` apart, then wait until `interval` after the burst began. Updates
+ * `t` when it says yes. `tolerance` (< 1) forgives network jitter on the server.
+ */
+export function takeShot(w: WeaponDef, interval: number, t: FireTiming, now: number, tolerance = 1): boolean {
+  if (w.burst) {
+    if (t.burstShots > 0 && t.burstShots < w.burst.count && now - t.lastFireAt >= w.burst.gapMs * tolerance && now - t.burstStart < interval) {
+      t.burstShots++;
+      t.lastFireAt = now;
+      return true;
+    }
+    if (now - t.burstStart < interval * tolerance) return false;
+    t.burstStart = now;
+    t.burstShots = 1;
+    t.lastFireAt = now;
+    return true;
+  }
+  if (now - t.lastFireAt < interval * tolerance) return false;
+  t.lastFireAt = now;
+  return true;
 }
 
 export function weaponIndex(id: WeaponId): number {

@@ -18,6 +18,7 @@ import {
   createCollisionWorld,
   eyeHeightOf,
   hopMaxFor,
+  moveSpeedFor,
   heightOf,
   getItem,
   makeRay,
@@ -297,7 +298,7 @@ export class GameSession {
       if (!this.local.alive) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
-      this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon));
+      this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon));
       net.socket.emit('input', frame);
     }
 
@@ -1132,6 +1133,12 @@ export class GameSession {
     const at = { x: e.x, y: e.y, z: e.z };
     if (e.kind === 'smoke') {
       this.ctx.audio.play('smokePop', at);
+      return;
+    }
+    if (e.kind === 'bolt') {
+      // A crossbow bolt hitting something: a thud, no explosion.
+      this.effects.impact(at);
+      this.ctx.audio.play('meleeHit', at, 0.6);
       return;
     }
     this.effects.explosion(at, PROJECTILES[e.kind].splashRadius);

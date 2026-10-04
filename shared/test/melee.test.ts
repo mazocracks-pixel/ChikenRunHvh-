@@ -10,6 +10,7 @@ import {
   createMoveState,
   hopMaxFor,
   isMelee,
+  moveSpeedFor,
   meleeHit,
   sanitizeLoadout,
   stepPlayer,
@@ -107,5 +108,17 @@ describe('bunny hop while crouching', () => {
     assert.ok(fast.hop > 0.3);
     for (let i = 0; i < 2 / SIM_DT; i++) stepPlayer(fast, crouchHop(i), SIM_DT, flat, null, HOP.max);
     assert.equal(fast.hop, 0, 'holding Ctrl drops the bonus on the next hop');
+  });
+});
+
+describe('heavy guns', () => {
+  it('the LMG slows you down', () => {
+    const walk = (speed: number) => {
+      const s = createMoveState(0, 0, 90);
+      for (let i = 0; i < 60; i++) stepPlayer(s, { seq: i, forward: 1, right: 0, jump: false, yaw: 0, pitch: 0 }, SIM_DT, flat, null, HOP.max, speed);
+      return 90 - s.z;
+    };
+    assert.equal(moveSpeedFor('rifle'), 1);
+    assert.ok(Math.abs(walk(moveSpeedFor('lmg')) / walk(1) - 0.85) < 0.01);
   });
 });

@@ -13,17 +13,22 @@ const OFFSETS: Partial<Record<WeaponId, THREE.Vector3>> = {
   minigun: new THREE.Vector3(0.02, -0.05, 0.02),
   sniper: new THREE.Vector3(0, -0.01, 0.03),
   knife: new THREE.Vector3(0.02, -0.02, 0.04),
+  goldknife: new THREE.Vector3(0.02, -0.02, 0.04),
+  lmg: new THREE.Vector3(0.03, -0.04, 0.03),
+  launcher: new THREE.Vector3(0.03, -0.03, 0.02),
+  crossbow: new THREE.Vector3(0.02, -0.03, 0.02),
   pan: new THREE.Vector3(0.04, -0.04, 0.04),
   katana: new THREE.Vector3(0.07, -0.08, 0.06),
 };
 /** Melee weapons are held angled up rather than pointed like a gun (x pitch, y yaw, z roll). */
 const HOLD_ANGLES: Partial<Record<WeaponId, THREE.Euler>> = {
   knife: new THREE.Euler(0.2, 0.08, -0.15),
+  goldknife: new THREE.Euler(0.2, 0.08, -0.15),
   pan: new THREE.Euler(0.45, 0.1, -0.2),
   katana: new THREE.Euler(1.0, -0.15, -0.2),
 };
 /** Seconds one swing animation takes. */
-const SWING_TIME: Partial<Record<WeaponId, number>> = { knife: 0.26, pan: 0.38, katana: 0.32 };
+const SWING_TIME: Partial<Record<WeaponId, number>> = { knife: 0.26, goldknife: 0.26, pan: 0.38, katana: 0.32 };
 
 /** An offset added to the held pose (metres and radians). */
 interface Pose {
@@ -84,7 +89,7 @@ const INSPECT_MELEE: Keyframes = [
 ];
 const INSPECT_SECONDS = 2.4;
 /** Per-weapon size (big guns would cover the HUD). */
-const SIZES: Partial<Record<WeaponId, number>> = { rocket: 0.72, minigun: 0.85, sniper: 0.95 };
+const SIZES: Partial<Record<WeaponId, number>> = { rocket: 0.72, minigun: 0.85, sniper: 0.95, lmg: 0.82, launcher: 0.85, crossbow: 0.9, scout: 0.95, battle: 0.95 };
 const FLASH_LIFE = 0.05;
 
 export interface ViewModelFrame {

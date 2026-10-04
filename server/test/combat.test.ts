@@ -253,3 +253,55 @@ describe('melee', () => {
     assert.equal(named(events, 'kill').at(-1)!.cause, 'knife');
   });
 });
+
+describe('second-wave guns', () => {
+  /** Puts a weapon in `p`'s hands. */
+  function give(room: GameRoom, p: ServerPlayer, weapon: keyof typeof WEAPONS) {
+    p.info.loadout = [weapon, ...p.info.loadout.filter((w) => w !== weapon)];
+    p.mags.set(weapon, WEAPONS[weapon].magazine);
+    useWeapon(room, p, 0);
+  }
+  /** Runs the projectile simulation forward. */
+  function fly(room: GameRoom, ms: number) {
+    const start = performance.now();
+    for (let t = 0; t <= ms; t += 1000 / 60) room.projectiles.update(start + t);
+  }
+
+  it('a crossbow bolt hits directly: body damage, and a headshot kills', () => {
+    const { room, a, b } = setup();
+    give(room, a, 'crossbow');
+    fire(room, a, { x: 20, y: 0.6, z: -15 });
+    fly(room, 600);
+    assert.equal(b.hp, PLAYER.maxHealth - WEAPONS.crossbow.damage);
+    a.mags.set('crossbow', 1);
+    fire(room, a, { x: 20, y: 1.27, z: -15.3 });
+    fly(room, 600);
+    assert.equal(b.alive, false, 'headshot bolt');
+  });
+
+  it('Egg Launcher kills count as Egg Launcher kills', () => {
+    const { room, events, a, b } = setup();
+    give(room, a, 'launcher');
+    b.hp = 10;
+    // Close, so the egg lands on Bob before it drops.
+    place(b, 20, -9);
+    fire(room, a, { x: 20, y: 0.6, z: -9 });
+    fly(room, 1500);
+    assert.equal(b.alive, false);
+    assert.equal(named(events, 'kill').at(-1)!.cause, 'launcher');
+  });
+
+  it('the burst rifle fires three quick shots per pull, then waits', () => {
+    const { room, a } = setup();
+    give(room, a, 'burst');
+    const full = a.mag;
+    const shoot = (seq: number) => room.handleFire(a, { shot: seq, weapon: 'burst', dx: 0, dy: 0, dz: -1, t: performance.now(), aiming: false });
+    // Pretend the burst gaps passed (performance.now() barely moves inside a test).
+    shoot(1001);
+    for (let i = 0; i < 4; i++) {
+      a.lastFireAt -= WEAPONS.burst.burst!.gapMs;
+      shoot(1002 + i);
+    }
+    assert.equal(full - a.mag, 3, 'only three shots in a burst');
+  });
+});

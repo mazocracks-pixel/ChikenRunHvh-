@@ -10,7 +10,7 @@ const TABS: { slot: ItemSlot; label: string }[] = [
   { slot: 'weapon', label: 'Weapons' },
 ];
 
-const WEAPON_ICONS: Record<string, string> = { rocket: '🚀', golden: '✨', knife: '🔪', pan: '🍳', katana: '⚔️' };
+const WEAPON_ICONS: Record<string, string> = { rocket: '🚀', golden: '✨', knife: '🔪', pan: '🍳', katana: '⚔️', goldknife: '🌟', crossbow: '🏹', launcher: '🥚', revolver: '🤠', lmg: '💥', scout: '🎯' };
 const HAT_ICONS: Record<string, string> = { none: '∅', cap: '🧢', party: '🥳', chef: '👨‍🍳', cowboy: '🤠', helmet: '🪖', tophat: '🎩', viking: '⚔️', crown: '👑' };
 
 /** Customize your chicken, buy items with coins, and pick your four weapons. */
@@ -88,7 +88,7 @@ export class ShopScreen {
     if (item.slot === 'weapon') {
       const w = WEAPONS[item.key as WeaponId];
       const rpm = Math.round(60000 / w.fireInterval);
-      const stats = w.melee ? `Melee · ${w.damage} dmg · ${w.range} m reach` : w.projectile ? 'Explosive' : `${w.damage}${w.pellets > 1 ? `×${w.pellets}` : ''} dmg · ${rpm} rpm · ${w.magazine} mag`;
+      const stats = w.melee ? `Melee · ${w.damage} dmg · ${w.range} m reach` : w.projectile === 'bolt' ? `Bolts · ${w.damage} dmg · drops with distance` : w.projectile ? 'Explosive' : `${w.damage}${w.pellets > 1 ? `×${w.pellets}` : ''} dmg · ${rpm} rpm · ${w.magazine} mag`;
       card.append(h('small', { class: 'stats' }, stats));
     }
     card.append(h('span', { class: 'status-tag' }, status));

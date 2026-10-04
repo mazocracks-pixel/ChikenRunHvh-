@@ -1,4 +1,4 @@
-import { WEAPONS, WEAPON_SWITCH_MS, fireIntervalFor, magazineSize, shotUsesAmmo, type DevMods, type PlayerState, type WeaponDef, type WeaponId } from '@game/shared';
+import { WEAPONS, WEAPON_SWITCH_MS, fireIntervalFor, magazineSize, shotUsesAmmo, takeShot, type DevMods, type FireTiming, type PlayerState, type WeaponDef, type WeaponId } from '@game/shared';
 
 /** After firing, trust our own ammo count over (older) snapshots for this long. */
 const AMMO_TRUST_MS = 400;
@@ -15,7 +15,8 @@ export class WeaponController {
   private reloadEndsAt = 0;
   private reloadStartedAt = 0;
   private switchReadyAt = 0;
-  private lastFireAt = -Infinity;
+  /** When we last fired, and burst progress (the same rule the server checks). */
+  private readonly timing: FireTiming = { lastFireAt: -Infinity, burstStart: -Infinity, burstShots: 0 };
   private triggerWasDown = false;
   /** Developer modifiers confirmed by the server (null = normal rules). */
   mods: DevMods | null = null;
@@ -70,6 +71,7 @@ export class WeaponController {
     this.slot = slot;
     this.reloadEndsAt = 0;
     this.switchReadyAt = now + WEAPON_SWITCH_MS;
+    this.timing.burstShots = 0;
     return true;
   }
 
@@ -100,11 +102,16 @@ export class WeaponController {
   trigger(down: boolean, now: number): 'fire' | 'empty' | null {
     const fresh = down && !this.triggerWasDown;
     this.triggerWasDown = down;
-    if (!down || (!this.def.automatic && !this.forceAutomatic && !fresh)) return null;
+    const w = this.def;
+    // A burst keeps going after the trigger pull that started it.
+    const midBurst = w.burst !== undefined && this.timing.burstShots > 0 && this.timing.burstShots < w.burst.count && now - this.timing.burstStart < this.fireInterval;
+    if (!midBurst && (!down || (!w.automatic && !this.forceAutomatic && !fresh))) return null;
     if (now < this.switchReadyAt || this.reloading) return null;
-    if (now - this.lastFireAt < this.fireInterval) return null;
-    if (this.mag <= 0) return fresh ? 'empty' : null;
-    this.lastFireAt = now;
+    if (this.mag <= 0) {
+      this.timing.burstShots = 0;
+      return fresh ? 'empty' : null;
+    }
+    if (!takeShot(w, this.fireInterval, this.timing, now)) return null;
     if (shotUsesAmmo(this.def, this.mods)) this.mags.set(this.weapon, this.mag - 1);
     this.shotSeq++;
     return 'fire';
@@ -126,7 +133,7 @@ export class WeaponController {
       const slot = this.loadout.indexOf(server.weapon);
       if (slot >= 0 && now > this.switchReadyAt + 500) this.slot = slot;
     }
-    if (server.weapon === this.weapon && !this.reloading && !server.reloading && now - this.lastFireAt > AMMO_TRUST_MS) {
+    if (server.weapon === this.weapon && !this.reloading && !server.reloading && now - this.timing.lastFireAt > AMMO_TRUST_MS) {
       this.mags.set(this.weapon, server.mag);
     }
   }

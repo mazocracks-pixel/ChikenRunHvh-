@@ -17,6 +17,7 @@ import {
   eyeHeightOf,
   fireIntervalFor,
   hopMaxFor,
+  moveSpeedFor,
   isWeaponId,
   makeRay,
   meleeHit,
@@ -32,6 +33,7 @@ import {
   WALLBANG,
   shotSeed,
   shotUsesAmmo,
+  takeShot,
   spreadFor,
   stepPlayer,
   wrapAngle,
@@ -381,7 +383,7 @@ export class GameRoom {
       this.vehicles.drive(p, frame);
       return;
     }
-    stepPlayer(p.state, frame, SIM_DT, this.world, p.mods, hopMaxFor(p.weapon));
+    stepPlayer(p.state, frame, SIM_DT, this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon));
   }
 
   handleFire(p: ServerPlayer, raw: unknown): void {
@@ -392,7 +394,11 @@ export class GameRoom {
     const now = performance.now();
     const mods = p.mods;
     if (now < p.switchReadyAt || p.reloadUntil > 0 || p.mag <= 0) return;
-    if (now - p.lastFireAt < fireIntervalFor(w, mods) * FIRE_RATE_TOLERANCE) return;
+    // Fire rate (and burst timing), with a little slack for network jitter.
+    const timing = { lastFireAt: p.lastFireAt, burstStart: p.burstStart, burstShots: p.burstShots };
+    if (!takeShot(w, fireIntervalFor(w, mods), timing, now, FIRE_RATE_TOLERANCE)) return;
+    p.burstStart = timing.burstStart;
+    p.burstShots = timing.burstShots;
 
     p.lastShotSeq = req.shot;
     p.lastFireAt = now;
@@ -405,7 +411,7 @@ export class GameRoom {
     const aim = { x: req.dx / len, y: req.dy / len, z: req.dz / len };
 
     if (w.projectile) {
-      this.projectiles.launch(w.projectile, p, this.safeLaunchPoint(eye, aim), aim, req.shot, now, mods?.projectileSpeed ?? 1);
+      this.projectiles.launch(w.projectile, p, this.safeLaunchPoint(eye, aim), aim, req.shot, now, (mods?.projectileSpeed ?? 1) * (w.projectileSpeed ?? 1), w.id);
       this.io.to(this.channel).emit('shot', { pid: p.pid, weapon: req.weapon, ox: eye.x, oy: eye.y, oz: eye.z, ends: [], hits: [] });
       return;
     }
@@ -523,6 +529,7 @@ export class GameRoom {
     p.reloadUntil = 0;
     p.aiming = false;
     p.switchReadyAt = performance.now() + WEAPON_SWITCH_MS;
+    p.burstShots = 0;
   }
 
   handleAim(p: ServerPlayer, aiming: unknown): void {
