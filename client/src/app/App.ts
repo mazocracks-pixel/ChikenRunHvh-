@@ -226,6 +226,7 @@ export class App {
 
   private startGame(join: JoinSuccess): void {
     this.lastRoom = { id: join.room.id, mode: join.room.mode };
+    this.touch?.setBombMode(join.room.mode === 'bomb');
     this.screen = 'game';
     this.touchPaused = false;
     this.menu.setVisible(false);

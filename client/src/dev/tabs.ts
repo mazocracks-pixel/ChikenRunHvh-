@@ -200,6 +200,7 @@ export function buildTabs(dev: Dev): Tab[] {
     roof: 'Roofs',
     concrete: 'Concrete',
     metal: 'Metal',
+    sandstone: 'Sandstone walls',
     fence: 'Fence',
     trees: 'Trees',
   };

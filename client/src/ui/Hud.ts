@@ -1,4 +1,4 @@
-import { JETPACK, MODES, PLAYER, TEAM_COLORS, TEAM_NAMES, WEAPONS, type ChatMessage, type KillCause, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type Team, type WeaponId } from '@game/shared';
+import { JETPACK, MODES, PLAYER, TEAM_COLORS, WEAPONS, teamName, type ChatMessage, type KillCause, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
 import { watchSettings } from '../settings';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
@@ -10,6 +10,7 @@ function causeLabel(cause: KillCause): string {
   if (cause === 'egg') return 'Egg';
   if (cause === 'car') return 'Buggy';
   if (cause === 'world') return 'Fall';
+  if (cause === 'bomb') return 'Bomb';
   return WEAPONS[cause as WeaponId]?.name ?? cause;
 }
 
@@ -65,6 +66,12 @@ export class Hud {
   private readonly results = h('div', { class: 'results panel' });
   private readonly chatLog = h('div', { class: 'chat-log' });
   private readonly hint = h('div', { class: 'hint-bar' });
+  /** ChikenBomb: money, round line, plant / defuse progress. */
+  private readonly money = h('div', { class: 'money' });
+  private readonly roundLine = h('div', { class: 'round-line' });
+  private readonly progressText = h('span');
+  private readonly progressFill = h('div', { class: 'fill' });
+  private readonly progress = h('div', { class: 'bomb-progress' }, this.progressFill, this.progressText);
 
   private mode: ModeDef = MODES.ffa;
   /** Developer Misc switches. */
@@ -84,12 +91,15 @@ export class Hud {
     this.results.hidden = true;
     this.scope.hidden = true;
     this.hint.hidden = true;
+    this.money.hidden = true;
+    this.roundLine.hidden = true;
+    this.progress.hidden = true;
 
     this.root = h(
       'div',
       { id: 'hud', class: 'hud' },
       h('div', { class: 'hud-top-left' }, this.stats, this.roomCode),
-      h('div', { class: 'hud-top-center' }, this.modeLabel, this.timer, this.teamScores),
+      h('div', { class: 'hud-top-center' }, this.modeLabel, this.timer, this.teamScores, this.roundLine),
       h('div', { class: 'hud-top-right' }, this.killfeed),
       this.scope,
       this.vignette,
@@ -100,7 +110,8 @@ export class Hud {
       this.toasts,
       this.death,
       this.hint,
-      h('div', { class: 'hud-bottom-left' }, h('div', { class: 'chat' }, this.chatLog, this.chatInput), h('div', { class: 'vitals' }, this.hopBadge, h('div', { class: 'bar hp' }, this.hpFill, this.hpText), this.armorBar, this.fuelBar)),
+      this.progress,
+      h('div', { class: 'hud-bottom-left' }, h('div', { class: 'chat' }, this.chatLog, this.chatInput), h('div', { class: 'vitals' }, this.money, this.hopBadge, h('div', { class: 'bar hp' }, this.hpFill, this.hpText), this.armorBar, this.fuelBar)),
       h('div', { class: 'hud-bottom-right' }, this.grenades, h('div', { class: 'weapon-panel' }, this.weaponName, this.ammo, this.reloadBar), this.slots),
       this.scoreboard,
       this.results,
@@ -244,6 +255,11 @@ export class Hud {
     this.death.hidden = false;
   }
 
+  /** ChikenBomb: dead until the next round. */
+  setDeathWaiting(text: string): void {
+    this.deathTimer.textContent = text;
+  }
+
   setDeathTimer(msLeft: number): void {
     this.deathTimer.textContent = msLeft > 0 ? `Respawning in ${Math.ceil(msLeft / 1000)}…` : 'Respawning…';
   }
@@ -274,12 +290,71 @@ export class Hud {
     this.results.hidden = match.phase !== 'ended';
   }
 
+  // ---------------------------------------------------------------------------
+  // ChikenBomb
+  // ---------------------------------------------------------------------------
+
+  setMoney(money: number | null): void {
+    this.money.hidden = money === null;
+    if (money !== null) this.money.textContent = `$${money.toLocaleString()}`;
+  }
+
+  /**
+   * The round: a timer (buy time, round clock or bomb fuse) and a line under the team scores.
+   * Takes over the match timer and banner while a ChikenBomb match is on.
+   */
+  setRound(r: RoundState, serverNow: number, selfTeam: Team): void {
+    const left = r.endsAt === null ? null : Math.max(0, r.endsAt - serverNow);
+    const clock = left === null ? '' : formatTime(left);
+    let line = '';
+    let banner = '';
+    switch (r.phase) {
+      case 'warmup':
+        line = `Warmup · ${clock}`;
+        banner = left !== null && left < 5000 ? `Round 1 in ${Math.max(1, Math.ceil(left / 1000))}` : '';
+        break;
+      case 'buy':
+        line = `Round ${r.round} · Buy time ${clock}`;
+        banner = `Buy time: press B · ${Math.max(1, Math.ceil((left ?? 0) / 1000))}`;
+        break;
+      case 'live':
+        line = `Round ${r.round}`;
+        break;
+      case 'planted':
+        line = `💣 Bomb planted at ${r.bomb.site}`;
+        break;
+      case 'over': {
+        const won = r.winner === selfTeam;
+        banner = r.winner ? `${teamName(this.mode, r.winner)} win the round${won ? ' 🎉' : ''}` : '';
+        line = `Round ${r.round} over`;
+        break;
+      }
+    }
+    this.timer.textContent = r.phase === 'over' ? '' : clock;
+    this.timer.classList.toggle('urgent', (r.phase === 'live' || r.phase === 'planted') && left !== null && left < 15_000);
+    this.timer.classList.toggle('bomb', r.phase === 'planted');
+    this.roundLine.hidden = line === '';
+    this.roundLine.textContent = line;
+    if (banner || r.phase !== 'warmup') {
+      this.banner.textContent = banner;
+      this.banner.hidden = banner === '';
+    }
+  }
+
+  /** Planting / defusing progress (0..1), or null to hide it. */
+  setBombProgress(label: string | null, progress: number): void {
+    this.progress.hidden = label === null;
+    if (label === null) return;
+    this.progressText.textContent = label;
+    this.progressFill.style.width = `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`;
+  }
+
   setTeamScores(scores: [number, number], selfTeam: Team): void {
     if (!this.mode.teams) return;
     clear(this.teamScores);
     for (const team of [1, 2] as const) {
       this.teamScores.append(
-        h('div', { class: `team t${team}${team === selfTeam ? ' mine' : ''}` }, h('span', null, TEAM_NAMES[team]), h('b', null, scores[team - 1]), h('small', null, `/ ${this.mode.scoreLimit}`)),
+        h('div', { class: `team t${team}${team === selfTeam ? ' mine' : ''}` }, h('span', null, teamName(this.mode, team)), h('b', null, scores[team - 1]), h('small', null, `/ ${this.mode.scoreLimit}`)),
       );
     }
   }
@@ -306,7 +381,7 @@ export class Hud {
     if (this.mode.teams) {
       const wrap = h('div', { class: 'team-tables' });
       for (const team of [1, 2] as const) {
-        wrap.append(table(sorted.filter((l) => l.info.team === team), `${TEAM_NAMES[team]} · ${teamScores[team - 1]}`, team));
+        wrap.append(table(sorted.filter((l) => l.info.team === team), `${teamName(this.mode, team)} · ${teamScores[team - 1]}`, team));
       }
       this.scoreboard.append(wrap);
     } else {
@@ -317,7 +392,7 @@ export class Hud {
   renderResults(match: MatchState, lines: ScoreLine[], teamScores: [number, number], winner: PlayerInfo | undefined, mvp: PlayerInfo | undefined, selfWon: boolean): void {
     clear(this.results);
     let title: string;
-    if (this.mode.teams) title = match.winnerTeam ? `${TEAM_NAMES[match.winnerTeam]} team wins!` : "It's a draw!";
+    if (this.mode.teams) title = match.winnerTeam ? `${teamName(this.mode, match.winnerTeam)} team wins!` : "It's a draw!";
     else title = winner ? `${winner.name} wins!` : 'No winner';
     this.results.append(h('h2', { class: selfWon ? 'won' : '' }, selfWon ? `🏆 ${title}` : title));
     if (this.mode.teams) this.results.append(h('div', { class: 'final-score' }, `${teamScores[0]} : ${teamScores[1]}`));

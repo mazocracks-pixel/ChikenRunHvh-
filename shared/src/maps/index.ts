@@ -1,12 +1,13 @@
 import { CollisionWorld } from '../collision';
 import { FARM } from './farm';
 import { FLAT } from './flat';
+import { SANDSTOWN } from './sandstown';
 import { TOWN } from './town';
 import { boxToAabb, type MapDef, type MapId } from './types';
 
 export * from './types';
 
-export const MAPS: Record<MapId, MapDef> = { farm: FARM, town: TOWN, flat: FLAT };
+export const MAPS: Record<MapId, MapDef> = { farm: FARM, town: TOWN, flat: FLAT, sandstown: SANDSTOWN };
 export const MAP_IDS = Object.keys(MAPS) as MapId[];
 
 export function isMapId(value: unknown): value is MapId {

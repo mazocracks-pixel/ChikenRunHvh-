@@ -31,7 +31,7 @@ export class CtfRoom extends GameRoom {
     this.flags = this.map.flags.map((f) => ({ team: f.team, baseX: f.x, baseZ: f.z, x: f.x, y: 0, z: f.z, carrier: null, atBase: true, droppedAt: 0 }));
   }
 
-  protected override joinExtras() {
+  protected override joinExtras(_player: ServerPlayer) {
     return { blocks: [], flags: this.states() };
   }
 

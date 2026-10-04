@@ -64,8 +64,13 @@ export class ServerPlayer {
 
   /** Developer testing modifiers; null for everyone without developer access (and bots). */
   mods: DevMods | null = null;
-  /** Held in place by a developer: inputs are acknowledged but ignored. */
+  /** Held in place by a developer (or ChikenBomb buy time): inputs are acknowledged but ignored. */
   frozen = false;
+  /** Use (E) held in the latest input. */
+  useHeld = false;
+  /** ChikenBomb money, and whether a chikenCT bought a defuse kit. */
+  money = 0;
+  hasKit = false;
 
   constructor(info: PlayerInfo, socket: GameSocket | null, userId: number | null) {
     this.info = info;

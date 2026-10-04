@@ -1,3 +1,4 @@
+import type { RoundState } from './bomb';
 import type { DevAction, DevMods, DevResult, DevStatus } from './dev';
 import type { Appearance } from './items';
 import type { MapId, Team } from './maps/types';
@@ -279,8 +280,17 @@ export type JoinResponse =
       smokes: SmokeEvent[];
       blocks: BlockState[];
       flags: FlagState[];
+      /** ChikenBomb rooms: the round, and your money. */
+      round: RoundState | null;
+      money: number;
     }
   | { ok: false; error: string };
+
+export interface BuyResult {
+  ok: boolean;
+  error?: string;
+  money: number;
+}
 
 export type JoinSuccess = Extract<JoinResponse, { ok: true }>;
 
@@ -338,7 +348,7 @@ export interface DamageEvent {
   fromZ: number;
 }
 
-export type KillCause = WeaponId | 'egg' | 'car' | 'world';
+export type KillCause = WeaponId | 'egg' | 'car' | 'world' | 'bomb';
 
 export interface KillEvent {
   killer: number;
@@ -446,6 +456,8 @@ export interface ClientToServerEvents {
   aim: (aiming: boolean) => void;
   chat: (text: string) => void;
   useVehicle: () => void;
+  /** ChikenBomb buy menu. */
+  buy: (itemId: string, ack: (res: BuyResult) => void) => void;
   build: (req: BuildRequest) => void;
   unbuild: (blockId: number) => void;
   /** Unlock developer tools for this account. The passkey is checked on the server only. */
@@ -481,6 +493,10 @@ export interface ServerToClientEvents {
   chat: (msg: ChatMessage) => void;
   reward: (e: MatchRewardEvent) => void;
   flag: (e: FlagEvent) => void;
+  /** ChikenBomb: the round and the bomb changed. */
+  round: (e: RoundState) => void;
+  /** ChikenBomb: your money. */
+  money: (e: { money: number }) => void;
   blockPlaced: (block: BlockState) => void;
   blockRemoved: (blockId: number) => void;
   /** The server removed you from the room (e.g. kicked); go back to the lobby. */

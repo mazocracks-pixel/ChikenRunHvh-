@@ -1,3 +1,4 @@
+export * from './bomb';
 export * from './building';
 export * from './collision';
 export * from './constants';
@@ -7,6 +8,7 @@ export * from './maps';
 export * from './math';
 export * from './melee';
 export * from './modes';
+export * from './nav';
 export * from './physics';
 export * from './pickups';
 export * from './projectiles';

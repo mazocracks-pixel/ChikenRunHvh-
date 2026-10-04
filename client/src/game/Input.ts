@@ -18,6 +18,10 @@ export type Action =
   | 'slot3'
   | 'slot4'
   | 'slot5'
+  | 'slot6'
+  | 'slot7'
+  | 'slot8'
+  | 'slot9'
   | 'nextWeapon'
   | 'prevWeapon'
   | 'camera'
@@ -36,6 +40,10 @@ const KEY_ACTIONS: Record<string, Action> = {
   Digit3: 'slot3',
   Digit4: 'slot4',
   Digit5: 'slot5',
+  Digit6: 'slot6',
+  Digit7: 'slot7',
+  Digit8: 'slot8',
+  Digit9: 'slot9',
   KeyV: 'camera',
   KeyT: 'chat',
   Enter: 'chat',
@@ -96,7 +104,7 @@ export class Input {
   private fireHeld = false;
   private aimHeld = false;
   private touchAxes = { forward: 0, right: 0 };
-  private touchButtons = { fire: false, aim: false, jump: false, crouch: false };
+  private touchButtons = { fire: false, aim: false, jump: false, crouch: false, use: false };
 
   constructor(target: HTMLElement) {
     this.target = target;
@@ -175,6 +183,7 @@ export class Input {
       right: active ? clamp(axis(RIGHT, LEFT) + this.touchAxes.right, -1, 1) : 0,
       jump: active && (this.keys.has('Space') || this.touchButtons.jump),
       crouch: active && (this.anyDown(CROUCH) || this.touchButtons.crouch),
+      use: active && (this.keys.has('KeyE') || this.touchButtons.use),
       yaw: this.yaw,
       pitch: this.pitch,
     };
@@ -213,7 +222,7 @@ export class Input {
     this.touchAxes = { forward, right };
   }
 
-  setTouchButton(button: 'fire' | 'aim' | 'jump' | 'crouch', down: boolean): void {
+  setTouchButton(button: 'fire' | 'aim' | 'jump' | 'crouch' | 'use', down: boolean): void {
     this.touchButtons[button] = down;
   }
 

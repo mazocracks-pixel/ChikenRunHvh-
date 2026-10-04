@@ -3,17 +3,21 @@ import {
   eyeHeightOf,
   SIM_DT,
   WEAPONS,
+  buildNavGraph,
   chestPoint,
   clamp,
   directionFromAngles,
+  findPath,
   makeRay,
   raycastWorld,
   wrapAngle,
   type Appearance,
   type InputFrame,
+  type NavGraph,
+  type NavPoint,
   type Vec3,
 } from '@game/shared';
-import type { GameRoom } from './GameRoom';
+import type { BotGoal, GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
 const NAMES = ['Clucky', 'Nugget', 'Drumstick', 'Feathers', 'Eggbert', 'Henrietta', 'Cluckington', 'Pollo', 'Rooster Ray', 'Wingman', 'Yolko', 'Popcorn', 'Scrambles', 'Kiev', 'Omelette', 'Sunny'];
@@ -49,6 +53,10 @@ interface Brain {
   jumpTicks: number;
   nextPerceive: number;
   nextSwitch: number;
+  /** Route to the mode goal (ChikenBomb), recomputed now and then. */
+  path: NavPoint[];
+  pathGoal: NavPoint | null;
+  nextPath: number;
 }
 
 function pick<T>(list: readonly T[]): T {
@@ -64,6 +72,8 @@ function randomAppearance(): Appearance {
 export class BotSystem {
   private readonly room: GameRoom;
   private readonly brains = new Map<number, Brain>();
+  /** Waypoint links for maps that have them, built on first use. */
+  private nav: NavGraph | null = null;
   private usedNames = new Set<string>();
 
   constructor(room: GameRoom) {
@@ -100,6 +110,9 @@ export class BotSystem {
       jumpTicks: 0,
       nextPerceive: 0,
       nextSwitch: 0,
+      path: [],
+      pathGoal: null,
+      nextPath: 0,
     });
     return true;
   }
@@ -208,6 +221,7 @@ export class BotSystem {
     let lookPitch = p.pitch;
     let jump = false;
     const target = b.target;
+    const goal = this.room.botGoal(p);
 
     if (target) {
       const eye = this.eye(p);
@@ -244,6 +258,21 @@ export class BotSystem {
       moveZ += tx * b.strafe * strafe;
 
       this.useWeapons(b, flat, Math.abs(wrapAngle(Math.atan2(-dx, -dz) - lookYaw)), now);
+      // Planting / defusing: keep shooting, but don't step off the spot.
+      if (goal?.use) moveX = moveZ = 0;
+    } else if (goal?.use) {
+      lookPitch = p.pitch * 0.9;
+    } else if (goal) {
+      const next = this.nextStep(b, goal, now);
+      const wx = next.x - p.state.x;
+      const wz = next.z - p.state.z;
+      const d = Math.hypot(wx, wz);
+      if (d > 0.4) {
+        moveX = wx / d;
+        moveZ = wz / d;
+        lookYaw = p.yaw + clamp(wrapAngle(Math.atan2(-moveX, -moveZ) - p.yaw), -TURN_SPEED * SIM_DT, TURN_SPEED * SIM_DT);
+      }
+      lookPitch = p.pitch * 0.9;
     } else {
       if (!b.waypoint || Math.hypot(b.waypoint.x - p.state.x, b.waypoint.z - p.state.z) < 2) this.newWaypoint(b);
       const wx = b.waypoint!.x - p.state.x;
@@ -278,6 +307,7 @@ export class BotSystem {
         b.jumpTicks = 12;
         b.strafe = b.strafe === 1 ? -1 : 1;
         this.newWaypoint(b);
+        b.nextPath = 0;
       }
       b.progressAt = now;
       b.progressPos = { x: p.state.x, z: p.state.z };
@@ -297,8 +327,25 @@ export class BotSystem {
       jump,
       yaw: wrapAngle(lookYaw),
       pitch: clamp(lookPitch, -1.2, 1.2),
+      use: goal?.use === true,
     };
     this.room.handleInput(p, frame);
+  }
+
+/** The next spot to walk to on the way to `goal`, following the map's waypoints around walls. */
+  private nextStep(b: Brain, goal: BotGoal, now: number): NavPoint {
+    const p = b.p;
+    const world = this.room.world;
+    if (!this.nav && this.room.map.nav) this.nav = buildNavGraph(this.room.map.nav, world);
+    const moved = !b.pathGoal || Math.hypot(b.pathGoal.x - goal.x, b.pathGoal.z - goal.z) > 2;
+    if (moved || now >= b.nextPath || b.path.length === 0) {
+      const from = { x: p.state.x, z: p.state.z };
+      b.path = this.nav ? findPath(this.nav, from, goal, world) : [{ x: goal.x, z: goal.z }];
+      b.pathGoal = { x: goal.x, z: goal.z };
+      b.nextPath = now + 3000;
+    }
+    while (b.path.length > 1 && Math.hypot(b.path[0]!.x - p.state.x, b.path[0]!.z - p.state.z) < 1.6) b.path.shift();
+    return b.path[0]!;
   }
 
   private useWeapons(b: Brain, dist: number, yawError: number, now: number): void {

@@ -64,11 +64,21 @@ where the victim fell (it lasts 20 seconds). Drivable buggies
 (`E`) that run over chickens and can be blown up.
 
 **Modes.** Against All (FFA), Team Fight (red vs blue), HvH (Team Fight 5 vs 5 where everyone sees
-enemies through walls), Knife Fight (3 vs 3, knives only, no grenades), Duel, Capture the Flag, and Sandbox
+enemies through walls), Knife Fight (3 vs 3, knives only, no grenades), ChikenBomb (see below), Duel, Capture the Flag, and Sandbox
 (build with blocks). Matches go waiting → countdown → playing → results with an MVP, then the next
 match starts automatically. There's also a scoreboard (`Tab`) and chat (`T`).
 
-**Maps.** Farmyard, Town (enterable houses, rooftops, streets), and Flat World for building.
+**ChikenBomb.** chikenT plant the bomb on site A or B, chikenCT defuse it, 5 vs 5 (bots fill in) on
+Sandstown. A 40 s warmup (free respawns, free buying), then rounds: 15 s buy time frozen in spawn,
+1:50 to plant, a 40 s fuse once planted. Dead chickens wait for the next round. Hold `E` to plant
+(3 s, standing still on a site) or defuse (10 s, 5 s with a defuse kit); the bomb drops where its
+carrier dies. Money: $800 to start, +$300 a kill (+$1500 with a knife), +$3250 for a round win, a
+growing loss bonus, and plant / defuse bonuses. `B` opens the buy menu (only in this mode): armor,
+eggs, smoke, SMG, Shotgun, Sniper, plus the chikenT-only Rifle and the chikenCT-only Golden Rifle and
+defuse kit. Survivors keep what they bought. First to 6 rounds wins.
+
+**Maps.** Farmyard, Town (enterable houses, rooftops, streets), Sandstown (a desert town with two
+bomb sites, Long A, Mid and B tunnels), and Flat World for building.
 
 **Progress.** A guest account is created automatically; register to keep progress across devices.
 You earn coins after every match and spend them in the shop on skins, hats, beaks, sneakers and
@@ -121,7 +131,8 @@ or first person (`V`). Synthesized sound effects.
 | Q             | Smoke grenade             | E       | Get in / out of a buggy      |
 | Tab           | Scoreboard                |         |                              |
 | T / Enter     | Chat                      | Esc     | Pause                        |
-| B             | Build mode (Sandbox)      | X       | Next block type (Sandbox)    |
+| B             | Build mode (Sandbox) / buy menu (ChikenBomb) | X | Next block type (Sandbox) |
+| E (hold)      | Plant / defuse the bomb (ChikenBomb) |  |                     |
 | Ctrl / C      | Crouch (slower, smaller)  |         |                              |
 | Insert        | Developer menu (passkey)  |         |                              |
 
@@ -150,7 +161,7 @@ shared/src/            used by client AND server
   projectiles.ts       eggs, smoke grenades, rockets
   raycast.ts           ray vs boxes / spheres / chicken hitboxes
   collision.ts         level collision with a spatial grid (static boxes + Sandbox blocks)
-  maps/                Farmyard, Town, Flat World
+  maps/                Farmyard, Town, Sandstown, Flat World
   modes.ts, items.ts   game modes; shop catalogue (cosmetics + weapons)
   protocol.ts          every socket message and the compact snapshot format
 server/src/

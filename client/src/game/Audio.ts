@@ -4,6 +4,7 @@ import { storage } from '../ui/dom';
 export type SoundName =
   | WeaponSound
   | 'meleeHit'
+  | 'beep'
   | 'bonk'
   | 'explosion'
   | 'hit'
@@ -214,6 +215,10 @@ export class AudioEngine {
       case 'meleeHit':
         this.burst(ctx, out, t, { dur: 0.09, type: 'lowpass', freq: 1800, to: 300, gain: 1.1 });
         this.tone(ctx, out, t, { dur: 0.08, type: 'sine', freq: 180, to: 70, gain: 0.6 });
+        break;
+      case 'beep':
+        // The planted bomb.
+        this.tone(ctx, out, t, { dur: 0.07, type: 'square', freq: 2050, gain: 0.12 });
         break;
       case 'bonk':
         // A frying pan on a chicken's head: a dull thud plus a metallic ring.

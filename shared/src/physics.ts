@@ -44,6 +44,8 @@ export interface InputFrame {
   pitch: number;
   /** Crouch held. */
   crouch?: boolean;
+  /** Use (E) held: plant / defuse the bomb. */
+  use?: boolean;
 }
 
 export function createMoveState(x: number, y: number, z: number): MoveState {

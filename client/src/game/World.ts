@@ -5,7 +5,7 @@ import { Foliage } from './Foliage';
 import { SURFACES, type Surface, type WorldLook } from './look';
 import { box, cylinder, part, solid } from './models/materials';
 import { HORIZON_COLOR, SUN_DIRECTION } from './Sky';
-import { asphaltTexture, boxTexture, grassTexture, gridTexture, pavementTexture, tiledBoxGeometry } from './textures';
+import { asphaltTexture, bombSiteTexture, boxTexture, grassTexture, gridTexture, pavementTexture, sandTexture, tiledBoxGeometry } from './textures';
 
 /** Much larger than the fog distance, so the ground's edge is never visible. */
 const GROUND_SIZE = 1000;
@@ -60,8 +60,11 @@ export class World {
     this.addLights();
     this.addGround();
     this.addBoxes();
-    this.addFence();
-    this.addTrees();
+    // The desert town has its own walls, and no pine forest.
+    if (this.map.ground !== 'sand') {
+      this.addFence();
+      this.addTrees();
+    }
     scene.add(this.root);
   }
 
@@ -77,7 +80,8 @@ export class World {
     if (detail === this.foliageDetail) return;
     this.foliageDetail = detail;
     this.foliage?.dispose();
-    this.foliage = detail > 0 ? new Foliage(this.map, this.collision, detail) : null;
+    // No grass and flowers in the desert.
+    this.foliage = detail > 0 && this.map.ground !== 'sand' ? new Foliage(this.map, this.collision, detail) : null;
     if (this.foliage) this.root.add(this.foliage.root);
   }
 
@@ -202,11 +206,27 @@ export class World {
   }
 
   private addGround(): void {
-    const grass = this.surface('grass', this.track(new THREE.MeshStandardMaterial({ map: this.texture(grassTexture(), GROUND_SIZE / 4), roughness: 1, vertexColors: true })));
-    const ground = new THREE.Mesh(this.track(groundGeometry()), grass);
+    // The desert map is sand to the horizon; everything else stands in a grass field.
+    const desert = this.map.ground === 'sand';
+    const outer = desert
+      ? this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(sandTexture(), GROUND_SIZE / 6), roughness: 1 })))
+      : this.surface('grass', this.track(new THREE.MeshStandardMaterial({ map: this.texture(grassTexture(), GROUND_SIZE / 4), roughness: 1, vertexColors: true })));
+    const ground = new THREE.Mesh(this.track(groundGeometry()), outer);
     ground.receiveShadow = true;
     this.root.add(ground);
     const size = this.map.halfSize * 2;
+
+    // ChikenBomb sites: a red ring and letter on the ground.
+    for (const site of this.map.bombSites ?? []) {
+      const mark = new THREE.Mesh(
+        this.track(new THREE.PlaneGeometry(site.radius * 2, site.radius * 2)),
+        this.decal(new THREE.MeshStandardMaterial({ map: this.texture(bombSiteTexture(site.id)), transparent: true, roughness: 0.9, depthWrite: false })),
+      );
+      mark.rotation.x = -Math.PI / 2;
+      mark.position.set(site.x, 0.012, site.z);
+      mark.receiveShadow = true;
+      this.root.add(mark);
+    }
 
     if (this.map.ground === 'flat') {
       const grid = this.surface('ground', this.decal(new THREE.MeshStandardMaterial({ map: this.texture(gridTexture(), size / 1.2), roughness: 1 })));

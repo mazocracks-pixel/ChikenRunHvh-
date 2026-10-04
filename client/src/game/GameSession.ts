@@ -3,6 +3,7 @@ import {
   BLOCK_ID_BASE,
   BLOCK_KINDS,
   BLOCK_SIZE,
+  BOMB,
   BUILD_RANGE,
   CROUCH,
   INTERP_DELAY_MS,
@@ -35,6 +36,7 @@ import {
   unpackVehicle,
   wrapAngle,
   type BlockState,
+  type BuyItem,
   type ChatMessage,
   type CollisionWorld,
   type DamageEvent,
@@ -54,6 +56,7 @@ import {
   type ProjectileSpawn,
   type RayHit,
   type RoomInfo,
+  type RoundState,
   type ScoresEvent,
   type ServerToClientEvents,
   type ShotEvent,
@@ -64,9 +67,11 @@ import {
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
+import { BuyMenu } from '../ui/BuyMenu';
 import type { Hud, ScoreLine } from '../ui/Hud';
 import type { AudioEngine } from './Audio';
 import { Blocks } from './Blocks';
+import { BombView } from './BombView';
 import { CameraRig, zoomLookScale } from './CameraRig';
 import { Effects } from './Effects';
 import { Flags } from './Flags';
@@ -165,6 +170,13 @@ export class GameSession {
   private readonly handlers: [keyof ServerToClientEvents, (...args: never[]) => void][] = [];
 
   private match: MatchState;
+  /** ChikenBomb: the round, your money, the buy menu and the bomb in the world. */
+  private round: RoundState | null;
+  private money: number;
+  private readonly buyMenu: BuyMenu | null;
+  private readonly bombView: BombView | null;
+  private hasKit = false;
+  private nextBeep = 0;
   private teamScores: [number, number] = [0, 0];
   private accumulator = 0;
   private nextSeq = 1;
@@ -194,6 +206,8 @@ export class GameSession {
     this.mode = MODES[join.room.mode];
     this.match = join.match;
     this.teamScores = join.match.teamScores;
+    this.round = join.round;
+    this.money = join.money;
     for (const p of join.players) this.infos.set(p.pid, p);
 
     const mePacked = join.snapshot.p.find((p) => p[0] === join.selfPid);
@@ -219,6 +233,9 @@ export class GameSession {
     this.loot.onBreak = (at) => ctx.audio.play('boxBreak', at);
     this.weapons = new WeaponController(meInfo.loadout);
     this.viewmodel = new ViewModel(ctx.overlay);
+    this.bombView = this.mode.bomb ? new BombView(ctx.scene) : null;
+    this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root) : null;
+    if (this.buyMenu) this.buyMenu.onBuy = (item) => this.buy(item);
     ctx.input.yaw = me.yaw;
     ctx.input.pitch = -0.15;
 
@@ -230,6 +247,7 @@ export class GameSession {
     ctx.hud.setRoom(join.room);
     ctx.hud.setVisible(true);
     if (this.mode.wallhack) ctx.hud.toast('HvH: everyone sees enemies through walls', 'bad');
+    if (this.mode.bomb) ctx.hud.toast(this.self.team === 1 ? 'You are chikenT: plant the bomb on A or B' : 'You are chikenCT: stop the bomb, defuse it with E', 'info');
     this.refreshScores();
     this.bindNetwork();
     this.bindChat();
@@ -330,6 +348,7 @@ export class GameSession {
       if (remoteSeat && r.alive) r.sitAt(remoteSeat.position, remoteSeat.yaw);
     }
     this.flags?.update(dt, (pid) => this.drawnAt(pid));
+    this.updateBombView();
     for (const r of this.remotes.players.values()) {
       if (r.latest?.jetting && r.alive) this.effects.exhaust(this.jetNozzle(r.position, r.yaw, Math.random() > 0.5 ? 0.1 : -0.1));
     }
@@ -409,7 +428,11 @@ export class GameSession {
     const pixels = (spread / ((this.ctx.camera.fov * Math.PI) / 360)) * (window.innerHeight / 2);
     hud.setCrosshair(this.local.alive && input.active, pixels, scoped);
     hud.setMatch(this.match, this.serverNow(), this.infos.size);
-    if (!this.local.alive) hud.setDeathTimer(this.respawnAt - now);
+    if (this.round && this.match.phase === 'playing') this.updateRoundHud();
+    else hud.setBombProgress(null, 0);
+    hud.setMoney(this.round ? this.money : null);
+    if (!this.local.alive && this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup') hud.setDeathWaiting('You’re back when the next round starts');
+    else if (!this.local.alive) hud.setDeathTimer(this.respawnAt - now);
     hud.setHint(this.hintText());
     hud.setScoreboardVisible(input.scoreboardHeld && this.match.phase !== 'ended');
     if (input.scoreboardHeld) hud.renderScoreboard(this.scoreLines(), this.teamScores, net.ping);
@@ -442,8 +465,20 @@ export class GameSession {
       case 'slot3':
       case 'slot4':
       case 'slot5':
-        this.switchWeapon(() => this.weapons.switchTo(Number(action.slice(4)) - 1, now));
+      case 'slot6':
+      case 'slot7':
+      case 'slot8':
+      case 'slot9': {
+        const n = Number(action.slice(4));
+        // ChikenBomb: number keys buy while the buy menu is open.
+        if (this.buyMenu?.open) {
+          const item = this.buyMenu.itemFor(n);
+          if (item) this.buy(item);
+          break;
+        }
+        this.switchWeapon(() => this.weapons.switchTo(n - 1, now));
         break;
+      }
       case 'nextWeapon':
         this.switchWeapon(() => this.weapons.cycle(1, now));
         break;
@@ -464,6 +499,10 @@ export class GameSession {
         net.socket.emit('useVehicle');
         break;
       case 'build':
+        if (this.buyMenu) {
+          this.toggleBuyMenu();
+          break;
+        }
         if (this.mode.building && this.local.alive) {
           this.building = !this.building;
           if (!this.building) this.blocks?.showGhost(null, false);
@@ -651,7 +690,9 @@ export class GameSession {
   }
 
   private hintText(): string | null {
-    if (!this.local.alive) return null;
+    if (!this.local.alive) return this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup' ? 'You’re back when the next round starts' : null;
+    const bomb = this.bombHint();
+    if (bomb) return bomb;
     if (this.local.car) return 'Driving · E to get out · Space handbrake';
     if (this.building) {
       const kind = BLOCK_KINDS[this.blockIndex]!;
@@ -662,6 +703,140 @@ export class GameSession {
     if (s.y < 1.5 && this.vehicles.nearestFree(s.x, s.z)) return 'E · Drive the buggy';
     if (this.mode.building) return 'B · Build mode';
     return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ChikenBomb
+  // ---------------------------------------------------------------------------
+
+  private onRound(r: RoundState): void {
+    const prev = this.round;
+    this.round = r;
+    const { hud, audio } = this.ctx;
+    const mine = this.self.team;
+    if (r.phase === 'buy' && prev?.phase !== 'buy') {
+      this.hasKit = false;
+      hud.toast(`Round ${r.round} · buy time: press B`);
+      if (r.bomb.carrier === this.selfPid) hud.toast('💣 You carry the bomb: plant it on A or B', 'good');
+    }
+    if (r.phase === 'planted' && prev?.phase !== 'planted') {
+      hud.toast(`💣 The bomb is planted at ${r.bomb.site}!`, mine === 2 ? 'bad' : 'good');
+      audio.play('beep');
+    }
+    if (r.phase === 'live' && prev?.bomb.carrier !== this.selfPid && r.bomb.carrier === this.selfPid && prev?.phase === 'live') hud.toast('💣 You picked up the bomb', 'good');
+    if (r.phase === 'over' && prev?.phase !== 'over') {
+      const won = r.winner === mine;
+      hud.toast(won ? 'Round won! 🎉' : 'Round lost', won ? 'good' : 'bad');
+      audio.play(won ? 'reward' : 'empty');
+    }
+    if (r.phase !== 'buy' && r.phase !== 'warmup') this.buyMenu?.setOpen(false);
+  }
+
+  /** Round line, buy menu contents and your own plant / defuse progress. */
+  private updateRoundHud(): void {
+    const r = this.round!;
+    const { hud } = this.ctx;
+    const now = this.serverNow();
+    hud.setRound(r, now, this.self.team);
+    const action = r.bomb.action;
+    if (action && action.pid === this.selfPid) {
+      hud.setBombProgress(action.kind === 'plant' ? '💣 Planting…' : '✂️ Defusing…', (now - action.startedAt) / (action.endsAt - action.startedAt));
+    } else hud.setBombProgress(null, 0);
+    if (this.buyMenu?.open) {
+      const s = this.local.server;
+      const loadout = this.weapons.loadout;
+      this.buyMenu.render({
+        money: this.money,
+        team: this.self.team,
+        secondsLeft: r.phase === 'warmup' ? null : Math.max(0, Math.ceil(((r.endsAt ?? now) - now) / 1000)),
+        blocked: (item) =>
+          item.kind === 'weapon' && loadout.includes(item.weapon!) ? 'Owned'
+          : item.kind === 'armor' && s.armor >= PLAYER.maxArmor ? 'Full'
+          : item.kind === 'eggs' && s.eggs >= PLAYER.maxEggs ? 'Full'
+          : item.kind === 'smoke' && s.smokes >= PLAYER.maxSmokes ? 'Full'
+          : item.kind === 'kit' && this.hasKit ? 'Owned'
+          : null,
+      });
+    }
+  }
+
+  private toggleBuyMenu(): void {
+    const menu = this.buyMenu!;
+    if (menu.open) return menu.setOpen(false);
+    const phase = this.round?.phase;
+    if (!this.local.alive) return this.ctx.hud.toast('You can buy when you’re back next round', 'bad');
+    if (phase !== 'buy' && phase !== 'warmup') return this.ctx.hud.toast('Buy time is over: you can buy at the start of the next round', 'bad');
+    menu.setOpen(true);
+    this.ctx.audio.play('click');
+  }
+
+  private buy(item: BuyItem): void {
+    this.ctx.net.socket.emit('buy', item.id, (res) => {
+      this.money = res.money;
+      if (!res.ok) {
+        this.buyMenu?.say(res.error ?? 'You can’t buy that.', true);
+        this.ctx.audio.play('empty');
+        return;
+      }
+      this.buyMenu?.say(`Bought ${item.name}`);
+      this.ctx.audio.play('pickup');
+      if (item.kind === 'kit') this.hasKit = true;
+      // A new gun: take it out (the server already put it in slot 1).
+      if (item.weapon) {
+        const slot = this.weapons.loadout.indexOf(item.weapon);
+        if (slot >= 0) this.switchWeapon(() => this.weapons.switchTo(slot, performance.now()));
+      }
+    });
+  }
+
+  /** What to do about the bomb, for the hint bar. */
+  private bombHint(): string | null {
+    const r = this.round;
+    if (!r || this.match.phase !== 'playing') return null;
+    const me = this.local.state;
+    if (r.phase === 'buy') return 'Buy time · B to open the buy menu';
+    if (r.phase === 'live' && r.bomb.carrier === this.selfPid) {
+      const site = this.map.bombSites?.find((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius);
+      return site ? `Site ${site.id} · hold E (standing still) to plant the bomb` : '💣 You have the bomb · plant it on site A or B';
+    }
+    if (r.phase === 'planted' && this.self.team === 2) {
+      const near = Math.hypot(me.x - r.bomb.x, me.z - r.bomb.z) <= BOMB.defuseRange;
+      return near ? `Hold E to defuse${this.hasKit ? ' (kit: 5 s)' : ' (10 s)'}` : `💣 Find the bomb on site ${r.bomb.site} and defuse it`;
+    }
+    return null;
+  }
+
+  /** The bomb model (on the carrier's back, dropped or planted) and the beeping. */
+  private updateBombView(): void {
+    const r = this.round;
+    if (!r || !this.bombView) return;
+    const b = r.bomb;
+    let at: THREE.Vector3 | null = null;
+    let yaw = 0;
+    let blink = 0;
+    const exploded = r.phase === 'over' && r.reason === 'exploded';
+    if (b.carrier) {
+      const d = this.drawnAt(b.carrier);
+      if (d && !(b.carrier === this.selfPid && this.rig.firstPerson)) {
+        yaw = d.yaw;
+        at = this.tmp.set(d.position.x + Math.sin(yaw) * 0.42, d.position.y + 0.7, d.position.z + Math.cos(yaw) * 0.42);
+      }
+    } else if ((r.phase === 'live' || r.phase === 'planted' || r.phase === 'over') && !exploded) {
+      at = this.tmp.set(b.x, b.y, b.z);
+    }
+    const now = this.serverNow();
+    if (r.phase === 'planted' && b.explodeAt !== null) {
+      // Beeps speed up from once a second to frantic as the fuse runs out.
+      const left = Math.max(0, b.explodeAt - now) / BOMB.fuseMs;
+      const interval = 120 + 880 * left;
+      blink = 1000 / interval;
+      if (now >= this.nextBeep) {
+        this.nextBeep = now + interval;
+        this.ctx.audio.play('beep', { x: b.x, y: b.y, z: b.z });
+      }
+    } else if (b.site && r.phase === 'over' && r.reason === 'defused') blink = 0;
+    else blink = 0.5;
+    this.bombView.update(at, yaw, blink, now / 1000);
   }
 
   private blockCentre(b: BlockState): Vec3 {
@@ -769,6 +944,8 @@ export class GameSession {
     this.on('snapshot', (s) => this.onSnapshot(s));
     this.on('playerJoined', (info) => this.onPlayerInfo(info));
     this.on('playerUpdated', (info) => this.onPlayerInfo(info));
+    this.on('round', (r) => this.onRound(r));
+    this.on('money', (e) => (this.money = e.money));
     this.on('playerLeft', (pid) => {
       this.infos.delete(pid);
       this.remotes.remove(pid);
@@ -1045,6 +1222,8 @@ export class GameSession {
     this.ctx.hud.chatInput.onkeydown = null;
     this.ctx.input.zoomScale = 1;
     this.viewmodel.dispose();
+    this.bombView?.dispose();
+    this.buyMenu?.root.remove();
     this.local.dispose();
     this.remotes.dispose();
     this.projectiles.dispose();

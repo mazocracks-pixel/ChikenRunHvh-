@@ -163,6 +163,49 @@ export function stoneTexture(): THREE.CanvasTexture {
   return bricks(4, '#6d7075', [150, 153, 158], 30, 4);
 }
 
+/** Big pale sandstone blocks (Sandstown walls). */
+export function sandstoneTexture(): THREE.CanvasTexture {
+  return bricks(11, '#b89a6e', [214, 186, 140], 22, 4);
+}
+
+/** Wind-rippled desert sand. */
+export function sandTexture(): THREE.CanvasTexture {
+  return canvasTexture(256, (ctx, size) => {
+    ctx.fillStyle = '#d8bf8e';
+    ctx.fillRect(0, 0, size, size);
+    speckle(ctx, size, 12, 2600, 'rgba(255,248,225,0.18)', 'rgba(120,90,50,0.14)');
+    const rand = mulberry32(13);
+    ctx.strokeStyle = 'rgba(150,115,70,0.12)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 18; i++) {
+      const y = rand() * size;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= size; x += 16) ctx.lineTo(x, y + Math.sin(x / 30 + i) * 4);
+      ctx.stroke();
+    }
+  });
+}
+
+/** A ChikenBomb site marking: a red ring with the site's letter. */
+export function bombSiteTexture(letter: string): THREE.CanvasTexture {
+  return canvasTexture(256, (ctx, size) => {
+    ctx.clearRect(0, 0, size, size);
+    ctx.strokeStyle = 'rgba(214, 52, 40, 0.85)';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 12, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(214, 52, 40, 0.16)';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(214, 52, 40, 0.9)';
+    ctx.font = 'bold 150px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(letter, size / 2, size / 2 + 8);
+  });
+}
+
 export function brickTexture(): THREE.CanvasTexture {
   return bricks(5, '#c9bba4', [158, 72, 52], 28, 8);
 }
@@ -234,6 +277,8 @@ export function boxTexture(kind: BoxKind): { texture: THREE.CanvasTexture; tile:
       return { texture: woodTexture(), tile: 1.2 };
     case 'metal':
       return { texture: metalTexture(), tile: 1.5 };
+    case 'sandstone':
+      return { texture: sandstoneTexture(), tile: 2.4 };
     case 'concrete':
     case 'car':
       return { texture: concreteTexture(), tile: 2 };

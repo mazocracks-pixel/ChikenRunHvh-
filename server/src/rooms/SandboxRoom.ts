@@ -34,7 +34,7 @@ export class SandboxRoom extends GameRoom {
   private readonly cells = new Map<string, number>();
   private nextBlockId = 1;
 
-  protected override joinExtras() {
+  protected override joinExtras(_player: ServerPlayer) {
     return { blocks: [...this.blocks.values()], flags: [] };
   }
 

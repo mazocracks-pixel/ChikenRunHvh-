@@ -37,6 +37,7 @@ import {
   wrapAngle,
   type Appearance,
   type BlockKind,
+  type BuyResult,
   type BlockState,
   type CollisionWorld,
   type FireRequest,
@@ -58,6 +59,7 @@ import {
   type Team,
   type ThrowRequest,
   type MeleeTarget,
+  type RoundState,
   type Vec3,
   type WeaponDef,
   type WeaponId,
@@ -85,6 +87,14 @@ export interface RoomOptions {
 }
 
 /** What the room needs to know about a player joining (loaded from their account). */
+/** Where a bot should go for the mode, and whether to hold use (E) once there. */
+export interface BotGoal {
+  x: number;
+  z: number;
+  /** Hold use here (plant / defuse) instead of walking. */
+  use?: boolean;
+}
+
 export interface PlayerProfile {
   userId: number | null;
   name: string;
@@ -255,6 +265,7 @@ export class GameRoom {
       this.io.to(this.channel).emit('playerJoined', info);
     }
     this.systemMessage(`${info.name} joined`);
+    this.onPlayerJoin(player, now);
     this.updateMatch(now);
 
     const { projectiles, smokes } = this.projectiles.joinState(now);
@@ -269,7 +280,11 @@ export class GameRoom {
       drops: this.loot.dropStates(),
       projectiles,
       smokes,
-      ...this.joinExtras(),
+      blocks: [],
+      flags: [],
+      round: null,
+      money: 0,
+      ...this.joinExtras(player),
     };
   }
 
@@ -278,9 +293,27 @@ export class GameRoom {
     return undefined;
   }
 
-  /** Mode-specific state for players joining mid-match (blocks, flags). */
-  protected joinExtras(): { blocks: BlockState[]; flags: FlagState[] } {
-    return { blocks: [], flags: [] };
+  /** Mode-specific state for players joining mid-match (blocks, flags, the bomb round). */
+  protected joinExtras(_player: ServerPlayer): Partial<{ blocks: BlockState[]; flags: FlagState[]; round: RoundState | null; money: number }> {
+    return {};
+  }
+
+  /** Hook for mode rules about a player who just joined (ChikenBomb: wait for the next round). */
+  protected onPlayerJoin(_player: ServerPlayer, _now: number): void {}
+
+  /** What a bot should go and do for the mode (ChikenBomb: plant / defuse), or null to just roam and fight. */
+  botGoal(_p: ServerPlayer): BotGoal | null {
+    return null;
+  }
+
+  /** ChikenBomb buy menu; nothing to buy anywhere else. */
+  handleBuy(p: ServerPlayer, _itemId: unknown): BuyResult {
+    return { ok: false, error: 'There is no buy menu in this mode.', money: p.money };
+  }
+
+  /** Shooting and throwing are off (ChikenBomb buy time). */
+  protected actionsBlocked(): boolean {
+    return false;
   }
 
   leave(socketId: string): void {
@@ -338,6 +371,7 @@ export class GameRoom {
     if (!p.takeInputToken(performance.now())) return; // over budget: the client's reconciliation corrects it
 
     p.lastSeq = frame.seq;
+    p.useHeld = frame.use === true;
     p.yaw = frame.yaw;
     p.pitch = frame.pitch;
     p.lastInput = frame;
@@ -352,7 +386,7 @@ export class GameRoom {
 
   handleFire(p: ServerPlayer, raw: unknown): void {
     const req = parseFire(raw);
-    if (!req || !p.alive || p.vehicle || this.match.phase === 'ended') return;
+    if (!req || !p.alive || p.vehicle || this.match.phase === 'ended' || this.actionsBlocked()) return;
     if (req.shot <= p.lastShotSeq || req.weapon !== p.weapon) return;
     const w = WEAPONS[req.weapon];
     const now = performance.now();
@@ -498,7 +532,7 @@ export class GameRoom {
   handleThrow(p: ServerPlayer, raw: unknown): void {
     const req = parseThrow(raw);
     const now = performance.now();
-    if (!req || !p.alive || p.vehicle || this.match.phase === 'ended' || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
+    if (!req || !p.alive || p.vehicle || this.match.phase === 'ended' || this.actionsBlocked() || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
     if (req.kind === 'egg' ? p.eggs <= 0 : p.smokes <= 0) return;
     if (req.kind === 'egg') p.eggs--;
     else p.smokes--;
@@ -572,13 +606,14 @@ export class GameRoom {
     if (victim.hp <= 0) this.kill(victim, attacker, cause, headshot, now);
   }
 
-  private kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number): void {
+  protected kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number): void {
     victim.alive = false;
     victim.hp = 0;
     victim.reloadUntil = 0;
     victim.aiming = false;
     victim.respawnAt = now + this.mode.respawnMs;
     this.onPlayerDeath(victim, now);
+    this.onKill(victim, attacker, cause, now);
 
     const scoring = this.match.phase === 'playing' && !this.mode.building;
     if (scoring) {
@@ -593,8 +628,8 @@ export class GameRoom {
     }
 
     this.io.to(this.channel).emit('kill', { killer: attacker?.pid ?? 0, victim: victim.pid, cause, headshot });
-    // Every kill leaves a random bonus where the victim fell.
-    this.loot.dropBonus({ x: victim.state.x, y: victim.state.y, z: victim.state.z }, now);
+    // Every kill leaves a random bonus where the victim fell (not in buy-menu modes).
+    if (!this.mode.noDrops) this.loot.dropBonus({ x: victim.state.x, y: victim.state.y, z: victim.state.z }, now);
     if (scoring) {
       this.emitScores();
       this.checkScoreLimit(now);
@@ -605,6 +640,9 @@ export class GameRoom {
   protected onPlayerDeath(victim: ServerPlayer, _now: number): void {
     this.vehicles?.eject(victim);
   }
+
+  /** Hook for kill rewards (ChikenBomb money). Runs after onPlayerDeath. */
+  protected onKill(_victim: ServerPlayer, _attacker: ServerPlayer | null, _cause: KillCause, _now: number): void {}
 
   /** Hook for systems that care about a player leaving the room (CTF drops the flag). */
   protected onPlayerLeave(_player: ServerPlayer): void {}
@@ -625,7 +663,7 @@ export class GameRoom {
     this.io.to(this.channel).emit('playerUpdated', p.info);
   }
 
-  private spawn(p: ServerPlayer, now: number, announce: boolean): void {
+  protected spawn(p: ServerPlayer, now: number, announce: boolean): void {
     const point = this.pickSpawn(p);
     p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
@@ -646,7 +684,12 @@ export class GameRoom {
         if (other === p || !other.alive || this.areTeammates(p, other)) continue;
         nearest = Math.min(nearest, Math.hypot(other.state.x - spawn.x, other.state.z - spawn.z));
       }
-      const score = nearest + Math.random() * 4;
+      // Never on top of someone already standing there (a whole team spawns at once in rounds).
+      let taken = false;
+      for (const other of this.players.values()) {
+        if (other !== p && other.alive && Math.hypot(other.state.x - spawn.x, other.state.z - spawn.z) < PLAYER.radius * 3) taken = true;
+      }
+      const score = nearest + Math.random() * 4 - (taken ? 1000 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = spawn;
@@ -863,6 +906,7 @@ function parseInput(raw: unknown): InputFrame | null {
     yaw: wrapAngle(yaw),
     pitch: isFiniteNumber(pitch) ? clamp(pitch, -1.5, 1.5) : 0,
     crouch: raw.crouch === true,
+    use: raw.use === true,
   };
 }
 

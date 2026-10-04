@@ -16,13 +16,15 @@ export class TouchControls {
   private stickOrigin = { x: 0, y: 0 };
   private readonly lookers = new Map<number, { x: number; y: number }>();
   private aimOn = false;
+  /** ChikenBomb only: hold to plant / defuse, and the buy menu. */
+  private readonly bombButtons: HTMLElement[] = [];
 
   constructor(container: HTMLElement, input: Input) {
     this.input = input;
     this.stickBase.append(this.stickKnob);
     this.stickBase.hidden = true;
 
-    const hold = (label: string, button: 'fire' | 'jump', cls: string) => {
+    const hold = (label: string, button: 'fire' | 'jump' | 'use', cls: string) => {
       const el = h('button', { class: `touch-btn ${cls}`, type: 'button' }, label);
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault();
@@ -87,12 +89,22 @@ export class TouchControls {
       tap('💨', 'smoke', 'smoke'),
       crouch,
     );
+    this.bombButtons.push(hold('💣', 'use', 'use'), tap('🛒', 'build', 'buy'));
+    for (const b of this.bombButtons) {
+      b.hidden = true;
+      this.root.append(b);
+    }
     this.root.hidden = true;
     this.root.addEventListener('pointerdown', this.onDown);
     this.root.addEventListener('pointermove', this.onMove);
     this.root.addEventListener('pointerup', this.onUp);
     this.root.addEventListener('pointercancel', this.onUp);
     container.append(this.root);
+  }
+
+  /** Shows the plant / defuse and buy buttons in ChikenBomb. */
+  setBombMode(on: boolean): void {
+    for (const b of this.bombButtons) b.hidden = !on;
   }
 
   setVisible(visible: boolean): void {
@@ -108,6 +120,7 @@ export class TouchControls {
     this.input.setTouchAxes(0, 0);
     this.input.setTouchButton('fire', false);
     this.input.setTouchButton('jump', false);
+    this.input.setTouchButton('use', false);
   }
 
   private onDown = (e: PointerEvent): void => {

@@ -199,6 +199,12 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
   socket.on('aim', inRoom((room, player, aiming: unknown) => room.handleAim(player, aiming)));
   socket.on('chat', inRoom((room, player, text: unknown) => room.handleChat(player, text)));
   socket.on('useVehicle', inRoom((room, player) => room.handleUseVehicle(player)));
+  socket.on('buy', (itemId, ack) => {
+    if (typeof ack !== 'function') return;
+    const room = rooms.roomOf(socket.id);
+    const player = room?.playerFor(socket.id);
+    ack(room && player ? room.handleBuy(player, itemId) : { ok: false, error: 'Join a match first.', money: 0 });
+  });
   socket.on('build', inRoom((room, player, req: unknown) => room.handleBuild(player, req)));
   socket.on('unbuild', inRoom((room, player, id: unknown) => room.handleUnbuild(player, id)));
 

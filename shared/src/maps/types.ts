@@ -1,8 +1,8 @@
 import type { Aabb } from '../collision';
 
-export type MapId = 'farm' | 'town' | 'flat';
+export type MapId = 'farm' | 'town' | 'flat' | 'sandstown';
 
-export type BoxKind = 'crate' | 'hay' | 'stone' | 'brick' | 'wood' | 'roof' | 'concrete' | 'car' | 'metal';
+export type BoxKind = 'crate' | 'hay' | 'stone' | 'brick' | 'wood' | 'roof' | 'concrete' | 'car' | 'metal' | 'sandstone';
 
 /** A solid block in the level. `x`/`z` are the centre, `y` is the bottom (defaults to the ground). */
 export interface MapBox {
@@ -46,7 +46,15 @@ export interface FlagSpot {
   z: number;
 }
 
-export type GroundStyle = 'grass' | 'town' | 'flat';
+export type GroundStyle = 'grass' | 'town' | 'flat' | 'sand';
+
+/** A ChikenBomb plant zone: a circle on the ground. */
+export interface BombSite {
+  id: 'A' | 'B';
+  x: number;
+  z: number;
+  radius: number;
+}
 
 export interface MapDef {
   id: MapId;
@@ -59,6 +67,13 @@ export interface MapDef {
   loot: readonly LootSpot[];
   vehicles: readonly VehicleSpot[];
   flags: readonly FlagSpot[];
+  /** ChikenBomb plant zones. */
+  bombSites?: readonly BombSite[];
+  /**
+   * Open spots bots use to find their way through walls: any two that can see each other are
+   * linked. Only needed on maps with long detours (Sandstown).
+   */
+  nav?: readonly { x: number; z: number }[];
 }
 
 export function boxToAabb(box: MapBox): Aabb {

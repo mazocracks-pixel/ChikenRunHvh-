@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { LOOT, MAPS, MAP_IDS, MODES, PLAYER, boxToAabb, createCollisionWorld, isSpaceFree } from '../src/index';
+import { LOOT, MAPS, MAP_IDS, MODES, PLAYER, boxToAabb, buildNavGraph, createCollisionWorld, findPath, isSpaceFree, reachableCount, walkable } from '../src/index';
 
 for (const id of MAP_IDS) {
   const map = MAPS[id];
@@ -55,6 +55,26 @@ for (const id of MAP_IDS) {
     it('has free vehicle and flag spots', () => {
       for (const v of map.vehicles) assert.ok(isSpaceFree(v.x, 0, v.z, world), `vehicle ${v.x},${v.z}`);
       for (const f of map.flags) assert.ok(isSpaceFree(f.x, 0, f.z, world), `flag ${f.x},${f.z}`);
+    });
+
+    it('bot waypoints are open, all linked up, and reach every spawn and bomb site', () => {
+      if (!map.nav) return;
+      for (const p of map.nav) assert.ok(isSpaceFree(p.x, 0, p.z, world), `waypoint ${p.x},${p.z} is blocked`);
+      const graph = buildNavGraph(map.nav, world);
+      assert.equal(reachableCount(graph), map.nav.length, 'every waypoint reaches every other');
+      for (const spot of [...map.spawns, ...(map.bombSites ?? [])]) {
+        assert.ok(map.nav.some((p) => walkable(spot, p, world)), `${spot.x},${spot.z} can't walk to any waypoint`);
+      }
+      // A route from chikenT spawn to each site, every leg walkable.
+      const tSpawn = map.spawns.find((s) => s.team === 1)!;
+      for (const site of map.bombSites ?? []) {
+        const route = [tSpawn, ...findPath(graph, tSpawn, site, world)];
+        for (let i = 1; i < route.length; i++) assert.ok(walkable(route[i - 1]!, route[i]!, world), `route to ${site.id}, leg ${i}`);
+      }
+    });
+
+    it('has free bomb sites', () => {
+      for (const site of map.bombSites ?? []) assert.ok(isSpaceFree(site.x, 0, site.z, world), `site ${site.id}`);
     });
 
     it('is within the player radius margin', () => {

@@ -15,6 +15,8 @@ export interface WorldLook {
   roof: string;
   concrete: string;
   metal: string;
+  /** Sandstown walls. */
+  sandstone: string;
   fence: string;
   trees: string;
   zenith: string;
@@ -31,7 +33,7 @@ export interface WorldLook {
   wireframe: boolean;
 }
 
-export const SURFACES = ['grass', 'ground', 'road', 'crate', 'hay', 'stone', 'brick', 'wood', 'roof', 'concrete', 'metal', 'fence', 'trees'] as const;
+export const SURFACES = ['grass', 'ground', 'road', 'crate', 'hay', 'stone', 'brick', 'wood', 'roof', 'concrete', 'metal', 'sandstone', 'fence', 'trees'] as const;
 export type Surface = (typeof SURFACES)[number];
 
 export function defaultLook(): WorldLook {
@@ -47,6 +49,7 @@ export function defaultLook(): WorldLook {
     roof: '#ffffff',
     concrete: '#ffffff',
     metal: '#ffffff',
+    sandstone: '#ffffff',
     fence: '#ffffff',
     trees: '#ffffff',
     zenith: '#3f8fdc',
