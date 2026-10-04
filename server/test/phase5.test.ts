@@ -90,7 +90,7 @@ describe('vehicles', () => {
 });
 
 describe('bots', () => {
-  it('fill quick-play rooms, wander and fight', async () => {
+  it('fill quick-play rooms, wander and fight', async (t) => {
     const { room: r, events } = room('ffa', 'farm', { fillBots: true });
     const human = addPlayer(r, 'Human');
     let hits = 0;
@@ -107,8 +107,14 @@ describe('bots', () => {
     const moved = bots.filter((b) => Math.hypot(b.state.x - before.get(b.pid)!.x, b.state.z - before.get(b.pid)!.z) > 1);
     assert.ok(moved.length >= 2, 'bots walk around');
 
-    // Put one bot right in front of the human with a clear view and let it react.
+    // Reset both lives: wandering can leave this random opponent dead or in mid-air.
+    // Aim error is deterministic here; pellet spread still uses the real shared shot seeds.
+    const random = Math.random;
+    Math.random = () => 0.5;
+    t.after(() => { Math.random = random; });
     const bot = bots[0]!;
+    r.respawnPlayer(human, performance.now());
+    r.respawnPlayer(bot, performance.now());
     for (const other of bots.slice(1)) r.removePlayer(other);
     place(human, 20, -15);
     place(bot, 20, -5);

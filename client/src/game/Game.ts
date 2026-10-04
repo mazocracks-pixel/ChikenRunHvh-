@@ -70,6 +70,7 @@ export class Game {
   private environmentTarget: THREE.WebGLRenderTarget;
   private envScene: THREE.Scene;
   private look: WorldLook = defaultLook();
+  private lookKey = '';
   private skyKey = '';
   private rebakeTimer: number | undefined;
   private world: World;
@@ -172,6 +173,9 @@ export class Game {
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */
   setLook(look: WorldLook): void {
+    const lookKey = JSON.stringify(look);
+    if (lookKey === this.lookKey) return;
+    this.lookKey = lookKey;
     this.look = { ...look };
     this.world.setLook(look);
     this.sky.setColors(look.zenith, look.horizon);
@@ -246,6 +250,9 @@ export class Game {
   }
 
   private frame = (time: number): void => {
+    if (document.hidden) { this.lastFrameTime = null; this.fpsFrames = this.fpsWindowStart = 0; return; }
+    // A slowly moving menu background needs fewer draws; active play keeps display refresh rate.
+    if (!this.session && !this.preview && this.lastFrameTime !== null && time-this.lastFrameTime < 1000/30 - 0.5) return;
     const dt = this.lastFrameTime === null ? 0 : Math.min((time - this.lastFrameTime) / 1000, MAX_FRAME_DT);
     this.lastFrameTime = time;
 

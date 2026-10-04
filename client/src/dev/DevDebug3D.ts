@@ -52,7 +52,7 @@ export class DevDebug3D {
     const seen = new Set<number>();
     const entries: [number, THREE.Vector3, number, boolean, string, number][] = [];
     if (hitboxes || glow) {
-      if (s.local.alive) entries.push([s.selfPid, s.local.position, s.local.chicken.root.rotation.y, false, '#ffffff', s.local.state.crouching ? CROUCH.scale : 1]);
+      if (s.local.alive) entries.push([s.selfPid, s.local.position, s.mode.id === 'hvh' ? s.local.server.yaw : s.local.chicken.root.rotation.y, false, '#ffffff', s.local.state.crouching ? CROUCH.scale : 1]);
       for (const [pid, r] of s.remotes.players) {
         if (!r.alive) continue;
         const c = config!.visuals.colors;

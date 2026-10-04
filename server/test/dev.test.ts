@@ -73,6 +73,7 @@ describe('developer modifiers in a room', () => {
 
   it('no rocket cooldown: rockets back to back without using ammo, with a tiny floor', () => {
     const { room } = makeRoom();
+    room.info.private = true;
     const p = addPlayer(room, 'Dev');
     runDevAction(room, p, { kind: 'giveWeapon', target: p.pid, weapon: 'rocket' });
     p.switchReadyAt = 0;
@@ -126,6 +127,7 @@ describe('developer modifiers in a room', () => {
 
   it('player actions: weapons, health, armor, teleport, respawn', () => {
     const { room } = makeRoom();
+    room.info.private = true;
     const dev = addPlayer(room, 'Dev');
     const t = addPlayer(room, 'Target');
     place(dev, 5, 5);

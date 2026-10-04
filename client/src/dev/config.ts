@@ -1,4 +1,4 @@
-import { MOD_LIMITS, WEAPON_IDS, type DevMods, type WeaponId } from '@game/shared';
+import { DEFAULT_MODS, MOD_LIMITS, WEAPON_IDS, defaultHvhLoadout, type HvhLoadout, type DevMods, type WeaponId } from '@game/shared';
 import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
 
@@ -7,6 +7,12 @@ import { storage } from '../ui/dom';
  * imported as a config. Gameplay-changing values only take effect when the server allows them.
  */
 export interface DevConfig {
+  hvh: HvhLoadout & {
+    aim: { minDamage: number; hitchance: number; bodyAim: 'off' | 'prefer' | 'lethal'; autowall: boolean; reaction: number; switchDelay: number; turnRate: number; damageOverride: number; overrideKey: string; bodyKey: string };
+    movement: { autoStop: boolean; slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string };
+    feedback: { shotLog: boolean; targetInfo: boolean; resolver: boolean };
+    invertKey: string;
+  };
   legit: {
     aim: {
       enabled: boolean;
@@ -91,14 +97,20 @@ export interface DevConfig {
 
 export function defaultConfig(): DevConfig {
   return {
+    hvh: {
+      ...defaultHvhLoadout(),
+      aim: { minDamage: 20, hitchance: 60, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
+      movement: { autoStop: false, slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyZ' },
+      feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK',
+    },
     legit: {
       aim: { enabled: false, fov: 6, smooth: 8, strength: 60, reaction: 120, target: 'body', visCheck: true, teamCheck: true, key: '', whileFiring: false, whileAds: false },
-      trigger: { enabled: false, delay: 80, fov: 1.5, key: '', visCheck: true },
+      trigger: { enabled: false, delay: 120, fov: 1.5, key: '', visCheck: true },
       move: { bhop: false, autoStrafe: false, assist: false, jumpAssist: false },
       wall: { enabled: false, enemies: true, teammates: true, enemyColor: '#ff4d5e', teamColor: '#4dd2ff', opacity: 0.55 },
     },
     rage: {
-      aim: { enabled: false, lock: true, silent: false, instantSwitch: true, priority: 'crosshair', hitbox: 'head', fov: 90, autoTarget: false },
+      aim: { enabled: false, lock: true, silent: false, instantSwitch: false, priority: 'crosshair', hitbox: 'head', fov: 35, autoTarget: false },
       weapon: { noRecoil: false, noSpread: false, infiniteAmmo: false, instantReload: false, rapidFire: false, automatic: false, infiniteMag: false, noRocketCooldown: false, noRocketDamage: false },
       move: { speed: 1, jump: 1, fly: false, noclip: false, infiniteStamina: false, lowGravity: false },
       antiAim: { spin: false, speed: 720, direction: 'right', pitch: 'normal' },
@@ -130,14 +142,23 @@ export function defaultConfig(): DevConfig {
 
 /** Numeric ranges (also used by the menu's sliders). */
 export const RANGES: Record<string, { min: number; max: number; step: number }> = {
+  'hvh.aim.minDamage': { min: 1, max: 100, step: 1 },
+  'hvh.aim.hitchance': { min: 0, max: 100, step: 1 },
+  'hvh.aim.reaction': { min: 100, max: 350, step: 10 },
+  'hvh.aim.switchDelay': { min: 100, max: 500, step: 10 },
+  'hvh.aim.turnRate': { min: 90, max: 540, step: 10 },
+  'hvh.aim.damageOverride': { min: 1, max: 100, step: 1 },
+  'hvh.antiAim.desync': { min: 0, max: 58, step: 1 },
+  'hvh.antiAim.jitter': { min: 0, max: 45, step: 1 },
+  'hvh.antiAim.spinSpeed': { min: 90, max: 540, step: 10 },
   'legit.aim.fov': { min: 1, max: 30, step: 0.5 },
   'legit.aim.smooth': { min: 1, max: 20, step: 0.5 },
   'legit.aim.strength': { min: 0, max: 100, step: 1 },
-  'legit.aim.reaction': { min: 0, max: 500, step: 10 },
-  'legit.trigger.delay': { min: 0, max: 500, step: 10 },
+  'legit.aim.reaction': { min: 100, max: 350, step: 10 },
+  'legit.trigger.delay': { min: 100, max: 500, step: 10 },
   'legit.trigger.fov': { min: 0.25, max: 10, step: 0.25 },
   'legit.wall.opacity': { min: 0.1, max: 1, step: 0.05 },
-  'rage.aim.fov': { min: 1, max: 180, step: 1 },
+  'rage.aim.fov': { min: 1, max: 60, step: 1 },
   'rage.antiAim.speed': { min: 60, max: 3600, step: 30 },
   'rage.move.speed': { ...MOD_LIMITS.speed, step: 0.05 },
   'rage.move.jump': { ...MOD_LIMITS.jump, step: 0.05 },
@@ -160,6 +181,9 @@ export const RANGES: Record<string, { min: number; max: number; step: number }> 
 
 /** Allowed values of the dropdowns. */
 export const CHOICES: Record<string, readonly string[]> = {
+  'hvh.aim.bodyAim': ['off', 'prefer', 'lethal'],
+  'hvh.antiAim.mode': ['backward', 'left', 'right', 'spin'],
+  'hvh.exploit': ['off', 'doubleTap', 'hideShots'],
   'legit.aim.target': ['head', 'body', 'nearest'],
   'rage.aim.priority': ['health', 'distance', 'crosshair'],
   'rage.aim.hitbox': ['head', 'body'],
@@ -215,6 +239,17 @@ export function sanitizeConfig(raw: unknown): DevConfig {
     }
   };
   walk(out as unknown as Record<string, unknown>, raw, '');
+  const fresh = defaultConfig();
+  // Old exports remain readable, but retired powers never survive migration.
+  out.rage.weapon = fresh.rage.weapon;
+  out.rage.move = fresh.rage.move;
+  out.rage.antiAim = fresh.rage.antiAim;
+  out.weapons = { ...fresh.weapons, selected: out.weapons.selected };
+  out.rage.aim.silent = out.rage.aim.instantSwitch = false;
+  out.legit.aim.enabled = false;
+  out.legit.aim.teamCheck = out.legit.aim.visCheck = out.legit.trigger.visCheck = true;
+  out.misc.freeCam = out.misc.spectator = false;
+  out.world.wireframe = false;
   if (!out.settings.menuKey) out.settings.menuKey = 'Insert';
   // Saved before the mega?dev look and never customised: move to the new default theme.
   if (out.settings.theme === 'midnight' && out.settings.accent === '#7c5cff') {
@@ -226,25 +261,8 @@ export function sanitizeConfig(raw: unknown): DevConfig {
 
 /** The gameplay modifiers this config asks the server for. */
 export function toServerMods(c: DevConfig): Partial<DevMods> {
-  const r = c.rage;
-  const w = c.weapons;
-  return {
-    speed: r.move.speed,
-    jump: r.move.jump,
-    gravity: r.move.lowGravity ? 0.35 : 1,
-    fly: r.move.fly,
-    noclip: r.move.noclip,
-    infiniteFuel: r.move.infiniteStamina,
-    infiniteAmmo: r.weapon.infiniteAmmo,
-    instantReload: r.weapon.instantReload,
-    spread: r.weapon.noSpread ? 0 : w.spread,
-    fireRate: Math.min(MOD_LIMITS.fireRate.max, w.fireRate * (r.weapon.rapidFire ? 3 : 1)),
-    damage: w.damage,
-    projectileSpeed: w.projectileSpeed,
-    magazine: r.weapon.infiniteMag ? MOD_LIMITS.magazine.max : w.magazine,
-    noRocketCooldown: r.weapon.noRocketCooldown,
-    noRocketDamage: r.weapon.noRocketDamage,
-  };
+  void c;
+  return { ...DEFAULT_MODS };
 }
 
 // ---------------------------------------------------------------------------
@@ -261,44 +279,26 @@ export interface NamedConfig {
 
 /** Ready-made configs, added the first time the menu opens. */
 export function presetConfigs(): NamedConfig[] {
-  const legit = defaultConfig();
-  legit.legit.aim.enabled = true;
-  legit.legit.trigger.enabled = true;
-  legit.legit.move.bhop = true;
-  legit.legit.move.jumpAssist = true;
-  legit.legit.wall.enabled = true;
-
-  const rage = defaultConfig();
-  rage.rage.aim.enabled = true;
-  rage.rage.aim.autoTarget = true;
-  Object.assign(rage.rage.weapon, { noRecoil: true, noSpread: true, infiniteAmmo: true, instantReload: true, rapidFire: true, automatic: true });
-  rage.rage.move.speed = 1.6;
-  rage.weapons.damage = 2;
-
-  const visuals = defaultConfig();
-  Object.assign(visuals.visuals.esp, { enabled: true, box: true, name: true, health: true, distance: true, weapon: true, skeleton: true, headCircle: true });
-  Object.assign(visuals.visuals.world, { items: true, weapons: true, objectives: true });
-
-  const testing = defaultConfig();
-  Object.assign(testing.misc, { fpsCounter: true, ping: true, coords: true, velocity: true, speed: true, mapInfo: true });
-  Object.assign(testing.visuals.world, { hitboxes: true, collision: true, spawns: true });
-  testing.rage.weapon.infiniteAmmo = true;
-
-  const fun = defaultConfig();
-  Object.assign(fun.rage.move, { speed: 2.5, jump: 2.5, lowGravity: true, infiniteStamina: true });
-  Object.assign(fun.rage.weapon, { rapidFire: true, automatic: true, infiniteMag: true });
-  fun.weapons.projectileSpeed = 2;
-  fun.visuals.esp.enabled = true;
-  fun.visuals.esp.glow = true;
-  fun.rage.antiAim.spin = true;
-
-  return [
-    { name: 'Legit', config: legit },
-    { name: 'Rage', config: rage },
-    { name: 'Visuals', config: visuals },
-    { name: 'Testing', config: testing },
-    { name: 'Fun', config: fun },
-  ];
+  const balanced = defaultConfig();
+  balanced.rage.aim.enabled = true;
+  balanced.visuals.esp.enabled = true;
+  balanced.hvh.movement.autoStop = true;
+  const precision = structuredClone(balanced);
+  Object.assign(precision.hvh.aim, { minDamage: 40, hitchance: 80, reaction: 180 });
+  precision.rage.aim.fov = 20;
+  precision.hvh.exploit = 'hideShots';
+  const aggressive = structuredClone(balanced);
+  Object.assign(aggressive.hvh.aim, { minDamage: 12, hitchance: 45 });
+  aggressive.rage.aim.autoTarget = true;
+  aggressive.hvh.antiAim.enabled = true;
+  aggressive.hvh.exploit = 'doubleTap';
+  aggressive.hvh.aim.autowall = true;
+  aggressive.hvh.movement.peekAssist = true;
+  const scout = defaultConfig();
+  scout.visuals.esp.enabled = true;
+  scout.visuals.esp.weapon = true;
+  scout.misc.fpsCounter = scout.misc.ping = true;
+  return [{ name: 'Balanced', config: balanced }, { name: 'Precision', config: precision }, { name: 'Aggressive', config: aggressive }, { name: 'Scout', config: scout }];
 }
 
 export function loadCurrent(): DevConfig {

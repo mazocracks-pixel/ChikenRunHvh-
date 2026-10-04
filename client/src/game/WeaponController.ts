@@ -1,4 +1,4 @@
-import { WEAPONS, WEAPON_SWITCH_MS, fireIntervalFor, magazineSize, shotUsesAmmo, takeShot, type DevMods, type FireTiming, type PlayerState, type WeaponDef, type WeaponId } from '@game/shared';
+import { WEAPONS, WEAPON_SWITCH_MS, HVH, HvhExploitClock, defaultHvhLoadout, fireIntervalFor, magazineSize, shotUsesAmmo, takeShot, type FireTiming, type DevMods, type PlayerState, type WeaponDef, type WeaponId } from '@game/shared';
 
 /** After firing, trust our own ammo count over (older) snapshots for this long. */
 const AMMO_TRUST_MS = 400;
@@ -18,10 +18,13 @@ export class WeaponController {
   /** When we last fired, and burst progress (the same rule the server checks). */
   private readonly timing: FireTiming = { lastFireAt: -Infinity, burstStart: -Infinity, burstShots: 0 };
   private triggerWasDown = false;
+  private assistedBurst = false;
   /** Developer modifiers confirmed by the server (null = normal rules). */
   mods: DevMods | null = null;
   /** Developer option: semi-automatic weapons keep firing while the trigger is held. */
   forceAutomatic = false;
+  hvh = defaultHvhLoadout();
+  private readonly exploit = new HvhExploitClock();
 
   constructor(loadout: WeaponId[]) {
     this.loadout = loadout.length > 0 ? loadout : ['pistol'];
@@ -46,7 +49,7 @@ export class WeaponController {
 
   /** Time between shots, including developer modifiers (fire rate, no rocket cooldown). */
   get fireInterval(): number {
-    return fireIntervalFor(this.def, this.mods);
+    return this.hvh.exploit === 'off' ? fireIntervalFor(this.def, this.mods) : this.exploit.interval(this.def, this.hvh.exploit, performance.now());
   }
 
   get reloading(): boolean {
@@ -60,6 +63,10 @@ export class WeaponController {
   }
 
   refill(): void {
+    this.timing.lastFireAt = this.timing.burstStart = -Infinity;
+    this.timing.burstShots = 0;
+    this.triggerWasDown = false;
+    this.exploit.reset(performance.now());
     for (const id of this.loadout) this.mags.set(id, this.magazineSize(id));
     this.reloadEndsAt = 0;
     this.switchReadyAt = 0;
@@ -99,22 +106,40 @@ export class WeaponController {
    * Decides whether the trigger produces a shot this frame (semi-auto needs a fresh press,
    * automatic weapons repeat at their fire rate). Returns 'fire', 'empty' (click) or null.
    */
-  trigger(down: boolean, now: number): 'fire' | 'empty' | null {
+  trigger(down: boolean, now: number, assisted = false): 'fire' | 'empty' | null {
     const fresh = down && !this.triggerWasDown;
     this.triggerWasDown = down;
     const w = this.def;
+    if (this.assistedBurst && !down && !assisted && w.burst) this.timing.burstShots = w.burst.count;
     // A burst keeps going after the trigger pull that started it.
     const midBurst = w.burst !== undefined && this.timing.burstShots > 0 && this.timing.burstShots < w.burst.count && now - this.timing.burstStart < this.fireInterval;
-    if (!midBurst && (!down || (!w.automatic && !this.forceAutomatic && !fresh))) return null;
+    if (!midBurst && (!down || (!w.automatic && !this.forceAutomatic && !assisted && !fresh))) return null;
     if (now < this.switchReadyAt || this.reloading) return null;
     if (this.mag <= 0) {
       this.timing.burstShots = 0;
       return fresh ? 'empty' : null;
     }
-    if (!takeShot(w, this.fireInterval, this.timing, now)) return null;
+    const interval = this.hvh.exploit === 'off' ? fireIntervalFor(w, this.mods) : this.exploit.interval(w, this.hvh.exploit, now);
+    if (!takeShot(w, interval, this.timing, now)) return null;
+    if (w.burst && this.timing.burstShots === 1) this.assistedBurst = assisted;
+    this.exploit.fired(w, this.hvh.exploit, now);
     if (shotUsesAmmo(this.def, this.mods)) this.mags.set(this.weapon, this.mag - 1);
     this.shotSeq++;
     return 'fire';
+  }
+
+  /** Readiness for assists. It never consumes ammunition or advances a timer. */
+  shotState(now: number): 'Ready' | 'Reloading' | 'Switching weapon' | 'Empty' | 'Cooldown' {
+    if (this.reloading) return 'Reloading';
+    if (now < this.switchReadyAt) return 'Switching weapon';
+    if (this.mag <= 0) return 'Empty';
+    const interval = this.hvh.exploit === 'off' ? fireIntervalFor(this.def, this.mods) : this.exploit.interval(this.def, this.hvh.exploit, now);
+    return takeShot(this.def, interval, { ...this.timing }, now) ? 'Ready' : 'Cooldown';
+  }
+
+  suspend(): void {
+    this.triggerWasDown = false;
+    if (this.def.burst) this.timing.burstShots = this.def.burst.count;
   }
 
   /** The server changed our loadout (developer tools): keep the same gun out if we still have it. */
@@ -129,6 +154,7 @@ export class WeaponController {
 
   /** Adopt the server's numbers when we haven't just changed them ourselves. */
   sync(server: PlayerState, now: number): void {
+    if (now - this.timing.lastFireAt > AMMO_TRUST_MS && server.hvhCharge !== undefined) this.exploit.readyAt = now + (1 - server.hvhCharge) * HVH.doubleTapRecharge;
     if (server.weapon !== this.weapon) {
       const slot = this.loadout.indexOf(server.weapon);
       if (slot >= 0 && now > this.switchReadyAt + 500) this.slot = slot;

@@ -9,7 +9,12 @@ import { asphaltTexture, bombSiteTexture, boxTexture, concreteTexture, container
 
 /** Much larger than the fog distance, so the ground's edge is never visible. */
 const GROUND_SIZE = 1000;
-const WOOD_COLOR = 0xa0703f;
+const WOOD_COLOR = 0xb68b57;
+const ARENA_CREAM = 0xf9e9c8;
+const ARENA_ORANGE = 0xf47b35;
+const ARENA_INK = 0x283b3f;
+/** Matches the physical texture scale in textures.ts without allocating an unused canvas. */
+const BOX_TILE: Record<BoxKind, number | null> = { crate: null, hay: 1.2, stone: 1.5, brick: 1.6, wood: 1.2, roof: 2, concrete: 2, car: 2, metal: 1.5, sandstone: 2.4 };
 /** How far the shadow-casting light sits from what it lights. */
 const SUN_DISTANCE = 90;
 /** Hemisphere light strength with and without the sky environment map. */
@@ -48,6 +53,7 @@ export class World {
   private shadowExtent = 0;
   private foliage: Foliage | null = null;
   private foliageDetail = -1;
+  private readonly windmillRotor = new THREE.Group();
 
   constructor(scene: THREE.Scene, map: MapDef, maxAnisotropy: number) {
     this.map = map;
@@ -60,6 +66,10 @@ export class World {
     this.addLights();
     this.addGround();
     this.addBoxes();
+    if (this.map.id === 'farm') {
+      this.addArenaMarkings();
+      this.addFarmScenery();
+    }
     // Walled maps (desert town, harbour, factory) have no fence or pine forest around them.
     if (this.map.ground !== 'sand' && this.map.ground !== 'dock' && this.map.ground !== 'factory') {
       this.addFence();
@@ -161,6 +171,7 @@ export class World {
 
   update(dt: number): void {
     this.foliage?.update(dt);
+    this.windmillRotor.rotation.z -= dt * 0.22;
   }
 
   private track<T extends { dispose(): void }>(thing: T): T {
@@ -276,15 +287,30 @@ export class World {
     const byKind = new Map<string, THREE.BufferGeometry[]>();
     const frames: THREE.BufferGeometry[] = [];
     const glass: THREE.BufferGeometry[] = [];
+    const caps: THREE.BufferGeometry[] = [];
+    const accents: THREE.BufferGeometry[] = [];
     for (const b of this.map.boxes) {
       if (b.kind === 'car') {
         this.addCar(b);
         continue;
       }
       if (b.kind === 'brick') addWindows(b, frames, glass);
-      const { tile } = boxTexture(b.kind);
+      // Texture creation belongs below, once per material; do not allocate a canvas per box.
+      const tile = BOX_TILE[b.kind];
       const geometry = tile === null ? new THREE.BoxGeometry(b.w, b.h, b.d) : tiledBoxGeometry(b.w, b.h, b.d, tile);
       geometry.translate(b.x, (b.y ?? 0) + b.h / 2, b.z);
+      if (this.map.id === 'farm' && b.kind === 'stone') {
+        // Painted cap and orange corner strips sit against existing collision surfaces.
+        // No extra cover or roof is added to the authoritative map.
+        const top = (b.y ?? 0) + b.h;
+        caps.push(new THREE.BoxGeometry(b.w + 0.006, 0.1, b.d + 0.006).translate(b.x, top - 0.045, b.z));
+        const longX = b.w >= b.d;
+        for (const side of [-1, 1]) {
+          const stripe = longX ? new THREE.BoxGeometry(0.26, b.h * 0.7, b.d + 0.009) : new THREE.BoxGeometry(b.w + 0.009, b.h * 0.7, 0.26);
+          stripe.translate(b.x + (longX ? side * (b.w / 2 - 0.25) : 0), (b.y ?? 0) + b.h * 0.45, b.z + (longX ? 0 : side * (b.d / 2 - 0.25)));
+          accents.push(stripe);
+        }
+      }
       const key = b.color === undefined ? b.kind : `${b.kind}|${b.color}`;
       const list = byKind.get(key) ?? [];
       list.push(geometry);
@@ -306,16 +332,129 @@ export class World {
       mesh.receiveShadow = true;
       this.root.add(mesh);
     }
+    this.addMergedDecoration(caps, ARENA_CREAM);
+    this.addMergedDecoration(accents, ARENA_ORANGE);
     for (const [parts, material] of [
       [frames, new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.6 })],
       [glass, new THREE.MeshStandardMaterial({ color: 0x2d4f6e, roughness: 0.08, metalness: 0.4, envMapIntensity: 1.6 })],
     ] as const) {
-      if (parts.length === 0) continue;
+      if (parts.length === 0) {
+        material.dispose();
+        continue;
+      }
       const mesh = new THREE.Mesh(this.track(mergeGeometries(parts)!), this.track(material));
       for (const g of parts) g.dispose();
       mesh.receiveShadow = true;
       this.root.add(mesh);
     }
+  }
+
+  /** Tiny painted details are batched by colour, keeping the arena cheap to render. */
+  private addMergedDecoration(parts: THREE.BufferGeometry[], color: number, parent: THREE.Group = this.root): void {
+    if (!parts.length) return;
+    const geometry = this.track(mergeGeometries(parts)!);
+    for (const part of parts) part.dispose();
+    const mesh = new THREE.Mesh(geometry, this.track(new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true })));
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
+
+  /** Flat paint gives landmarks and lane direction without changing movement or sightlines. */
+  private addArenaMarkings(): void {
+    const markings: THREE.BufferGeometry[] = [];
+    const addLine = (x: number, z: number, w: number, d: number, angle = 0) => {
+      const line = new THREE.PlaneGeometry(w, d);
+      line.rotateX(-Math.PI / 2);
+      line.rotateY(angle);
+      line.translate(x, 0.013, z);
+      markings.push(line);
+    };
+    const size = this.map.halfSize - 2;
+    for (const side of [-1, 1]) {
+      addLine(side * size, 0, 0.12, size * 2);
+      addLine(0, side * size, size * 2, 0.12);
+      for (let lane = -18; lane <= 18; lane += 6) {
+        addLine(lane, side * 18, 1.3, 0.12);
+        addLine(side * 18, lane, 0.12, 1.3);
+      }
+      for (const z of [-23, 23]) {
+        // Two chevrons point into the arena from each corner.
+        for (const offset of [0, 1]) {
+          addLine(side * 23 - side * offset, z - Math.sign(z) * offset, 1.5, 0.15, side * Math.sign(z) * Math.PI / 4);
+        }
+      }
+    }
+    const circle = new THREE.RingGeometry(5.05, 5.18, 64);
+    circle.rotateX(-Math.PI / 2);
+    circle.translate(0, 0.013, 0);
+    markings.push(circle);
+    const geometry = this.track(mergeGeometries(markings)!);
+    for (const p of markings) p.dispose();
+    const mesh = new THREE.Mesh(geometry, this.decal(new THREE.MeshStandardMaterial({ color: ARENA_CREAM, roughness: 1, transparent: true, opacity: 0.5, depthWrite: false })));
+    mesh.receiveShadow = true;
+    this.root.add(mesh);
+  }
+
+  /** Farm silhouettes live beyond the playable square and never pretend to be cover. */
+  private addFarmScenery(): void {
+    const edge = this.map.halfSize;
+    const dark: THREE.BufferGeometry[] = [];
+    const cream: THREE.BufferGeometry[] = [];
+    const orange: THREE.BufferGeometry[] = [];
+    const barnX = -edge - 23;
+    const barnZ = edge + 27;
+    orange.push(new THREE.BoxGeometry(17, 6, 10).translate(barnX, 3, barnZ));
+    dark.push(new THREE.CylinderGeometry(1, 1, 18, 3).rotateZ(Math.PI / 2).rotateX(-Math.PI / 2).scale(1, 2, 5.8).translate(barnX, 7, barnZ));
+    cream.push(new THREE.BoxGeometry(3.7, 4.6, 0.08).translate(barnX, 2.3, barnZ - 5.05));
+    dark.push(new THREE.BoxGeometry(3.2, 4.2, 0.09).translate(barnX, 2.1, barnZ - 5.1));
+    for (const side of [-1, 1]) {
+      cream.push(new THREE.BoxGeometry(0.14, 6, 10.08).translate(barnX + side * 8.45, 3, barnZ));
+      cream.push(new THREE.BoxGeometry(1.7, 1.3, 0.06).translate(barnX + side * 5.2, 3.6, barnZ - 5.05));
+    }
+    // A distant silo and windmill distinguish the farm from the other arenas.
+    cream.push(new THREE.CylinderGeometry(2.6, 2.6, 10, 12).translate(barnX + 13, 5, barnZ));
+    dark.push(new THREE.ConeGeometry(2.8, 2, 12).translate(barnX + 13, 11, barnZ));
+    const millX = edge + 17;
+    const millZ = -edge - 18;
+    dark.push(new THREE.CylinderGeometry(0.32, 1.7, 9, 4).translate(millX, 4.5, millZ));
+    this.windmillRotor.position.set(millX, 9.2, millZ - 0.3);
+    const blades: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3;
+      blades.push(new THREE.BoxGeometry(0.65, 2.2, 0.08).translate(0, 2.3, 0).rotateZ(angle));
+    }
+    this.addMergedDecoration(blades, ARENA_CREAM, this.windmillRotor);
+    const hub = new THREE.Mesh(this.track(new THREE.CylinderGeometry(0.35, 0.35, 0.2, 10).rotateX(Math.PI / 2)), this.track(new THREE.MeshStandardMaterial({ color: ARENA_ORANGE, roughness: 0.8 })));
+    this.windmillRotor.add(hub);
+    this.root.add(this.windmillRotor);
+
+    // One high sign beyond the fence reads from the menu's orbit and from both teams.
+    for (const side of [-1, 1]) dark.push(new THREE.BoxGeometry(0.24, 7, 0.24).translate(side * 5.6, 3.5, -edge - 8));
+    dark.push(new THREE.BoxGeometry(12.7, 3.9, 0.2).translate(0, 6.4, -edge - 8));
+    this.addMergedDecoration(dark, ARENA_INK);
+    this.addMergedDecoration(cream, ARENA_CREAM);
+    this.addMergedDecoration(orange, 0xc46545);
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 320;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#f9e9c8';
+    ctx.fillRect(0, 0, 1024, 320);
+    ctx.fillStyle = '#f47b35';
+    ctx.fillRect(0, 0, 20, 320);
+    ctx.fillRect(1004, 0, 20, 320);
+    ctx.fillStyle = '#283b3f';
+    ctx.textAlign = 'center';
+    ctx.font = '900 120px system-ui, sans-serif';
+    ctx.fillText('THE COOP', 512, 158);
+    ctx.font = '700 31px system-ui, sans-serif';
+    ctx.fillText('SMALL BIRDS. BIG ENERGY.', 512, 225);
+    const texture = this.track(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = this.maxAnisotropy;
+    const sign = new THREE.Mesh(this.track(new THREE.PlaneGeometry(12.3, 3.6)), this.track(new THREE.MeshStandardMaterial({ map: texture, roughness: 1 })));
+    sign.position.set(0, 6.4, -edge - 7.89);
+    this.root.add(sign);
   }
 
   /** Parked cars are solid boxes in the map; draw them as little cars. */
@@ -388,8 +527,8 @@ export class World {
       this.surface('trees', this.track(new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 1 }))),
       count,
     );
-    // Two stacked cones read as a fuller pine than one.
-    const crownGeometry = this.track(mergeGeometries([new THREE.ConeGeometry(1.7, 3.2, 8).translate(0, -0.6, 0), new THREE.ConeGeometry(1.25, 2.6, 8).translate(0, 0.9, 0)])!);
+    // Rounded, faceted orchard crowns suit the playful farm and stay well beyond the fence.
+    const crownGeometry = this.track(new THREE.DodecahedronGeometry(1.8, 0).scale(1, 0.92, 1));
     const leaves = new THREE.InstancedMesh(crownGeometry, this.surface('trees', this.track(new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }))), count);
     const matrix = new THREE.Matrix4();
     const position = new THREE.Vector3();
@@ -414,7 +553,7 @@ export class World {
       scale.setScalar(s);
       trunks.setMatrixAt(i, matrix.compose(position.set(x, 1 * s, z), rotation, scale));
       leaves.setMatrixAt(i, matrix.compose(position.set(x, 3.8 * s, z), rotation, scale));
-      leaves.setColorAt(i, color.setHSL(0.27 + rand() * 0.08, 0.45, 0.22 + rand() * 0.12));
+      leaves.setColorAt(i, color.setHSL(0.18 + rand() * 0.1, 0.38, 0.29 + rand() * 0.14));
     }
     trunks.castShadow = leaves.castShadow = true;
     leaves.receiveShadow = true;

@@ -82,7 +82,7 @@ export class LocalPlayer {
 
   private step(frame: InputFrame, world: CollisionWorld, hopMax: number, speed: number): void {
     // A developer froze us: the server ignores our inputs, so don't predict any movement.
-    if (this.server.frozen) return;
+    if (this.server.frozen) { this.state.horizontalSpeed = 0; return; }
     if (this.car) this.drive(frame, world);
     else stepPlayer(this.state, frame, SIM_DT, world, this.mods, hopMax, speed);
   }

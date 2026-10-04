@@ -11,6 +11,36 @@ Knife Fight, ChikenBomb, Arms Race and the ranked FaceChiken included), seven ma
 
 All models, textures and sounds are generated in code. There are no asset files.
 
+### Movement accuracy and performance
+
+Horizontal spread grows continuously with actual collision-resolved speed: slow walking and crouching
+are more accurate, hops and knockback are less accurate, and pushing into a wall adds no movement
+penalty. Client prediction, HUD, shot estimates and server hits use the same shared rule. Airborne
+and ADS modifiers remain weapon-specific. Speed is replicated after the existing snapshot fields.
+
+Target searches run at 10 Hz, spread trials at most 20 Hz and only when a shot can be considered;
+aim turns and movement stay responsive every frame. Silhouette geometry updates only when its
+material or equipment changes. Unchanged palettes skip material updates; hidden tabs stop rendering, and the menu backdrop renders at 30 FPS.
+
+### Arena and combat feedback
+
+The original main menu, mode categories, map pickers and rank display are retained.
+
+Farmyard now feels like a chicken sporting arena: painted field markings and cover trims,
+an orchard skyline, distant barn and windmill, warm lighting, daisies, and more expressive
+chickens with team scarf tails. Decorative scenery stays outside the playable bounds; cover
+still matches the authoritative collision boxes.
+
+Guns have distinct layered sounds, distance muffling, first-person kick and recovery. Hits
+show server-confirmed damage, rapid eliminations call out Double / Triple / Quad Plucks,
+and the HUD tracks your current life streak. Results include your kills, deaths, K/D and
+best locally observed streak for that match. Death breaks a multikill chain; a new match
+resets the streak record. ChikenBomb warmup is excluded when the first buy round begins.
+
+Explosions gain expanding shockwaves and cleaner impact particles. Effects are pooled,
+weapon models are reused, and completed audio graphs disconnect. The browser's reduced
+motion preference disables camera shake and reduces weapon motion and menu animation.
+
 ## Getting started
 
 Requires Node.js 22.13+ (for the built-in SQLite; developed on Node 24).
@@ -39,9 +69,10 @@ Environment variables:
 | --- | --- |
 | `PORT` | Port to listen on (default 3000) |
 | `DB_PATH` | SQLite file (default `server/data/game.db`) |
-| `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it developer tools are **off**. Use 12+ random characters on a public server |
-| `DEV_PUBLIC_ROOMS=0` | Developer tools in private rooms only (by default they work in public matches too, still behind the passkey) |
-| `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey (by default anyone who knows it can) |
+| `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
+| `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
+| `HVH_PUBLIC_PANEL=1` | Opt-in public HvH Lab for all HvH players; normal stats and bounded abilities, no player administration. Default off |
+| `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Optional restriction for servers that require developer accounts |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
 | `MAX_SOCKETS_PER_IP` | Simultaneous connections per IP (default 32; raise for LAN parties behind one IP) |
@@ -134,18 +165,52 @@ zoom level), invert Y, and a crosshair editor with a live preview: style (cross,
 colour, size, thickness, gap, opacity, outline and dynamic spread. Everything is saved in the
 browser and applies immediately, even mid-match.
 
-**Developer tools (mega?dev).** Press `Insert` (or tap the title five times on a phone) to open
-mega?dev, the developer/testing menu (a light, warm theme by default; Settings → Theme has the dark
-ones): Legit (aim assist, trigger, movement helpers), Rage (aim lock, no
-recoil/spread, infinite ammo, no rocket cooldown, no rocket damage, speed, fly, noclip, low gravity), Visuals (ESP, hitboxes, collision
-boxes), Players (spectate, teleport, freeze, respawn, health, armor, weapons), Weapons (fire rate,
-damage, recoil, spread, magazine), World (recolour every surface, sky, fog and light, with presets),
-Misc (free camera, readouts) and saved configs. It asks for the
-developer passkey first, which **only the server knows**. Set it with `DEV_PASSKEY` (in `server/.env` for
-`npm run dev`; a public server sets its own variable). The server checks every request, and the tools work
-in every room, public matches included (set `DEV_PUBLIC_ROOMS=0` for private rooms only). Anyone who knows the passkey can unlock them, so use a long one on a public server (guesses are
-rate limited per account and network). With `DEV_ACCOUNTS_ONLY=1` only **developer accounts** may
-even try the passkey.
+**HvH setup.** Every human joining HvH starts outside combat, with a personal setup pause.
+Choose **HvH Lab** or **Manual play**, configure your tools, and press **Begin match** to spawn.
+Lab access still follows the passkey/public-rollout policy; Manual play is always available.
+Changing panels later does not restore health, ammo or exploit charge. The typed panel registry
+(`client/src/dev/panels.ts`) provides separate resolver and anti-aim configuration hooks for future panels.
+
+**HvH Lab.** Press `Insert`, choose *Pause → HvH panels*, or tap the lobby title five times on a phone.
+The panel now has Aim, Anti-aim, Exploits, Movement, Visuals, Weapons, World, Telemetry,
+Settings and Configs tabs. Old configs migrate automatically: retired stat-changing powers are removed.
+
+- Aim: target priority/lock, head or body aim, body-if-lethal, minimum health damage after armor,
+  estimated hitchance from velocity-based spread, bounded turns, reaction/switch delays, and optional
+  trigger/auto-fire. Autofire uses normal weapon cadence, including semi-auto and bursts;
+  each due shot checks current camera aim, collision-resolved speed, cover, intervening enemies,
+  loot and vehicles. Reload, switch, pause and stale-target checks prevent unwanted shots. `H` holds the minimum-damage override; `J` forces body aim.
+- Autowall: optional shot selection through up to two crates, hay or wood boxes, retaining 65%
+  damage per box. Stone, brick, concrete and metal still stop bullets. The normal server penetration
+  rules decide every actual hit; prediction is an estimate.
+- Anti-aim: backward, left, right or spin bases, up to 45° jitter and 58° real/fake desync. Hold `K`
+  to invert. The server owns the real hitbox heading and separately replicates the fake body pose.
+  All HvH players see a cyan real-heading marker; the resolver uses that authoritative stance.
+  Ordinary shots reveal the stance for 300 ms. No fake pitch or invulnerability.
+- Exploits: Double Tap permits one extra bullet within a 500 ms window, with a second-shot interval
+  of `max(80 ms, normal interval × 0.2)` and an 8 s recharge. Normal damage, ammo, spread and reload
+  still apply. Hide Shots delays the normal 300 ms stance reveal by 150 ms and recharges in 6 s.
+  Both use one resource; switching mode/gun never restores charge. Projectiles, melee and native burst weapons cannot use it.
+  Respawning starts an 8 s recharge.
+- Movement: auto-stop changes ordinary movement intent; slow walk holds `Shift` at 45% input.
+  Hold `Z` to mark a peek anchor. After firing, release movement keys while holding `Z` to return.
+  Releasing `Z`, jumping, manual movement or an obstructed route cancels return. No teleporting.
+- Telemetry: target, predicted damage/hitchance, shot decision, five recent shot entries, charge,
+  and movement status. Balanced, Precision, Aggressive and Scout presets retain normal stats.
+
+Public access is prepared but **off by default**. Set `HVH_PUBLIC_PANEL=1` when ready to let every
+HvH player use the same panel without a passkey. This grants no access in other modes and no
+administration privilege. Until rollout, the existing developer passkey/account rules apply.
+Every HvH input, fire/reload and damage path clears legacy modifiers. Health/armor changes,
+freeze, kill, respawn, weapon grants and teleports are rejected in HvH even for developers.
+The older administration API remains restricted to authorized private non-HvH test rooms.
+The panel has no damage/rate/speed multipliers, ammo/fuel cheats, rocket immunity, flight,
+noclip, zero spread/recoil, silent shots, free camera or player-control buttons.
+
+Design inspiration: primary [Neverlose release notes](https://forum.neverlose.cc/t/neverlose-site-and-csgo-update-24-06/29064)
+for minimum damage, auto-stop and auto-peek, and [target/hitchance/body-aim notes](https://forum.neverlose.cc/t/neverlose-csgo-update-27-07/36286).
+These are independent mechanics in this game, with shared server limits. Defaults are a starting
+ruleset for PvP tuning; shot estimates do not guarantee a hit.
 
 **Developer accounts.** Register an account in the game (*Save progress*), then on the server run
 `npm run developer -- <username>` (on a built server: `node server/dist/tools/developer.js
@@ -224,15 +289,17 @@ client/src/
   game/Sky.ts          sky shader, clouds, hills;  game/Foliage.ts instanced grass, flowers, rocks
   game/Effects.ts      tracers, bullet holes, feathers, explosions, smoke;  game/Audio.ts synthesized sounds
   ui/                  HUD, crosshair, menus, shop, settings dialogs, touch controls
-  dev/                 developer menu: tabs.ts (every control, as data), DevRuntime (aim,
-                       movement, cameras), DevOverlay (ESP), config.ts (saved configs)
+  dev/                 HvH Lab: tabs.ts (controls), DevRuntime (aim / movement), tactics (shot estimates),
+                        config migration and presets. Legacy directory name is retained.
+                        DevOverlay (ESP), DevDebug3D (hitbox/collision outlines)
 server/src/dev/        passkey check + permissions (DevAccess), player actions (devActions)
-shared/src/dev.ts      developer modifiers shared by server rules and client prediction
+shared/src/dev.ts      private testing modifiers and access status
+shared/src/hvh.ts      bounded real/fake poses and shared exploit recharge rules
 ```
 
-To add a developer feature: add a field to `DevConfig` (`client/src/dev/config.ts`) and a control
-to a tab in `tabs.ts`. Anything that changes gameplay must also be a server-checked modifier
-(`shared/src/dev.ts`) or action (`server/src/dev/devActions.ts`).
+To add a panel feature: add a field to `DevConfig` (`client/src/dev/config.ts`) and a control
+in `tabs.ts`. HvH abilities must have bounded shared rules in `shared/src/hvh.ts`, server
+authorization through `devHvh`, and tests for resource/cooldown and mode isolation.
 
 ## Accounts and security
 
