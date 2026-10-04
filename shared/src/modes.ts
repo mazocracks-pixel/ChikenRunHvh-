@@ -45,43 +45,43 @@ const DEFS: ModeDef[] = [
   {
     id: 'ffa', name: 'Against All', description: 'Everyone for themselves. First to 25 kills wins.',
     teams: false, maxPlayers: 12, scoreLimit: 25, timeLimitMs: 5 * 60_000, respawnMs: 3000, minPlayers: 2,
-    maps: ['farm', 'town'], building: false, vehicles: true, wallbang: true,
+    maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, wallbang: true,
   },
   {
     id: 'tdm', name: 'Team Fight', description: 'Red vs Blue, 5 vs 5. First team to 40 kills wins.',
     teams: true, maxPlayers: 10, scoreLimit: 40, timeLimitMs: 6 * 60_000, respawnMs: 3000, minPlayers: 2,
-    maps: ['farm', 'town', 'sandstown'], building: false, vehicles: true, teamKills: true, wallbang: true,
+    maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, teamKills: true, wallbang: true,
   },
   {
     id: 'hvh', name: 'HvH', description: 'Red vs Blue, 5 vs 5, and everyone sees enemies through walls. First to 40 kills.',
     teams: true, maxPlayers: 10, scoreLimit: 40, timeLimitMs: 6 * 60_000, respawnMs: 3000, minPlayers: 2,
-    maps: ['farm', 'town', 'sandstown'], building: false, vehicles: true, teamKills: true, wallhack: true, wallbang: true,
+    maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, teamKills: true, wallhack: true, wallbang: true,
   },
   {
     id: 'bomb', name: 'ChikenBomb', description: 'chikenT plant the bomb, chikenCT defuse it. 5 vs 5 rounds with money and a buy menu. First to 6 rounds.',
     teams: true, maxPlayers: 10, scoreLimit: 6, timeLimitMs: 0, respawnMs: 2000, minPlayers: 2,
-    maps: ['sandstown'], building: false, vehicles: false, wallbang: true, fillBots: 10,
+    maps: ['sandstown', 'harbor'], building: false, vehicles: false, wallbang: true, fillBots: 10,
     weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true,
   },
   {
     id: 'arms', name: 'Arms Race', description: 'Every kill gives you the next gun, 17 in all. First kill with the Golden Knife wins.',
     teams: false, maxPlayers: 12, scoreLimit: 0, timeLimitMs: 10 * 60_000, respawnMs: 1000, minPlayers: 2,
-    maps: ['farm', 'town', 'sandstown'], building: false, vehicles: false, wallbang: true, fillBots: 6, noDrops: true, armsRace: true,
+    maps: ['factory', 'farm', 'town', 'sandstown', 'harbor', 'frostbite'], building: false, vehicles: false, wallbang: true, fillBots: 6, noDrops: true, armsRace: true,
   },
   {
     id: 'knife', name: 'Knife Fight', description: 'Red vs Blue, 3 vs 3, knives only. Bunny hop in fast. First team to 15 kills.',
     teams: true, maxPlayers: 6, scoreLimit: 15, timeLimitMs: 5 * 60_000, respawnMs: 2500, minPlayers: 2,
-    maps: ['farm', 'town', 'sandstown'], building: false, vehicles: false, teamKills: true, weapons: ['knife'], fillBots: 6,
+    maps: ['factory', 'farm', 'town', 'sandstown', 'frostbite'], building: false, vehicles: false, teamKills: true, weapons: ['knife'], fillBots: 6,
   },
   {
     id: 'duel', name: 'Duel', description: 'One on one. First to 10 kills wins.',
     teams: false, maxPlayers: 2, scoreLimit: 10, timeLimitMs: 5 * 60_000, respawnMs: 2000, minPlayers: 2,
-    maps: ['farm', 'town', 'sandstown'], building: false, vehicles: false, wallbang: true,
+    maps: ['factory', 'farm', 'town', 'sandstown', 'frostbite'], building: false, vehicles: false, wallbang: true,
   },
   {
     id: 'ctf', name: 'Capture the Flag', description: 'Steal the enemy flag and bring it home. 3 captures win.',
     teams: true, maxPlayers: 10, scoreLimit: 3, timeLimitMs: 8 * 60_000, respawnMs: 4000, minPlayers: 2,
-    maps: ['farm', 'town'], building: false, vehicles: true, wallbang: true,
+    maps: ['farm', 'town', 'frostbite'], building: false, vehicles: true, wallbang: true,
   },
   {
     id: 'sandbox', name: 'Sandbox', description: 'Build anything with blocks. No score, no rules.',

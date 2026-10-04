@@ -1,6 +1,6 @@
 import type { Aabb } from '../collision';
 
-export type MapId = 'farm' | 'town' | 'flat' | 'sandstown';
+export type MapId = 'farm' | 'town' | 'flat' | 'sandstown' | 'harbor' | 'frostbite' | 'factory';
 
 export type BoxKind = 'crate' | 'hay' | 'stone' | 'brick' | 'wood' | 'roof' | 'concrete' | 'car' | 'metal' | 'sandstone';
 
@@ -46,7 +46,7 @@ export interface FlagSpot {
   z: number;
 }
 
-export type GroundStyle = 'grass' | 'town' | 'flat' | 'sand';
+export type GroundStyle = 'grass' | 'town' | 'flat' | 'sand' | 'dock' | 'snow' | 'factory';
 
 /** A ChikenBomb plant zone: a circle on the ground. */
 export interface BombSite {

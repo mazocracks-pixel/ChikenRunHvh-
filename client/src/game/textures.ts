@@ -168,6 +168,46 @@ export function sandstoneTexture(): THREE.CanvasTexture {
   return bricks(11, '#b89a6e', [214, 186, 140], 22, 4);
 }
 
+/** Neutral corrugated metal, for boxes with their own colour (shipping containers, machines). */
+export function containerTexture(): THREE.CanvasTexture {
+  return canvasTexture(128, (ctx, size) => {
+    ctx.fillStyle = '#d4d4d4';
+    ctx.fillRect(0, 0, size, size);
+    for (let x = 0; x < size; x += 16) {
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.fillRect(x, 0, 5, size);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(x + 8, 0, 3, size);
+    }
+    speckle(ctx, size, 23, 300, 'rgba(255,255,255,0.08)', 'rgba(0,0,0,0.1)');
+  });
+}
+
+/** Packed snow with faint blue shadows. */
+export function snowTexture(): THREE.CanvasTexture {
+  return canvasTexture(256, (ctx, size) => {
+    ctx.fillStyle = '#eef4f8';
+    ctx.fillRect(0, 0, size, size);
+    speckle(ctx, size, 21, 2200, 'rgba(255,255,255,0.5)', 'rgba(120,150,180,0.12)');
+  });
+}
+
+/** Factory floor: grey concrete tiles with yellow hazard stripes. */
+export function factoryFloorTexture(): THREE.CanvasTexture {
+  return canvasTexture(256, (ctx, size) => {
+    ctx.fillStyle = '#8d8f91';
+    ctx.fillRect(0, 0, size, size);
+    speckle(ctx, size, 22, 1400, 'rgba(255,255,255,0.08)', 'rgba(0,0,0,0.12)');
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let i = 0; i <= size; i += size / 4) {
+      ctx.fillRect(i - 1, 0, 2, size);
+      ctx.fillRect(0, i - 1, size, 2);
+    }
+    ctx.fillStyle = 'rgba(230,180,40,0.55)';
+    ctx.fillRect(0, size * 0.48, size, size * 0.04);
+  });
+}
+
 /** Wind-rippled desert sand. */
 export function sandTexture(): THREE.CanvasTexture {
   return canvasTexture(256, (ctx, size) => {

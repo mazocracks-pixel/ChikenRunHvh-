@@ -59,7 +59,7 @@ export class LootSystem {
 
   constructor(room: GameRoom) {
     this.room = room;
-    this.boxes = room.map.loot.map((spot, i) => ({
+    this.boxes = (room.mode.noDrops ? [] : room.map.loot).map((spot, i) => ({
       id: i,
       x: spot.x,
       y: (spot.y ?? 0) + LOOT.hover,

@@ -5,7 +5,7 @@ import { Foliage } from './Foliage';
 import { SURFACES, type Surface, type WorldLook } from './look';
 import { box, cylinder, part, solid } from './models/materials';
 import { HORIZON_COLOR, SUN_DIRECTION } from './Sky';
-import { asphaltTexture, bombSiteTexture, boxTexture, grassTexture, gridTexture, pavementTexture, sandTexture, tiledBoxGeometry } from './textures';
+import { asphaltTexture, bombSiteTexture, boxTexture, concreteTexture, containerTexture, factoryFloorTexture, grassTexture, gridTexture, pavementTexture, sandTexture, snowTexture, tiledBoxGeometry } from './textures';
 
 /** Much larger than the fog distance, so the ground's edge is never visible. */
 const GROUND_SIZE = 1000;
@@ -60,8 +60,8 @@ export class World {
     this.addLights();
     this.addGround();
     this.addBoxes();
-    // The desert town has its own walls, and no pine forest.
-    if (this.map.ground !== 'sand') {
+    // Walled maps (desert town, harbour, factory) have no fence or pine forest around them.
+    if (this.map.ground !== 'sand' && this.map.ground !== 'dock' && this.map.ground !== 'factory') {
       this.addFence();
       this.addTrees();
     }
@@ -80,8 +80,9 @@ export class World {
     if (detail === this.foliageDetail) return;
     this.foliageDetail = detail;
     this.foliage?.dispose();
-    // No grass and flowers in the desert.
-    this.foliage = detail > 0 && this.map.ground !== 'sand' ? new Foliage(this.map, this.collision, detail) : null;
+    // Grass and flowers only grow on the grassy maps.
+    const grassy = this.map.ground === 'grass' || this.map.ground === 'town' || this.map.ground === 'flat';
+    this.foliage = detail > 0 && grassy ? new Foliage(this.map, this.collision, detail) : null;
     if (this.foliage) this.root.add(this.foliage.root);
   }
 
@@ -206,12 +207,16 @@ export class World {
   }
 
   private addGround(): void {
-    // The desert map is sand to the horizon; everything else stands in a grass field.
-    const desert = this.map.ground === 'sand';
-    const outer = desert
-      ? this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(sandTexture(), GROUND_SIZE / 6), roughness: 1 })))
-      : this.surface('grass', this.track(new THREE.MeshStandardMaterial({ map: this.texture(grassTexture(), GROUND_SIZE / 4), roughness: 1, vertexColors: true })));
-    const ground = new THREE.Mesh(this.track(groundGeometry()), outer);
+    // What lies around the play area: sand, snow, harbour water, concrete, or the grass field.
+    const style = this.map.ground;
+    const outerMaterial = (): THREE.MeshStandardMaterial => {
+      if (style === 'sand') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(sandTexture(), GROUND_SIZE / 6), roughness: 1 })));
+      if (style === 'snow') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(snowTexture(), GROUND_SIZE / 6), roughness: 0.95 })));
+      if (style === 'dock') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ color: 0x2c6d8c, roughness: 0.18, metalness: 0.15 })));
+      if (style === 'factory') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(concreteTexture(), GROUND_SIZE / 4), roughness: 0.95 })));
+      return this.surface('grass', this.track(new THREE.MeshStandardMaterial({ map: this.texture(grassTexture(), GROUND_SIZE / 4), roughness: 1, vertexColors: true })));
+    };
+    const ground = new THREE.Mesh(this.track(groundGeometry()), outerMaterial());
     ground.receiveShadow = true;
     this.root.add(ground);
     const size = this.map.halfSize * 2;
@@ -227,6 +232,9 @@ export class World {
       mark.receiveShadow = true;
       this.root.add(mark);
     }
+
+    if (style === 'dock') this.plane(size, this.surface('ground', this.decal(new THREE.MeshStandardMaterial({ map: this.texture(concreteTexture(), size / 3), color: 0x8f8a82, roughness: 0.95 }))), 0.002);
+    if (style === 'factory') this.plane(size, this.surface('ground', this.decal(new THREE.MeshStandardMaterial({ map: this.texture(factoryFloorTexture(), size / 6), roughness: 0.9 }))), 0.002);
 
     if (this.map.ground === 'flat') {
       const grid = this.surface('ground', this.decal(new THREE.MeshStandardMaterial({ map: this.texture(gridTexture(), size / 1.2), roughness: 1 })));
@@ -265,7 +273,7 @@ export class World {
 
   private addBoxes(): void {
     // Merge every box of a kind into one mesh: dozens of walls become a single draw call.
-    const byKind = new Map<BoxKind, THREE.BufferGeometry[]>();
+    const byKind = new Map<string, THREE.BufferGeometry[]>();
     const frames: THREE.BufferGeometry[] = [];
     const glass: THREE.BufferGeometry[] = [];
     for (const b of this.map.boxes) {
@@ -277,15 +285,22 @@ export class World {
       const { tile } = boxTexture(b.kind);
       const geometry = tile === null ? new THREE.BoxGeometry(b.w, b.h, b.d) : tiledBoxGeometry(b.w, b.h, b.d, tile);
       geometry.translate(b.x, (b.y ?? 0) + b.h / 2, b.z);
-      const list = byKind.get(b.kind) ?? [];
+      const key = b.color === undefined ? b.kind : `${b.kind}|${b.color}`;
+      const list = byKind.get(key) ?? [];
       list.push(geometry);
-      byKind.set(b.kind, list);
+      byKind.set(key, list);
     }
-    for (const [kind, geometries] of byKind) {
+    for (const [key, geometries] of byKind) {
       const merged = this.track(mergeGeometries(geometries)!);
       for (const g of geometries) g.dispose();
-      const { texture } = boxTexture(kind);
-      const material = this.surface(kind as Surface, this.track(new THREE.MeshStandardMaterial({ map: this.texture(texture), roughness: kind === 'metal' ? 0.45 : 0.9, metalness: kind === 'metal' ? 0.3 : 0 })));
+      const [kindName, color] = key.split('|');
+      const kind = kindName as BoxKind;
+      // Coloured metal (containers, machines) uses a neutral texture so its own colour shows.
+      const texture = color !== undefined && kind === 'metal' ? containerTexture() : boxTexture(kind).texture;
+      const raw = new THREE.MeshStandardMaterial({ map: this.texture(texture), roughness: kind === 'metal' ? 0.45 : 0.9, metalness: kind === 'metal' ? 0.3 : 0 });
+      // A box's own colour tints its texture (containers, ice); set before surface() records it.
+      if (color !== undefined) raw.color.setHex(Number(color)).multiplyScalar(kind === 'metal' ? 1.15 : 1.6);
+      const material = this.surface(kind as Surface, this.track(raw));
       const mesh = new THREE.Mesh(merged, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;

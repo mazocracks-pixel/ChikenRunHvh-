@@ -1,8 +1,8 @@
 # ChikenRunHvh
 
 A multiplayer 3D chicken shooter that runs in any desktop or mobile browser. Armed chickens,
-explosive eggs, jetpacks, buggies, knives and katanas, seven game modes (HvH and Knife Fight
-included), a shop full of hats, and AI bots so there's always someone to fight.
+explosive eggs, jetpacks, buggies, 22 weapons from knives to crossbows, nine game modes (HvH,
+Knife Fight, ChikenBomb and Arms Race included), seven maps, a shop full of hats, and AI bots so there's always someone to fight.
 
 - **Client:** TypeScript + [Three.js](https://threejs.org), bundled by [Vite](https://vite.dev)
 - **Server:** Node.js + Express + [Socket.IO](https://socket.io), authoritative simulation
@@ -48,9 +48,11 @@ Environment variables:
 
 ## Features
 
-**Combat.** Pistol, Rifle, Shotgun and Sniper for everyone; SMG, Minigun, Rocket Launcher and
-Golden Rifle in the shop. Melee weapons in a slot of their own after the guns (`5`): everyone has the
-Knife, and the Frying Pan and Katana are in the shop. A swing hits the chicken in front of you
+**Combat.** Pistol, Rifle, Shotgun and Sniper for everyone. In the shop: SMG, Machine Pistol,
+Revolver, Burst Rifle (3-round bursts), Battle Rifle, Auto Shotgun, LMG (100 rounds, you move 15%
+slower), Scout (light sniper), Crossbow (bolts that drop over distance), Egg Launcher (fast exploding
+eggs), Minigun, Rocket Launcher and Golden Rifle. Melee weapons in a slot of their own after the guns (`5`): everyone has the
+Knife, and the Frying Pan, Katana and Golden Knife are in the shop. A swing hits the chicken in front of you
 within reach (no ammo, walls block it). Press `F` to inspect the weapon you're holding. Headshots, damage falloff, spread that grows while moving or jumping,
 recoil, reloading, a sniper scope, armor, spawn protection, kill feed, hit markers, and
 damage-direction indicators.
@@ -64,8 +66,10 @@ where the victim fell (it lasts 20 seconds). Drivable buggies
 (`E`) that run over chickens and can be blown up.
 
 **Modes.** Against All (FFA), Team Fight (red vs blue), HvH (Team Fight 5 vs 5 where everyone sees
-enemies through walls), Knife Fight (3 vs 3, knives only, no grenades), ChikenBomb (see below), Duel, Capture the Flag, and Sandbox
-(build with blocks). Matches go waiting → countdown → playing → results with an MVP, then the next
+enemies through walls), Knife Fight (3 vs 3, knives only, no grenades), ChikenBomb (see below), Arms
+Race (see below), Duel, Capture the Flag, and Sandbox (build with blocks). The menu groups them into
+Casual, Competitive and Fun tabs; each mode card shows its team size and has a map picker
+("Any map" or a specific one). Matches go waiting → countdown → playing → results with an MVP, then the next
 match starts automatically. There's also a scoreboard (`Tab`) and chat (`T`).
 
 **ChikenBomb.** chikenT plant the bomb on site A or B, chikenCT defuse it, 5 vs 5 (bots fill in) on
@@ -77,8 +81,18 @@ growing loss bonus, and plant / defuse bonuses. `B` opens the buy menu (only in 
 eggs, smoke, SMG, Shotgun, Sniper, plus the chikenT-only Rifle and the chikenCT-only Golden Rifle and
 defuse kit. Survivors keep what they bought. First to 6 rounds wins.
 
+**Arms Race.** Free for all, up to 12 chickens, 10 minutes. Everyone starts on the Rifle; each kill
+with your current weapon moves you up a 17-weapon ladder (Rifle → Golden Rifle → Burst → Battle Rifle →
+LMG → Minigun → SMG → Machine Pistol → Auto Shotgun → Shotgun → Sniper → Scout → Crossbow → Egg
+Launcher → Revolver → Pistol → Golden Knife). A knife kill also counts, knocks the victim back a
+level, and the last level is the Golden Knife alone: the first kill with it wins. No grenades, no
+loot boxes. When time runs out, the highest level wins.
+
 **Maps.** Farmyard, Town (enterable houses, rooftops, streets), Sandstown (a desert town with two
-bomb sites, Long A, Mid and B tunnels), and Flat World for building.
+bomb sites, Long A, Mid and B tunnels), Harbor (a dock maze of stacked shipping containers and cranes,
+with two bomb sites), Frostbite (a snowy outpost with wooden cabins you can shoot through, and flag
+bases for CTF), Factory (a walled warehouse with machines, conveyors and raised catwalks, for close
+fights), and Flat World for building.
 
 **Progress.** A guest account is created automatically; register to keep progress across devices.
 You earn coins after every match and spend them in the shop on skins, hats, beaks, sneakers and
@@ -161,7 +175,8 @@ shared/src/            used by client AND server
   projectiles.ts       eggs, smoke grenades, rockets
   raycast.ts           ray vs boxes / spheres / chicken hitboxes
   collision.ts         level collision with a spatial grid (static boxes + Sandbox blocks)
-  maps/                Farmyard, Town, Sandstown, Flat World
+  maps/                Farmyard, Town, Sandstown, Harbor, Frostbite, Factory, Flat World
+  arms.ts, bomb.ts     Arms Race weapon ladder; ChikenBomb rules and economy
   modes.ts, items.ts   game modes; shop catalogue (cosmetics + weapons)
   protocol.ts          every socket message and the compact snapshot format
 server/src/
@@ -171,7 +186,7 @@ server/src/
   rooms/RoomManager.ts quick play, private rooms with codes, room lifecycle
   rooms/GameRoom.ts    players, lag-compensated combat, damage, match flow, chat
   rooms/*System.ts     projectiles, loot boxes, vehicles, bots
-  rooms/CtfRoom.ts, SandboxRoom.ts   mode-specific rules
+  rooms/BombRoom.ts, ArmsRoom.ts, CtfRoom.ts, SandboxRoom.ts   mode-specific rules
 client/src/
   app/App.ts           screens, joining, pause, reconnects
   settings.ts          saved player settings (sensitivity, crosshair, quality, FOV)

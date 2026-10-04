@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { LOOT, MAPS, MAP_IDS, MODES, PLAYER, boxToAabb, buildNavGraph, createCollisionWorld, findPath, isSpaceFree, reachableCount, walkable } from '../src/index';
+import { LOOT, MAPS, MAP_IDS, MODES, PLAYER, SIM_DT, boxToAabb, createMoveState, stepPlayer, buildNavGraph, createCollisionWorld, findPath, isSpaceFree, reachableCount, walkable } from '../src/index';
 
 for (const id of MAP_IDS) {
   const map = MAPS[id];
@@ -82,3 +82,17 @@ for (const id of MAP_IDS) {
     });
   });
 }
+
+describe('Factory catwalks', () => {
+  it('a chicken can climb the steps and walk onto each catwalk', () => {
+    const map = MAPS.factory;
+    const world = createCollisionWorld(map);
+    // From the floor by the steps: each step is a jump up, and the catwalk continues from the top one.
+    for (const [x0, dir, z] of [[-24, 1, -26], [24, -1, 26]] as const) {
+      const s = createMoveState(x0 - dir * 2, 0, z);
+      const yaw = dir === 1 ? -Math.PI / 2 : Math.PI / 2;
+      for (let i = 0; i < 60 * 4; i++) stepPlayer(s, { seq: i, forward: 1, right: 0, jump: true, yaw, pitch: 0 }, SIM_DT, world);
+      assert.ok(s.y > 3.6, `on the catwalk (y ${s.y.toFixed(2)}, x ${s.x.toFixed(1)})`);
+    }
+  });
+});
