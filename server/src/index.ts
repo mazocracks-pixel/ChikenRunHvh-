@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_PORT } from '@game/shared';
@@ -13,7 +13,10 @@ if (existsSync(envFile)) loadEnvFile(envFile);
 const port = Number(process.env.PORT) || DEFAULT_PORT;
 /** Set by `npm run dev`: Vite serves the client, so never serve a (possibly stale) production build. */
 const isDev = process.argv.includes('--dev');
-const dbPath = process.env.DB_PATH ?? fileURLToPath(new URL('../data/game.db', import.meta.url));
+let dbPath = process.env.DB_PATH ?? fileURLToPath(new URL('../data/game.db', import.meta.url));
+// A volume mounted right at DB_PATH (e.g. at /data/game.db instead of /data) is a folder: keep the
+// database file inside it rather than failing to open a folder.
+if (existsSync(dbPath) && statSync(dbPath).isDirectory()) dbPath = join(dbPath, 'game.db');
 const clientDist = fileURLToPath(new URL('../../client/dist', import.meta.url));
 
 // The database holds password hashes: keep it readable by this user only (no effect on Windows).
@@ -40,6 +43,10 @@ const server = await startGameServer({
   // Players sharing one public IP (a school, a LAN party) may need more: MAX_SOCKETS_PER_IP=64
   maxSocketsPerIp: Number(process.env.MAX_SOCKETS_PER_IP) || undefined,
   log: (message) => console.log(message),
+}).catch((err: unknown) => {
+  // Most often a wrong volume / DB_PATH on a host: say which file it was.
+  console.error(`[server] could not start (database: ${dbPath}):`, err instanceof Error ? err.message : err);
+  process.exit(1);
 });
 
 for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
