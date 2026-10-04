@@ -1935,3 +1935,77 @@ code {
 .buy-help {
   color: var(--muted);
 }
+
+/* ---------- Menu: mode tabs, cards and map pickers ---------- */
+
+.menu-tabs {
+  width: min(1100px, 100%);
+  display: flex;
+  /* A scrolling row in the menu column: without this it shrinks to nothing on tall pages (phones). */
+  flex-shrink: 0;
+  justify-content: center;
+  gap: 8px;
+}
+
+.menu-tabs .tab {
+  padding: 9px 18px;
+  font-size: 1rem;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+}
+
+.menu-tabs .tab.active {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.mode-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mode-players {
+  padding: 2px 9px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.map-pick {
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+}
+
+.map-pick.single {
+  color: var(--muted);
+}
+
+.profile-chip .who {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.profile-chip .record {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+@media (max-width: 480px) {
+  .menu-tabs .tab {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+  }
+}

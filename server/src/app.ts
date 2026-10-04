@@ -161,7 +161,8 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
     if (typeof ack !== 'function') return;
     if (!joinLimiter.take()) return ack(tooFast);
     const mode = isRecord(req) && isModeId(req.mode) ? req.mode : 'ffa';
-    ack(rooms.join(socket, rooms.quickPlay(mode)));
+    const map = isRecord(req) && isMapId(req.map) && MODES[mode].maps.includes(req.map) ? req.map : undefined;
+    ack(rooms.join(socket, rooms.quickPlay(mode, map)));
   });
 
   socket.on('createRoom', (req, ack) => {

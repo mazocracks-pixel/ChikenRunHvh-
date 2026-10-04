@@ -54,15 +54,16 @@ export class RoomManager {
   }
 
   /** The busiest public room of this mode that still has space, or a brand new one. */
-  quickPlay(mode: ModeId): GameRoom | null {
+  /** The busiest open public room for a mode (and map, if one is asked for), or a new one. */
+  quickPlay(mode: ModeId, map?: MapId): GameRoom | null {
     let best: GameRoom | null = null;
     for (const room of this.rooms.values()) {
-      if (room.info.private || room.info.mode !== mode || room.isFull) continue;
+      if (room.info.private || room.info.mode !== mode || room.isFull || (map && room.info.map !== map)) continue;
       if (!best || room.humanCount > best.humanCount) best = room;
     }
     if (best) return best;
     const maps = MODES[mode].maps;
-    return this.create(mode, maps[Math.floor(Math.random() * maps.length)]!, false, undefined, 0, true);
+    return this.create(mode, map ?? maps[Math.floor(Math.random() * maps.length)]!, false, undefined, 0, true);
   }
 
   create(mode: ModeId, map: MapId, isPrivate: boolean, hostName?: string, bots = 0, fillBots = false): GameRoom | null {

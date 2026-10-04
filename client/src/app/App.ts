@@ -40,7 +40,7 @@ export class App {
     this.game = new Game(byId<HTMLCanvasElement>('game'), byId('hud-layer'));
 
     this.menu = new MainMenu(ui, {
-      quickPlay: (mode) => this.enter(() => this.net.quickPlay(mode)),
+      quickPlay: (mode, map) => this.enter(() => this.net.quickPlay(mode, map)),
       browse: () => openServerBrowser(() => this.net.listRooms(), (roomId) => this.enter(() => this.net.joinRoom({ roomId }), true)),
       createRoom: () => openCreateRoom((req: CreateRoomRequest) => this.enter(() => this.net.createRoom(req), true)),
       joinCode: () => openJoinCode((code) => this.enter(() => this.net.joinRoom({ code }), true)),

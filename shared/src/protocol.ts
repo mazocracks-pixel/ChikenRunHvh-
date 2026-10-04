@@ -445,7 +445,8 @@ export interface BuildRequest {
 
 export interface ClientToServerEvents {
   listRooms: (ack: (rooms: RoomSummary[]) => void) => void;
-  quickPlay: (req: { mode: ModeId }, ack: (res: JoinResponse) => void) => void;
+  /** `map` picks a map (one the mode plays on); otherwise any. */
+  quickPlay: (req: { mode: ModeId; map?: MapId }, ack: (res: JoinResponse) => void) => void;
   createRoom: (req: CreateRoomRequest, ack: (res: JoinResponse) => void) => void;
   joinRoom: (req: JoinRoomRequest, ack: (res: JoinResponse) => void) => void;
   leaveRoom: () => void;

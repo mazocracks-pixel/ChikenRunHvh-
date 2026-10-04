@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import type { ClientToServerEvents, CreateRoomRequest, JoinResponse, ModeId, RoomSummary, ServerToClientEvents } from '@game/shared';
+import type { ClientToServerEvents, CreateRoomRequest, JoinResponse, MapId, ModeId, RoomSummary, ServerToClientEvents } from '@game/shared';
 
 export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -38,8 +38,8 @@ export class Network {
     return this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('listRooms');
   }
 
-  quickPlay(mode: ModeId): Promise<JoinResponse> {
-    return this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('quickPlay', { mode });
+  quickPlay(mode: ModeId, map?: MapId): Promise<JoinResponse> {
+    return this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('quickPlay', map ? { mode, map } : { mode });
   }
 
   createRoom(req: CreateRoomRequest): Promise<JoinResponse> {
