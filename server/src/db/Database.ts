@@ -6,6 +6,9 @@ import {
   sanitizeAppearance,
   sanitizeLoadout,
   type Appearance,
+  MODES,
+  RANKED,
+  applyRankPoints,
   levelFor,
   type LeaderboardRow,
   type ModeId,
@@ -22,6 +25,7 @@ export interface MatchRecord {
   deaths: number;
   won: boolean;
   coins: number;
+  /** Change in rank points (FaceChiken; 0 elsewhere). */
   xp: number;
 }
 
@@ -29,6 +33,8 @@ export interface MatchRecord {
 export interface MatchTotals {
   coins: number;
   xp: number;
+  /** Coins paid for reaching new levels (already in `coins`). */
+  levelCoins: number;
 }
 
 interface UserRow {
@@ -99,6 +105,8 @@ const MIGRATIONS = [
    );
    CREATE INDEX mode_stats_board ON mode_stats(mode, wins DESC, kills DESC);
    CREATE INDEX users_xp ON users(xp DESC);`,
+  // v5: ranks now move only in FaceChiken (the ranked mode), so everyone starts again at level 1.
+  `UPDATE users SET xp = 0;`,
 ];
 
 /** Limits for session lifetime and housekeeping. */
@@ -335,35 +343,38 @@ export class GameDatabase {
    */
   recordMatch(records: MatchRecord[], mode: ModeId | null = null): Map<number, MatchTotals> {
     return this.transaction(() => {
-      const update = this.db.prepare(
-        'UPDATE users SET coins = coins + ?, xp = xp + ?, kills = kills + ?, deaths = deaths + ?, wins = wins + ?, matches = matches + 1 WHERE id = ?',
-      );
+      const current = this.db.prepare('SELECT coins, xp FROM users WHERE id = ?');
+      const update = this.db.prepare('UPDATE users SET coins = ?, xp = ?, kills = kills + ?, deaths = deaths + ?, wins = wins + ?, matches = matches + 1 WHERE id = ?');
       const perMode = this.db.prepare(
         `INSERT INTO mode_stats (user_id, mode, kills, deaths, wins, matches) VALUES (?, ?, ?, ?, ?, 1)
          ON CONFLICT (user_id, mode) DO UPDATE SET kills = kills + excluded.kills, deaths = deaths + excluded.deaths, wins = wins + excluded.wins, matches = matches + 1`,
       );
-      const select = this.db.prepare('SELECT coins, xp FROM users WHERE id = ?');
       const totals = new Map<number, MatchTotals>();
       for (const r of records) {
-        update.run(r.coins, r.xp, r.kills, r.deaths, r.won ? 1 : 0, r.userId);
+        const row = current.get(r.userId) as { coins: number; xp: number } | undefined;
+        if (!row) continue;
+        // Rank points never drop you below the level you've reached; each new level pays coins.
+        const xp = r.xp === 0 ? row.xp : applyRankPoints(row.xp, r.xp);
+        const levelCoins = Math.max(0, levelFor(xp) - levelFor(row.xp)) * RANKED.levelCoins;
+        const coins = row.coins + r.coins + levelCoins;
+        update.run(coins, xp, r.kills, r.deaths, r.won ? 1 : 0, r.userId);
         if (mode) perMode.run(r.userId, mode, r.kills, r.deaths, r.won ? 1 : 0);
-        const row = select.get(r.userId) as MatchTotals | undefined;
-        if (row) totals.set(r.userId, { coins: row.coins, xp: row.xp });
+        totals.set(r.userId, { coins, xp, levelCoins });
       }
       return totals;
     });
   }
 
-  /** Top players overall (by XP), or in one game mode (by wins, then kills). */
+  /** Top players overall or in one mode (by wins, then kills); FaceChiken by rank points. */
   leaderboard(limit = 20, mode: ModeId | null = null): LeaderboardRow[] {
     const rows = (
       mode
         ? this.db
             .prepare(
-              'SELECT u.name, m.kills, m.deaths, m.wins, m.matches, u.developer, u.xp FROM mode_stats m JOIN users u ON u.id = m.user_id WHERE m.mode = ? AND m.matches > 0 ORDER BY m.wins DESC, m.kills DESC LIMIT ?',
+              `SELECT u.name, m.kills, m.deaths, m.wins, m.matches, u.developer, u.xp FROM mode_stats m JOIN users u ON u.id = m.user_id WHERE m.mode = ? AND m.matches > 0 ORDER BY ${MODES[mode].ranked ? 'u.xp DESC, ' : ''}m.wins DESC, m.kills DESC LIMIT ?`,
             )
             .all(mode, limit)
-        : this.db.prepare('SELECT name, kills, deaths, wins, matches, developer, xp FROM users WHERE matches > 0 ORDER BY xp DESC, kills DESC LIMIT ?').all(limit)
+        : this.db.prepare('SELECT name, kills, deaths, wins, matches, developer, xp FROM users WHERE matches > 0 ORDER BY wins DESC, kills DESC LIMIT ?').all(limit)
     ) as unknown as (Omit<LeaderboardRow, 'level'> & { developer: number; xp: number })[];
     return rows.map(({ developer, xp, ...row }) => ({ ...row, level: levelFor(xp), ...(developer === 1 ? { dev: true } : {}) }));
   }

@@ -8,7 +8,9 @@ import {
   PROJECTILES,
   WEAPONS,
   canTeamBuy,
+  isKnifeSkin,
   isMelee,
+  isSidearm,
   noBomb,
   round,
   teamName,
@@ -18,6 +20,7 @@ import {
   type RoundEndReason,
   type RoundState,
   type Team,
+  type WeaponId,
 } from '@game/shared';
 import type { GameServer } from '../types';
 import { GameRoom, type BotGoal, type RoomHooks, type RoomOptions } from './GameRoom';
@@ -334,6 +337,8 @@ export class BombRoom extends GameRoom {
   protected override onPlayerLeave(player: ServerPlayer): void {
     super.onPlayerLeave(player);
     this.release(player);
+    // FaceChiken: walking out of a match that's underway is a loss.
+    if (this.phase === 'playing' && this.state.phase !== 'warmup') this.recordLeaver(player);
   }
 
   protected override joinExtras(player: ServerPlayer) {
@@ -344,9 +349,9 @@ export class BombRoom extends GameRoom {
     return this.state.phase === 'buy';
   }
 
-  /** Back to the starting pistol and knife (dead players, new matches). */
+  /** Back to the starting pistol and knife (dead players, new matches). Your own knife skin stays. */
   private resetLoadout(p: ServerPlayer): void {
-    p.info.loadout = [...BOMB_START_LOADOUT];
+    p.info.loadout = BOMB_START_LOADOUT.map((w) => (w === 'knife' && isKnifeSkin(p.melee) ? p.melee : w));
     p.weaponSlot = 0;
     p.reloadUntil = 0;
     for (const id of p.info.loadout) p.mags.set(id, p.magazineSize(id));
@@ -377,11 +382,14 @@ export class BombRoom extends GameRoom {
     switch (item.kind) {
       case 'weapon': {
         const weapon = item.weapon!;
-        // One main gun: it replaces the one you had, next to your pistol and knife.
-        const rest = p.info.loadout.filter((w) => w === 'pistol' || isMelee(w));
-        p.info.loadout = [weapon, ...rest];
+        // One main gun and one pistol: a pistol replaces your pistol, any other gun your main gun.
+        const melee = p.info.loadout.find((w) => isMelee(w)) ?? 'knife';
+        const main = p.info.loadout.find((w) => !isMelee(w) && !isSidearm(w));
+        const sidearm = p.info.loadout.find((w) => isSidearm(w));
+        const next = isSidearm(weapon) ? [main, weapon, melee] : [weapon, sidearm, melee];
+        p.info.loadout = next.filter((w): w is WeaponId => w !== undefined);
         p.mags.set(weapon, p.magazineSize(weapon));
-        p.weaponSlot = 0;
+        p.weaponSlot = p.info.loadout.indexOf(weapon);
         p.reloadUntil = 0;
         this.announcePlayer(p);
         break;
@@ -405,9 +413,10 @@ export class BombRoom extends GameRoom {
 
   /** Bots spend their money at the start of a round: the best gun they can afford, then armor. */
   private botBuy(p: ServerPlayer): void {
-    const guns = BUY_ITEMS.filter((i) => i.kind === 'weapon' && canTeamBuy(i, p.info.team)).sort((a, b) => b.price - a.price);
+    // Bots stick to the classic guns: no explosives or heavy spray.
+    const guns = BUY_ITEMS.filter((i) => i.kind === 'weapon' && !isSidearm(i.weapon!) && (i.category === 'rifle' || i.category === 'smg' || i.category === 'sniper' || i.weapon === 'shotgun') && canTeamBuy(i, p.info.team)).sort((a, b) => b.price - a.price);
     const best = guns.find((g) => g.price <= p.money - 650) ?? guns.find((g) => g.price <= p.money);
-    if (best && !p.info.loadout.includes(best.weapon!) && !p.info.loadout.some((w) => w !== 'pistol' && !isMelee(w))) this.handleBuy(p, best.id);
+    if (best && !p.info.loadout.includes(best.weapon!) && !p.info.loadout.some((w) => !isSidearm(w) && !isMelee(w))) this.handleBuy(p, best.id);
     if (p.money >= 650) this.handleBuy(p, 'armor');
     if (p.info.team === 2 && p.money >= 400) this.handleBuy(p, 'kit');
   }

@@ -108,6 +108,8 @@ export interface SessionContext {
   join: JoinSuccess;
   /** Match reward: the new coin and XP totals. */
   onReward: (coins: number, xp: number) => void;
+  /** Something that frees the mouse (the buy menu) opened or closed. */
+  onOverlay: () => void;
   /** The server closed the room. */
   onClosed: (reason: string) => void;
   /** Developer tools, if loaded. */
@@ -238,8 +240,11 @@ export class GameSession {
     this.weapons = new WeaponController(meInfo.loadout);
     this.viewmodel = new ViewModel(ctx.overlay);
     this.bombView = this.mode.bomb ? new BombView(ctx.scene) : null;
-    this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root) : null;
-    if (this.buyMenu) this.buyMenu.onBuy = (item) => this.buy(item);
+    this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root, meInfo.appearance) : null;
+    if (this.buyMenu) {
+      this.buyMenu.onBuy = (item) => this.buy(item);
+      this.buyMenu.onClose = () => this.closeBuyMenu();
+    }
     ctx.input.yaw = me.yaw;
     ctx.input.pitch = -0.15;
 
@@ -388,7 +393,13 @@ export class GameSession {
       this.hudTimer = 0;
       this.updateHud(now, fps, aiming, scoped);
     }
+    this.buyMenu?.update(dt);
     dev?.afterFrame(this, dt);
+  }
+
+  /** The buy menu is open (it has the mouse). */
+  get buyMenuOpen(): boolean {
+    return this.buyMenu?.open ?? false;
   }
 
   /** Silhouettes through walls: the developer wallhack wins, otherwise HvH shows enemies. */
@@ -480,12 +491,7 @@ export class GameSession {
       case 'slot8':
       case 'slot9': {
         const n = Number(action.slice(4));
-        // ChikenBomb: number keys buy while the buy menu is open.
-        if (this.buyMenu?.open) {
-          const item = this.buyMenu.itemFor(n);
-          if (item) this.buy(item);
-          break;
-        }
+        if (this.buyMenu?.open) break;
         this.switchWeapon(() => this.weapons.switchTo(n - 1, now));
         break;
       }
@@ -739,7 +745,8 @@ export class GameSession {
       hud.toast(won ? 'Round won! 🎉' : 'Round lost', won ? 'good' : 'bad');
       audio.play(won ? 'reward' : 'empty');
     }
-    if (r.phase !== 'buy' && r.phase !== 'warmup') this.buyMenu?.setOpen(false);
+    // Buy time over: the menu stays (it has the mouse) but can't buy; B or Esc gets you back.
+    if (r.phase !== 'buy' && r.phase !== 'warmup' && this.buyMenu?.open) this.buyMenu.say('Buy time is over: press B or Esc to play', true);
   }
 
   /** Round line, buy menu contents and your own plant / defuse progress. */
@@ -758,7 +765,12 @@ export class GameSession {
       this.buyMenu.render({
         money: this.money,
         team: this.self.team,
-        secondsLeft: r.phase === 'warmup' ? null : Math.max(0, Math.ceil(((r.endsAt ?? now) - now) / 1000)),
+        secondsLeft: r.phase === 'warmup' ? null : r.phase !== 'buy' ? 0 : Math.max(1, Math.ceil(((r.endsAt ?? now) - now) / 1000)),
+        loadout,
+        armor: s.armor,
+        eggs: s.eggs,
+        smokes: s.smokes,
+        hasKit: this.hasKit,
         blocked: (item) =>
           item.kind === 'weapon' && loadout.includes(item.weapon!) ? 'Owned'
           : item.kind === 'armor' && s.armor >= PLAYER.maxArmor ? 'Full'
@@ -772,12 +784,26 @@ export class GameSession {
 
   private toggleBuyMenu(): void {
     const menu = this.buyMenu!;
-    if (menu.open) return menu.setOpen(false);
+    if (menu.open) return this.closeBuyMenu();
     const phase = this.round?.phase;
     if (!this.local.alive) return this.ctx.hud.toast('You can buy when you’re back next round', 'bad');
     if (phase !== 'buy' && phase !== 'warmup') return this.ctx.hud.toast('Buy time is over: you can buy at the start of the next round', 'bad');
+    menu.setAppearance(this.self.appearance, this.self.team);
     menu.setOpen(true);
+    // The mouse is yours while shopping.
+    this.ctx.input.releaseLock();
+    this.ctx.onOverlay();
+    this.updateRoundHud();
     this.ctx.audio.play('click');
+  }
+
+  /** Called from a key press or click, so the game can take the mouse back. */
+  private closeBuyMenu(): void {
+    const menu = this.buyMenu;
+    if (!menu?.open) return;
+    menu.setOpen(false);
+    void this.ctx.input.requestLock();
+    this.ctx.onOverlay();
   }
 
   private buy(item: BuyItem): void {
@@ -1227,13 +1253,13 @@ export class GameSession {
   }
 
   private onReward(e: MatchRewardEvent): void {
-    this.ctx.hud.showReward(e.coins, e.total, e.xp, e.xpTotal);
-    this.ctx.hud.toast(`+${e.coins} coins · +${e.xp} XP`, 'good');
+    this.ctx.hud.showReward(e);
+    this.ctx.hud.toast(e.ranked ? `+${e.coins} coins · ${e.xp >= 0 ? '+' : ''}${e.xp} rank points` : `+${e.coins} coins`, 'good');
     const before = levelFor(e.xpTotal - e.xp);
     const after = levelFor(e.xpTotal);
     if (after > before) {
       const rank = rankOf(after);
-      this.ctx.hud.toast(`Rank up! ${rank.icon} Level ${rank.level} · ${rank.name}`, 'good');
+      this.ctx.hud.toast(`Level up! ${rank.icon} Level ${rank.level} · ${rank.name} · +${e.levelCoins} coins`, 'good');
     }
     this.ctx.audio.play('reward');
     this.ctx.onReward(e.total, e.xpTotal);
@@ -1259,7 +1285,7 @@ export class GameSession {
     this.ctx.input.zoomScale = 1;
     this.viewmodel.dispose();
     this.bombView?.dispose();
-    this.buyMenu?.root.remove();
+    this.buyMenu?.dispose();
     this.local.dispose();
     this.remotes.dispose();
     this.projectiles.dispose();

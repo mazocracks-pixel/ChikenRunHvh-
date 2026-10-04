@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { MODES, type ModeId } from '@game/shared';
 import { KeyedRateLimiter } from '../util';
 
 export interface DevAccessOptions {
@@ -62,8 +63,9 @@ export class DevAccess {
     return 'ok';
   }
 
-  /** Developer tools work in private rooms, and in public ones only on a dev server. */
-  allowedIn(room: { info: { private: boolean } }): boolean {
+  /** Developer tools work in private rooms, and in public ones unless turned off. Never in ranked. */
+  allowedIn(room: { info: { private: boolean; mode: ModeId } }): boolean {
+    if (MODES[room.info.mode].ranked) return false;
     return room.info.private || this.allowPublicRooms;
   }
 }

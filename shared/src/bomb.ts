@@ -47,29 +47,68 @@ export const ECONOMY = {
 
 export type BuyKind = 'weapon' | 'armor' | 'eggs' | 'smoke' | 'kit';
 
+/** Buy menu columns. A pistol takes the pistol slot; every other gun is your one main gun. */
+export type BuyCategory = 'pistol' | 'smg' | 'heavy' | 'rifle' | 'sniper' | 'special' | 'gear';
+
+export const BUY_CATEGORIES: readonly { id: BuyCategory; name: string }[] = [
+  { id: 'pistol', name: 'Pistols' },
+  { id: 'smg', name: 'SMGs' },
+  { id: 'heavy', name: 'Heavy' },
+  { id: 'rifle', name: 'Rifles' },
+  { id: 'sniper', name: 'Snipers' },
+  { id: 'special', name: 'Explosive' },
+  { id: 'gear', name: 'Gear' },
+];
+
 export interface BuyItem {
   id: string;
   name: string;
   price: number;
   kind: BuyKind;
+  category: BuyCategory;
   weapon?: WeaponId;
   /** Only this team can buy it. */
   team?: 1 | 2;
 }
 
-/** The buy menu, in display order (keys 1-9 while it's open). */
+const gun = (weapon: WeaponId, name: string, price: number, category: BuyCategory, team?: 1 | 2): BuyItem => ({ id: weapon, name, price, kind: 'weapon', category, weapon, ...(team ? { team } : {}) });
+
+/** The buy menu, column by column (prices roughly like CS2's). */
 export const BUY_ITEMS: readonly BuyItem[] = [
-  { id: 'armor', name: 'Armor', price: 650, kind: 'armor' },
-  { id: 'eggs', name: 'Explosive egg', price: 300, kind: 'eggs' },
-  { id: 'smoke', name: 'Smoke grenade', price: 300, kind: 'smoke' },
-  { id: 'kit', name: 'Defuse kit', price: 400, kind: 'kit', team: 2 },
-  { id: 'smg', name: 'SMG', price: 1_250, kind: 'weapon', weapon: 'smg' },
-  { id: 'shotgun', name: 'Shotgun', price: 1_100, kind: 'weapon', weapon: 'shotgun' },
-  { id: 'rifle', name: 'Rifle', price: 2_700, kind: 'weapon', weapon: 'rifle', team: 1 },
-  { id: 'golden', name: 'Golden Rifle', price: 3_100, kind: 'weapon', weapon: 'golden', team: 2 },
-  { id: 'sniper', name: 'Sniper', price: 4_750, kind: 'weapon', weapon: 'sniper' },
+  gun('pistol', 'Pistol', 200, 'pistol'),
+  gun('silenced', 'Silenced Pistol', 200, 'pistol'),
+  gun('dualies', 'Dual Pistols', 300, 'pistol'),
+  gun('fiveseven', 'Five-Seven', 500, 'pistol'),
+  gun('mpistol', 'Machine Pistol', 500, 'pistol'),
+  gun('revolver', 'Revolver', 600, 'pistol'),
+  gun('deagle', 'Deagle', 700, 'pistol'),
+  gun('smg', 'SMG', 1_250, 'smg'),
+  gun('shotgun', 'Shotgun', 1_100, 'heavy'),
+  gun('autoshotgun', 'Auto Shotgun', 2_000, 'heavy'),
+  gun('lmg', 'LMG', 5_200, 'heavy'),
+  gun('minigun', 'Minigun', 6_000, 'heavy'),
+  gun('burst', 'Burst Rifle', 2_050, 'rifle'),
+  gun('rifle', 'Rifle', 2_700, 'rifle', 1),
+  gun('golden', 'Golden Rifle', 3_100, 'rifle', 2),
+  gun('battle', 'Battle Rifle', 3_000, 'rifle'),
+  gun('scout', 'Scout', 1_700, 'sniper'),
+  gun('crossbow', 'Crossbow', 1_900, 'sniper'),
+  gun('sniper', 'Sniper', 4_750, 'sniper'),
+  gun('launcher', 'Egg Launcher', 3_500, 'special'),
+  gun('rocket', 'Rocket Launcher', 5_000, 'special'),
+  { id: 'armor', name: 'Armor', price: 650, kind: 'armor', category: 'gear' },
+  { id: 'eggs', name: 'Explosive egg', price: 300, kind: 'eggs', category: 'gear' },
+  { id: 'smoke', name: 'Smoke grenade', price: 300, kind: 'smoke', category: 'gear' },
+  { id: 'kit', name: 'Defuse kit', price: 400, kind: 'kit', category: 'gear', team: 2 },
 ];
 export const BUY_ITEMS_BY_ID: ReadonlyMap<string, BuyItem> = new Map(BUY_ITEMS.map((i) => [i.id, i]));
+
+/** Weapons that go in the pistol slot (the rest are main guns). */
+const SIDEARMS = new Set<WeaponId>(BUY_ITEMS.filter((i) => i.category === 'pistol').map((i) => i.weapon!));
+
+export function isSidearm(id: WeaponId): boolean {
+  return SIDEARMS.has(id);
+}
 
 /** What everyone starts each life with (survivors keep what they bought). */
 export const BOMB_START_LOADOUT: readonly WeaponId[] = ['pistol', 'knife'];

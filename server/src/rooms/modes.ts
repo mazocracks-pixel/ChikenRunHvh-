@@ -11,6 +11,7 @@ export function createRoom(io: GameServer, options: RoomOptions, hooks: RoomHook
     case 'arms':
       return new ArmsRoom(io, options, hooks);
     case 'bomb':
+    case 'face':
       return new BombRoom(io, options, hooks);
     case 'ctf':
       return new CtfRoom(io, options, hooks);

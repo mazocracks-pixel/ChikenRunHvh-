@@ -1,8 +1,8 @@
 # ChikenRunHvh
 
 A multiplayer 3D chicken shooter that runs in any desktop or mobile browser. Armed chickens,
-explosive eggs, jetpacks, buggies, 22 weapons from knives to crossbows, nine game modes (HvH,
-Knife Fight, ChikenBomb and Arms Race included), seven maps, a shop full of hats, and AI bots so there's always someone to fight.
+explosive eggs, jetpacks, buggies, 30 weapons from butterfly knives to crossbows, ten game modes (HvH,
+Knife Fight, ChikenBomb, Arms Race and the ranked FaceChiken included), seven maps, a shop full of hats, and AI bots so there's always someone to fight.
 
 - **Client:** TypeScript + [Three.js](https://threejs.org), bundled by [Vite](https://vite.dev)
 - **Server:** Node.js + Express + [Socket.IO](https://socket.io), authoritative simulation
@@ -48,11 +48,15 @@ Environment variables:
 
 ## Features
 
-**Combat.** Pistol, Rifle, Shotgun and Sniper for everyone. In the shop: SMG, Machine Pistol,
+**Combat.** Pistol, Rifle, Shotgun and Sniper for everyone. In the shop: Deagle (a headshot kills),
+Five-Seven (20 rounds), Dual Pistols (one in each hand), Silenced Pistol (quiet and very accurate), SMG, Machine Pistol,
 Revolver, Burst Rifle (3-round bursts), Battle Rifle, Auto Shotgun, LMG (100 rounds, you move 15%
 slower), Scout (light sniper), Crossbow (bolts that drop over distance), Egg Launcher (fast exploding
 eggs), Minigun, Rocket Launcher and Golden Rifle. Melee weapons in a slot of their own after the guns (`5`): everyone has the
-Knife, and the Frying Pan, Katana and Golden Knife are in the shop. A swing hits the chicken in front of you
+Knife, and the Frying Pan, Katana and Golden Knife are in the shop, plus four knives in the style of CS2's:
+Butterfly Knife, Karambit, M9 Bayonet and Shadow Daggers. They play exactly like the Knife (and replace
+it in Knife Fight, ChikenBomb and FaceChiken), and each has its own inspect trick on `F`: the butterfly
+fans open, the karambit spins round your finger, the M9 flips in the air, the daggers twirl. A swing hits the chicken in front of you
 within reach (no ammo, walls block it). Press `F` to inspect the weapon you're holding. Headshots, damage falloff, spread that grows while moving or jumping,
 recoil, reloading, a sniper scope, armor, spawn protection, kill feed, hit markers, and
 damage-direction indicators.
@@ -77,9 +81,19 @@ Sandstown. A 40 s warmup (free respawns, free buying), then rounds: 15 s buy tim
 1:50 to plant, a 40 s fuse once planted. Dead chickens wait for the next round. Hold `E` to plant
 (3 s, standing still on a site) or defuse (10 s, 5 s with a defuse kit); the bomb drops where its
 carrier dies. Money: $800 to start, +$300 a kill (+$1500 with a knife), +$3250 for a round win, a
-growing loss bonus, and plant / defuse bonuses. `B` opens the buy menu (only in this mode): armor,
-eggs, smoke, SMG, Shotgun, Sniper, plus the chikenT-only Rifle and the chikenCT-only Golden Rifle and
-defuse kit. Survivors keep what they bought. First to 6 rounds wins.
+growing loss bonus, and plant / defuse bonuses. `B` opens the buy menu (bomb modes only), which frees
+the mouse: your chicken turns on the left, holding whatever gun you point at (with its damage, fire
+rate, accuracy and range), and every gun in the game is on the right in columns (Pistols, SMGs, Heavy,
+Rifles, Snipers, Explosive, Gear) with CS-like prices and pictures of the real models. Click to buy:
+a pistol replaces your pistol, anything else your main gun; you keep your own knife. The Rifle is
+chikenT only, the Golden Rifle and defuse kit chikenCT only. Survivors keep what they bought. First
+to 6 rounds wins.
+
+**FaceChiken (ranked).** The same 5 vs 5 bomb rules, but only real players: no bots, registered
+accounts only, quick play only (no private rooms), developer tools locked by the server, and it needs
+at least 4 players to start. It's the only mode that moves your level: a win gives 30 rank points, a
+loss takes 20, every kill gives 1 back (up to 10), and leaving a match that's underway counts as a loss
+(-25). You never drop below the level you've reached, and each new level pays 250 coins.
 
 **Arms Race.** Free for all, up to 12 chickens, 10 minutes. Everyone starts on the Rifle; each kill
 with your current weapon moves you up a 17-weapon ladder (Rifle → Golden Rifle → Burst → Battle Rifle →
@@ -100,13 +114,12 @@ fights), and Flat World for building.
 You earn coins after every match and spend them in the shop on skins, hats, beaks, sneakers and
 weapons. There's a loadout of up to 4 guns plus a melee weapon.
 
-**Ranks.** Every finished match gives XP (25, +10 a kill, +60 for a win, up to 400), counted only by
-the server. XP sets your rank, from level 1 to level 10: 🥚 Egg, 🐣 Chick, 🐥 Hatchling, 🐤 Pullet,
-🐔 Hen, 🐓 Rooster, 🦅 Eagle, 🔥 Phoenix, 🏆 Legend, 👑 Chicken King. Your rank and XP bar are on the
-menu, everyone's badge is on the scoreboard, and the results screen shows what you earned. Accounts
-from before ranks got XP for the matches they had already played.
+**Ranks.** Level 1 to level 10, set by FaceChiken rank points (only the server changes them): 🥚 Egg 0,
+🐣 Chick 100, 🐥 Hatchling 250, 🐤 Pullet 450, 🐔 Hen 700, 🐓 Rooster 1000, 🦅 Eagle 1350, 🔥 Phoenix 1750,
+🏆 Legend 2200, 👑 Chicken King 2700, so the top takes a couple of hundred matches. Your rank and progress
+bar are on the menu, everyone's badge is on the scoreboard, and the results screen shows what you earned.
 
-**Leaderboards.** One overall (by rank) and one for every mode (by wins, then kills): the 🏆 button on
+**Leaderboards.** One overall and one for every mode (by wins, then kills; FaceChiken by rank points): the 🏆 button on
 a mode card opens that mode's board. In a match, a small live board in the top-left corner shows the
 top three (and you).
 

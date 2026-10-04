@@ -24,15 +24,24 @@ export type WeaponId =
   | 'scout'
   | 'crossbow'
   | 'launcher'
-  | 'goldknife';
+  | 'goldknife'
+  | 'deagle'
+  | 'fiveseven'
+  | 'dualies'
+  | 'silenced'
+  | 'butterfly'
+  | 'karambit'
+  | 'm9'
+  | 'daggers';
 
 /** Index order is part of the network protocol (snapshots send the index). Only append. */
 export const WEAPON_IDS: readonly WeaponId[] = [
   'pistol', 'rifle', 'shotgun', 'sniper', 'smg', 'minigun', 'rocket', 'golden', 'knife', 'pan', 'katana',
   'mpistol', 'revolver', 'burst', 'battle', 'autoshotgun', 'lmg', 'scout', 'crossbow', 'launcher', 'goldknife',
+  'deagle', 'fiveseven', 'dualies', 'silenced', 'butterfly', 'karambit', 'm9', 'daggers',
 ];
 
-export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana' | 'revolver' | 'battle' | 'lmg' | 'crossbow' | 'launcher';
+export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana' | 'revolver' | 'battle' | 'lmg' | 'crossbow' | 'launcher' | 'deagle' | 'silenced';
 
 export interface WeaponDef {
   id: WeaponId;
@@ -210,6 +219,59 @@ const DEFS: WeaponDef[] = [
     range: 2.4, falloffStart: 2.4, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
     melee: { arc: 0.6 }, price: 5000, sound: 'knife', model: { length: 0.32, color: 0x2a2c31, accent: 0xe8b93e },
   },
+  // ---- Third wave: pistols, and knives that look like CS2's (same stats as the Knife) ----
+  {
+    id: 'deagle', name: 'Deagle', damage: 48, headshotMultiplier: 2.6, fireInterval: 400, automatic: false,
+    magazine: 7, reloadTime: 2200, pellets: 1, spread: 0.006, moveSpread: 0.045, airSpread: 0.1,
+    range: 100, falloffStart: 35, minDamageScale: 0.65, zoom: 1.3, scope: false, recoil: 0.075,
+    price: 900, sound: 'deagle', model: { length: 0.38, color: 0xb9bdc4, accent: 0x1b1c1f },
+  },
+  {
+    id: 'fiveseven', name: 'Five-Seven', damage: 26, headshotMultiplier: 2, fireInterval: 150, automatic: false,
+    magazine: 20, reloadTime: 1300, pellets: 1, spread: 0.01, moveSpread: 0.018, airSpread: 0.05,
+    range: 85, falloffStart: 28, minDamageScale: 0.65, zoom: 1.25, scope: false, recoil: 0.02,
+    price: 600, sound: 'pistol', model: { length: 0.33, color: 0x6e6650, accent: 0x18191b },
+  },
+  {
+    id: 'dualies', name: 'Dual Pistols', damage: 22, headshotMultiplier: 2, fireInterval: 120, automatic: false,
+    magazine: 30, reloadTime: 2600, pellets: 1, spread: 0.02, moveSpread: 0.025, airSpread: 0.06,
+    range: 70, falloffStart: 20, minDamageScale: 0.55, zoom: 1.1, scope: false, recoil: 0.02,
+    price: 500, sound: 'pistol', model: { length: 0.32, color: 0xc4c8cf, accent: 0x111214 },
+  },
+  {
+    id: 'silenced', name: 'Silenced Pistol', damage: 30, headshotMultiplier: 2.2, fireInterval: 260, automatic: false,
+    magazine: 12, reloadTime: 1500, pellets: 1, spread: 0.005, moveSpread: 0.015, airSpread: 0.045,
+    range: 90, falloffStart: 30, minDamageScale: 0.7, zoom: 1.3, scope: false, recoil: 0.018,
+    price: 400, sound: 'silenced', model: { length: 0.46, color: 0x3a3d42, accent: 0x15161a },
+  },
+  {
+    id: 'butterfly', name: 'Butterfly Knife', damage: 35, headshotMultiplier: 1.5, fireInterval: 420, automatic: true,
+    magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
+    range: 2.3, falloffStart: 2.3, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
+    melee: { arc: 0.6 },
+    price: 3000, sound: 'knife', model: { length: 0.3, color: 0x2b2d33, accent: 0xd5dae2 },
+  },
+  {
+    id: 'karambit', name: 'Karambit', damage: 35, headshotMultiplier: 1.5, fireInterval: 420, automatic: true,
+    magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
+    range: 2.3, falloffStart: 2.3, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
+    melee: { arc: 0.6 },
+    price: 3500, sound: 'knife', model: { length: 0.26, color: 0x1f2a24, accent: 0xd5dae2 },
+  },
+  {
+    id: 'm9', name: 'M9 Bayonet', damage: 35, headshotMultiplier: 1.5, fireInterval: 420, automatic: true,
+    magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
+    range: 2.3, falloffStart: 2.3, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
+    melee: { arc: 0.6 },
+    price: 2500, sound: 'knife', model: { length: 0.36, color: 0x2e3a2c, accent: 0xd5dae2 },
+  },
+  {
+    id: 'daggers', name: 'Shadow Daggers', damage: 35, headshotMultiplier: 1.5, fireInterval: 420, automatic: true,
+    magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
+    range: 2.3, falloffStart: 2.3, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
+    melee: { arc: 0.6 },
+    price: 1500, sound: 'knife', model: { length: 0.2, color: 0x24262b, accent: 0xd5dae2 },
+  },
 ];
 
 export const WEAPONS = Object.fromEntries(DEFS.map((w) => [w.id, w])) as Record<WeaponId, WeaponDef>;
@@ -219,6 +281,12 @@ export const DEFAULT_LOADOUT: readonly WeaponId[] = ['rifle', 'shotgun', 'sniper
 export const LOADOUT_SIZE = 4;
 /** Everyone's melee weapon unless they pick another one in the shop. */
 export const DEFAULT_MELEE: WeaponId = 'knife';
+/** Knives that only look different: they replace the Knife in knife-only and bomb modes. */
+export const KNIFE_SKINS: readonly WeaponId[] = ['knife', 'butterfly', 'karambit', 'm9', 'daggers'];
+
+export function isKnifeSkin(id: WeaponId): boolean {
+  return KNIFE_SKINS.includes(id);
+}
 /** Time after switching weapons before the new one can fire, ms. */
 export const WEAPON_SWITCH_MS = 250;
 

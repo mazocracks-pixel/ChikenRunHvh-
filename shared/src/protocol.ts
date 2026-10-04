@@ -423,9 +423,12 @@ export interface MatchRewardEvent {
   total: number;
   kills: number;
   won: boolean;
-  /** XP from this match, and the account's new XP total. */
+  /** Rank points from this match (FaceChiken only; 0 elsewhere), and the new total. */
   xp: number;
   xpTotal: number;
+  /** Coins for reaching a new level (included in `coins`). */
+  levelCoins: number;
+  ranked: boolean;
 }
 
 export type FlagEventKind = 'taken' | 'dropped' | 'returned' | 'captured';

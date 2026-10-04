@@ -8,16 +8,17 @@ import {
   MAPS,
   MAP_IDS,
   MAX_LEVEL,
+  RANKED,
   RANKS,
-  XP,
   createCollisionWorld,
   eyeHeightOf,
   isSpaceFree,
   levelFor,
   makeRay,
-  matchXp,
+  applyRankPoints,
   openSpots,
   rankProgress,
+  rankedPoints,
   raycastWorld,
   type PlayerInfo,
 } from '@game/shared';
@@ -31,7 +32,7 @@ let current: GameRoom | null = null;
 afterEach(() => current?.close());
 
 describe('ranks', () => {
-  it('go from level 1 to level 10', () => {
+  it('go from level 1 to level 10, and the top is a long way up', () => {
     assert.equal(MAX_LEVEL, 10);
     assert.equal(levelFor(0), 1);
     assert.equal(levelFor(RANKS[1]!.xp - 1), 1);
@@ -39,57 +40,69 @@ describe('ranks', () => {
     assert.equal(levelFor(1e9), 10, 'never past 10');
     assert.equal(rankProgress(1e9).next, null);
     assert.equal(rankProgress(RANKS[1]!.xp + (RANKS[2]!.xp - RANKS[1]!.xp) / 2).progress, 0.5);
+    // Winning 55% of games with 5 kills a game: well over 150 matches to the top.
+    const perMatch = 0.55 * rankedPoints(5, true) + 0.45 * rankedPoints(5, false);
+    assert.ok(RANKS[9]!.xp / perMatch > 150, `${Math.round(RANKS[9]!.xp / perMatch)} matches`);
   });
 
-  it('a match gives XP per match, per kill and for a win, up to a cap', () => {
-    assert.equal(matchXp(0, false), XP.perMatch);
-    assert.equal(matchXp(3, true), XP.perMatch + 3 * XP.perKill + XP.win);
-    assert.equal(matchXp(1000, true), XP.maxPerMatch);
+  it('ranked points: a win gives, a loss takes, kills soften it', () => {
+    assert.equal(rankedPoints(0, true), RANKED.win);
+    assert.equal(rankedPoints(0, false), RANKED.loss);
+    assert.equal(rankedPoints(4, false), RANKED.loss + 4);
+    assert.equal(rankedPoints(1000, true), RANKED.win + RANKED.killBonusMax);
+  });
+
+  it('you never drop below the level you reached', () => {
+    assert.equal(applyRankPoints(0, -20), 0);
+    assert.equal(applyRankPoints(RANKS[3]!.xp + 10, -50), RANKS[3]!.xp);
+    assert.equal(applyRankPoints(RANKS[3]!.xp + 10, 30), RANKS[3]!.xp + 40);
   });
 });
 
 describe('saved progress', () => {
-  it('records XP and per-mode stats, and fills the leaderboard for each mode', () => {
+  it('records rank points and per-mode stats, pays coins per new level, and fills each mode leaderboard', () => {
     const db = new GameDatabase(':memory:');
     const hen = db.createUser('Hen', 0);
     const rooster = db.createUser('Rooster', 0);
+    // Hen is just short of level 2.
+    db.recordMatch([{ userId: hen, kills: 0, deaths: 0, won: true, coins: 0, xp: RANKS[1]!.xp - 10 }], 'face');
     const totals = db.recordMatch(
       [
-        { userId: hen, kills: 5, deaths: 2, won: true, coins: 10, xp: matchXp(5, true) },
-        { userId: rooster, kills: 9, deaths: 1, won: false, coins: 10, xp: matchXp(9, false) },
+        { userId: hen, kills: 5, deaths: 2, won: true, coins: 10, xp: rankedPoints(5, true) },
+        { userId: rooster, kills: 9, deaths: 1, won: false, coins: 10, xp: rankedPoints(9, false) },
       ],
-      'arms',
+      'face',
     );
-    assert.deepEqual(totals.get(hen), { coins: 10, xp: matchXp(5, true) });
-    db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 100 }], 'ffa');
-    assert.equal(db.profile(rooster)!.xp, matchXp(9, false) + 100);
+    const henXp = RANKS[1]!.xp - 10 + rankedPoints(5, true);
+    assert.deepEqual(totals.get(hen), { coins: 10 + RANKED.levelCoins, xp: henXp, levelCoins: RANKED.levelCoins }, 'level 2: +250 coins');
+    assert.deepEqual(totals.get(rooster), { coins: 10, xp: 0, levelCoins: 0 }, 'a loss at level 1 stays at 0');
+    // Other modes don't touch rank points.
+    db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 0 }], 'ffa');
+    db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 0 }], 'ffa');
+    assert.equal(db.profile(rooster)!.xp, 0);
 
-    const arms = db.leaderboard(20, 'arms');
-    assert.deepEqual(arms.map((r) => r.name), ['Hen', 'Rooster'], 'wins first');
-    assert.equal(arms[1]!.kills, 9, 'only the Arms Race kills');
+    assert.deepEqual(db.leaderboard(20, 'face').map((r) => r.name), ['Hen', 'Rooster'], 'FaceChiken: by rank points');
+    assert.equal(db.leaderboard(20, 'face')[0]!.level, 2);
     assert.deepEqual(db.leaderboard(20, 'ffa').map((r) => r.name), ['Rooster']);
     assert.deepEqual(db.leaderboard(20, 'duel'), []);
     const all = db.leaderboard(20);
-    assert.equal(all[0]!.name, 'Rooster', 'overall: by XP');
-    assert.equal(all[0]!.kills, 11);
-    assert.equal(all[0]!.level, levelFor(matchXp(9, false) + 100));
+    assert.equal(all[0]!.name, 'Rooster', 'overall: by wins');
+    assert.equal(all[0]!.kills, 13);
     db.close();
   });
 
-  it('accounts from before ranks get XP for the matches they already played', () => {
+  it('everyone starts again at level 1 now that ranks only move in FaceChiken', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ranks-'));
     const path = join(dir, 'game.db');
     try {
       let db = new GameDatabase(path);
       const id = db.createUser('Veteran', 0);
       db.close();
-      // Roll the file back to the schema before ranks, with some old stats.
       const raw = new DatabaseSync(path);
-      raw.exec(`DROP INDEX users_xp; DROP INDEX mode_stats_board; DROP TABLE mode_stats; ALTER TABLE users DROP COLUMN xp;
-        UPDATE users SET kills = 40, wins = 3, matches = 10; PRAGMA user_version = 3;`);
+      raw.exec('UPDATE users SET xp = 900; PRAGMA user_version = 4;');
       raw.close();
       db = new GameDatabase(path);
-      assert.equal(db.profile(id)!.xp, 10 * 25 + 40 * 10 + 3 * 60);
+      assert.equal(db.profile(id)!.xp, 0);
       db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -98,10 +111,14 @@ describe('saved progress', () => {
 });
 
 describe('ranks in a room', () => {
-  it('players and bots carry a rank, and a rank-up at the end of a match is announced', () => {
+  it('players carry their rank, and other modes give no rank points', () => {
     const { io, events } = fakeIo();
+    let sent: number[] = [];
     const room = createRoom(io, { id: 'r', code: 'RANK1', name: 'Ranks', mode: 'ffa', map: 'farm', private: true }, {
-      onMatchEnd: (_room, results) => new Map(results.map((r) => [r.userId, { coins: 100, xp: 5000 }])),
+      onMatchEnd: (_room, results) => {
+        sent = results.map((r) => r.xp);
+        return new Map(results.map((r) => [r.userId, { coins: 100, xp: 1000, levelCoins: 0 }]));
+      },
     });
     current = room;
     const a = addPlayer(room, 'Alice', 1);
@@ -112,9 +129,10 @@ describe('ranks in a room', () => {
     a.info.kills = room.mode.scoreLimit - 1;
     room.damage(b, a, 500, false, 'rifle', { x: 0, y: 0, z: 0 }, performance.now());
     assert.equal(room.phase, 'ended');
-    assert.equal(a.info.rank, levelFor(5000));
+    assert.deepEqual(sent, [0, 0], 'no rank points outside FaceChiken');
+    assert.equal(a.info.rank, levelFor(1000), 'the badge follows the saved total');
     const updates = events.filter((e) => e.event === 'playerUpdated').map((e) => e.args[0] as PlayerInfo);
-    assert.ok(updates.some((u) => u.pid === a.pid && u.rank === levelFor(5000)), 'everyone hears about it');
+    assert.ok(updates.some((u) => u.pid === a.pid && u.rank === levelFor(1000)), 'everyone hears about it');
   });
 });
 

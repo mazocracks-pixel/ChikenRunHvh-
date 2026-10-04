@@ -1,7 +1,7 @@
 import type { MapId, Team } from './maps/types';
 import type { WeaponId } from './weapons';
 
-export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms';
+export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face';
 
 export interface ModeDef {
   id: ModeId;
@@ -43,6 +43,11 @@ export interface ModeDef {
   spawnProtectionMs?: number;
   /** Quick play tops the room up with bots to this many players (default 4, 2 in duels). */
   fillBots?: number;
+  /**
+   * Ranked (FaceChiken): the only mode that moves your level. Real players only (no bots,
+   * registered accounts), matchmaking only (no private rooms), developer tools off.
+   */
+  ranked?: boolean;
 }
 
 const DEFS: ModeDef[] = [
@@ -67,6 +72,12 @@ const DEFS: ModeDef[] = [
     teams: true, maxPlayers: 10, scoreLimit: 6, timeLimitMs: 0, respawnMs: 2000, minPlayers: 2,
     maps: ['sandstown', 'harbor'], building: false, vehicles: false, wallbang: true, fillBots: 10,
     weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true,
+  },
+  {
+    id: 'face', name: 'FaceChiken', description: 'Ranked 5 vs 5 bomb. Real players only, no bots, no dev tools. The only mode that moves your level.',
+    teams: true, maxPlayers: 10, scoreLimit: 6, timeLimitMs: 0, respawnMs: 2000, minPlayers: 4,
+    maps: ['sandstown', 'harbor'], building: false, vehicles: false, wallbang: true,
+    weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true, ranked: true,
   },
   {
     id: 'arms', name: 'Arms Race', description: 'Every kill gives you the next gun, 17 in all. First kill with the Golden Knife wins.',

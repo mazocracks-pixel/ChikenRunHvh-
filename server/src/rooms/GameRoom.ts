@@ -67,9 +67,13 @@ import {
   type WeaponDef,
   type WeaponId,
   type WorldSnapshot,
+  DEFAULT_MELEE,
   MIN_LEVEL,
+  RANKED,
+  isKnifeSkin,
+  isMelee,
   levelFor,
-  matchXp,
+  rankedPoints,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -124,8 +128,8 @@ export interface MatchResult {
 }
 
 export interface RoomHooks {
-  /** Persist rewards; returns each user's new coin and XP totals. */
-  onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, { coins: number; xp: number }>;
+  /** Persist rewards; returns each user's new coin and rank-point totals. */
+  onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, { coins: number; xp: number; levelCoins: number }>;
   /** Called when the last human leaves. */
   onEmpty?(room: GameRoom): void;
 }
@@ -252,12 +256,14 @@ export class GameRoom {
     if (this.players.size >= this.mode.maxPlayers && !this.bots.removeOne()) return { ok: false, error: 'That room is full.' };
     if (socket && this.bySocket.has(socket.id)) return { ok: false, error: 'Already in this room.' };
 
+    const melee = profile.loadout.find((w) => isMelee(w)) ?? DEFAULT_MELEE;
     const info: PlayerInfo = {
       pid: this.nextPid++,
       name: profile.name,
       team: this.mode.teams ? this.pickTeam() : 0,
       appearance: profile.appearance,
-      loadout: this.mode.weapons ? [...this.mode.weapons] : profile.loadout.length > 0 ? profile.loadout : ['pistol'],
+      // Knife-only and bomb modes still let you bring your own knife skin.
+      loadout: this.mode.weapons ? this.mode.weapons.map((w) => (w === 'knife' && isKnifeSkin(melee) ? melee : w)) : profile.loadout.length > 0 ? profile.loadout : ['pistol'],
       bot: profile.bot ?? false,
       kills: 0,
       deaths: 0,
@@ -266,6 +272,7 @@ export class GameRoom {
       ...(profile.dev ? { dev: true } : {}),
     };
     const player = new ServerPlayer(info, socket, profile.userId);
+    player.melee = melee;
     const now = performance.now();
     this.spawn(player, now, false);
     this.players.set(info.pid, player);
@@ -872,7 +879,7 @@ export class GameRoom {
       if (p.userId === null) continue;
       const won = this.mode.teams ? p.info.team === this.match.winnerTeam && p.info.team !== 0 : p.pid === this.match.winnerPid;
       const coins = Math.min(COINS.max, COINS.perMatch + COINS.perKill * p.info.kills + (won ? COINS.win : 0));
-      results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won, coins, xp: matchXp(p.info.kills, won) });
+      results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won, coins, xp: this.mode.ranked ? rankedPoints(p.info.kills, won) : 0 });
     }
     if (results.length === 0 || !this.hooks.onMatchEnd) return;
     const totals = this.hooks.onMatchEnd(this, results);
@@ -880,7 +887,7 @@ export class GameRoom {
       const total = totals.get(r.userId);
       const p = this.players.get(r.pid);
       if (total === undefined || !p) continue;
-      p.socket?.emit('reward', { coins: r.coins, total: total.coins, kills: r.kills, won: r.won, xp: r.xp, xpTotal: total.xp });
+      p.socket?.emit('reward', { coins: r.coins + total.levelCoins, total: total.coins, kills: r.kills, won: r.won, xp: r.xp, xpTotal: total.xp, levelCoins: total.levelCoins, ranked: this.mode.ranked === true });
       // Ranked up: everyone's scoreboard shows the new badge.
       const rank = levelFor(total.xp);
       if (rank !== p.info.rank) {
@@ -888,6 +895,15 @@ export class GameRoom {
         this.announcePlayer(p);
       }
     }
+  }
+
+  /**
+   * Ranked: someone left a match that's underway. It counts as a lost match for them (saved
+   * right away, since they won't be here at the end).
+   */
+  protected recordLeaver(p: ServerPlayer): void {
+    if (!this.mode.ranked || p.userId === null || !this.hooks.onMatchEnd) return;
+    this.hooks.onMatchEnd(this, [{ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won: false, coins: 0, xp: RANKED.leave }]);
   }
 
   emitScores(): void {
@@ -939,7 +955,9 @@ export class GameRoom {
     if (now < this.nextBotCheck || this.closed || this.humanCount === 0) return;
     this.nextBotCheck = now + 1000;
     let wanted = 0;
-    if (this.botTarget !== null) wanted = this.botTarget;
+    // Ranked: real players only.
+    if (this.mode.ranked) wanted = 0;
+    else if (this.botTarget !== null) wanted = this.botTarget;
     else if (this.fillBots && !this.mode.building) wanted = Math.max(0, (this.mode.fillBots ?? (this.mode.maxPlayers === 2 ? 2 : 4)) - this.humanCount);
     wanted = Math.min(wanted, this.mode.maxPlayers - this.humanCount);
     // Fill all empty seats at once; leave one at a time so a match doesn't empty out suddenly.

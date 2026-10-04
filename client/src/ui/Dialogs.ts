@@ -53,7 +53,8 @@ export function openServerBrowser(listRooms: () => Promise<RoomSummary[]>, join:
 
 /** Pick mode, map, privacy and bots for a new room. */
 export function openCreateRoom(create: (req: CreateRoomRequest) => void): void {
-  const mode = h('select', { id: 'create-mode' }, ...MODE_IDS.map((id) => h('option', { value: id }, MODES[id].name)));
+  // Ranked (FaceChiken) is matchmaking only.
+  const mode = h('select', { id: 'create-mode' }, ...MODE_IDS.filter((id) => !MODES[id].ranked).map((id) => h('option', { value: id }, MODES[id].name)));
   const map = h('select', { id: 'create-map' });
   const fillMaps = () => {
     clear(map);
@@ -247,7 +248,7 @@ export async function openLeaderboard(api: Api, initial?: ModeId): Promise<void>
       const rows: LeaderboardRow[] = await api.leaderboard(mode ?? undefined);
       if (mine !== request) return;
       clear(content);
-      content.append(h('p', { class: 'muted board-note' }, mode ? `Best in ${MODES[mode].name}, by wins then kills.` : 'Best chickens in every mode, by rank (XP).'));
+      content.append(h('p', { class: 'muted board-note' }, mode ? `Best in ${MODES[mode].name}, by ${MODES[mode].ranked ? 'rank points' : 'wins then kills'}.` : 'Best chickens in every mode, by wins then kills. Levels move in FaceChiken.'));
       if (rows.length === 0) {
         content.append(h('p', { class: 'muted' }, mode ? `No finished ${MODES[mode].name} matches yet. Be the first!` : 'No finished matches yet. Be the first!'));
         return;

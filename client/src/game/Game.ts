@@ -46,6 +46,8 @@ const QUALITY: Record<Quality, QualityPreset> = {
 export interface SessionCallbacks {
   /** Match reward: the new coin and XP totals. */
   onReward: (coins: number, xp: number) => void;
+  /** The buy menu opened or closed (it frees the mouse). */
+  onOverlay: () => void;
   onClosed: (reason: string) => void;
 }
 

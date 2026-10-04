@@ -15,12 +15,12 @@ export interface MenuActions {
   privacy(): void;
 }
 
-export const MODE_ICONS: Record<ModeId, string> = { ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
+export const MODE_ICONS: Record<ModeId, string> = { face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
 
 /** Mode tabs. Any mode not listed lands in the last one. */
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
   { id: 'casual', label: '🐔 Casual', modes: ['ffa', 'tdm', 'duel'] },
-  { id: 'competitive', label: '🏆 Competitive', modes: ['bomb', 'hvh'] },
+  { id: 'competitive', label: '🏆 Competitive', modes: ['face', 'bomb', 'hvh'] },
   { id: 'fun', label: '🎉 Fun', modes: ['arms', 'knife', 'ctf', 'sandbox'] },
 ];
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
@@ -31,6 +31,7 @@ const mapKey = (mode: ModeId) => `chikengun:map:${mode}`;
 /** "5 vs 5", "1 vs 1", "Free for all · 12"… */
 function playersLine(m: ModeDef): string {
   if (m.building) return `Build together · up to ${m.maxPlayers}`;
+  if (m.ranked) return `Ranked ${m.maxPlayers / 2} vs ${m.maxPlayers / 2} · real players`;
   if (m.teams) return `${m.maxPlayers / 2} vs ${m.maxPlayers / 2}`;
   if (m.maxPlayers === 2) return '1 vs 1';
   return `Free for all · up to ${m.maxPlayers}`;
@@ -68,7 +69,7 @@ export class MainMenu {
       picker.addEventListener('change', () => storage.set(mapKey(id), picker.value));
       const card = h(
         'div',
-        { class: `mode-card mode-${id}` },
+        { class: `mode-card mode-${id}${m.ranked ? ' ranked' : ''}` },
         h(
           'div',
           { class: 'mode-top' },
@@ -81,6 +82,8 @@ export class MainMenu {
         m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, `🗺️ ${MAPS[m.maps[0]!].name}`),
         button('Play', () => actions.quickPlay(id, isMapId(picker.value) ? picker.value : undefined), 'play'),
       );
+      // Cards sit in their tab's order (FaceChiken first among the competitive ones).
+      card.style.order = String(CATEGORIES.find((c) => c.modes.includes(id))?.modes.indexOf(id) ?? 0);
       this.cards.set(id, card);
       modes.append(card);
     }
@@ -142,8 +145,8 @@ export class MainMenu {
     const { rank, next, progress } = rankProgress(p.xp);
     this.rank.textContent = rank.icon;
     this.rank.dataset.level = String(rank.level);
-    this.rank.title = next ? `Level ${rank.level} · ${rank.name} — ${p.xp - rank.xp}/${next.xp - rank.xp} XP to ${next.name}` : `Level ${rank.level} · ${rank.name} (top rank)`;
-    this.record.textContent = `Lv ${rank.level} ${rank.name}` + (p.stats.matches > 0 ? ` · ${p.stats.wins} wins · ${p.stats.kills} kills` : '');
+    this.rank.title = (next ? `Level ${rank.level} · ${rank.name}: ${next.xp - p.xp} rank points to ${next.name}` : `Level ${rank.level} · ${rank.name} (top rank)`) + '. Levels move in FaceChiken.';
+    this.record.textContent = `Lv ${rank.level} ${rank.name} · ${p.xp} pts` + (p.stats.matches > 0 ? ` · ${p.stats.wins} wins` : '');
     this.xpFill.style.width = `${Math.round(progress * 100)}%`;
     this.coins.textContent = `🪙 ${p.coins.toLocaleString()}`;
     this.accountBtn.textContent = p.username ? 'Account' : 'Save progress';

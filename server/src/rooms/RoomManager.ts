@@ -84,6 +84,11 @@ export class RoomManager {
     const profile = this.db.profile(socket.data.userId);
     if (!profile) return { ok: false, error: 'Account not found. Reload the page.' };
     if (this.socketRooms.get(socket.id) === room) return { ok: false, error: 'Already in this room.' };
+    // Ranked is for real, registered players.
+    if (MODES[room.info.mode].ranked && !profile.username) {
+      if (room.humanCount === 0) this.close(room);
+      return { ok: false, error: 'FaceChiken is for registered players: tap “Save progress” to register (it’s free).' };
+    }
 
     this.leave(socket);
     const playerProfile: PlayerProfile = {

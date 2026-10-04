@@ -26,9 +26,13 @@ describe('DevAccess', () => {
 
   it('allows developer tools in private rooms only, unless public rooms are enabled', () => {
     const strict = new DevAccess({ passkey: 'x', allowPublicRooms: false });
-    assert.equal(strict.allowedIn({ info: { private: true } }), true);
-    assert.equal(strict.allowedIn({ info: { private: false } }), false);
-    assert.equal(new DevAccess({ passkey: 'x', allowPublicRooms: true }).allowedIn({ info: { private: false } }), true);
+    assert.equal(strict.allowedIn({ info: { private: true, mode: 'ffa' } }), true);
+    assert.equal(strict.allowedIn({ info: { private: false, mode: 'ffa' } }), false);
+    const open = new DevAccess({ passkey: 'x', allowPublicRooms: true });
+    assert.equal(open.allowedIn({ info: { private: false, mode: 'ffa' } }), true);
+    // Never in ranked (FaceChiken), whatever the settings.
+    assert.equal(open.allowedIn({ info: { private: false, mode: 'face' } }), false);
+    assert.equal(open.allowedIn({ info: { private: true, mode: 'face' } }), false);
   });
 });
 

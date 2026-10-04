@@ -249,6 +249,8 @@ export class Chicken {
     this.gunId = id;
     this.gun?.group.removeFromParent();
     this.gun = id ? buildGun(id) : null;
+    // A pair (Dual Pistols, Shadow Daggers): only the right-hand one sits in the wing.
+    if (this.gun?.offhand) this.gun.offhand.visible = false;
     if (this.gun) this.gunPivot.add(this.gun.group);
   }
 

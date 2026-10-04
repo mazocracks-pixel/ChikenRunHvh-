@@ -10,6 +10,10 @@ export interface GunModel {
   spinner: THREE.Object3D | null;
   /** The part that comes out during a reload (magazine or rocket), or null. */
   magazine: THREE.Object3D | null;
+  /** The second gun or dagger of a pair, in the left hand (first person only). */
+  offhand: THREE.Object3D | null;
+  /** Moving parts for the inspect (F): called with its progress 0..1, or -1 to rest. */
+  animate: ((progress: number) => void) | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +139,8 @@ interface Build {
   magazine?: THREE.Object3D;
   /** Overall size multiplier, so third-person proportions stay as before. */
   scale?: number;
+  offhand?: THREE.Object3D;
+  animate?: (progress: number) => void;
 }
 
 type Builder = (g: THREE.Group, id: WeaponId) => Build;
@@ -605,6 +611,214 @@ const katana: Builder = (g, id) => {
   return { muzzle: new THREE.Vector3(0, 0.1, -0.79), scale: 1 };
 };
 
+// ---------------------------------------------------------------------------
+// Third wave: pistols and CS2-style knives
+// ---------------------------------------------------------------------------
+
+/** Smooth 0→1 over [from, to] of the inspect (0 before, 1 after). */
+const window01 = (p: number, from: number, to: number) => {
+  const k = Math.min(1, Math.max(0, (p - from) / (to - from)));
+  return k * k * (3 - 2 * k);
+};
+
+/** A pistol magazine that drops out of the grip on reload. */
+function pistolMag(g: THREE.Object3D, body: THREE.Material, height = 0.085, z = 0.02): THREE.Group {
+  const mag = new THREE.Group();
+  mag.position.set(0, -0.078, z);
+  add(mag, rbox(0.036, 0.012, 0.05), DARK(), 0, 0, 0);
+  add(mag, rbox(0.026, height, 0.034), body, 0, height / 2 + 0.002, -0.008, 0.22);
+  g.add(mag);
+  return mag;
+}
+
+/** Deagle: a big stainless slide with a top rib, hammer, chunky grip. Hits like a truck. */
+const deagle: Builder = (g, id) => {
+  const steel = metal(WEAPONS[id].model.color, 0.24);
+  add(g, rbox(0.044, 0.05, 0.26), steel, 0, 0.078, -0.1);
+  add(g, box(0.018, 0.008, 0.25), steel, 0, 0.106, -0.1);
+  for (let i = 0; i < 7; i++) add(g, box(0.0462, 0.03, 0.003), DARK(), 0, 0.08, 0.016 - i * 0.007);
+  add(g, box(0.0455, 0.005, 0.14), DARK(), 0, 0.058, -0.16);
+  add(g, rbox(0.04, 0.03, 0.2), steel, 0, 0.04, -0.07);
+  add(g, tube(0.011, 0.012), DARK(), 0, 0.08, -0.234);
+  add(g, disc(0.0075), polymer(0x020202), 0, 0.08, -0.2405, 0, Math.PI);
+  add(g, box(0.006, 0.012, 0.008), DARK(), 0, 0.115, -0.215);
+  add(g, box(0.026, 0.01, 0.01), DARK(), 0, 0.114, 0.012);
+  add(g, box(0.012, 0.022, 0.014), steel, 0, 0.096, 0.045, -0.5);
+  grip(g, polymer(WEAPONS[id].model.accent, 0.8), 0.014, 0.112, 0.24);
+  trigger(g, steel, -0.042, 0.02, 0.024);
+  const mag = pistolMag(g, steel, 0.09, 0.024);
+  return { muzzle: new THREE.Vector3(0, 0.08, -0.245), magazine: mag, scale: 1.08 };
+};
+
+/** Five-Seven: a long slim black slide on a tan frame, squared-off trigger guard, long grip (20 rounds). */
+const fiveseven: Builder = (g, id) => {
+  const frame = polymer(WEAPONS[id].model.color, 0.62);
+  const slide = metal(WEAPONS[id].model.accent, 0.42);
+  add(g, rbox(0.034, 0.038, 0.215), slide, 0, 0.075, -0.088);
+  for (let i = 0; i < 6; i++) add(g, box(0.0352, 0.022, 0.003), DARK(), 0, 0.077, 0.012 - i * 0.007);
+  add(g, rbox(0.032, 0.028, 0.19), frame, 0, 0.04, -0.078);
+  add(g, box(0.026, 0.006, 0.06), frame, 0, 0.024, -0.145);
+  add(g, box(0.006, 0.005, 0.052), frame, 0, -0.004, -0.04);
+  add(g, box(0.006, 0.03, 0.006), frame, 0, 0.01, -0.064);
+  add(g, box(0.006, 0.018, 0.006), DARK(), 0, 0.012, -0.034, 0.35);
+  add(g, tube(0.008, 0.012), DARK(), 0, 0.075, -0.199);
+  add(g, box(0.005, 0.009, 0.006), DARK(), 0, 0.099, -0.185);
+  add(g, box(0.022, 0.009, 0.008), DARK(), 0, 0.099, 0.012);
+  grip(g, frame, 0.006, 0.118, 0.2);
+  const mag = pistolMag(g, DARK(), 0.1, 0.022);
+  return { muzzle: new THREE.Vector3(0, 0.075, -0.206), magazine: mag, scale: 1.05 };
+};
+
+/** One of the Dual Pistols: a silver slide with an open top over the barrel. */
+function dualPistol(g: THREE.Object3D, id: WeaponId): void {
+  const slide = metal(WEAPONS[id].model.color, 0.22);
+  add(g, rbox(0.036, 0.04, 0.2), slide, 0, 0.072, -0.08);
+  add(g, box(0.022, 0.012, 0.09), DARK(), 0, 0.088, -0.11);
+  add(g, tube(0.0085, 0.02), STEEL(), 0, 0.074, -0.188);
+  add(g, rbox(0.033, 0.026, 0.16), polymer(WEAPONS[id].model.accent, 0.6), 0, 0.037, -0.066);
+  add(g, box(0.005, 0.008, 0.006), DARK(), 0, 0.097, -0.165);
+  grip(g, polymer(WEAPONS[id].model.accent, 0.7), 0.008, 0.1, 0.22);
+  trigger(g, slide, -0.035, 0.02);
+}
+
+/** Dual Pistols: one in each hand (the left one only shows in first person). */
+const dualies: Builder = (g, id) => {
+  dualPistol(g, id);
+  const mag = pistolMag(g, STEEL());
+  const offhand = new THREE.Group();
+  offhand.position.set(-0.62, 0.01, 0.02);
+  offhand.rotation.y = -0.06;
+  dualPistol(offhand, id);
+  g.add(offhand);
+  return { muzzle: new THREE.Vector3(0, 0.074, -0.2), magazine: mag, offhand, scale: 1 };
+};
+
+/** Silenced pistol: a slim pistol with a long suppressor screwed on the barrel. */
+const silenced: Builder = (g, id) => {
+  const slide = metal(WEAPONS[id].model.color, 0.4);
+  add(g, rbox(0.036, 0.04, 0.19), slide, 0, 0.072, -0.075);
+  for (let i = 0; i < 5; i++) add(g, box(0.0372, 0.024, 0.003), DARK(), 0, 0.073, 0.008 - i * 0.008);
+  add(g, rbox(0.033, 0.026, 0.16), polymer(WEAPONS[id].model.accent), 0, 0.037, -0.065);
+  add(g, box(0.028, 0.008, 0.05), DARK(), 0, 0.022, -0.12);
+  add(g, tube(0.009, 0.02), DARK(), 0, 0.074, -0.18);
+  const can = polymer(0x1b1c20, 0.45);
+  add(g, tube(0.0175, 0.17), can, 0, 0.074, -0.272);
+  add(g, ring(0.0176, 0.0022), STEEL(), 0, 0.074, -0.19);
+  add(g, ring(0.0176, 0.0022), STEEL(), 0, 0.074, -0.356);
+  for (let i = 0; i < 3; i++) add(g, ring(0.0177, 0.0012), DARK(), 0, 0.074, -0.23 - i * 0.04);
+  add(g, disc(0.006), polymer(0x020202), 0, 0.074, -0.3575, 0, Math.PI);
+  add(g, box(0.006, 0.012, 0.006), DARK(), 0, 0.1, -0.16);
+  add(g, box(0.024, 0.012, 0.008), DARK(), 0, 0.1, 0.012);
+  grip(g, polymer(WEAPONS[id].model.accent), 0.008, 0.1, 0.22);
+  trigger(g, polymer(WEAPONS[id].model.accent), -0.035, 0.02);
+  const mag = pistolMag(g, STEEL());
+  return { muzzle: new THREE.Vector3(0, 0.074, -0.36), magazine: mag, scale: 1.05 };
+};
+
+/**
+ * Butterfly knife: two handles and the blade, each on its own pin. Inspect: the blade fans round
+ * the pin three times while the free handle swings out and back.
+ */
+const butterfly: Builder = (g, id) => {
+  const handleMat = metal(WEAPONS[id].model.color, 0.3);
+  const pivotZ = -0.055;
+  const handle = (parent: THREE.Object3D, x: number, z: number) => {
+    add(parent, rbox(0.011, 0.028, 0.125), handleMat, x, 0, z);
+    for (let i = 0; i < 3; i++) add(parent, box(0.0115, 0.012, 0.02), DARK(), x, 0, z - 0.035 + i * 0.035);
+  };
+  const held = new THREE.Group();
+  held.position.set(0, 0.03, 0);
+  handle(held, 0.0065, pivotZ + 0.0625);
+  add(held, box(0.004, 0.006, 0.022), STEEL(), 0, -0.016, 0.06);
+  g.add(held);
+  const free = new THREE.Group();
+  free.position.set(0, 0.03, pivotZ);
+  handle(free, -0.0065, 0.0625);
+  g.add(free);
+  const swing = new THREE.Group();
+  swing.position.set(0, 0.03, pivotZ);
+  add(swing, blade(0.15, 0.03, 0.005), POLISHED(), 0, 0.004, -0.004);
+  add(swing, post(0.0055, 0.032), STEEL(), 0, 0, 0, 0, 0, Math.PI / 2);
+  g.add(swing);
+  const animate = (p: number) => {
+    const e = p < 0 ? 0 : window01(p, 0.14, 0.86);
+    swing.rotation.x = -e * Math.PI * 6;
+    free.rotation.x = -(1 - Math.cos(e * Math.PI * 6)) * 0.5 * Math.PI;
+  };
+  return { muzzle: new THREE.Vector3(0, 0.035, -0.21), scale: 1.1, animate };
+};
+
+/** Karambit: a curved claw blade and a finger ring. Inspect: it spins twice around your finger. */
+const karambit: Builder = (g, id) => {
+  const ringZ = 0.078;
+  const spin = new THREE.Group();
+  spin.position.set(0, 0.03, ringZ);
+  const parts = new THREE.Group();
+  parts.position.set(0, -0.03, -ringZ);
+  spin.add(parts);
+  const handle = polymer(WEAPONS[id].model.color, 0.6);
+  add(parts, rbox(0.022, 0.03, 0.095), handle, 0, 0.03, 0.022, 0.16);
+  for (let i = 0; i < 3; i++) add(parts, box(0.0225, 0.006, 0.01), RUBBER(), 0, 0.022, 0.0 + i * 0.025, 0.16);
+  add(parts, ring(0.021, 0.0055), STEEL(), 0, 0.03, ringZ, 0, Math.PI / 2);
+  add(parts, rbox(0.024, 0.034, 0.01), DARK(), 0, 0.034, -0.027);
+  add(parts, blade(0.13, 0.03, 0.005, -0.048), POLISHED(), 0, 0.042, -0.03, 0.3);
+  g.add(spin);
+  const animate = (p: number) => {
+    spin.rotation.x = p < 0 ? 0 : -window01(p, 0.2, 0.72) * Math.PI * 4;
+  };
+  return { muzzle: new THREE.Vector3(0, 0.03, -0.18), scale: 1.15, animate };
+};
+
+/** M9 Bayonet: a big clip-point blade with saw teeth, a muzzle ring on the guard. Inspect: a flip toss. */
+const m9: Builder = (g, id) => {
+  const spin = new THREE.Group();
+  spin.position.set(0, 0.03, -0.05);
+  const parts = new THREE.Group();
+  parts.position.set(0, -0.03, 0.05);
+  spin.add(parts);
+  const handle = polymer(WEAPONS[id].model.color, 0.75);
+  add(parts, rbox(0.026, 0.036, 0.12), handle, 0, 0.03, 0.025);
+  for (let i = 0; i < 5; i++) add(parts, box(0.0275, 0.004, 0.008), RUBBER(), 0, 0.0125, 0.068 - i * 0.022);
+  add(parts, rbox(0.03, 0.03, 0.022), STEEL(), 0, 0.03, 0.094);
+  add(parts, rbox(0.012, 0.075, 0.012), STEEL(), 0, 0.034, -0.04);
+  add(parts, ring(0.011, 0.0035), STEEL(), 0, 0.077, -0.04);
+  add(parts, blade(0.2, 0.044, 0.006), POLISHED(), 0, 0.036, -0.047);
+  for (let i = 0; i < 7; i++) add(parts, box(0.0045, 0.008, 0.008), POLISHED(), 0, 0.058, -0.072 - i * 0.012, Math.PI / 4);
+  g.add(spin);
+  const animate = (p: number) => {
+    const k = p < 0 ? 0 : window01(p, 0.32, 0.6);
+    spin.rotation.x = -k * Math.PI * 2;
+    spin.position.y = 0.03 + Math.sin(k * Math.PI) * 0.16;
+  };
+  return { muzzle: new THREE.Vector3(0, 0.04, -0.26), scale: 1.05, animate };
+};
+
+/** One push dagger: a T-handle in the fist, the blade sticking out between the fingers. */
+function pushDagger(g: THREE.Object3D, id: WeaponId): THREE.Group {
+  const d = new THREE.Group();
+  d.position.set(0, 0.03, 0);
+  add(d, rbox(0.075, 0.024, 0.026), polymer(WEAPONS[id].model.color, 0.55), 0, 0, 0.02);
+  add(d, rbox(0.012, 0.018, 0.03), STEEL(), 0, 0, -0.008);
+  add(d, blade(0.11, 0.036, 0.005), POLISHED(), 0, 0.002, -0.022);
+  g.add(d);
+  return d;
+}
+
+/** Shadow Daggers: one in each hand. Inspect: both twirl. */
+const daggers: Builder = (g, id) => {
+  const right = pushDagger(g, id);
+  const offhand = new THREE.Group();
+  offhand.position.set(-0.62, 0, 0.02);
+  const left = pushDagger(offhand, id);
+  g.add(offhand);
+  const animate = (p: number) => {
+    const e = p < 0 ? 0 : window01(p, 0.18, 0.8);
+    right.rotation.z = e * Math.PI * 4;
+    left.rotation.z = -e * Math.PI * 4;
+  };
+  return { muzzle: new THREE.Vector3(0, 0.03, -0.14), offhand, scale: 1.1, animate };
+};
+
 const BUILDERS: Record<WeaponId, Builder> = {
   pistol,
   rifle: (g, id) => rifleLike(polymer(WEAPONS[id].model.color), metal(WEAPONS[id].model.accent, 0.4), false)(g, id),
@@ -627,6 +841,14 @@ const BUILDERS: Record<WeaponId, Builder> = {
   crossbow,
   launcher,
   goldknife: knife,
+  deagle,
+  fiveseven,
+  dualies,
+  silenced,
+  butterfly,
+  karambit,
+  m9,
+  daggers,
 };
 
 /** A detailed procedural gun pointing down -Z, held at the origin (the grip). */
@@ -639,5 +861,5 @@ export function buildGun(id: WeaponId): GunModel {
   const muzzle = new THREE.Object3D();
   muzzle.position.copy(built.muzzle);
   parts.add(muzzle);
-  return { group, muzzle, spinner: built.spinner ?? null, magazine: built.magazine ?? null };
+  return { group, muzzle, spinner: built.spinner ?? null, magazine: built.magazine ?? null, offhand: built.offhand ?? null, animate: built.animate ?? null };
 }

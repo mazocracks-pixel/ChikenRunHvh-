@@ -10,6 +10,7 @@ import {
   type PlayerInfo,
   type PlayerState,
   type WeaponId,
+  DEFAULT_MELEE,
 } from '@game/shared';
 import type { GameSocket } from '../types';
 import { TokenBucket } from '../util';
@@ -67,6 +68,8 @@ export class ServerPlayer {
 
   /** Developer testing modifiers; null for everyone without developer access (and bots). */
   mods: DevMods | null = null;
+  /** The melee weapon picked in the shop (knife skins replace the Knife in knife and bomb modes). */
+  melee: WeaponId = DEFAULT_MELEE;
   /** Held in place by a developer (or ChikenBomb buy time): inputs are acknowledged but ignored. */
   frozen = false;
   /** Use (E) held in the latest input. */

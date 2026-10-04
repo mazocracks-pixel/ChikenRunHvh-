@@ -14,6 +14,13 @@ const OFFSETS: Partial<Record<WeaponId, THREE.Vector3>> = {
   sniper: new THREE.Vector3(0, -0.01, 0.03),
   knife: new THREE.Vector3(0.02, -0.02, 0.04),
   goldknife: new THREE.Vector3(0.02, -0.02, 0.04),
+  butterfly: new THREE.Vector3(0.02, -0.02, 0.04),
+  karambit: new THREE.Vector3(0.02, -0.02, 0.05),
+  m9: new THREE.Vector3(0.02, -0.03, 0.04),
+  daggers: new THREE.Vector3(0.05, -0.03, 0.05),
+  dualies: new THREE.Vector3(0.05, -0.01, 0.02),
+  silenced: new THREE.Vector3(0, -0.005, 0.03),
+  deagle: new THREE.Vector3(0, -0.01, 0.02),
   lmg: new THREE.Vector3(0.03, -0.04, 0.03),
   launcher: new THREE.Vector3(0.03, -0.03, 0.02),
   crossbow: new THREE.Vector3(0.02, -0.03, 0.02),
@@ -24,11 +31,15 @@ const OFFSETS: Partial<Record<WeaponId, THREE.Vector3>> = {
 const HOLD_ANGLES: Partial<Record<WeaponId, THREE.Euler>> = {
   knife: new THREE.Euler(0.2, 0.08, -0.15),
   goldknife: new THREE.Euler(0.2, 0.08, -0.15),
+  butterfly: new THREE.Euler(0.2, 0.08, -0.15),
+  karambit: new THREE.Euler(0.1, 0.1, -0.25),
+  m9: new THREE.Euler(0.2, 0.08, -0.15),
+  daggers: new THREE.Euler(0.05, 0, 0),
   pan: new THREE.Euler(0.45, 0.1, -0.2),
   katana: new THREE.Euler(1.0, -0.15, -0.2),
 };
 /** Seconds one swing animation takes. */
-const SWING_TIME: Partial<Record<WeaponId, number>> = { knife: 0.26, goldknife: 0.26, pan: 0.38, katana: 0.32 };
+const SWING_TIME: Partial<Record<WeaponId, number>> = { knife: 0.26, goldknife: 0.26, butterfly: 0.24, karambit: 0.24, m9: 0.27, daggers: 0.22, pan: 0.38, katana: 0.32 };
 
 /** An offset added to the held pose (metres and radians). */
 interface Pose {
@@ -86,6 +97,22 @@ const INSPECT_MELEE: Keyframes = [
   [0.58, { ...ACROSS, ry: 1.45, rz: Math.PI }],
   [0.84, { ...ACROSS, ry: 1.35, rx: -0.15, rz: Math.PI }],
   [1, pose({ rz: Math.PI * 2 })],
+];
+/** Knives with their own trick (butterfly fan, karambit spin...): held up in view while it plays. */
+const SHOW = pose({ x: -0.12, y: 0.07, z: 0.04, rx: 0.25, ry: 0.55, rz: 0.1 });
+const INSPECT_TRICK: Keyframes = [
+  [0, REST],
+  [0.12, SHOW],
+  [0.88, { ...SHOW, ry: 0.65 }],
+  [1, REST],
+];
+/** A pair (Dual Pistols, Shadow Daggers): lifted and tipped, not turned, so the left one stays in view. */
+const LIFT = pose({ x: -0.03, y: 0.06, z: 0.05, rx: 0.35 });
+const INSPECT_PAIR: Keyframes = [
+  [0, REST],
+  [0.14, LIFT],
+  [0.86, { ...LIFT, rx: 0.25 }],
+  [1, REST],
 ];
 const INSPECT_SECONDS = 2.4;
 /** Per-weapon size (big guns would cover the HUD). */
@@ -240,8 +267,9 @@ export class ViewModel {
       this.inspectT += dt;
       const p = this.inspectT / INSPECT_SECONDS;
       if (p >= 1) this.inspectT = -1;
-      else sample(WEAPONS[f.weapon].melee ? INSPECT_MELEE : INSPECT, p, look);
+      else sample(this.gun?.offhand ? INSPECT_PAIR : this.gun?.animate ? INSPECT_TRICK : WEAPONS[f.weapon].melee ? INSPECT_MELEE : INSPECT, p, look);
     }
+    this.gun?.animate?.(this.inspectT >= 0 ? this.inspectT / INSPECT_SECONDS : -1);
     const pose = this.pose;
     for (const k of Object.keys(pose) as (keyof Pose)[]) pose[k] = swing[k] + look[k];
     const hold = HOLD_ANGLES[f.weapon];

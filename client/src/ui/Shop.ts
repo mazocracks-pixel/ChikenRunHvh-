@@ -10,7 +10,7 @@ const TABS: { slot: ItemSlot; label: string }[] = [
   { slot: 'weapon', label: 'Weapons' },
 ];
 
-const WEAPON_ICONS: Record<string, string> = { rocket: '🚀', golden: '✨', knife: '🔪', pan: '🍳', katana: '⚔️', goldknife: '🌟', crossbow: '🏹', launcher: '🥚', revolver: '🤠', lmg: '💥', scout: '🎯' };
+const WEAPON_ICONS: Record<string, string> = { rocket: '🚀', golden: '✨', knife: '🔪', pan: '🍳', katana: '⚔️', goldknife: '🌟', crossbow: '🏹', launcher: '🥚', revolver: '🤠', lmg: '💥', scout: '🎯', deagle: '🦅', fiveseven: '🖐️', dualies: '✌️', silenced: '🤫', butterfly: '🦋', karambit: '🌙', m9: '🗡️', daggers: '🥷' };
 const HAT_ICONS: Record<string, string> = { none: '∅', cap: '🧢', party: '🥳', chef: '👨‍🍳', cowboy: '🤠', helmet: '🪖', tophat: '🎩', viking: '⚔️', crown: '👑' };
 
 /** Customize your chicken, buy items with coins, and pick your four weapons. */

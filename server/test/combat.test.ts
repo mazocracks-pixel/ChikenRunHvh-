@@ -182,7 +182,7 @@ describe('match flow', () => {
     const made = makeRoom('ffa', 'farm', {
       onMatchEnd: (_room, results) => {
         rewarded = results;
-        return new Map(results.map((r) => [r.userId, { coins: 1000 + r.coins, xp: r.xp }]));
+        return new Map(results.map((r) => [r.userId, { coins: 1000 + r.coins, xp: r.xp, levelCoins: 0 }]));
       },
     });
     current = made.room;

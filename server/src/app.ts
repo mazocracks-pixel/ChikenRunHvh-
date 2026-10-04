@@ -171,6 +171,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
     if (!isRecord(req) || !isModeId(req.mode) || !isMapId(req.map) || !MODES[req.mode].maps.includes(req.map)) {
       return ack({ ok: false, error: 'That mode and map combination is not available.' });
     }
+    if (MODES[req.mode].ranked) return ack({ ok: false, error: `${MODES[req.mode].name} is matchmaking only: use Play on the menu.` });
     const bots = Number.isInteger(req.bots) ? Math.max(0, Math.min(8, req.bots as number)) : 0;
     const host = rooms.roomOf(socket.id)?.playerFor(socket.id)?.info.name;
     ack(rooms.join(socket, rooms.create(req.mode, req.map, req.private === true, host ?? 'Player', bots)));
@@ -269,7 +270,7 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
     const { room, player, granted, allowed } = context();
     if (!granted) return ack(denied);
     if (!room || !player) return ack({ ok: false, error: 'Join a match first.' });
-    if (!allowed) return ack({ ok: false, error: 'Developer tools only work in private rooms on this server.' });
+    if (!allowed) return ack({ ok: false, error: MODES[room.info.mode].ranked ? 'Developer tools are off in ranked matches.' : 'Developer tools only work in private rooms on this server.' });
     const action = parseDevAction(raw);
     if (!action) return ack({ ok: false, error: 'Invalid request.' });
     ack(runDevAction(room, player, action));

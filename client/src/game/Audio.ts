@@ -223,6 +223,17 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.18, type: 'lowpass', freq: 700, to: 150, gain: 1.1 });
         this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 85, to: 40, gain: 1 });
         break;
+      case 'deagle':
+        // A heavy crack with a deep boom under it.
+        this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 2600, gain: 0.9 });
+        this.burst(ctx, out, t, { dur: 0.24, type: 'lowpass', freq: 1800, to: 220, gain: 1.5 });
+        this.tone(ctx, out, t, { dur: 0.18, type: 'sine', freq: 95, to: 38, gain: 1.1 });
+        break;
+      case 'silenced':
+        // A soft cough and the slide clacking.
+        this.burst(ctx, out, t, { dur: 0.07, type: 'bandpass', freq: 700, q: 1.1, gain: 0.45 });
+        this.burst(ctx, out, t + 0.03, { dur: 0.03, type: 'highpass', freq: 4200, gain: 0.25 });
+        break;
       // Melee swings: a filtered-noise whoosh sweeping down (quick and light, heavy, or long and ringing).
       case 'knife':
         this.burst(ctx, out, t, { dur: 0.16, type: 'bandpass', freq: 3200, to: 1100, q: 2.2, gain: 0.55 });

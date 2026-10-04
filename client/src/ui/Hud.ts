@@ -1,4 +1,4 @@
-import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
+import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
 import { watchSettings } from '../settings';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
@@ -426,21 +426,23 @@ export class Hud {
     if (el) el.textContent = `Next match in ${Math.max(0, Math.ceil(msLeft / 1000))}s`;
   }
 
-  showReward(coins: number, total: number, xp: number, xpTotal: number): void {
+  showReward(e: MatchRewardEvent): void {
     const el = this.results.querySelector('.reward');
     if (!el) return;
-    const { rank, next, progress } = rankProgress(xpTotal);
+    const { rank, next, progress } = rankProgress(e.xpTotal);
+    const xpTotal = e.xpTotal;
     clear(el);
     el.append(
-      h('div', null, `+${coins} coins (you have ${total}) · +${xp} XP`),
+      h('div', null, `+${e.coins} coins (you have ${e.total})` + (e.ranked ? ` · ${e.xp >= 0 ? '+' : ''}${e.xp} rank points` : '')),
       h(
         'div',
         { class: 'rank-line' },
         `${rank.icon} Level ${rank.level} · ${rank.name}`,
-        h('small', null, next ? ` · ${next.xp - xpTotal} XP to ${next.icon} ${next.name}` : ' · top rank!'),
+        h('small', null, (next ? ` · ${next.xp - xpTotal} points to ${next.icon} ${next.name}` : ' · top rank!') + (e.ranked ? '' : ' · levels move in FaceChiken')),
       ),
       h('div', { class: 'xp-bar' }, h('i', { style: `width:${Math.round(progress * 100)}%` })),
     );
+    if (e.levelCoins > 0) el.append(h('div', { class: 'rank-up' }, `Level up! +${e.levelCoins} coins`));
   }
 
   /** The live leaders: top three, plus you if you're further down. Skipped in Sandbox. */

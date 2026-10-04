@@ -1,4 +1,4 @@
-import type { CreateRoomRequest, JoinResponse, JoinSuccess, ModeId } from '@game/shared';
+import { MODES, type CreateRoomRequest, type JoinResponse, type JoinSuccess, type ModeId } from '@game/shared';
 import { Dev } from '../dev/Dev';
 import { exitPlayFullscreen } from '../fullscreen';
 import { Game } from '../game/Game';
@@ -190,7 +190,8 @@ export class App {
     const inGame = this.screen === 'game';
     const locked = this.game.input.isLocked;
     const paused = inGame && (this.isTouch ? this.touchPaused : !locked);
-    const devMenu = this.dev.menuOpen;
+    // The dev menu and the buy menu free the mouse on purpose: no pause screen for them.
+    const devMenu = this.dev.menuOpen || (this.game.activeSession?.buyMenuOpen ?? false);
     this.pause.hidden = !paused || anyModalOpen() || devMenu;
     this.pauseButton.hidden = !inGame || !this.isTouch || paused || devMenu;
     this.touch?.setVisible(inGame && !paused && !devMenu);
@@ -226,13 +227,14 @@ export class App {
 
   private startGame(join: JoinSuccess): void {
     this.lastRoom = { id: join.room.id, mode: join.room.mode };
-    this.touch?.setBombMode(join.room.mode === 'bomb');
+    this.touch?.setBombMode(MODES[join.room.mode].bomb === true);
     this.screen = 'game';
     this.touchPaused = false;
     this.menu.setVisible(false);
     this.shop.close();
     this.game.startSession(this.net, join, {
       onReward: (coins, xp) => this.api.setRewards(coins, xp),
+      onOverlay: () => this.refreshOverlays(),
       onClosed: (reason) => {
         this.lastRoom = null;
         this.game.endSession();
