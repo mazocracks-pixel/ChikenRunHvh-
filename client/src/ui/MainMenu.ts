@@ -13,7 +13,7 @@ export interface MenuActions {
   privacy(): void;
 }
 
-const MODE_ICONS: Record<ModeId, string> = { ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
+const MODE_ICONS: Record<ModeId, string> = { ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
 
 /** Title screen: profile, quick play per mode, and the rest of the menus. */
 export class MainMenu {

@@ -786,12 +786,15 @@ export class GameRoom {
     this.emitScores();
   }
 
-  private endMatch(now: number): void {
+  /** Ends the match. `winner` names the winner for modes that decide it themselves (Arms Race). */
+  protected endMatch(now: number, winner?: ServerPlayer): void {
     const players = [...this.players.values()];
     const byScore = [...players].sort((a, b) => b.info.score - a.info.score || b.info.kills - a.info.kills);
     let winnerTeam: Team = 0;
     let winnerPid = 0;
-    if (this.mode.teams) {
+    if (winner) {
+      winnerPid = winner.pid;
+    } else if (this.mode.teams) {
       const [red, blue] = this.match.teamScores;
       winnerTeam = red === blue ? 0 : red > blue ? 1 : 2;
     } else {

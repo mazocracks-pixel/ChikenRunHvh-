@@ -3,6 +3,7 @@ import {
   BLOCK_ID_BASE,
   BLOCK_KINDS,
   BLOCK_SIZE,
+  ARMS_LADDER,
   BOMB,
   BUILD_RANGE,
   CROUCH,
@@ -430,6 +431,11 @@ export class GameSession {
     hud.setCrosshair(this.local.alive && input.active, pixels, scoped);
     hud.setMatch(this.match, this.serverNow(), this.infos.size);
     if (this.round && this.match.phase === 'playing') this.updateRoundHud();
+    if (this.mode.armsRace) {
+      const level = this.self.level ?? 0;
+      const next = ARMS_LADDER[level + 1];
+      hud.setArmsLevel(level, ARMS_LADDER.length, WEAPONS[ARMS_LADDER[level]!].name, next ? WEAPONS[next].name : null);
+    }
     else hud.setBombProgress(null, 0);
     hud.setMoney(this.round ? this.money : null);
     if (!this.local.alive && this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup') hud.setDeathWaiting('You’re back when the next round starts');
@@ -999,9 +1005,23 @@ export class GameSession {
   }
 
   private onPlayerInfo(info: PlayerInfo): void {
+    const before = this.infos.get(info.pid)?.level;
     this.infos.set(info.pid, info);
+    // Arms Race: a new weapon (or knocked back a step).
+    if (info.pid === this.selfPid && info.level !== undefined && before !== undefined && info.level !== before) {
+      const weapon = WEAPONS[ARMS_LADDER[info.level]!].name;
+      if (info.level > before) {
+        this.ctx.hud.toast(`⬆ Level ${info.level + 1}: ${weapon}`, 'good');
+        this.ctx.audio.play('reward');
+      } else {
+        this.ctx.hud.toast(`🔪 Knifed! Back to ${weapon}`, 'bad');
+        this.ctx.audio.play('empty');
+      }
+    }
     if (info.pid === this.selfPid) {
       this.weapons.setLoadout(info.loadout);
+      // Arms Race: take the new gun out (the server already did).
+      if (info.level !== undefined && before !== undefined && info.level !== before) this.weapons.switchTo(0, performance.now());
       this.local.chicken.setAppearance(info.appearance);
       this.local.chicken.setTeam(info.team);
     } else {

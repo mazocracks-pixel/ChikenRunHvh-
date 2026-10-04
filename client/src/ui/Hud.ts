@@ -341,6 +341,12 @@ export class Hud {
     }
   }
 
+/** Arms Race: your step on the ladder, what you hold and what comes next. */
+  setArmsLevel(level: number, total: number, now: string, next: string | null): void {
+    this.roundLine.hidden = false;
+    this.roundLine.textContent = `Level ${level + 1}/${total} · ${now}${next ? ` → next: ${next}` : ' · final kill wins!'}`;
+  }
+
   /** Planting / defusing progress (0..1), or null to hide it. */
   setBombProgress(label: string | null, progress: number): void {
     this.progress.hidden = label === null;
@@ -368,7 +374,7 @@ export class Hud {
     const table = (rows: ScoreLine[], title: string | null, team: Team) => {
       const t = h('table', { class: `scores${team ? ` t${team}` : ''}` });
       if (title) t.append(h('caption', null, title));
-      t.append(h('tr', null, h('th', null, 'Chicken'), h('th', null, 'K'), h('th', null, 'D'), h('th', null, 'Score')));
+      t.append(h('tr', null, h('th', null, 'Chicken'), h('th', null, 'K'), h('th', null, 'D'), h('th', null, this.mode.armsRace ? 'Level' : 'Score')));
       for (const { info, self } of rows) {
         t.append(
           h('tr', { class: self ? 'self' : '' }, h('td', null, nameText(info), info.bot ? h('small', null, ' bot') : null, self && ping !== null ? h('small', null, ` ${ping}ms`) : null), h('td', null, info.kills), h('td', null, info.deaths), h('td', null, info.score)),

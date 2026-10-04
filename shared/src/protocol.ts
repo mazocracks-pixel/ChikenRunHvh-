@@ -27,6 +27,8 @@ export interface PlayerInfo {
   score: number;
   /** A developer account (set on the server only): the name glows rainbow. */
   dev?: boolean;
+  /** Arms Race: the step of the weapon ladder this player is on (0 = first). */
+  level?: number;
 }
 
 /** The fast-changing state of a player, as carried in every snapshot. */

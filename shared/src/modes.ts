@@ -1,7 +1,7 @@
 import type { MapId, Team } from './maps/types';
 import type { WeaponId } from './weapons';
 
-export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb';
+export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms';
 
 export interface ModeDef {
   id: ModeId;
@@ -35,6 +35,8 @@ export interface ModeDef {
   noDrops?: boolean;
   /** Rounds, bomb, money and the buy menu (ChikenBomb). */
   bomb?: boolean;
+  /** Every kill gives you the next weapon on the ladder (Arms Race). */
+  armsRace?: boolean;
   /** Quick play tops the room up with bots to this many players (default 4, 2 in duels). */
   fillBots?: number;
 }
@@ -60,6 +62,11 @@ const DEFS: ModeDef[] = [
     teams: true, maxPlayers: 10, scoreLimit: 6, timeLimitMs: 0, respawnMs: 2000, minPlayers: 2,
     maps: ['sandstown'], building: false, vehicles: false, wallbang: true, fillBots: 10,
     weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true,
+  },
+  {
+    id: 'arms', name: 'Arms Race', description: 'Every kill gives you the next gun, 17 in all. First kill with the Golden Knife wins.',
+    teams: false, maxPlayers: 12, scoreLimit: 0, timeLimitMs: 10 * 60_000, respawnMs: 1000, minPlayers: 2,
+    maps: ['farm', 'town', 'sandstown'], building: false, vehicles: false, wallbang: true, fillBots: 6, noDrops: true, armsRace: true,
   },
   {
     id: 'knife', name: 'Knife Fight', description: 'Red vs Blue, 3 vs 3, knives only. Bunny hop in fast. First team to 15 kills.',

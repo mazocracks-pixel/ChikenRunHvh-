@@ -1,3 +1,4 @@
+export * from './arms';
 export * from './bomb';
 export * from './building';
 export * from './collision';

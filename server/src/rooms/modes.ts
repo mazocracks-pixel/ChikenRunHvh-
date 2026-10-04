@@ -1,4 +1,5 @@
 import type { GameServer } from '../types';
+import { ArmsRoom } from './ArmsRoom';
 import { BombRoom } from './BombRoom';
 import { CtfRoom } from './CtfRoom';
 import { GameRoom, type RoomHooks, type RoomOptions } from './GameRoom';
@@ -7,6 +8,8 @@ import { SandboxRoom } from './SandboxRoom';
 /** Picks the room implementation for a mode. */
 export function createRoom(io: GameServer, options: RoomOptions, hooks: RoomHooks): GameRoom {
   switch (options.mode) {
+    case 'arms':
+      return new ArmsRoom(io, options, hooks);
     case 'bomb':
       return new BombRoom(io, options, hooks);
     case 'ctf':
