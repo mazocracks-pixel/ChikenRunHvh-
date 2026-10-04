@@ -1,7 +1,8 @@
 import type { CollisionWorld } from './collision';
+import type { Vec3 } from './math';
 import { makeRay, raycastWorld } from './raycast';
 
-export type ProjectileKind = 'egg' | 'smoke' | 'rocket' | 'bolt';
+export type ProjectileKind = 'egg' | 'smoke' | 'rocket' | 'bolt' | 'flash';
 
 export interface ProjectileDef {
   speed: number;
@@ -35,6 +36,11 @@ export const PROJECTILES: Record<ProjectileKind, ProjectileDef> = {
     speed: 30, upBoost: 0, gravity: 0, radius: 0.15, fuseMs: 5000, explodeOnImpact: true, bounce: 0,
     damage: 110, splashRadius: 4, knockback: 16, selfDamageScale: 0.4,
   },
+  /** Flashbang: bounces about, then goes off with a blinding flash (no damage). */
+  flash: {
+    speed: 16, upBoost: 3, gravity: 18, radius: 0.1, fuseMs: 1600, explodeOnImpact: false, bounce: 0.4,
+    damage: 0, splashRadius: 0, knockback: 0, selfDamageScale: 0,
+  },
   /** Crossbow bolt: fast, drops a little, and hits whatever it strikes directly (no blast). */
   bolt: {
     speed: 70, upBoost: 0, gravity: 7, radius: 0.04, fuseMs: 3000, explodeOnImpact: true, bounce: 0,
@@ -43,6 +49,34 @@ export const PROJECTILES: Record<ProjectileKind, ProjectileDef> = {
 };
 
 export const SMOKE_DURATION_MS = 10000;
+
+/** How a flashbang blinds whoever can see it. */
+export const FLASH = {
+  /** Beyond this nobody is blinded. */
+  range: 28,
+  /** Blind time looking straight at it, point blank (ms); it fades over the last part. */
+  maxMs: 4200,
+  /** Shorter than this and it doesn't count. */
+  minMs: 350,
+} as const;
+
+/**
+ * How long (ms) a flash at `at` blinds someone at `eye` looking along `view` (unit vector), if
+ * nothing is in the way: full looking at it, less from the side, a little from behind; less far away.
+ */
+export function flashBlindMs(eye: Vec3, view: Vec3, at: Vec3): number {
+  const dx = at.x - eye.x;
+  const dy = at.y - eye.y;
+  const dz = at.z - eye.z;
+  const dist = Math.hypot(dx, dy, dz);
+  if (dist > FLASH.range) return 0;
+  const facing = dist < 0.5 ? 1 : (dx * view.x + dy * view.y + dz * view.z) / dist;
+  // 1 looking at it, 0.5 at 90°, 0.15 straight behind.
+  const angle = facing >= 0.5 ? 1 : facing >= 0 ? 0.5 + facing : 0.5 + facing * 0.35;
+  const near = 1 - (dist / FLASH.range) ** 1.4;
+  const ms = FLASH.maxMs * angle * near;
+  return ms >= FLASH.minMs ? Math.round(ms) : 0;
+}
 
 export interface ProjectileBody {
   x: number;

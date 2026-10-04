@@ -95,7 +95,12 @@ recoil, reloading, a sniper scope, armor, spawn protection, kill feed, hit marke
 damage-direction indicators.
 
 **Chicken specials.** Explosive eggs (`G`) with area damage and knockback (and rocket jumps).
-Smoke grenades (`Q`). Wallbang: bullets go through crates, hay and wood (up to two
+Smoke grenades (`Q`). Flashbangs (`Z`, one to start, $200 in the buy menu): they bounce, then bang, and
+everyone who can see one (walls block it, teammates and the thrower too) goes white, longer the closer
+they are and the more they were looking at it, with ringing ears; blinded bots can't see either. Kills
+say how they were done, CS-style: *no scope*, *through a wall*, *through smoke*, *in mid-air* and
+*while blind* tags in the kill feed, "a no-scope headshot through the wall, in mid-air" on the death
+screen, and the same on your own kill banner. Wallbang: bullets go through crates, hay and wood (up to two
 boxes, losing 35% damage each), while stone, brick, metal and concrete stop them. Hold jump to auto bunny hop: every hop right as you land adds speed (up to
 +60%, or +80% with a melee weapon out), and hitting a wall resets it. Press jump again in the air to fly with jetpack fuel, or to
 glide without it. Mystery loot boxes: shoot one open for a medkit, armor, fuel or eggs. Every kill also drops a random bonus pickup
@@ -279,7 +284,7 @@ or first person (`V`). Synthesized sound effects.
 | Right-click   | Zoom / sniper scope       | R       | Reload                       |
 | 1–4, wheel    | Switch gun                | 5       | Melee weapon                 |
 | F             | Inspect weapon            | G       | Throw explosive egg          |
-| Q             | Smoke grenade             | E       | Get in / out of a buggy      |
+| Q / Z         | Smoke grenade / flashbang | E       | Get in / out of a buggy      |
 | Tab           | Scoreboard                | Shift   | Nitro (driving)              |
 | T / Enter     | Chat                      | Esc     | Pause                        |
 | B             | Build mode (Sandbox) / buy menu (ChikenBomb) | X | Next block type (Sandbox) |

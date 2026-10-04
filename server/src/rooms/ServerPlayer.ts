@@ -74,6 +74,9 @@ export class ServerPlayer {
 
   eggs = 0;
   smokes = 0;
+  flashes = 0;
+  /** Flashbanged until then (performance.now ms): bots can't see, kills count as "blind". */
+  blindUntil = 0;
   lastThrowSeq = 0;
   nextThrowAt = 0;
 
@@ -153,6 +156,8 @@ export class ServerPlayer {
     this.aiming = false;
     this.eggs = PLAYER.startEggs;
     this.smokes = PLAYER.startSmokes;
+    this.flashes = PLAYER.startFlashes;
+    this.blindUntil = 0;
     this.vehicle = 0;
     for (const id of this.info.loadout) this.mags.set(id, this.magazineSize(id));
     this.history.clear();
@@ -175,6 +180,7 @@ export class ServerPlayer {
       mag: this.mag,
       eggs: this.eggs,
       smokes: this.smokes,
+      flashes: this.flashes,
       ack: this.lastSeq,
       vehicle: this.vehicle,
       frozen: this.frozen,

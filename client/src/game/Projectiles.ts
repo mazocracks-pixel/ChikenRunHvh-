@@ -12,7 +12,7 @@ import {
   type Vec3,
 } from '@game/shared';
 import type { Effects } from './Effects';
-import { cone, cylinder, part, solid, sphere } from './models/materials';
+import { cone, cylinder, part, solid, sphere, box } from './models/materials';
 
 interface View {
   id: number | null;
@@ -36,6 +36,14 @@ function buildMesh(kind: ProjectileKind): THREE.Group {
       g.add(egg);
       break;
     }
+    case 'flash':
+      // A grey can with a black top and the spoon down its side.
+      g.add(
+        part(cylinder(0.055, 0.055, 0.2, 10), solid(0x8d939a, { metal: true })),
+        part(cylinder(0.04, 0.04, 0.05, 8), solid(0x222428), 0, 0.12, 0),
+        part(box(0.02, 0.17, 0.012), solid(0xc9ced6, { metal: true }), 0.06, 0.03, 0),
+      );
+      break;
     case 'smoke':
       g.add(part(cylinder(0.07, 0.07, 0.22, 10), solid(0x607d8b)), part(cylinder(0.03, 0.03, 0.05, 8), solid(0xb0bec5), 0, 0.13, 0));
       break;

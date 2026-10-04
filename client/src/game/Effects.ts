@@ -258,6 +258,16 @@ export class Effects {
     }
   }
 
+  /** A flashbang going off: a blinding white pop and a few sparks (the blindness is separate). */
+  flashPop(at: Vec3): void {
+    this.spawnSprite(at, { color: 0xffffff, life: 0.3, startScale: 1.2, endScale: 7, opacity: 1, additive: true, glow: 5 });
+    this.spawnSprite(at, { color: 0xdfe8ff, life: 0.9, startScale: 0.6, endScale: 2.5, opacity: 0.7, vy: 0.6 });
+    for (let i = 0; i < 14; i++) this.particle(at, rand3(8), SPARK, 0.03, 0.2 + Math.random() * 0.2, 6, 1);
+    this.flash.position.set(at.x, at.y + 0.3, at.z);
+    this.flash.intensity = 40;
+    this.flashLife = 0.14;
+  }
+
   /** Dust kicked up behind a wheel. */
   dust(at: Vec3, color = 0xcbbd9f): void {
     this.spawnSprite({ x: at.x + (Math.random() - 0.5) * 0.3, y: at.y + 0.15, z: at.z + (Math.random() - 0.5) * 0.3 }, { color, life: 0.7 + Math.random() * 0.4, startScale: 0.35, endScale: 1.3, opacity: 0.4, vy: 0.5 });

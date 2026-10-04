@@ -35,6 +35,8 @@ export const PLAYER = {
   maxEggs: 5,
   startSmokes: 1,
   maxSmokes: 2,
+  startFlashes: 1,
+  maxFlashes: 2,
 } as const;
 
 /** Bunny hopping: chain jumps right as you land to build speed. */

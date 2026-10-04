@@ -1,4 +1,4 @@
-import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
+import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
 import { watchSettings } from '../settings';
 import { CombatFeedback } from '../game/CombatFeedback';
 import { CrosshairView } from './Crosshair';
@@ -6,6 +6,27 @@ import { clear, formatTime, h, hex } from './dom';
 
 const KILLFEED_MS = 6000;
 const CHAT_VISIBLE_MS = 10000;
+
+/** Short tags for the kill feed. */
+const KILL_TAGS: [number, string, string][] = [
+  [KILL_FLAGS.noscope, 'NO SCOPE', 'No scope'],
+  [KILL_FLAGS.wallbang, 'WALL', 'Through a wall'],
+  [KILL_FLAGS.smoke, 'SMOKE', 'Through smoke'],
+  [KILL_FLAGS.air, 'AIR', 'In mid-air'],
+  [KILL_FLAGS.blind, 'BLIND', 'While blind'],
+];
+
+/** "No-scope headshot through the wall, in mid-air" — or null for a plain kill. */
+export function killSentence(flags: number, headshot: boolean): string | null {
+  if (!flags) return null;
+  const extras: string[] = [];
+  if (flags & KILL_FLAGS.wallbang) extras.push('through the wall');
+  if (flags & KILL_FLAGS.smoke) extras.push('through the smoke');
+  if (flags & KILL_FLAGS.air) extras.push('in mid-air');
+  if (flags & KILL_FLAGS.blind) extras.push('while blind');
+  const head = `${flags & KILL_FLAGS.noscope ? 'no-scope ' : ''}${headshot ? 'headshot' : 'kill'}`;
+  return [head, ...extras].join(extras.length > 1 ? ', ' : ' ').replace(/^, /, '');
+}
 
 function causeLabel(cause: KillCause): string {
   if (cause === 'egg') return 'Egg';
@@ -74,6 +95,9 @@ export class Hud {
   private readonly reloadBar = h('div', { class: 'reload-bar' }, h('div'));
   private readonly slots = h('div', { class: 'weapon-slots' });
   private readonly grenades = h('div', { class: 'grenades' });
+  /** Flashbanged: the screen goes white and fades back. */
+  private readonly flashOverlay = h('div', { class: 'flash-overlay' });
+  private flashTimer = 0;
   private readonly banner = h('div', { class: 'banner' });
   private readonly toasts = h('div', { class: 'toasts' });
   private readonly death = h('div', { class: 'death-screen' });
@@ -108,6 +132,7 @@ export class Hud {
     this.death.append(this.deathText, this.deathTimer);
     this.death.hidden = true;
     this.scoreboard.hidden = true;
+    this.flashOverlay.hidden = true;
     this.results.hidden = true;
     this.scope.hidden = true;
     this.hint.hidden = true;
@@ -136,6 +161,7 @@ export class Hud {
       this.progress,
       h('div', { class: 'hud-bottom-left' }, h('div', { class: 'chat' }, this.chatLog, this.chatInput), h('div', { class: 'vitals' }, this.money, this.hopBadge, h('div', { class: 'bar hp' }, this.hpFill, this.hpText), this.armorBar, this.fuelBar)),
       h('div', { class: 'hud-bottom-right' }, this.grenades, h('div', { class: 'weapon-panel' }, this.weaponName, this.ammo, this.reloadBar), this.slots),
+      this.flashOverlay,
       this.scoreboard,
       this.results,
     );
@@ -227,12 +253,27 @@ export class Hud {
     }
   }
 
-  setGrenades(eggs: number, smokes: number): void {
-    const key = `${eggs}|${smokes}`;
+  setGrenades(eggs: number, smokes: number, flashes = 0): void {
+    const key = `${eggs}|${smokes}|${flashes}`;
     if (key === this.lastGrenades) return;
     this.lastGrenades = key;
     clear(this.grenades);
-    this.grenades.append(h('span', { class: eggs ? '' : 'none' }, h('kbd', null, 'G'), ` 🥚 ×${eggs}`), h('span', { class: smokes ? '' : 'none' }, h('kbd', null, 'Q'), ` 💨 ×${smokes}`));
+    this.grenades.append(h('span', { class: eggs ? '' : 'none' }, h('kbd', null, 'G'), ` 🥚 ×${eggs}`), h('span', { class: smokes ? '' : 'none' }, h('kbd', null, 'Q'), ` 💨 ×${smokes}`), h('span', { class: flashes ? '' : 'none' }, h('kbd', null, 'Z'), ` ⚡ ×${flashes}`));
+  }
+
+  /** A flashbang caught you: white for about `ms`, fading back over the last part. */
+  flash(ms: number): void {
+    const el = this.flashOverlay;
+    const hold = ms * 0.5;
+    const fade = ms - hold;
+    window.clearTimeout(this.flashTimer);
+    el.hidden = false;
+    el.style.transition = 'none';
+    el.style.opacity = String(Math.min(1, Math.max(0.55, ms / 2600)));
+    void el.offsetWidth;
+    el.style.transition = `opacity ${Math.round(fade)}ms ease-in ${Math.round(hold)}ms`;
+    el.style.opacity = '0';
+    this.flashTimer = window.setTimeout(() => (el.hidden = true), ms + 80);
   }
 
   setCrosshair(visible: boolean, spreadPx: number, scoped: boolean): void {
@@ -274,12 +315,14 @@ export class Hud {
   // Feed, chat, death
   // ---------------------------------------------------------------------------
 
-  kill(killer: PlayerInfo | undefined, victim: PlayerInfo | undefined, cause: KillCause, headshot: boolean, selfPid: number): void {
+  kill(killer: PlayerInfo | undefined, victim: PlayerInfo | undefined, cause: KillCause, headshot: boolean, selfPid: number, flags = 0): void {
     if (!victim) return;
     if (killer?.pid === selfPid && victim.pid !== selfPid) {
       const label = this.feedback.eliminate(performance.now());
       this.eliminationLabel.textContent = `${label} · ${victim.name}`;
-      this.streakLabel.textContent = this.feedback.streak >= 3 ? `${this.feedback.streak} IN A ROW${headshot ? ' · HEADSHOT' : ''}` : headshot ? 'HEADSHOT' : '';
+      // A special kill says how: "NO-SCOPE HEADSHOT THROUGH THE WALL".
+      const how = killSentence(flags, headshot)?.toUpperCase() ?? (headshot ? 'HEADSHOT' : '');
+      this.streakLabel.textContent = this.feedback.streak >= 3 ? `${this.feedback.streak} IN A ROW${how ? ` · ${how}` : ''}` : how;
       this.elimination.classList.toggle('multi', this.feedback.chain > 1);
       this.elimination.hidden = false;
       this.eliminationUntil = performance.now() + 2400;
@@ -287,7 +330,9 @@ export class Hud {
     const involved = killer?.pid === selfPid || victim.pid === selfPid;
     const row = h('div', { class: `kill${involved ? ' mine' : ''}` });
     if (killer && killer.pid !== victim.pid) row.append(nameEl(killer.name, killer.team, killer.pid === selfPid, killer.dev), ' ');
-    row.append(h('span', { class: 'cause' }, `[${causeLabel(cause)}${headshot ? ' ⌖' : ''}]`), ' ', nameEl(victim.name, victim.team, victim.pid === selfPid, victim.dev));
+    row.append(h('span', { class: 'cause' }, `[${causeLabel(cause)}${headshot ? ' ⌖' : ''}]`));
+    for (const [bit, tag, title] of KILL_TAGS) if (flags & bit) row.append(' ', h('span', { class: `kf-tag t${bit}`, title }, tag));
+    row.append(' ', nameEl(victim.name, victim.team, victim.pid === selfPid, victim.dev));
     this.killfeed.prepend(row);
     while (this.killfeed.children.length > 5) this.killfeed.lastElementChild?.remove();
     setTimeout(() => row.classList.add('fade'), KILLFEED_MS);
@@ -312,13 +357,18 @@ export class Hud {
     }
   }
 
-  showDeath(killer: PlayerInfo | undefined, cause: KillCause, selfPid: number): void {
+  showDeath(killer: PlayerInfo | undefined, cause: KillCause, selfPid: number, flags = 0, headshot = false): void {
     this.feedback.died();
     this.damageNumber.hidden = true;
     this.elimination.hidden = true;
     clear(this.deathText);
     if (!killer || killer.pid === selfPid) this.deathText.append(cause === 'egg' ? 'Your own egg got you!' : 'You died');
-    else this.deathText.append('Plucked by ', nameEl(killer.name, killer.team, false, killer.dev), ` · ${causeLabel(cause)}`);
+    else {
+      this.deathText.append('Plucked by ', nameEl(killer.name, killer.team, false, killer.dev), ` · ${causeLabel(cause)}`);
+      // "— a no-scope headshot through the wall, in mid-air"
+      const how = killSentence(flags, headshot);
+      if (how) this.deathText.append(h('div', { class: 'death-how' }, `${/^[aeiou]/.test(how) ? 'an' : 'a'} ${how}`));
+    }
     this.death.hidden = false;
   }
 

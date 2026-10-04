@@ -2573,3 +2573,57 @@ code {
 .hvh-panel-choice span { display: grid; gap: 6px; }
 .hvh-panel-choice .muted { font-size: .9rem; line-height: 1.45; }
 .hvh-setup button { width: 100%; margin-top: 8px; }
+
+/* ---------- kill tags and flashbangs ---------- */
+
+.killfeed .kf-tag {
+  padding: 0 4px;
+  font-size: 0.66em;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #1a1a1a;
+  background: #ffd76a;
+  border-radius: 3px;
+  vertical-align: 1px;
+}
+
+.killfeed .kf-tag.t2 {
+  background: #ffb36b;
+}
+
+.killfeed .kf-tag.t4 {
+  background: #c9cdd2;
+}
+
+.killfeed .kf-tag.t8 {
+  background: #8fd4ff;
+}
+
+.killfeed .kf-tag.t16 {
+  color: #333;
+  background: #ffffff;
+}
+
+.death-how {
+  margin-top: 4px;
+  font-size: 0.62em;
+  font-weight: 700;
+  color: #ffd76a;
+}
+
+.flash-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, #ffffff 0%, #ffffff 55%, #f4f6ff 100%);
+  opacity: 0;
+}
+
+.touch-btn.flash {
+  right: 214px;
+  bottom: 150px;
+  width: 42px;
+  height: 42px;
+  font-size: 1rem;
+}

@@ -87,6 +87,7 @@ export class TouchControls {
       tap('⇄', 'nextWeapon', 'weapon'),
       tap('👁', 'camera', 'camera'),
       tap('💨', 'smoke', 'smoke'),
+      tap('⚡', 'flash', 'flash'),
       crouch,
     );
     this.bombButtons.push(hold('💣', 'use', 'use'), tap('🛒', 'build', 'buy'));

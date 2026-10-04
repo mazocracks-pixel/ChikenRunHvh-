@@ -19,6 +19,8 @@ import {
   type ProjectileSpawn,
   type SmokeEvent,
   type Vec3,
+  FLASH,
+  flashBlindMs,
 } from '@game/shared';
 import type { GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
@@ -147,6 +149,10 @@ export class ProjectileSystem {
     const { x, y, z } = p.body;
     this.room.io.to(this.room.channel).emit('explode', { id: p.id, kind: p.kind, x: round(x, 2), y: round(y, 2), z: round(z, 2) });
 
+    if (p.kind === 'flash') {
+      this.flashAt({ x, y, z }, now);
+      return;
+    }
     if (p.kind === 'smoke') {
       const smoke: SmokeEvent = { x: round(x, 2), y: round(y, 2), z: round(z, 2), until: now + SMOKE_DURATION_MS };
       this.smokes.push(smoke);
@@ -163,6 +169,28 @@ export class ProjectileSystem {
       return;
     }
     this.blastAt({ x, y, z }, p.def, owner, p.cause, now, p.ownerPid);
+  }
+
+  /**
+   * A flashbang going off: everyone who could see it (walls block it; teammates and the thrower
+   * too) is blinded for longer the closer they are and the more they were looking at it.
+   */
+  flashAt(at: Vec3, now: number): void {
+    for (const target of this.room.players.values()) {
+      if (!target.alive) continue;
+      const eye = this.room.eyeOf(target);
+      const dx = at.x - eye.x;
+      const dy = at.y - eye.y;
+      const dz = at.z - eye.z;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > FLASH.range) continue;
+      if (dist > 0.3 && raycastWorld(makeRay(eye, { x: dx / dist, y: dy / dist, z: dz / dist }), this.room.world, dist - 0.2)) continue;
+      const c = Math.cos(target.pitch);
+      const ms = flashBlindMs(eye, { x: -Math.sin(target.lookYaw) * c, y: Math.sin(target.pitch), z: -Math.cos(target.lookYaw) * c }, at);
+      if (ms <= 0) continue;
+      target.blindUntil = Math.max(target.blindUntil, now + ms);
+      target.socket?.emit('flashed', { ms, x: round(at.x, 2), y: round(at.y, 2), z: round(at.z, 2) });
+    }
   }
 
   /** Splash damage and knockback, blocked by walls. Also smashes loot boxes and damages cars in range. */

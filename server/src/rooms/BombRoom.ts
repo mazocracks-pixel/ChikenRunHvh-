@@ -123,7 +123,7 @@ export class BombRoom extends GameRoom {
     const first = n === 1;
     for (const p of this.players.values()) {
       // Survivors keep their guns, armor and grenades; everyone else starts over.
-      const keep = !first && p.alive ? { armor: p.armor, eggs: p.eggs, smokes: p.smokes } : null;
+      const keep = !first && p.alive ? { armor: p.armor, eggs: p.eggs, smokes: p.smokes, flashes: p.flashes } : null;
       if (first) {
         p.money = ECONOMY.start;
         p.hasKit = false;
@@ -375,6 +375,7 @@ export class BombRoom extends GameRoom {
       (item.kind === 'armor' && p.armor >= PLAYER.maxArmor && 'Your armor is already full.') ||
       (item.kind === 'eggs' && p.eggs >= PLAYER.maxEggs && 'You can’t carry more eggs.') ||
       (item.kind === 'smoke' && p.smokes >= PLAYER.maxSmokes && 'You can’t carry more smoke grenades.') ||
+      (item.kind === 'flash' && p.flashes >= PLAYER.maxFlashes && 'You can’t carry more flashbangs.') ||
       (item.kind === 'kit' && p.hasKit && 'You already have a defuse kit.');
     if (full) return fail(full);
     if (p.money < price) return fail('Not enough money.');
@@ -402,6 +403,9 @@ export class BombRoom extends GameRoom {
         break;
       case 'smoke':
         p.smokes++;
+        break;
+      case 'flash':
+        p.flashes++;
         break;
       case 'kit':
         p.hasKit = true;

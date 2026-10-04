@@ -149,6 +149,7 @@ export class BotSystem {
 
   /** Can `p` see `target`? Walls and smoke clouds block vision. */
   private canSee(p: ServerPlayer, target: ServerPlayer): boolean {
+    if (performance.now() < p.blindUntil) return false;
     const eye = this.eye(p);
     const chest = chestPoint(target.state.x, target.state.y, target.state.z);
     const dx = chest.x - eye.x;

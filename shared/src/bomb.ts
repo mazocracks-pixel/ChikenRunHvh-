@@ -45,7 +45,7 @@ export const ECONOMY = {
   defuse: 300,
 } as const;
 
-export type BuyKind = 'weapon' | 'armor' | 'eggs' | 'smoke' | 'kit';
+export type BuyKind = 'weapon' | 'armor' | 'eggs' | 'smoke' | 'flash' | 'kit';
 
 /** Buy menu columns. A pistol takes the pistol slot; every other gun is your one main gun. */
 export type BuyCategory = 'pistol' | 'smg' | 'heavy' | 'rifle' | 'sniper' | 'special' | 'gear';
@@ -99,6 +99,7 @@ export const BUY_ITEMS: readonly BuyItem[] = [
   { id: 'armor', name: 'Armor', price: 650, kind: 'armor', category: 'gear' },
   { id: 'eggs', name: 'Explosive egg', price: 300, kind: 'eggs', category: 'gear' },
   { id: 'smoke', name: 'Smoke grenade', price: 300, kind: 'smoke', category: 'gear' },
+  { id: 'flash', name: 'Flashbang', price: 200, kind: 'flash', category: 'gear' },
   { id: 'kit', name: 'Defuse kit', price: 400, kind: 'kit', category: 'gear', team: 2 },
 ];
 export const BUY_ITEMS_BY_ID: ReadonlyMap<string, BuyItem> = new Map(BUY_ITEMS.map((i) => [i.id, i]));

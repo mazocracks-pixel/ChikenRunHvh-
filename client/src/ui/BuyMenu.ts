@@ -27,14 +27,16 @@ export interface BuyMenuView {
   armor: number;
   eggs: number;
   smokes: number;
+  flashes: number;
   hasKit: boolean;
 }
 
-const GEAR_ICONS: Record<string, string> = { armor: '🛡️', eggs: '🥚', smoke: '💨', kit: '✂️' };
+const GEAR_ICONS: Record<string, string> = { armor: '🛡️', eggs: '🥚', smoke: '💨', flash: '⚡', kit: '✂️' };
 const GEAR_TEXT: Record<string, string> = {
   armor: 'Takes most of the damage from hits until it’s used up.',
   eggs: 'Explosive egg (G): area damage and knockback.',
   smoke: 'Smoke grenade (Q): a cloud nobody can see through.',
+  flash: 'Flashbang (Z): blinds whoever looks at it. Turn away when you throw it!',
   kit: 'Defuse in 5 seconds instead of 10.',
 };
 const THUMB_W = 240;
@@ -150,7 +152,7 @@ export class BuyMenu {
       this.buildColumns();
     }
     const over = v.secondsLeft === 0;
-    const key = `${v.money}|${v.team}|${v.secondsLeft}|${v.loadout.join(',')}|${v.armor}|${v.eggs}|${v.smokes}|${v.hasKit}|${BUY_ITEMS.map((i) => v.blocked(i) ?? '').join(',')}`;
+    const key = `${v.money}|${v.team}|${v.secondsLeft}|${v.loadout.join(',')}|${v.armor}|${v.eggs}|${v.smokes}|${v.flashes}|${v.hasKit}|${BUY_ITEMS.map((i) => v.blocked(i) ?? '').join(',')}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.money.textContent = v.secondsLeft === null ? 'Warmup: free' : `$${v.money.toLocaleString()}`;
@@ -264,6 +266,7 @@ export class BuyMenu {
         h('span', { class: v.armor > 0 ? 'on' : '' }, `🛡️ ${v.armor}`),
         h('span', { class: v.eggs > 0 ? 'on' : '' }, `🥚 ${v.eggs}`),
         h('span', { class: v.smokes > 0 ? 'on' : '' }, `💨 ${v.smokes}`),
+        h('span', { class: v.flashes > 0 ? 'on' : '' }, `⚡ ${v.flashes}`),
         v.team === 2 ? h('span', { class: v.hasKit ? 'on' : '' }, `✂️ ${v.hasKit ? 'Kit' : 'No kit'}`) : null,
       ),
     );

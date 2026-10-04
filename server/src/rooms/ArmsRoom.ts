@@ -34,7 +34,7 @@ export class ArmsRoom extends GameRoom {
   protected override spawn(p: ServerPlayer, now: number, announce: boolean): void {
     super.spawn(p, now, announce);
     // Guns only: no grenades in Arms Race.
-    p.eggs = p.smokes = 0;
+    p.eggs = p.smokes = p.flashes = 0;
   }
 
   protected override onKill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, now: number): void {

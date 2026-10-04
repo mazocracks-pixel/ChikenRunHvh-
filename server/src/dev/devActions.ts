@@ -93,6 +93,7 @@ export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAct
       target.reloadUntil = 0;
       target.eggs = PLAYER.maxEggs;
       target.smokes = PLAYER.maxSmokes;
+      target.flashes = PLAYER.maxFlashes;
       return ok;
   }
 }

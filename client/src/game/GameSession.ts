@@ -70,8 +70,7 @@ import {
   rankOf,
   BUGGY,
   seatPosition,
-  carAimSpeed,
-} from '@game/shared';
+  carAimSpeed, type FlashedEvent } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
@@ -453,7 +452,7 @@ export class GameSession {
     hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel);
     hud.setNitro(this.local.alive && this.local.car ? this.local.car.boost : null);
     hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
-    hud.setGrenades(server.eggs, server.smokes);
+    hud.setGrenades(server.eggs, server.smokes, server.flashes ?? 0);
     hud.setHop(this.local.alive && !this.local.car ? this.local.state.hop : 0, hopMaxFor(w.weapon));
     const spread = spreadFor(w.def, this.horizontalSpeed(), !this.local.onGround, aiming) * (w.mods?.spread ?? 1);
     const pixels = (spread / ((this.ctx.camera.fov * Math.PI) / 360)) * (window.innerHeight / 2);
@@ -532,6 +531,7 @@ export class GameSession {
         break;
       case 'egg':
       case 'smoke':
+      case 'flash':
         this.throwGrenade(action);
         break;
       case 'camera':
@@ -709,12 +709,12 @@ export class GameSession {
     audio.play(w.id === 'pan' ? 'bonk' : 'meleeHit', hit.point);
   }
 
-  private throwGrenade(kind: 'egg' | 'smoke'): void {
+  private throwGrenade(kind: 'egg' | 'smoke' | 'flash'): void {
     const { net, audio, hud } = this.ctx;
     if (!this.local.alive) return;
-    const count = kind === 'egg' ? this.local.server.eggs : this.local.server.smokes;
+    const count = kind === 'egg' ? this.local.server.eggs : kind === 'smoke' ? this.local.server.smokes : (this.local.server.flashes ?? 0);
     if (count <= 0) {
-      hud.toast(kind === 'egg' ? 'No eggs left — break boxes to find more' : 'No smoke grenades left', 'bad');
+      hud.toast(kind === 'egg' ? 'No eggs left — break boxes to find more' : kind === 'smoke' ? 'No smoke grenades left' : 'No flashbangs left', 'bad');
       audio.play('empty');
       return;
     }
@@ -726,7 +726,7 @@ export class GameSession {
     const dist = wall ? Math.max(0, wall.t - 0.2) : 0.5;
     this.projectiles.predict(kind, this.selfPid, this.throwSeq, { x: eye.x + dir.x * dist, y: eye.y + dir.y * dist, z: eye.z + dir.z * dist }, dir);
     // Predict the count so a quick double tap doesn't show a stale number.
-    this.local.server = { ...this.local.server, [kind === 'egg' ? 'eggs' : 'smokes']: count - 1 };
+    this.local.server = { ...this.local.server, [kind === 'egg' ? 'eggs' : kind === 'smoke' ? 'smokes' : 'flashes']: count - 1 };
     audio.play('throw');
   }
 
@@ -812,12 +812,14 @@ export class GameSession {
         armor: s.armor,
         eggs: s.eggs,
         smokes: s.smokes,
+        flashes: s.flashes ?? 0,
         hasKit: this.hasKit,
         blocked: (item) =>
           item.kind === 'weapon' && loadout.includes(item.weapon!) ? 'Owned'
           : item.kind === 'armor' && s.armor >= PLAYER.maxArmor ? 'Full'
           : item.kind === 'eggs' && s.eggs >= PLAYER.maxEggs ? 'Full'
           : item.kind === 'smoke' && s.smokes >= PLAYER.maxSmokes ? 'Full'
+          : item.kind === 'flash' && (s.flashes ?? 0) >= PLAYER.maxFlashes ? 'Full'
           : item.kind === 'kit' && this.hasKit ? 'Owned'
           : null,
       });
@@ -1036,6 +1038,7 @@ export class GameSession {
     this.on('projectile', (e) => this.onProjectile(e));
     this.on('explode', (e) => this.onExplode(e));
     this.on('smoke', (e) => this.onSmoke(e));
+    this.on('flashed', (e) => this.onFlashed(e));
     this.on('loot', (e) => this.onLoot(e));
     this.on('pickup', (e) => this.onPickup(e));
     this.on('drop', (d) => this.loot.addDrop(d));
@@ -1162,10 +1165,10 @@ export class GameSession {
     const { hud, audio } = this.ctx;
     const killer = this.infos.get(e.killer);
     const victim = this.infos.get(e.victim);
-    hud.kill(killer, victim, e.cause, e.headshot, this.selfPid);
+    hud.kill(killer, victim, e.cause, e.headshot, this.selfPid, e.flags ?? 0);
 
     if (e.victim === this.selfPid) {
-      this.died(killer, e.cause);
+      this.died(killer, e.cause, e.flags ?? 0, e.headshot);
     } else {
       const remote = this.remotes.get(e.victim);
       if (remote) {
@@ -1176,18 +1179,20 @@ export class GameSession {
       }
       if (e.killer === this.selfPid) {
         audio.play('kill');
+        // A no-scope, wallbang, mid-air... kill gets a little fanfare.
+        if (e.flags) audio.play('reward', undefined, 0.5);
       }
     }
   }
 
-  private died(killer: PlayerInfo | undefined, cause: KillCause): void {
+  private died(killer: PlayerInfo | undefined, cause: KillCause, flags = 0, headshot = false): void {
     this.local.server = { ...this.local.server, alive: false, hp: 0 };
     this.deathPos = this.local.position.clone();
     this.respawnAt = performance.now() + this.mode.respawnMs;
     this.effects.feathers({ x: this.deathPos.x, y: this.deathPos.y + 0.8, z: this.deathPos.z }, this.skinColor(this.selfPid), 22);
     this.local.chicken.onVanish = (at) => this.vanished(at, this.selfPid);
     this.ctx.audio.play('death');
-    this.ctx.hud.showDeath(killer, cause, this.selfPid);
+    this.ctx.hud.showDeath(killer, cause, this.selfPid, flags, headshot);
     if (this.chatOpen) this.closeChat();
   }
 
@@ -1219,11 +1224,23 @@ export class GameSession {
     this.projectiles.spawn(e, this.selfPid, (this.ctx.net.ping ?? 60) / 2);
   }
 
+  /** A flashbang got us: white screen, ears ringing. */
+  private onFlashed(e: FlashedEvent): void {
+    this.ctx.hud.flash(e.ms);
+    this.ctx.audio.play('ring', undefined, Math.min(1, e.ms / 3000));
+  }
+
   private onExplode(e: ExplosionEvent): void {
     this.projectiles.explode(e);
     const at = { x: e.x, y: e.y, z: e.z };
     if (e.kind === 'smoke') {
       this.ctx.audio.play('smokePop', at);
+      return;
+    }
+    if (e.kind === 'flash') {
+      // The bang everyone hears and the light everyone sees; being blinded comes separately.
+      this.effects.flashPop(at);
+      this.ctx.audio.play('flashbang', at);
       return;
     }
     if (e.kind === 'bolt') {

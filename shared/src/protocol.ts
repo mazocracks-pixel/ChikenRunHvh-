@@ -58,6 +58,8 @@ export interface PlayerState extends MoveState {
   mag: number;
   eggs: number;
   smokes: number;
+  /** Flashbangs left (Z). */
+  flashes?: number;
   /** Last input `seq` the server applied (for client reconciliation). */
   ack: number;
   /** Vehicle being driven, 0 when on foot. */
@@ -123,6 +125,7 @@ export function packPlayer(p: PlayerState): PackedPlayer {
     round(p.horizontalSpeed, 3),
     p.hvhPreparing ? 1 : 0,
     round(p.fakePitch ?? p.pitch, 3),
+    p.flashes ?? 0,
   ];
 }
 
@@ -167,6 +170,7 @@ export function unpackPlayer(a: PackedPlayer): PlayerState {
     horizontalSpeed: a[25] ?? 0,
     hvhPreparing: a[26] === 1,
     fakePitch: a[27] ?? a[8] ?? 0,
+    flashes: a[28] ?? 0,
   };
 }
 
@@ -387,6 +391,19 @@ export interface KillEvent {
   victim: number;
   cause: KillCause;
   headshot: boolean;
+  /** How it was done (KILL_FLAGS): no scope, through a wall, through smoke, in mid-air, while blind. */
+  flags?: number;
+}
+
+/** Kill tags, as bits of KillEvent.flags. */
+export const KILL_FLAGS = { noscope: 1, wallbang: 2, smoke: 4, air: 8, blind: 16 } as const;
+
+/** You were caught by a flashbang: white for about `ms`, from `x, y, z`. */
+export interface FlashedEvent {
+  ms: number;
+  x: number;
+  y: number;
+  z: number;
 }
 
 export interface SpawnEvent {
@@ -398,7 +415,7 @@ export interface SpawnEvent {
 }
 
 export interface ThrowRequest {
-  kind: 'egg' | 'smoke';
+  kind: 'egg' | 'smoke' | 'flash';
   seq: number;
   dx: number;
   dy: number;
@@ -524,6 +541,8 @@ export interface ServerToClientEvents {
   projectile: (e: ProjectileSpawn) => void;
   explode: (e: ExplosionEvent) => void;
   smoke: (e: SmokeEvent) => void;
+  /** A flashbang blinded you. */
+  flashed: (e: FlashedEvent) => void;
   loot: (e: LootState) => void;
   pickup: (e: PickupEvent) => void;
   drop: (d: DropState) => void;

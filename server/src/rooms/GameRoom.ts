@@ -78,6 +78,7 @@ import {
   levelFor,
   rankedPoints,
   carAimSpeed,
+  KILL_FLAGS,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -147,6 +148,8 @@ const THROW_COOLDOWN_MS = 600;
 /** Fire-rate checks allow a little jitter: packets bunch up on the way to the server. */
 const FIRE_RATE_TOLERANCE = 0.8;
 const KILL_SCORE = 100;
+/** A shot through this close to a smoke cloud's middle counts as "through smoke". */
+const SMOKE_SIGHT_RADIUS = 3.4;
 /** Spread spawns: further than this from every enemy counts as safe. */
 const SPREAD_SAFE = 28;
 const HEADSHOT_BONUS = 25;
@@ -522,7 +525,9 @@ export class GameRoom {
 
     const ends: number[] = [];
     const hits: number[] = [];
-    const damageByVictim = new Map<ServerPlayer, { amount: number; headshot: boolean }>();
+    const damageByVictim = new Map<ServerPlayer, { amount: number; headshot: boolean; flags: number }>();
+    // Kill tags that hold for the whole shot.
+    const shotFlags = (w.scope && !req.aiming ? KILL_FLAGS.noscope : 0) | this.shooterFlags(p, now);
     for (const d of dirs) {
       const ray = makeRay(eye, d);
       // Wallbang: crates, hay and wood don't stop bullets, they just weaken them.
@@ -561,7 +566,10 @@ export class GameRoom {
       // Ranked: how close to the middle of the head / body single bullets land (aim lock).
       if (victim && victimAt && w.pellets === 1) this.antiCheat?.onHit(p, eye, aim, victimAt, headshot);
       if (victim) {
-        const entry = damageByVictim.get(victim) ?? { amount: 0, headshot: false };
+        const entry = damageByVictim.get(victim) ?? { amount: 0, headshot: false, flags: shotFlags };
+        // Through a crate / hay / wood on the way, or through a smoke cloud.
+        if (soft.some((s) => s.t < maxT)) entry.flags |= KILL_FLAGS.wallbang;
+        if (this.throughSmoke(eye, pointOnRay(ray, maxT), now)) entry.flags |= KILL_FLAGS.smoke;
         entry.amount += damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * wallbangScale(soft, maxT);
         entry.headshot ||= headshot;
         damageByVictim.set(victim, entry);
@@ -581,7 +589,24 @@ export class GameRoom {
       ends,
       hits,
     });
-    for (const [victim, { amount, headshot }] of damageByVictim) this.damage(victim, p, amount, headshot, req.weapon, eye, now);
+    for (const [victim, { amount, headshot, flags }] of damageByVictim) this.damage(victim, p, amount, headshot, req.weapon, eye, now, flags);
+  }
+
+  /** Kill tags about the shooter: in mid-air, blinded by a flashbang. */
+  private shooterFlags(p: ServerPlayer, now: number): number {
+    return (!p.state.onGround && !p.vehicle ? KILL_FLAGS.air : 0) | (now < p.blindUntil ? KILL_FLAGS.blind : 0);
+  }
+
+  /** Does the line from `a` to `b` pass through a smoke cloud? */
+  private throughSmoke(a: Vec3, b: Vec3, now: number): boolean {
+    for (const s of this.projectiles.activeSmokes(now)) {
+      const c = { x: s.x, y: Math.max(0.4, s.y) + 1.2, z: s.z };
+      const d = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+      const len2 = d.x * d.x + d.y * d.y + d.z * d.z || 1;
+      const t = Math.max(0, Math.min(1, ((c.x - a.x) * d.x + (c.y - a.y) * d.y + (c.z - a.z) * d.z) / len2));
+      if (Math.hypot(a.x + d.x * t - c.x, a.y + d.y * t - c.y, a.z + d.z * t - c.z) < SMOKE_SIGHT_RADIUS) return true;
+    }
+    return false;
   }
 
   /** Where `p` shoots and throws from: their eyes, or the driver's seat in a car. */
@@ -630,7 +655,7 @@ export class GameRoom {
       ends: hit ? [round(hit.point.x, 2), round(hit.point.y, 2), round(hit.point.z, 2)] : [],
       hits: hit ? [hit.headshot ? 2 : 1] : [],
     });
-    if (hit) this.damage(hit.key, p, w.damage * (hit.headshot ? w.headshotMultiplier : 1), hit.headshot, w.id, eye, now);
+    if (hit) this.damage(hit.key, p, w.damage * (hit.headshot ? w.headshotMultiplier : 1), hit.headshot, w.id, eye, now, this.shooterFlags(p, now));
   }
 
   handleReload(p: ServerPlayer): void {
@@ -659,9 +684,10 @@ export class GameRoom {
     const req = parseThrow(raw);
     const now = performance.now();
     if (!req || !p.alive || this.match.phase === 'ended' || this.actionsBlocked() || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
-    if (req.kind === 'egg' ? p.eggs <= 0 : p.smokes <= 0) return;
+    if ((req.kind === 'egg' ? p.eggs : req.kind === 'smoke' ? p.smokes : p.flashes) <= 0) return;
     if (req.kind === 'egg') p.eggs--;
-    else p.smokes--;
+    else if (req.kind === 'smoke') p.smokes--;
+    else p.flashes--;
     p.lastThrowSeq = req.seq;
     p.nextThrowAt = now + THROW_COOLDOWN_MS;
     p.shieldUntil = 0;
@@ -699,7 +725,8 @@ export class GameRoom {
   // ---------------------------------------------------------------------------
 
   /** Applies damage (armor first), reports it to both sides, and kills when health runs out. */
-  damage(victim: ServerPlayer, attacker: ServerPlayer | null, amount: number, headshot: boolean, cause: KillCause, from: Vec3, now: number): void {
+  /** `flags`: how it was done (KILL_FLAGS), reported if it kills. */
+  damage(victim: ServerPlayer, attacker: ServerPlayer | null, amount: number, headshot: boolean, cause: KillCause, from: Vec3, now: number, flags = 0): void {
     this.enforceHvhRules(victim);
     if (attacker) this.enforceHvhRules(attacker);
     if (!victim.alive || amount <= 0 || this.match.phase === 'ended') return;
@@ -731,10 +758,10 @@ export class GameRoom {
     victim.socket?.emit('damage', event);
     if (attacker && attacker !== victim) attacker.socket?.emit('damage', event);
 
-    if (victim.hp <= 0) this.kill(victim, attacker, cause, headshot, now);
+    if (victim.hp <= 0) this.kill(victim, attacker, cause, headshot, now, flags);
   }
 
-  protected kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number): void {
+  protected kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number, flags = 0): void {
     victim.alive = false;
     victim.hp = 0;
     victim.reloadUntil = 0;
@@ -755,7 +782,7 @@ export class GameRoom {
       }
     }
 
-    this.io.to(this.channel).emit('kill', { killer: attacker?.pid ?? 0, victim: victim.pid, cause, headshot });
+    this.io.to(this.channel).emit('kill', { killer: attacker?.pid ?? 0, victim: victim.pid, cause, headshot, ...(flags && attacker && attacker !== victim ? { flags } : {}) });
     // Every kill leaves a random bonus where the victim fell (not in buy-menu modes).
     if (!this.mode.noDrops) this.loot.dropBonus({ x: victim.state.x, y: victim.state.y, z: victim.state.z }, now);
     if (scoring) {
@@ -808,7 +835,7 @@ export class GameRoom {
     const point = this.pickSpawn(p);
     p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
-    if (this.mode.weapons) p.eggs = p.smokes = 0;
+    if (this.mode.weapons) p.eggs = p.smokes = p.flashes = 0;
     if (announce) this.io.to(this.channel).emit('spawn', { pid: p.pid, x: point.x, y: 0, z: point.z, yaw: p.yaw });
   }
 
@@ -1161,7 +1188,7 @@ function parseFire(raw: unknown): FireRequest | null {
 function parseThrow(raw: unknown): ThrowRequest | null {
   if (!isRecord(raw)) return null;
   const { kind, seq, dx, dy, dz } = raw;
-  if ((kind !== 'egg' && kind !== 'smoke') || !Number.isSafeInteger(seq)) return null;
+  if ((kind !== 'egg' && kind !== 'smoke' && kind !== 'flash') || !Number.isSafeInteger(seq)) return null;
   if (!isFiniteNumber(dx) || !isFiniteNumber(dy) || !isFiniteNumber(dz)) return null;
   const len = Math.hypot(dx, dy, dz);
   if (len < 0.5 || len > 1.5) return null;

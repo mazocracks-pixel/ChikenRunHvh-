@@ -25,7 +25,9 @@ export type SoundName =
   | 'click'
   | 'reward'
   | 'countdown'
-  | 'engine';
+  | 'engine'
+  | 'flashbang'
+  | 'ring';
 
 const VOLUME_KEY = 'chikengun:volume';
 /** Beyond this distance a sound is silent. */
@@ -440,6 +442,17 @@ export class AudioEngine {
         break;
       case 'countdown':
         this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 740, gain: 0.3 });
+        break;
+      case 'flashbang':
+        // A sharp crack and a thump.
+        this.burst(ctx, out, t, { dur: 0.08, type: 'highpass', freq: 3000, gain: 1.6 });
+        this.burst(ctx, out, t, { dur: 0.3, type: 'lowpass', freq: 1400, to: 200, gain: 1.4 });
+        this.tone(ctx, out, t, { dur: 0.2, type: 'sine', freq: 120, to: 45, gain: 0.9 });
+        break;
+      case 'ring':
+        // Ears ringing after a flash.
+        this.tone(ctx, out, t, { dur: 2.8, type: 'sine', freq: 3150, to: 2900, gain: 0.09 });
+        this.tone(ctx, out, t, { dur: 2.2, type: 'sine', freq: 4400, to: 4200, gain: 0.035 });
         break;
       case 'engine':
         this.tone(ctx, out, t, { dur: 0.12, type: 'sawtooth', freq: 70, to: 80, gain: 0.12 });
