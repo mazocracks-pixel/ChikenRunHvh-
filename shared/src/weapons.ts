@@ -1,4 +1,4 @@
-import { HOP } from './constants';
+import { HOP, PLAYER } from './constants';
 import { clamp, lerp, normalize, type Vec3 } from './math';
 import type { ProjectileKind } from './projectiles';
 import { mulberry32 } from './rng';
@@ -347,8 +347,10 @@ export function weaponAt(index: number): WeaponId {
 }
 
 /** Current cone half-angle for a shot, depending on how the shooter is moving. */
-export function spreadFor(w: WeaponDef, moving: boolean, airborne: boolean, aiming: boolean): number {
-  let s = w.spread + (moving ? w.moveSpread : 0) + (airborne ? w.airSpread : 0);
+export function spreadFor(w: WeaponDef, horizontalSpeed: number, airborne: boolean, aiming: boolean): number {
+  // Slow walk, crouching, hops and knockback all use the same continuous curve.
+  const speed = Number.isFinite(horizontalSpeed) ? clamp(horizontalSpeed / PLAYER.speed, 0, 3) : 0;
+  let s = w.spread + w.moveSpread * speed + (airborne ? w.airSpread : 0);
   if (aiming) s *= w.scope ? 0.25 : 0.6;
   return s;
 }

@@ -145,10 +145,15 @@ export interface DevResult {
 
 /** What the server tells a client about its developer access. */
 export interface DevStatus {
-  /** The passkey was accepted for this account (until the server restarts). */
+  hvh?: import('./hvh').HvhLoadout;
+  /** Passkey access, or equal public-panel access while in an HvH room. */
   granted: boolean;
-  /** Whether developer features work in the room you're in (private rooms, or any room on a dev server). */
+  /** Whether the current room permits the reported profile. */
   allowedHere: boolean;
+  /** HvH offers bounded abilities; admin keeps private-room testing tools. */
+  profile: 'hvh' | 'admin' | 'off';
+  /** Deployment flag: the balanced HvH panel is open to everyone, without a passkey. */
+  publicHvh: boolean;
   /** The modifiers currently applied to you. */
   mods: DevMods;
 }

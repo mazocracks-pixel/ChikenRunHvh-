@@ -18,6 +18,9 @@ const GEO = {
   wattle: sphere(0.06, 10, 8),
   eye: sphere(0.062, 12, 10),
   pupil: sphere(0.034, 10, 8),
+  glint: sphere(0.012, 6, 4),
+  brow: box(0.11, 0.027, 0.036),
+  scarfTail: box(0.1, 0.24, 0.04),
   beak: cone(0.075, 0.18, 8),
   leg: cylinder(0.035, 0.035, 0.42, 6),
   foot: box(0.16, 0.035, 0.22),
@@ -29,10 +32,10 @@ const GEO = {
 };
 
 const MAT = {
-  red: solid(0xe53935, { flat: false, roughness: 0.6 }),
-  eye: solid(0xfafafa, { flat: false, roughness: 0.25 }),
-  pupil: solid(0x111111, { flat: false, roughness: 0.15 }),
-  legs: solid(0xf5a623),
+  red: solid(0xef5538, { flat: false, roughness: 0.6 }),
+  eye: solid(0xfff8e7, { flat: false, roughness: 0.25 }),
+  pupil: solid(0x17282c, { flat: false, roughness: 0.15 }),
+  legs: solid(0xffb23b),
   sole: solid(0xfafafa),
   tank: solid(0x9aa0a6, { metal: true }),
 };
@@ -94,6 +97,7 @@ export class Chicken {
   private readonly feet: THREE.Mesh[] = [];
   private readonly shoes: THREE.Group[] = [];
   private readonly scarf: THREE.Mesh;
+  private readonly scarfTails: THREE.Mesh[] = [];
   private readonly featherMeshes: THREE.Mesh[] = [];
   private readonly wingMeshes: THREE.Mesh[] = [];
   private beak!: THREE.Mesh;
@@ -123,11 +127,11 @@ export class Chicken {
     const feather = solid(0xffffff);
     const body = part(GEO.body, feather, 0, 0.78, 0);
     body.scale.set(1, 0.9, 1.15);
-    // A fan of three tail feathers.
-    const tails = [-1, 0, 1].map((side) => {
-      const t = part(GEO.tail, feather, side * 0.11, 1.06 - Math.abs(side) * 0.05, 0.45);
-      t.scale.set(0.42, 1.25, 0.55);
-      t.rotation.set(0.55, 0, -side * 0.45);
+    // A five-feather fan makes the silhouette read as a chicken from behind, too.
+    const tails = [-2, -1, 0, 1, 2].map((side) => {
+      const t = part(GEO.tail, feather, side * 0.085, 1.06 - Math.abs(side) * 0.045, 0.42);
+      t.scale.set(0.35, 1.22 - Math.abs(side) * 0.1, 0.48);
+      t.rotation.set(0.55, 0, -side * 0.35);
       return t;
     });
     this.featherMeshes.push(body, ...tails);
@@ -135,11 +139,18 @@ export class Chicken {
     const head = part(GEO.head, feather, 0, 1.25, -0.32);
     this.featherMeshes.push(head);
     this.beak = part(GEO.beak, MAT.legs, 0, 1.22, -0.62);
+    this.beak.scale.set(1.2, 1, 0.8);
     this.beak.rotation.x = -Math.PI / 2;
     const wattle = part(GEO.wattle, MAT.red, 0, 1.08, -0.52);
     wattle.scale.set(1, 1.4, 1);
     const eyes: THREE.Mesh[] = [];
-    for (const side of [-1, 1]) eyes.push(part(GEO.eye, MAT.eye, side * 0.135, 1.31, -0.505), part(GEO.pupil, MAT.pupil, side * 0.15, 1.315, -0.553));
+    for (const side of [-1, 1]) {
+      const eye = part(GEO.eye, MAT.eye, side * 0.135, 1.31, -0.505);
+      eye.scale.set(1.05, 1.12, 1);
+      const brow = part(GEO.brow, MAT.pupil, side * 0.135, 1.377, -0.533);
+      brow.rotation.z = side * 0.22;
+      eyes.push(eye, part(GEO.pupil, MAT.pupil, side * 0.15, 1.315, -0.553), part(GEO.glint, MAT.eye, side * 0.15 - 0.01, 1.327, -0.579), brow);
+    }
     for (const [y, z] of [
       [1.52, -0.4],
       [1.55, -0.3],
@@ -157,6 +168,13 @@ export class Chicken {
     this.scarf = part(GEO.scarf, MAT.red, 0, 1.03, -0.2);
     this.scarf.rotation.x = Math.PI / 2 - 0.25;
     this.bodyPivot.add(body, ...tails, this.headGroup, this.scarf);
+    for (const side of [-1, 1]) {
+      const tail = part(GEO.scarfTail, MAT.red, side * 0.065, 0.91, -0.42);
+      tail.rotation.x = -0.25;
+      tail.rotation.z = side * 0.15;
+      this.scarfTails.push(tail);
+      this.bodyPivot.add(tail);
+    }
 
     for (const [wing, side] of [
       [this.wingL, -1],
@@ -212,10 +230,13 @@ export class Chicken {
     this.setTeam(team);
   }
 
+  private xrayMaterial: THREE.Material | null | undefined;
+
   setAppearance(a: Appearance): void {
+    this.xrayMaterial = undefined;
     const skin = getItem('skin', a.skin) ?? getItem('skin', 'white')!;
     const feather = solid(skin.color ?? 0xffffff, { metal: skin.metal, roughness: skin.metal ? 0.3 : 0.8, flat: false });
-    const wing = solid(new THREE.Color(skin.color ?? 0xffffff).multiplyScalar(0.82).getHex(), { metal: skin.metal, roughness: skin.metal ? 0.3 : 0.8, flat: false });
+    const wing = solid(new THREE.Color(skin.color ?? 0xffffff).multiplyScalar(0.88).getHex(), { metal: skin.metal, roughness: skin.metal ? 0.3 : 0.8, flat: false });
     for (const m of this.featherMeshes) m.material = feather;
     for (const m of this.wingMeshes) m.material = wing;
 
@@ -240,12 +261,15 @@ export class Chicken {
   }
 
   setTeam(team: Team): void {
-    this.scarf.visible = team !== 0;
-    if (team !== 0) this.scarf.material = solid(TEAM_COLORS[team]);
+    for (const cloth of [this.scarf, ...this.scarfTails]) {
+      cloth.visible = team !== 0;
+      if (team !== 0) cloth.material = solid(TEAM_COLORS[team]);
+    }
   }
 
   setWeapon(id: WeaponId | null): void {
     if (id === this.gunId) return;
+    this.xrayMaterial = undefined;
     this.gunId = id;
     this.gun?.group.removeFromParent();
     this.gun = id ? buildGun(id) : null;
@@ -341,8 +365,14 @@ export class Chicken {
     const swing = Math.sin(this.walkPhase) * 0.8 * this.walkBlend;
     this.legL.rotation.x = swing;
     this.legR.rotation.x = -swing;
-    this.bodyPivot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06 * this.walkBlend;
+    const idle = (1 - this.walkBlend) * (1 - this.flapBlend);
+    this.bodyPivot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06 * this.walkBlend + Math.sin(this.time * 2.4) * 0.01 * idle;
     this.bodyPivot.rotation.x = -0.1 * this.walkBlend;
+    this.bodyPivot.rotation.z = Math.sin(this.walkPhase) * 0.025 * this.walkBlend;
+    this.headGroup.rotation.z = Math.sin(this.time * 1.8) * 0.018 * idle;
+    this.scarfTails.forEach((tail, i) => {
+      tail.rotation.x = -0.25 + Math.sin(this.time * 8 + i) * 0.12 * moving;
+    });
 
     const flap = (Math.sin(this.time * 28) * 0.5 + 0.7) * this.flapBlend;
     this.wingL.rotation.z = -flap;
@@ -425,6 +455,8 @@ export class Chicken {
    * level but before the chicken itself, so only the hidden parts show (see DevRuntime).
    */
   setXray(material: THREE.Material | null): void {
+    if (this.xrayMaterial === material) return;
+    this.xrayMaterial = material;
     // Gear (gun, hat, jetpack) gets no silhouette of its own: just the chicken shows.
     const gear = new Set<THREE.Object3D>([this.gunPivot, this.jetpack]);
     if (this.hat) gear.add(this.hat);

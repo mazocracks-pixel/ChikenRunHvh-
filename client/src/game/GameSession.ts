@@ -118,6 +118,7 @@ export interface SessionContext {
 
 /** How the developer system plugs into a match. Every hook is optional behaviour on top of normal play. */
 export interface DevHooks {
+  onShot?(session: GameSession): void;
   attach(session: GameSession): void;
   detach(session: GameSession): void;
   /** Start of every frame (aim assist, triggers). */
@@ -125,7 +126,7 @@ export interface DevHooks {
   /** Adjust an input frame before it is predicted and sent (movement helpers, free camera). */
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame;
   /** Extra trigger pull (trigger assist, auto fire). */
-  wantsFire(): boolean;
+  wantsFire(now?: number): boolean;
   /** Replacement shot direction from the eye (aim lock), or null. */
   aimOverride(session: GameSession, eye: Vec3): Vec3 | null;
   /** Multiplier on camera recoil. */
@@ -173,6 +174,7 @@ export class GameSession {
   private blockIndex = 0;
   private fireWasDown = false;
   private aimWasDown = false;
+  private lastMovementInput = { forward: 0, right: 0 };
   private readonly handlers: [keyof ServerToClientEvents, (...args: never[]) => void][] = [];
 
   private match: MatchState;
@@ -230,7 +232,7 @@ export class GameSession {
     this.isSoft = softBoxTest(ctx.world.map, (id) => this.blocks?.kindOf(id));
     this.wallbangBoxes = this.mode.wallbang ? WALLBANG.maxBoxes : 0;
     this.local = new LocalPlayer(ctx.scene, meInfo, me);
-    this.remotes = new RemotePlayers(ctx.scene);
+    this.remotes = new RemotePlayers(ctx.scene, this.mode.id === 'hvh');
     this.rig = new CameraRig(ctx.camera, this.collision);
     this.projectiles = new ClientProjectiles(ctx.scene, this.collision, this.effects);
     this.loot = new LootView(ctx.scene, ctx.world.map, this.effects);
@@ -306,6 +308,7 @@ export class GameSession {
       if (!this.local.alive) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
+      this.lastMovementInput = { forward: frame.forward, right: frame.right };
       this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon));
       net.socket.emit('input', frame);
     }
@@ -320,29 +323,6 @@ export class GameSession {
     }
     this.wasOnGround = state.onGround;
     if (state.jetting) for (const side of [-0.1, 0.1]) this.effects.exhaust(this.jetNozzle(this.local.position, this.ctx.input.yaw, side));
-
-    // Weapons.
-    this.weapons.update(now);
-    const def = this.weapons.def;
-    const canShoot = this.local.alive && !this.local.car && !this.building && !dev?.blocksShooting();
-    const aiming = input.aiming && canShoot && !this.weapons.reloading;
-    if (aiming !== this.aimingSent) {
-      this.aimingSent = aiming;
-      net.socket.emit('aim', aiming);
-    }
-    if (canShoot && this.match.phase !== 'ended') {
-      const result = this.weapons.trigger(input.firing || (dev?.wantsFire() ?? false), now);
-      if (result === 'fire') this.fire(aiming);
-      else if (result === 'empty') {
-        audio.play('empty');
-        this.startReload(now);
-      }
-      if (this.weapons.mag === 0 && !this.weapons.reloading) this.startReload(now);
-    }
-
-    if (this.building) this.updateBuilding(input.firing, input.aiming);
-    this.fireWasDown = input.firing;
-    this.aimWasDown = input.aiming;
 
     // Render everything.
     const renderTime = this.serverNow() - INTERP_DELAY_MS;
@@ -366,6 +346,8 @@ export class GameSession {
     this.loot.update(dt);
     this.effects.update(dt);
 
+    const def = this.weapons.def;
+    const aiming = input.aiming && input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading;
     const scoped = aiming && def.scope;
     const zoom = aiming ? def.zoom : 1;
     input.zoomScale = zoom > 1 ? zoomLookScale(zoom) * getSettings().zoomSensitivity : 1;
@@ -385,6 +367,28 @@ export class GameSession {
     }
     const cam = this.ctx.camera;
     audio.setListener(cam.position.x, cam.position.y, cam.position.z, input.yaw);
+
+    // Weapons.
+    this.weapons.update(now);
+    const canShoot = input.active && this.local.alive && !this.local.car && !this.building && !dev?.blocksShooting();
+    if (aiming !== this.aimingSent) {
+      this.aimingSent = aiming;
+      net.socket.emit('aim', aiming);
+    }
+    if (canShoot && this.match.phase !== 'ended') {
+      const assisted = dev?.wantsFire(now) ?? false;
+      const result = this.weapons.trigger(input.firing || assisted, now, assisted);
+      if (result === 'fire') this.fire(aiming);
+      else if (result === 'empty') {
+        audio.play('empty');
+        this.startReload(now);
+      }
+      if (this.weapons.mag === 0 && !this.weapons.reloading) this.startReload(now);
+    } else this.weapons.suspend();
+
+    if (this.building) this.updateBuilding(input.firing, input.aiming);
+    this.fireWasDown = input.firing;
+    this.aimWasDown = input.aiming;
 
     // HUD.
     hud.update();
@@ -435,11 +439,12 @@ export class GameSession {
     const server = this.local.server;
     const w = this.weapons;
     hud.setStats(net.ping, fps, this.infos.size);
+    hud.setPersonalScore(this.self.kills, this.self.deaths);
     hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel);
     hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
     hud.setGrenades(server.eggs, server.smokes);
     hud.setHop(this.local.alive && !this.local.car ? this.local.state.hop : 0, hopMaxFor(w.weapon));
-    const spread = spreadFor(w.def, this.isMoving(), !this.local.onGround, aiming) * (w.mods?.spread ?? 1);
+    const spread = spreadFor(w.def, this.horizontalSpeed(), !this.local.onGround, aiming) * (w.mods?.spread ?? 1);
     const pixels = (spread / ((this.ctx.camera.fov * Math.PI) / 360)) * (window.innerHeight / 2);
     hud.setCrosshair(this.local.alive && input.active, pixels, scoped);
     hud.setMatch(this.match, this.serverNow(), this.infos.size);
@@ -460,9 +465,10 @@ export class GameSession {
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
   }
 
-  private isMoving(): boolean {
-    const f = this.ctx.input.sample(0);
-    return f.forward !== 0 || f.right !== 0;
+  horizontalSpeed(): number { return this.local.state.horizontalSpeed; }
+
+  isMoving(): boolean {
+    return this.lastMovementInput.forward !== 0 || this.lastMovementInput.right !== 0;
   }
 
   private jetNozzle(pos: THREE.Vector3, yaw: number, side: number): Vec3 {
@@ -557,7 +563,8 @@ export class GameSession {
   // ---------------------------------------------------------------------------
 
   /** Where the crosshair points: first thing the camera ray hits (beyond the player). */
-  private aimDirection(eye: Vec3): Vec3 {
+  /** Actual camera-to-eye shot direction, including third-person parallax. */
+  aimDirection(eye: Vec3): Vec3 {
     const cam = this.ctx.camera;
     cam.getWorldDirection(this.camDir);
     const dir = { x: this.camDir.x, y: this.camDir.y, z: this.camDir.z };
@@ -565,13 +572,14 @@ export class GameSession {
     const skip = Math.max(0, (eye.x - cam.position.x) * dir.x + (eye.y - cam.position.y) * dir.y + (eye.z - cam.position.z) * dir.z);
     const origin = { x: cam.position.x + dir.x * skip, y: cam.position.y + dir.y * skip, z: cam.position.z + dir.z * skip };
     const ray = makeRay(origin, dir);
-    let t = this.raycastScene(ray, AIM_RANGE).t;
+    // Follow the same valid soft-cover path as the bullet, including in third person.
+    const penetrate = this.mode.wallbang === true && !this.weapons.def.projectile && !this.weapons.def.melee;
+    let t = this.raycastScene(ray, AIM_RANGE, penetrate).t;
     if (t < 1.5) t = 1.5;
     const target = pointOnRay(ray, t);
     return normalize({ x: target.x - eye.x, y: target.y - eye.y, z: target.z - eye.z });
   }
 
-  /** Nearest hit among the level, visible enemy chickens and loot boxes. */
   /**
    * Nearest hit among the level, visible enemy chickens and loot boxes. With `penetrate` (bullets),
    * crates/hay/wood don't stop the ray; the boxes passed through come back in `soft`.
@@ -583,12 +591,14 @@ export class GameSession {
     const normal = wall ? { x: wall.nx, y: wall.ny, z: wall.nz } : { x: 0, y: 1, z: 0 };
     let best = { t: wall ? wall.t : range, pid: 0, headshot: false, world: !!wall, normal, soft };
     for (const [pid, r] of this.remotes.players) {
-      if (!r.alive || this.isFriendly(r.info)) continue;
+      if (!r.alive || r.latest?.alive === false || r.latest?.vehicle || this.isFriendly(r.info)) continue;
       const hit = rayChicken(ray, r.position.x, r.position.y, r.position.z, r.yaw, best.t, r.latest?.crouching ? CROUCH.scale : 1);
       if (hit) best = { t: hit.t, pid, headshot: hit.headshot, world: false, normal, soft };
     }
     const box = this.loot.raycast(ray, best.t);
     if (box >= 0) best = { t: box, pid: 0, headshot: false, world: false, normal, soft };
+    const car = this.vehicles.raycast(ray, best.t);
+    if (car >= 0) best = { t:car, pid:0, headshot:false, world:false, normal, soft };
     return best;
   }
 
@@ -598,6 +608,7 @@ export class GameSession {
   }
 
   private fire(aiming: boolean): void {
+    this.ctx.dev?.onShot?.(this);
     const { net, audio, input } = this.ctx;
     const w = this.weapons.def;
     const eye = this.eye();
@@ -628,7 +639,7 @@ export class GameSession {
     this.effects.shell({ x: muzzlePos.x - aim.x * 0.3, y: muzzlePos.y - aim.y * 0.3, z: muzzlePos.z - aim.z * 0.3 }, input.yaw);
 
     // Draw our own tracers immediately, with the same pellet pattern the server will use.
-    const spread = spreadFor(w, this.isMoving(), !this.local.onGround, aiming) * (this.weapons.mods?.spread ?? 1);
+    const spread = spreadFor(w, this.horizontalSpeed(), !this.local.onGround, aiming) * (this.weapons.mods?.spread ?? 1);
     for (const d of pelletDirections(w, aim, spread, shotSeed(this.selfPid, this.weapons.shotSeq))) {
       const ray = makeRay(eye, d);
       const hit = this.raycastScene(ray, w.range, true);
@@ -731,6 +742,7 @@ export class GameSession {
     const { hud, audio } = this.ctx;
     const mine = this.self.team;
     if (r.phase === 'buy' && prev?.phase !== 'buy') {
+      if (prev?.phase === 'warmup') hud.resetCombatFeedback();
       this.hasKit = false;
       hud.toast(`Round ${r.round} · buy time: press B`);
       if (r.bomb.carrier === this.selfPid) hud.toast('💣 You carry the bomb: plant it on A or B', 'good');
@@ -1110,7 +1122,7 @@ export class GameSession {
         hud.damageFrom(-wrapAngle(angle - this.ctx.input.yaw));
       }
     } else if (e.attacker === this.selfPid) {
-      hud.hit(e.headshot, e.hp <= 0);
+      hud.hit(e.headshot, e.hp <= 0, e.amount);
       audio.play(e.headshot ? 'headshot' : 'hit');
     }
   }
@@ -1133,7 +1145,6 @@ export class GameSession {
       }
       if (e.killer === this.selfPid) {
         audio.play('kill');
-        hud.toast(`You plucked ${victim?.name ?? 'someone'}${e.headshot ? ' · headshot!' : ''}`, 'good');
       }
     }
   }
@@ -1227,6 +1238,7 @@ export class GameSession {
     this.match = m;
     this.teamScores = m.teamScores;
     if (m.phase === 'playing' && previous !== 'playing') {
+      hud.resetCombatFeedback();
       hud.toast('Fight!', 'good');
       audio.play('reward');
     }

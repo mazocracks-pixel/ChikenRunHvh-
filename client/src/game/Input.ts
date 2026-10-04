@@ -77,6 +77,8 @@ export class Input {
   pitch = -0.15;
   /** Turned off while typing in chat. */
   enabled = true;
+  /** App menus suspend play without disturbing the chat input state. */
+  suspended = false;
   /** On touch devices there's no pointer lock: input is active whenever a match is shown. */
   touchMode = false;
   touchActive = false;
@@ -132,7 +134,7 @@ export class Input {
 
   /** Whether gameplay input is being read right now. */
   get active(): boolean {
-    return this.enabled && (this.locked || (this.touchMode && this.touchActive));
+    return this.enabled && !this.suspended && (this.locked || (this.touchMode && this.touchActive));
   }
 
   get firing(): boolean {

@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { mulberry32 } from '@game/shared';
 
 /** Colour at the horizon; fog uses it too, so the ground fades seamlessly into the sky. */
-export const HORIZON_COLOR = 0xcfe6f2;
-const ZENITH_COLOR = 0x3f8fdc;
+export const HORIZON_COLOR = 0xf1debb;
+const ZENITH_COLOR = 0x669fae;
 const SUN_COLOR = 0xfff1d6;
 /** Where the sunlight comes from (also used for the shadow-casting light). */
 export const SUN_DIRECTION = new THREE.Vector3(28, 45, 18).normalize();
@@ -63,7 +63,7 @@ const fragmentShader = /* glsl */ `
       float n = fbm(uv);
       float cover = smoothstep(0.52, 0.78, n) * clouds * smoothstep(0.0, 0.25, dir.y);
       float shade = 0.82 + 0.18 * smoothstep(0.5, 0.9, fbm(uv * 1.7 + 3.1));
-      col = mix(col, vec3(1.0, 1.0, 1.0) * shade * 1.05, cover * 0.9);
+      col = mix(col, vec3(1.0, 0.98, 0.91) * shade * 1.05, cover * 0.9);
     }
 
     // Sun: a bright disc (bright enough to bloom) inside a warm glow.
@@ -113,8 +113,8 @@ export class Sky {
     this.dome.renderOrder = -1;
     this.disposables.push(geometry, this.material);
     this.root.add(this.dome);
-    this.addHills(260, 34, 0.62, 0x6f9a86, 11);
-    this.addHills(200, 22, 0.42, 0x5f8f5a, 23);
+    this.addHills(260, 34, 0.62, 0x8da18d, 11);
+    this.addHills(200, 22, 0.42, 0x657e50, 23);
     scene.add(this.root);
   }
 
@@ -129,7 +129,7 @@ export class Sky {
     scene.add(new THREE.Mesh(geometry, material));
     // A dark-green ground disc, so things are lit a little from below like on real grass.
     const groundGeometry = new THREE.CircleGeometry(49, 24);
-    const ground = new THREE.Mesh(groundGeometry, new THREE.MeshBasicMaterial({ color: 0x4a6b33 }));
+    const ground = new THREE.Mesh(groundGeometry, new THREE.MeshBasicMaterial({ color: 0x647044 }));
     this.disposables.push(groundGeometry, ground.material as THREE.Material);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -2;

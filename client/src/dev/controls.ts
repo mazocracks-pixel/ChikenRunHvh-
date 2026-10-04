@@ -38,7 +38,7 @@ export interface Tab {
   label: string;
   icon: string;
   /** The part of the dev config this tab edits (for "Reset tab"). */
-  configKey?: 'legit' | 'rage' | 'visuals' | 'world' | 'weapons' | 'misc' | 'settings';
+  configKey?: string | readonly string[];
   sections: Section[];
 }
 

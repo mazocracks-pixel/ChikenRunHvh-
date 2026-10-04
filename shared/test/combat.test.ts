@@ -109,10 +109,12 @@ describe('projectiles', () => {
 describe('protocol packing', () => {
   it('round-trips player state', () => {
     const p: PlayerState = {
-      pid: 7, x: 1.23456, y: 2, z: -3.5, vx: 0.1, vy: -4, vz: 0, yaw: 1.5, pitch: -0.2, onGround: false,
+      pid: 7,
+      horizontalSpeed: 2.7, hvhPreparing: false, x: 1.23456, y: 2, z: -3.5, vx: 0.1, vy: -4, vz: 0, yaw: 1.5, pitch: -0.2, onGround: false,
       fuel: 1.5, jumpHeld: true, jetting: true, alive: true, reloading: false, shielded: true, aiming: false,
       carryingFlag: true, hp: 55, armor: 20, weapon: 'sniper', mag: 3, eggs: 2, smokes: 1, ack: 991, vehicle: 0,
       gliding: true, hop: 0.24, groundTicks: 3, frozen: true, crouching: true,
+      fakeYaw: 2, hvhCharge: 0.5, hvhBurst: true, hvhConcealed: true,
     };
     const back = unpackPlayer(packPlayer(p));
     assert.deepEqual(back, { ...p, x: 1.235 });

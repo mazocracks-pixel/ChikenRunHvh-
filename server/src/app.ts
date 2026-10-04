@@ -3,7 +3,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { Server } from 'socket.io';
-import { DEFAULT_MODS, MODES, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus } from '@game/shared';
+import { DEFAULT_MODS, MODES, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus } from '@game/shared';
 import { createApiRouter } from './api';
 import { SESSION_COOKIE, hashToken, readCookie } from './auth';
 import { GameDatabase } from './db/Database';
@@ -28,6 +28,8 @@ export interface GameServerOptions {
   devPasskey?: string;
   /** Allow developer tools in public rooms (a local dev server). Otherwise: private rooms only. */
   devInPublicRooms?: boolean;
+  /** Explicit rollout of equal, balanced assist controls in HvH; off by default. */
+  publicHvhPanel?: boolean;
   /** Only developer accounts (`npm run developer`) may use the passkey. On for public servers. */
   devAccountsOnly?: boolean;
   /** Guest accounts each IP may create per hour (tests raise this). */
@@ -110,7 +112,7 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
     next();
   });
 
-  io.on('connection', (socket) => attachHandlers(socket, rooms, dev));
+  io.on('connection', (socket) => attachHandlers(socket, rooms, dev, options.publicHvhPanel === true));
 
   const cleanup = () => {
     const removed = db.cleanup();
@@ -139,7 +141,7 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
   };
 }
 
-function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess | null): void {
+function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess | null, publicHvh: boolean): void {
   // Joining is cheap to spam and expensive to serve, so it gets its own budget.
   const joinLimiter = new TokenBucket(5, 0.5);
   const tooFast = { ok: false as const, error: 'Slow down a little.' };
@@ -210,7 +212,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
   socket.on('build', inRoom((room, player, req: unknown) => room.handleBuild(player, req)));
   socket.on('unbuild', inRoom((room, player, id: unknown) => room.handleUnbuild(player, id)));
 
-  attachDevHandlers(socket, rooms, dev);
+  attachDevHandlers(socket, rooms, dev, publicHvh);
 
   socket.on('latency', (ack) => {
     if (typeof ack === 'function') ack(performance.now());
@@ -223,20 +225,25 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
  * Developer tools. Every request is checked here: the account must have unlocked access with
  * the passkey (checked server-side), and the room must allow developer tools.
  */
-function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess | null): void {
+function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess | null, publicHvh: boolean): void {
   const limiter = new TokenBucket(30, 15);
   const denied = { ok: false as const, error: 'Developer tools are not available.' };
 
   const context = () => {
     const room = rooms.roomOf(socket.id);
     const player = room?.playerFor(socket.id);
-    const granted = dev !== null && dev.isGranted(socket.data.userId);
-    const allowed = granted && room !== undefined && dev!.allowedIn(room);
-    return { room, player, granted, allowed };
+    const passkeyGrant = dev !== null && dev.isGranted(socket.data.userId);
+    const hvh = room?.mode.id === 'hvh';
+    const granted = passkeyGrant || (publicHvh && hvh);
+    const allowed = granted && room !== undefined && (hvh || dev?.allowedIn(room) === true);
+    const profile: DevStatus['profile'] = allowed ? hvh ? 'hvh' : 'admin' : 'off';
+    if (room && player) room.enforceHvhRules(player);
+    if (hvh && player && !granted) { player.hvhEnabled = false; player.hvh = defaultHvhLoadout(); }
+    return { room, player, granted, allowed, profile };
   };
   const status = (): DevStatus => {
-    const { player, granted, allowed } = context();
-    return { granted, allowedHere: allowed, mods: allowed && player?.mods ? player.mods : { ...DEFAULT_MODS } };
+    const { player, granted, allowed, profile } = context();
+    return { granted, allowedHere: allowed, profile, publicHvh, hvh: profile === 'hvh' && player ? player.hvh : defaultHvhLoadout(), mods: profile === 'admin' && player?.mods ? player.mods : { ...DEFAULT_MODS } };
   };
 
   socket.on('devAuth', (passkey, ack) => {
@@ -254,8 +261,8 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
 
   socket.on('devMods', (raw, ack) => {
     if (typeof ack !== 'function' || !limiter.take()) return;
-    const { player, allowed } = context();
-    if (player && allowed) {
+    const { player, allowed, profile } = context();
+    if (player && allowed && profile === 'admin') {
       const mods = sanitizeMods(raw, player.mods ?? DEFAULT_MODS);
       player.mods = isDefaultMods(mods) ? null : mods;
       // Magazines can't hold more than the (possibly smaller) new size.
@@ -270,10 +277,35 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
     const { room, player, granted, allowed } = context();
     if (!granted) return ack(denied);
     if (!room || !player) return ack({ ok: false, error: 'Join a match first.' });
-    if (!allowed) return ack({ ok: false, error: MODES[room.info.mode].ranked ? 'Developer tools are off in ranked matches.' : 'Developer tools only work in private rooms on this server.' });
+    if (room.mode.id === 'hvh') return ack({ ok: false, error: 'HvH keeps equal stats; player administration is unavailable.' });
+    if (MODES[room.info.mode].ranked) return ack({ ok: false, error: 'Developer tools are off in ranked matches.' });
+    if (!room.info.private) return ack({ ok: false, error: 'Player administration only works in private test rooms.' });
+    if (!allowed) return ack({ ok: false, error: 'Developer tools only work in private rooms on this server.' });
     const action = parseDevAction(raw);
     if (!action) return ack({ ok: false, error: 'Invalid request.' });
     ack(runDevAction(room, player, action));
+  });
+
+  socket.on('hvhReady', (panel, ack) => {
+    if (typeof ack !== 'function') return;
+    if (!limiter.take()) return ack({ ok: false, error: 'Slow down a little.' });
+    const { room, player, allowed, profile } = context();
+    if (panel !== 'lab' && panel !== 'manual') return ack({ ok: false, error: 'Unknown HvH panel.' });
+    if (!room || !player || room.mode.id !== 'hvh') return ack({ ok: false, error: 'Join an HvH match first.' });
+    if (panel === 'lab' && (!allowed || profile !== 'hvh')) return ack({ ok: false, error: 'Unlock HvH Lab or choose Manual play.' });
+    ack(room.finishHvhSetup(player, panel) ? { ok: true } : { ok: false, error: 'This match has ended.' });
+  });
+
+  socket.on('devHvh', (raw, ack) => {
+    if (typeof ack !== 'function') return;
+    if (!limiter.take()) return ack(status());
+    const { room, player, profile } = context();
+    if (room && player && profile === 'hvh' && (player.hvhPreparing || player.hvhPanel === 'lab')) {
+      player.hvh = sanitizeHvhLoadout(raw);
+      player.hvhEnabled = true;
+      room.updateHvhPose(player, performance.now());
+    }
+    ack(status());
   });
 }
 

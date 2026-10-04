@@ -4,6 +4,8 @@ import {
   WEAPONS,
   createMoveState,
   magazineSize,
+  defaultHvhLoadout,
+  HvhExploitClock,
   type DevMods,
   type InputFrame,
   type MoveState,
@@ -34,6 +36,15 @@ export class ServerPlayer {
 
   state: MoveState = createMoveState(0, 0, 0);
   yaw = 0;
+  lookYaw = 0;
+  fakeYaw = 0;
+  hvh = defaultHvhLoadout();
+  hvhEnabled = false;
+  hvhPanel: import('@game/shared').HvhPanelId = 'manual';
+  hvhPreparing = false;
+  readonly exploit = new HvhExploitClock();
+  revealUntil = 0;
+  concealUntil = 0;
   pitch = 0;
   lastInput: InputFrame | null = null;
   lastSeq = 0;
@@ -119,12 +130,17 @@ export class ServerPlayer {
   respawn(x: number, z: number, yaw: number, now: number, protectMs: number = PLAYER.spawnProtectionMs): void {
     this.state = createMoveState(x, 0, z);
     this.yaw = yaw;
+    this.lookYaw = this.fakeYaw = yaw;
+    this.exploit.reset(now);
+    this.revealUntil = this.concealUntil = 0;
     this.pitch = 0;
     this.alive = true;
     this.hp = PLAYER.maxHealth;
     this.armor = 0;
     this.shieldUntil = now + protectMs;
     this.reloadUntil = 0;
+    this.lastFireAt = this.burstStart = -Infinity;
+    this.burstShots = 0;
     this.switchReadyAt = 0;
     this.aiming = false;
     this.eggs = PLAYER.startEggs;
@@ -154,6 +170,11 @@ export class ServerPlayer {
       ack: this.lastSeq,
       vehicle: this.vehicle,
       frozen: this.frozen,
+      fakeYaw: this.hvhEnabled ? this.fakeYaw : this.yaw,
+      hvhCharge: this.hvhEnabled ? this.exploit.charge(performance.now()) : 0,
+      hvhBurst: this.hvhEnabled && this.exploit.burst && performance.now() <= this.exploit.burstUntil,
+      hvhPreparing: this.hvhPreparing,
+      hvhConcealed: this.hvhEnabled && performance.now() < this.concealUntil,
     };
   }
 }

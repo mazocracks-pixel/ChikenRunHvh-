@@ -6,6 +6,7 @@ import { Api } from '../net/Api';
 import { Network } from '../net/Network';
 import { openAccount, openCreateRoom, openJoinCode, openLeaderboard, openServerBrowser, openSettings } from '../ui/Dialogs';
 import { byId, h } from '../ui/dom';
+import { HvhSetup } from '../ui/HvhSetup';
 import { MainMenu } from '../ui/MainMenu';
 import { CookieNotice, openPrivacy } from '../ui/Privacy';
 import { anyModalOpen, setModalLayer } from '../ui/Modal';
@@ -29,6 +30,8 @@ export class App {
   private readonly cookieNotice: CookieNotice;
   private screen: Screen = 'boot';
   private joining = false;
+  private hvhSetup: HvhSetup | null = null;
+  private setupVersion = 0;
   private touchPaused = false;
   /** The room to get back into after a dropped connection. */
   private lastRoom: { id: string; mode: ModeId } | null = null;
@@ -60,7 +63,7 @@ export class App {
       fps: () => this.game.fps,
       ping: () => this.net.ping,
       openCrosshairSettings: () => openSettings(this.game.audio, 'crosshair'),
-      inGame: () => this.screen === 'game',
+      inGame: () => this.screen === 'game' && !this.hvhSetup,
       onMenuChange: () => this.refreshOverlays(),
       applyWorldLook: (look) => this.game.setLook(look),
     });
@@ -92,6 +95,7 @@ export class App {
         { class: 'panel card' },
         h('h2', null, 'Paused'),
         resume,
+        h('button', { type: 'button', class: 'secondary', onclick: () => this.game.activeSession?.mode.id === 'hvh' ? this.openHvhSetup() : void this.dev.openMenu() }, 'HvH panels'),
         h('button', { type: 'button', class: 'secondary', onclick: () => openSettings(this.game.audio) }, 'Settings'),
         h('button', { type: 'button', class: 'secondary', onclick: () => this.leave() }, 'Leave match'),
       ),
@@ -168,6 +172,7 @@ export class App {
   // ---------------------------------------------------------------------------
 
   private showMenu(status = '', error = false): void {
+    this.clearHvhSetup();
     this.screen = 'menu';
     this.shop.close();
     this.game.setPreview(null);
@@ -190,11 +195,14 @@ export class App {
     const inGame = this.screen === 'game';
     const locked = this.game.input.isLocked;
     const paused = inGame && (this.isTouch ? this.touchPaused : !locked);
-    // The dev menu and the buy menu free the mouse on purpose: no pause screen for them.
-    const devMenu = this.dev.menuOpen || (this.game.activeSession?.buyMenuOpen ?? false);
-    this.pause.hidden = !paused || anyModalOpen() || devMenu;
-    this.pauseButton.hidden = !inGame || !this.isTouch || paused || devMenu;
-    this.touch?.setVisible(inGame && !paused && !devMenu);
+    const devMenu = this.dev.menuOpen;
+    const buyMenu = this.game.activeSession?.buyMenuOpen ?? false;
+    const overlay = devMenu || buyMenu;
+    this.game.input.suspended = Boolean(this.hvhSetup) || overlay || paused;
+    if (this.hvhSetup) this.hvhSetup.root.hidden = devMenu;
+    this.pause.hidden = !paused || anyModalOpen() || overlay || Boolean(this.hvhSetup);
+    this.pauseButton.hidden = !inGame || !this.isTouch || paused || overlay || Boolean(this.hvhSetup);
+    this.touch?.setVisible(inGame && !paused && !overlay && !this.hvhSetup);
     this.cookieNotice.setVisible(this.screen === 'menu' || this.screen === 'shop');
   }
 
@@ -226,6 +234,7 @@ export class App {
   }
 
   private startGame(join: JoinSuccess): void {
+    this.clearHvhSetup();
     this.lastRoom = { id: join.room.id, mode: join.room.mode };
     this.touch?.setBombMode(MODES[join.room.mode].bomb === true);
     this.screen = 'game';
@@ -241,6 +250,33 @@ export class App {
         this.showMenu(reason, true);
       },
     });
+    if (join.room.mode === 'hvh') this.openHvhSetup();
+    this.refreshOverlays();
+  }
+
+  private clearHvhSetup(): void {
+    this.setupVersion++;
+    this.hvhSetup?.dispose();
+    this.hvhSetup = null;
+  }
+
+  private openHvhSetup(): void {
+    this.clearHvhSetup();
+    this.game.input.releaseLock();
+    const version = this.setupVersion;
+    this.hvhSetup = new HvhSetup(this.dev, async panel => {
+      const res = await this.net.socket.timeout(5000).emitWithAck('hvhReady', panel);
+      if (version !== this.setupVersion || this.screen !== 'game') return null;
+      if (!res.ok) return res.error ?? 'Could not enter combat.';
+      this.dev.selectPanel(panel);
+      this.clearHvhSetup();
+      this.touchPaused = false;
+      this.refreshOverlays();
+      this.game.audio.unlock();
+      void this.game.input.requestLock();
+      return null;
+    }, () => this.leave());
+    byId('ui-layer').append(this.hvhSetup.root);
     this.refreshOverlays();
   }
 

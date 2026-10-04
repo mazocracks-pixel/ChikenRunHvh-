@@ -117,7 +117,26 @@ const INSPECT_PAIR: Keyframes = [
 const INSPECT_SECONDS = 2.4;
 /** Per-weapon size (big guns would cover the HUD). */
 const SIZES: Partial<Record<WeaponId, number>> = { rocket: 0.72, minigun: 0.85, sniper: 0.95, lmg: 0.82, launcher: 0.85, crossbow: 0.9, scout: 0.95, battle: 0.95 };
-const FLASH_LIFE = 0.05;
+interface RecoilFeel {
+  back: number;
+  pitch: number;
+  roll: number;
+  recovery: number;
+  flash: number;
+  flashLife: number;
+}
+/** Cosmetic recoil only: the server and input controller still own aim and bullet spread. */
+const RECOIL: Partial<Record<WeaponId, RecoilFeel>> = {
+  pistol: { back: 0.07, pitch: 0.2, roll: 0.14, recovery: 17, flash: 0.75, flashLife: 0.045 },
+  golden: { back: 0.085, pitch: 0.22, roll: 0.12, recovery: 16, flash: 0.9, flashLife: 0.045 },
+  rifle: { back: 0.055, pitch: 0.11, roll: 0.09, recovery: 19, flash: 0.9, flashLife: 0.04 },
+  smg: { back: 0.035, pitch: 0.075, roll: 0.1, recovery: 24, flash: 0.6, flashLife: 0.035 },
+  minigun: { back: 0.022, pitch: 0.045, roll: 0.065, recovery: 26, flash: 0.7, flashLife: 0.028 },
+  shotgun: { back: 0.14, pitch: 0.25, roll: 0.18, recovery: 10, flash: 1.5, flashLife: 0.06 },
+  sniper: { back: 0.13, pitch: 0.2, roll: 0.12, recovery: 9, flash: 1.4, flashLife: 0.055 },
+  rocket: { back: 0.1, pitch: 0.13, roll: 0.14, recovery: 9, flash: 1.6, flashLife: 0.08 },
+};
+const DEFAULT_RECOIL = RECOIL.pistol!;
 
 export interface ViewModelFrame {
   dt: number;
@@ -146,6 +165,8 @@ export class ViewModel {
   private readonly holder = new THREE.Group();
   private gun: GunModel | null = null;
   private gunId: WeaponId | null = null;
+  private readonly guns = new Map<WeaponId, GunModel>();
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly flash: THREE.Mesh;
   private flashLife = 0;
   private readonly magRest = new THREE.Vector3();
@@ -193,11 +214,12 @@ export class ViewModel {
       this.swingT = 0;
       return;
     }
-    this.kick = 1;
-    this.roll = (Math.random() - 0.5) * 0.2;
-    this.flashLife = FLASH_LIFE;
+    const feel = (this.gunId && RECOIL[this.gunId]) || DEFAULT_RECOIL;
+    this.kick = Math.min(1.35, this.kick + 1);
+    this.roll = (Math.random() - 0.5) * feel.roll;
+    this.flashLife = feel.flashLife;
     this.flash.rotation.z = Math.random() * Math.PI;
-    this.flash.scale.setScalar(0.8 + Math.random() * 0.5);
+    this.flash.scale.setScalar(feel.flash * (0.85 + Math.random() * 0.3) * (this.reducedMotion.matches ? 0.7 : 1));
   }
 
   /** Inspect the weapon (F): turn it over to look at it. Shooting, aiming or reloading stops it. */
@@ -220,6 +242,8 @@ export class ViewModel {
     }
     const dt = f.dt;
     if (f.weapon !== this.gunId) this.swap(f.weapon);
+    const feel = RECOIL[f.weapon] ?? DEFAULT_RECOIL;
+    const motion = this.reducedMotion.matches ? 0.25 : 1;
 
     // Follow the camera exactly.
     f.camera.updateMatrixWorld();
@@ -233,24 +257,26 @@ export class ViewModel {
     this.lastPitch = f.pitch;
     const steady = 1 - this.ads * 0.8;
     const rate = dt > 0 ? 1 / dt : 0;
-    this.swayX = damp(this.swayX, clamp(dYaw * rate * 0.006, -0.04, 0.04) * steady, 10, dt);
-    this.swayY = damp(this.swayY, clamp(-dPitch * rate * 0.006, -0.04, 0.04) * steady, 10, dt);
+    this.swayX = damp(this.swayX, clamp(dYaw * rate * 0.006, -0.04, 0.04) * steady * motion, 10, dt);
+    this.swayY = damp(this.swayY, clamp(-dPitch * rate * 0.006, -0.04, 0.04) * steady * motion, 10, dt);
 
     // Walk bob, and a dip when landing.
     const walking = f.onGround ? clamp(f.speed / 6, 0, 1.4) : 0;
-    this.bobAmount = damp(this.bobAmount, walking * steady, 8, dt);
+    this.bobAmount = damp(this.bobAmount, walking * steady * motion, 8, dt);
     this.bobPhase += dt * (4 + f.speed * 1.4);
     if (f.onGround && !this.wasOnGround) this.landDip = 1;
     this.wasOnGround = f.onGround;
     this.landDip = damp(this.landDip, 0, 7, dt);
 
     this.ads = damp(this.ads, f.aiming ? 1 : 0, 14, dt);
-    this.kick = damp(this.kick, 0, 14, dt);
+    this.kick = damp(this.kick, 0, feel.recovery, dt);
     this.roll = damp(this.roll, 0, 10, dt);
     this.raise = Math.min(1, this.raise + dt * 3.5);
     const raise = 1 - (1 - this.raise) ** 3;
     this.reloadBlend = damp(this.reloadBlend, f.reload !== null ? 1 : 0, 10, dt);
     const reloadCurve = f.reload !== null ? Math.sin(f.reload * Math.PI) : 0;
+    const seating = f.reload !== null && f.reload > 0.85 ? Math.sin(((f.reload - 0.85) / 0.15) * Math.PI) * 0.018 : 0;
+    const breath = Math.sin(this.bobPhase * 0.18) * 0.0015 * steady * motion;
 
     // Melee swing: rest → wind-up → slash → back to rest.
     const swing = mixPose(REST, REST, 0, this.swingPose);
@@ -280,13 +306,13 @@ export class ViewModel {
     base.z += pose.z;
     this.holder.position.set(
       base.x + this.swayX + Math.sin(this.bobPhase) * 0.012 * this.bobAmount,
-      base.y + this.swayY - Math.abs(Math.cos(this.bobPhase)) * 0.012 * this.bobAmount - this.landDip * 0.035 - (1 - raise) * 0.25 - reloadCurve * 0.07,
-      base.z + this.kick * 0.07 * (1 - this.ads * 0.5),
+      base.y + this.swayY + breath - Math.abs(Math.cos(this.bobPhase)) * 0.012 * this.bobAmount - this.landDip * 0.035 * motion - (1 - raise) * 0.25 - reloadCurve * 0.07,
+      base.z + this.kick * feel.back * (1 - this.ads * 0.5) * motion + seating,
     );
     this.holder.rotation.set(
-      this.kick * 0.12 + (1 - raise) * 0.7 - reloadCurve * 0.35 + this.swayY * 1.5 + (hold?.x ?? 0) + pose.rx,
+      this.kick * feel.pitch * motion + (1 - raise) * 0.7 - reloadCurve * 0.35 + this.swayY * 1.5 + (hold?.x ?? 0) + pose.rx,
       -this.swayX * 1.5 + (hold?.y ?? 0) + pose.ry,
-      this.roll * this.kick + reloadCurve * 0.45 * this.reloadBlend + (hold?.z ?? 0) + pose.rz,
+      this.roll * this.kick * motion + reloadCurve * 0.45 * this.reloadBlend + (hold?.z ?? 0) + pose.rz,
     );
 
     // Reload: the magazine drops out, then a fresh one goes back in.
@@ -308,18 +334,27 @@ export class ViewModel {
 
   dispose(): void {
     this.root.removeFromParent();
+    this.flash.removeFromParent();
     (this.flash.material as THREE.Material).dispose();
+    this.guns.clear();
   }
 
   private swap(id: WeaponId): void {
+    if (this.gun?.magazine) this.gun.magazine.position.copy(this.magRest);
     this.gun?.group.removeFromParent();
-    this.gun = buildGun(id);
+    let gun = this.guns.get(id);
+    if (!gun) this.guns.set(id, (gun = buildGun(id)));
+    this.gun = gun;
     this.gunId = id;
     this.holder.add(this.gun.group);
     this.holder.scale.setScalar(SCALE * (SIZES[id] ?? 1));
     this.gun.muzzle.add(this.flash);
     if (this.gun.magazine) this.magRest.copy(this.gun.magazine.position);
     this.raise = 0;
+    this.kick = 0;
+    this.roll = 0;
+    this.flashLife = 0;
+    this.flash.visible = false;
     this.swingT = -1;
     this.inspectT = -1;
   }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BUGGY, lerp, lerpAngle, unpackVehicle, type CarState, type PackedVehicle, type VehicleState } from '@game/shared';
+import { BUGGY, carAabb, rayAabb, lerp, lerpAngle, unpackVehicle, type Ray, type CarState, type PackedVehicle, type VehicleState } from '@game/shared';
 import { Buggy } from './models/Buggy';
 
 const COLORS = [0xe53935, 0xffb300, 0x43a047, 0x1e88e5];
@@ -97,6 +97,17 @@ export class Vehicles {
       v.model.root.rotation.y = v.yaw;
       v.model.animate(dt, speed);
     }
+  }
+
+  /** Use the same collision hull as the server for bullet and camera targeting. */
+  raycast(ray: Ray, range: number): number {
+    let best = range, found = false;
+    for (const v of this.views.values()) {
+      if (v.latest.hp <= 0) continue;
+      const t = rayAabb(ray, carAabb({ x:v.x, z:v.z, yaw:v.yaw, speed:0 }), best);
+      if (t >= 0) { best = t; found = true; }
+    }
+    return found ? best : -1;
   }
 
   /** World position and yaw of the driver's seat, for placing a chicken in the car. */

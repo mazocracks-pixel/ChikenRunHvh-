@@ -2528,3 +2528,48 @@ code {
     display: none;
   }
 }
+
+/* ---------- arena feedback ---------- */
+.hud-top-left { gap: 5px; }
+.personal-score { align-self: flex-start; padding: 5px 9px; border-left: 3px solid #a9c7cf; background: rgba(13, 26, 35, .86); color: #fff0d3; font-size: .73rem; font-weight: 850; letter-spacing: .025em; }
+.personal-score.on-streak { border-left-color: var(--accent); color: #ffc394; }
+.mode-label { font-weight: 850; letter-spacing: .13em; }
+.mode-objective { max-width: min(390px, 60vw); margin-top: 5px; padding: 5px 10px; background: rgba(13, 26, 35, .78); border-radius: 4px; color: #f6e8ce; font-size: .65rem; font-weight: 650; line-height: 1.4; }
+.combat-feedback { position: absolute; top: calc(50% + 36px); left: 50%; transform: translateX(-50%); width: min(350px, 75vw); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.damage-number { font-size: 1.16rem; font-weight: 900; color: #fff; letter-spacing: -.03em; text-shadow: 0 2px 1px #10222e, 0 0 8px #10222e; animation: damage-appear .16s ease-out; }
+.damage-number.headshot { color: #ffd294; }
+.elimination { display: flex; flex-direction: column; align-items: center; gap: 5px; animation: elimination-appear .2s ease-out; max-width: 100%; }
+.elimination-label { padding: 6px 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 3px solid var(--accent); background: rgba(13, 26, 35, .86); font-size: .73rem; font-weight: 850; color: #fff0d3; }
+.elimination.multi .elimination-label { color: #ffbe8b; border-left-width: 5px; }
+.streak-label { font-size: .58rem; font-weight: 800; letter-spacing: .12em; color: #ffe3b1; text-shadow: 0 1px 3px #0c1720; }
+.streak-label:empty { display: none; }
+@keyframes damage-appear { from { opacity: 0; transform: translateY(7px) scale(.85); } to { opacity: 1; transform: none; } }
+@keyframes elimination-appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.result-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+.result-stats > div { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 15px 7px; background: #233642; border-radius: 7px; }
+.result-stats b { color: #ffe3b4; font-size: 1.55rem; font-weight: 900; }
+.result-stats span { color: #95aab5; font-size: .58rem; letter-spacing: .08em; font-weight: 800; }
+.bar { border-radius: 4px; border-color: rgba(255, 240, 211, .25); height: 23px; background: rgba(13, 26, 35, .87); }
+.bar .fill { opacity: .88; }
+.weapon-panel { background: rgba(13, 26, 35, .9); border: 1px solid rgba(255, 240, 211, .16); border-right: 3px solid var(--accent); border-radius: 6px; padding: 11px 16px; }
+.weapon-name { color: #bfced2; font-size: .67rem; font-weight: 700; letter-spacing: .12em; }
+.ammo { font-size: 2.1rem; font-weight: 900; letter-spacing: -.06em; }
+.weapon-slots .slot { border-radius: 4px; background: rgba(13, 26, 35, .82); }
+.weapon-slots .slot.active { background: rgba(122, 66, 29, .86); }
+.banner { background: rgba(13, 26, 35, .88); border: 1px solid #60747b; border-radius: 7px; color: #fff0d3; }
+.killfeed .kill { background: rgba(13, 26, 35, .86); border-radius: 4px; }
+.killfeed .kill.mine { background: rgba(69, 41, 26, .88); border-color: #cf803e; }
+.toast { background: rgba(13, 26, 35, .9); border-radius: 5px; }
+
+
+/* HvH selection is separate from the original main menu. */
+.hvh-setup { z-index: 15; padding: 16px; overflow-y: auto; }
+.hvh-setup .card { width: min(540px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; }
+.hvh-panel-options { display: grid; gap: 12px; border: 0; padding: 0; margin: 12px 0; }
+.hvh-panel-options legend { margin-bottom: 8px; font-weight: 700; }
+.hvh-panel-choice { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--panel-border); border-radius: 12px; cursor: pointer; }
+.hvh-panel-choice:has(input:checked) { border-color: var(--accent); background: rgba(255, 210, 80, .08); }
+.hvh-panel-choice input { width: auto; margin-top: 4px; accent-color: var(--accent); }
+.hvh-panel-choice span { display: grid; gap: 6px; }
+.hvh-panel-choice .muted { font-size: .9rem; line-height: 1.45; }
+.hvh-setup button { width: 100%; margin-top: 8px; }

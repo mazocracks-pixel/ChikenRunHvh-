@@ -12,6 +12,8 @@ export interface MoveState {
   vx: number;
   vy: number;
   vz: number;
+  /** Actual horizontal speed after collisions, in metres per second. */
+  horizontalSpeed: number;
   onGround: boolean;
   /** Jetpack fuel in seconds of thrust. */
   fuel: number;
@@ -46,10 +48,12 @@ export interface InputFrame {
   crouch?: boolean;
   /** Use (E) held: plant / defuse the bomb. */
   use?: boolean;
+  /** HvH: invert the bounded fake pose; never changes movement or shot direction. */
+  invert?: boolean;
 }
 
 export function createMoveState(x: number, y: number, z: number): MoveState {
-  return { x, y, z, vx: 0, vy: 0, vz: 0, onGround: y <= 0, fuel: 0, jumpHeld: false, jetting: false, gliding: false, hop: 0, groundTicks: MAX_GROUND_TICKS, crouching: false };
+  return { x, y, z, vx: 0, vy: 0, vz: 0, horizontalSpeed: 0, onGround: y <= 0, fuel: 0, jumpHeld: false, jetting: false, gliding: false, hop: 0, groundTicks: MAX_GROUND_TICKS, crouching: false };
 }
 
 export function copyMoveState(from: MoveState, to: MoveState): MoveState {
@@ -59,6 +63,7 @@ export function copyMoveState(from: MoveState, to: MoveState): MoveState {
   to.vx = from.vx;
   to.vy = from.vy;
   to.vz = from.vz;
+  to.horizontalSpeed = from.horizontalSpeed ?? 0;
   to.onGround = from.onGround;
   to.fuel = from.fuel;
   to.jumpHeld = from.jumpHeld;
@@ -103,6 +108,12 @@ const scratch: Aabb[] = [];
 /** @param hopMax bunny-hop speed cap for the weapon in hand (hopMaxFor); both sides pass the same. */
 /** @param weaponSpeed walking speed multiplier of the weapon in hand (moveSpeedFor; the LMG is slower). */
 export function stepPlayer(s: MoveState, input: InputFrame, dt: number, world: CollisionWorld, mods?: MoveMods | null, hopMax: number = HOP.max, weaponSpeed = 1): void {
+  const x = s.x, z = s.z;
+  stepMovement(s, input, dt, world, mods, hopMax, weaponSpeed);
+  s.horizontalSpeed = dt > 0 ? Math.hypot(s.x - x, s.z - z) / dt : 0;
+}
+
+function stepMovement(s: MoveState, input: InputFrame, dt: number, world: CollisionWorld, mods: MoveMods | null | undefined, hopMax: number, weaponSpeed: number): void {
   let f = clamp(input.forward, -1, 1);
   let r = clamp(input.right, -1, 1);
   const len = Math.hypot(f, r);
