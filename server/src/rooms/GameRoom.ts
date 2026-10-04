@@ -81,6 +81,7 @@ import {
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
+import { AntiCheat, type AntiCheatMode } from './AntiCheat';
 import { BotSystem } from './BotSystem';
 import { LootSystem } from './LootSystem';
 import { ProjectileSystem } from './ProjectileSystem';
@@ -98,6 +99,8 @@ export interface RoomOptions {
   bots?: number;
   /** Public quick-play rooms top themselves up with bots while few humans are around. */
   fillBots?: boolean;
+  /** Ranked rooms: what the anti-cheat does about cheaters (default: removes them). */
+  antiCheat?: AntiCheatMode;
 }
 
 /** What the room needs to know about a player joining (loaded from their account). */
@@ -136,6 +139,8 @@ export interface RoomHooks {
   onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, { coins: number; xp: number; levelCoins: number }>;
   /** Called when the last human leaves. */
   onEmpty?(room: GameRoom): void;
+  /** The anti-cheat caught someone: record it and (when `remove`) take them out of the room. */
+  onCheat?(room: GameRoom, player: ServerPlayer, reason: string, details: Record<string, unknown>, remove: boolean): void;
 }
 
 const THROW_COOLDOWN_MS = 600;
@@ -159,6 +164,8 @@ export class GameRoom {
   readonly projectiles: ProjectileSystem;
   readonly loot: LootSystem;
   readonly vehicles: VehicleSystem | null;
+  /** FaceChiken only: fog of war and cheat detection. */
+  readonly antiCheat: AntiCheat | null;
   readonly bots: BotSystem;
 
   private readonly hooks: RoomHooks;
@@ -199,6 +206,7 @@ export class GameRoom {
     this.bots = new BotSystem(this);
     this.botTarget = options.bots && options.bots > 0 ? Math.min(options.bots, this.mode.maxPlayers - 1) : null;
     this.fillBots = options.fillBots === true;
+    this.antiCheat = this.mode.ranked && options.antiCheat !== 'off' ? new AntiCheat(this, options.antiCheat ?? 'enforce') : null;
     this.match = {
       phase: this.mode.building ? 'playing' : 'waiting',
       endsAt: null,
@@ -343,7 +351,7 @@ export class GameRoom {
       selfPid: info.pid,
       room: this.info,
       players: [...this.players.values()].map((p) => p.info),
-      snapshot: this.snapshot(now),
+      snapshot: this.snapshotFor(player, now),
       match: this.match,
       loot: this.loot.states(),
       drops: this.loot.dropStates(),
@@ -399,6 +407,7 @@ export class GameRoom {
     this.onPlayerLeave(player);
     this.players.delete(player.pid);
     this.bots.forget(player.pid);
+    this.antiCheat?.forget(player);
     this.io.to(this.channel).emit('playerLeft', player.pid);
     this.systemMessage(`${player.info.name} left`);
     this.emitScores();
@@ -445,6 +454,7 @@ export class GameRoom {
     p.yaw = frame.yaw;
     p.lookYaw = frame.yaw;
     p.pitch = frame.pitch;
+    this.antiCheat?.onInput(p, frame.yaw, frame.pitch);
     p.lastInput = frame;
     this.updateHvhPose(p, performance.now());
     // Dead chickens don't move, but we still acknowledge the input so the client can drop it.
@@ -459,7 +469,7 @@ export class GameRoom {
   handleFire(p: ServerPlayer, raw: unknown): void {
     this.enforceHvhRules(p);
     const req = parseFire(raw);
-    if (!req || !p.alive || this.match.phase === 'ended' || this.actionsBlocked()) return;
+    if (!req || !p.alive || p.removedForCheating || this.match.phase === 'ended' || this.actionsBlocked()) return;
     if (req.shot <= p.lastShotSeq || req.weapon !== p.weapon) return;
     const w = WEAPONS[req.weapon];
     // From the car: guns and launchers, but no knifing out of the driver's seat.
@@ -490,6 +500,8 @@ export class GameRoom {
     const eye = this.eyeOf(p);
     const len = Math.hypot(req.dx, req.dy, req.dz);
     const aim = { x: req.dx / len, y: req.dy / len, z: req.dz / len };
+    // Ranked: a shot nowhere near where you were looking is thrown away (silent aim).
+    if (this.antiCheat && !w.melee && !this.antiCheat.allowShot(p, aim)) return;
 
     if (w.projectile) {
       this.projectiles.launch(w.projectile, p, this.safeLaunchPoint(eye, aim), aim, req.shot, now, (mods?.projectileSpeed ?? 1) * (w.projectileSpeed ?? 1), w.id);
@@ -518,6 +530,7 @@ export class GameRoom {
       let maxT = wall ? wall.t : w.range;
       let kind = 0;
       let victim: ServerPlayer | null = null;
+      let victimAt: MeleeTarget<ServerPlayer> | null = null;
       let headshot = false;
 
       for (const t of targets) {
@@ -525,6 +538,7 @@ export class GameRoom {
         if (hit) {
           maxT = hit.t;
           victim = t.key;
+          victimAt = t;
           headshot = hit.headshot;
           kind = hit.headshot ? 2 : 1;
         }
@@ -544,6 +558,8 @@ export class GameRoom {
         this.vehicles!.damage(car.id, damageAt(w, car.t) * wallbangScale(soft, car.t), p, now);
       }
 
+      // Ranked: how close to the middle of the head / body single bullets land (aim lock).
+      if (victim && victimAt && w.pellets === 1) this.antiCheat?.onHit(p, eye, aim, victimAt, headshot);
       if (victim) {
         const entry = damageByVictim.get(victim) ?? { amount: 0, headshot: false };
         entry.amount += damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * wallbangScale(soft, maxT);
@@ -904,6 +920,10 @@ export class GameRoom {
   }
 
   private startMatch(now: number): void {
+    if (this.antiCheat) {
+      this.antiCheat.reset();
+      this.systemMessage('🛡️ FaceChiken anti-cheat is on: fair play only.');
+    }
     for (const p of this.players.values()) {
       p.info.kills = 0;
       p.info.deaths = 0;
@@ -1068,13 +1088,40 @@ export class GameRoom {
     if (this.bots.count > wanted) this.bots.removeOne();
   }
 
+  /**
+   * The anti-cheat caught `p`. Logged here; the room manager records the strike and (when
+   * `remove`) takes them out, after the current message is handled.
+   */
+  caughtCheating(p: ServerPlayer, reason: string, details: Record<string, unknown>, remove: boolean): void {
+    console.warn(`[anticheat] ${remove ? 'removed' : 'flagged (watch only)'} "${p.info.name}" (user ${p.userId ?? 'guest'}) in ${this.info.id}: ${reason} ${JSON.stringify(details)}`);
+    if (remove) {
+      p.removedForCheating = true;
+      this.systemMessage(`🛡️ Anti-cheat removed ${p.info.name} from the match.`);
+    }
+    queueMicrotask(() => this.hooks.onCheat?.(this, p, reason, details, remove));
+  }
+
+  /** What `viewer` is told: in ranked rooms, only the enemies they could see (fog of war). */
+  snapshotFor(viewer: ServerPlayer, now = performance.now()): WorldSnapshot {
+    const ac = this.antiCheat;
+    if (!ac) return this.snapshot(now);
+    const players = [...this.players.values()].filter((t) => t === viewer || this.areTeammates(viewer, t) || ac.visible(viewer, t, now));
+    return { t: now, p: players.map((p) => packPlayer(p.toState())), v: this.vehicles?.packed() ?? [] };
+  }
+
   snapshot(now = performance.now()): WorldSnapshot {
     return { t: now, p: [...this.players.values()].map((p) => packPlayer(p.toState())), v: this.vehicles?.packed() ?? [] };
   }
 
   private broadcastSnapshot(): void {
     if (this.players.size === 0) return;
-    this.io.to(this.channel).volatile.emit('snapshot', this.snapshot());
+    if (!this.antiCheat) {
+      this.io.to(this.channel).volatile.emit('snapshot', this.snapshot());
+      return;
+    }
+    // Fog of war: everyone gets their own snapshot.
+    const now = performance.now();
+    for (const viewer of this.players.values()) viewer.socket?.volatile.emit('snapshot', this.snapshotFor(viewer, now));
   }
 }
 

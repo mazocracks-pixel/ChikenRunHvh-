@@ -615,7 +615,7 @@ export class GameSession {
     let best = { t: wall ? wall.t : range, pid: 0, headshot: false, world: !!wall, normal, soft };
     for (const [pid, r] of this.remotes.players) {
       // Drivers count too: they sit in their seat (see sitAt), head above the car.
-      if (!r.alive || r.latest?.alive === false || this.isFriendly(r.info)) continue;
+      if (!r.alive || r.culled || r.latest?.alive === false || this.isFriendly(r.info)) continue;
       const hit = rayChicken(ray, r.position.x, r.position.y, r.position.z, r.yaw, best.t, r.latest?.crouching ? CROUCH.scale : 1);
       if (hit) best = { t: hit.t, pid, headshot: hit.headshot, world: false, normal, soft };
     }

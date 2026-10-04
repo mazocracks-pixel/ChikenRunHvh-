@@ -44,6 +44,8 @@ const server = await startGameServer({
   // Developer tools work in public matches too (still only for developer accounts with the
   // passkey). DEV_PUBLIC_ROOMS=0 limits them to private rooms.
   devInPublicRooms: process.env.DEV_PUBLIC_ROOMS !== '0',
+  // FaceChiken anti-cheat: ANTICHEAT=log only reports cheaters, ANTICHEAT=off turns it off.
+  antiCheat: process.env.ANTICHEAT === 'log' || process.env.ANTICHEAT === 'off' ? process.env.ANTICHEAT : 'enforce',
   // Anyone who knows the passkey may use developer tools. DEV_ACCOUNTS_ONLY=1 limits them to
   // developer accounts (npm run developer).
   devAccountsOnly: process.env.DEV_ACCOUNTS_ONLY === '1',

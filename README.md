@@ -62,6 +62,7 @@ open a second browser window.
 | `npm run build`     | Builds the client to `client/dist` and bundles the server to `server/dist`           |
 | `npm start`         | Production server, also serving the built client: http://localhost:3000              |
 | `npm run developer -- <username>` | Makes a registered account a developer (see below). `--remove` undoes it, `--list` shows them |
+| `npm run anticheat -- --list` | FaceChiken anti-cheat strikes; `npm run anticheat -- <username> --clear` lifts a ban |
 
 Environment variables:
 
@@ -71,6 +72,7 @@ Environment variables:
 | `DB_PATH` | SQLite file (default `server/data/game.db`) |
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
 | `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
+| `ANTICHEAT=log` | FaceChiken anti-cheat only logs cheaters instead of removing them (`off` turns it off). Default: removes them |
 | `HVH_PUBLIC_PANEL=1` | Opt-in public HvH Lab and Skeet panels for all HvH players; normal stats and bounded abilities, no player administration. Default off |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Optional restriction for servers that require developer accounts |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
@@ -131,6 +133,24 @@ accounts only, quick play only (no private rooms), developer tools locked by the
 at least 4 players to start. It's the only mode that moves your level: a win gives 30 rank points, a
 loss takes 20, every kill gives 1 back (up to 10), and leaving a match that's underway counts as a loss
 (-25). You never drop below the level you've reached, and each new level pays 250 coins.
+
+**FaceChiken anti-cheat.** It all runs on the server (the browser can't be trusted):
+
+- *Fog of war:* you're only sent an enemy's position once you could see them (line of sight from your
+  eyes to their head, chest, feet or sides, a moment ahead for peeking, or within 7 m), so a wallhack has
+  nothing to draw. Teammates are always sent.
+- *Silent aim:* a shot must go roughly where you were looking (within 38° of one of your last few view
+  directions; third person can be ~20° off up close). Others are thrown away and counted.
+- *Aim lock:* people's hits land all over the head; an aimbot hits its exact middle. A match average
+  that's too close to the centre (12+ head hits, or 15+ body hits) is caught.
+- *Snaps* (a big flick landing dead centre on a head) and an almost-only-headshots rate over 30+ hits
+  add suspicion.
+
+Caught players are removed from the match (a loss) and get a strike: banned from FaceChiken for 24
+hours, then 7 days, then for good. `npm run anticheat -- --list` shows strikes, `npm run anticheat --
+<username>` one account, and `--clear` lifts it (built server: `node server/dist/tools/anticheat.js`).
+Anything caught is also logged as `[anticheat]` in the server log. Speed hacks, teleports, rapid fire and
+infinite ammo were already impossible: the server runs the movement and checks every shot.
 
 **Arms Race.** Free for all, up to 12 chickens, 10 minutes. Everyone starts on the Rifle; each kill
 with your current weapon moves you up a 17-weapon ladder (Rifle → Golden Rifle → Burst → Battle Rifle →

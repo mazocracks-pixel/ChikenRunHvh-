@@ -27,6 +27,11 @@ export class RemotePlayer {
   fakeYaw = 0;
   private readonly realHeading = new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0.12, 0), 0.9, 0x6bf5e5, 0.22, 0.12);
   alive = true;
+  /**
+   * FaceChiken fog of war: the server stopped sending this enemy because you can't see them.
+   * Hidden (and not hit-testable) until they show up again.
+   */
+  culled = false;
 
   constructor(info: PlayerInfo, friendly: boolean, private readonly hvh = false) {
     this.info = info;
@@ -54,6 +59,12 @@ export class RemotePlayer {
   latestAt = 0;
 
   push(t: number, s: PlayerState): void {
+    // Back in sight after fog of war: start from here, don't slide over from where we last saw them.
+    if (this.culled) {
+      this.culled = false;
+      this.buffer.length = 0;
+      this.chicken.root.visible = true;
+    }
     this.latestAt = t;
     this.buffer.push({ t, s });
     this.latest = s;
@@ -84,6 +95,10 @@ export class RemotePlayer {
 
   /** Renders the player as it was at `renderTime` (server clock), interpolating between snapshots. */
   render(renderTime: number, dt: number): void {
+    if (this.culled) {
+      this.chicken.root.visible = false;
+      return;
+    }
     const buf = this.buffer;
     // Drop samples we've fully moved past, keeping the one just before renderTime.
     while (buf.length >= 2 && buf[1]!.t <= renderTime) buf.shift();
@@ -170,11 +185,15 @@ export class RemotePlayers {
   }
 
   pushSnapshot(snapshot: WorldSnapshot, selfPid: number): void {
+    const seen = new Set<number>();
     for (const packed of snapshot.p) {
       if (packed[0] === selfPid) continue;
       const state = unpackPlayer(packed);
+      seen.add(state.pid);
       this.players.get(state.pid)?.push(snapshot.t, state);
     }
+    // Players the server left out (fog of war in FaceChiken) go out of sight.
+    for (const [pid, player] of this.players) if (!seen.has(pid) && player.latest) player.culled = true;
   }
 
   render(renderTime: number, dt: number): void {

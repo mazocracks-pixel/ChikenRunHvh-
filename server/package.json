@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "npm --prefix .. run dev",
     "dev:server": "tsx watch src/index.ts --dev",
-    "build": "esbuild src/index.ts src/tools/developer.ts --bundle --platform=node --target=node22 --format=esm --external:express --external:socket.io --outdir=dist",
+    "build": "esbuild src/index.ts src/tools/developer.ts src/tools/anticheat.ts --bundle --platform=node --target=node22 --format=esm --external:express --external:socket.io --outdir=dist",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "developer": "tsx src/tools/developer.ts"
+    "developer": "tsx src/tools/developer.ts",
+    "anticheat": "tsx src/tools/anticheat.ts"
   },
   "dependencies": {
     "express": "^5.2.1",

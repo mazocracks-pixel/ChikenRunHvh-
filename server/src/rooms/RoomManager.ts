@@ -2,6 +2,7 @@ import { MODES, levelFor, type JoinResponse, type MapId, type ModeId, type RoomS
 import type { GameDatabase } from '../db/Database';
 import type { GameServer, GameSocket } from '../types';
 import { randomRoomCode, randomString } from '../util';
+import type { AntiCheatMode } from './AntiCheat';
 import { GameRoom, type PlayerProfile, type RoomHooks } from './GameRoom';
 import { createRoom } from './modes';
 
@@ -16,12 +17,24 @@ export class RoomManager {
   private readonly hooks: RoomHooks;
   private publicCounter = 1;
 
-  constructor(io: GameServer, db: GameDatabase) {
+  private readonly antiCheat: AntiCheatMode;
+
+  constructor(io: GameServer, db: GameDatabase, options: { antiCheat?: AntiCheatMode } = {}) {
     this.io = io;
     this.db = db;
+    this.antiCheat = options.antiCheat ?? 'enforce';
     this.hooks = {
       onMatchEnd: (room, results) => this.db.recordMatch(results, room.mode.id),
       onEmpty: (room) => this.close(room),
+      onCheat: (room, player, reason, details, remove) => {
+        if (!remove) return;
+        if (player.userId !== null) this.db.addStrike(player.userId, reason, { ...details, room: room.info.id, map: room.info.map });
+        const socket = player.socket;
+        if (!socket) return room.removePlayer(player);
+        socket.emit('roomClosed', `Removed by the FaceChiken anti-cheat (${reason}). That counts as a loss, and a strike: strikes ban you from FaceChiken for a while.`);
+        void socket.leave(room.channel);
+        this.leave(socket);
+      },
     };
   }
 
@@ -73,7 +86,7 @@ export class RoomManager {
     let code = randomRoomCode();
     while (this.byCode(code)) code = randomRoomCode();
     const name = isPrivate && hostName ? `${hostName}'s room` : `${MODES[mode].name} #${this.publicCounter++}`;
-    const room = createRoom(this.io, { id, code, name, mode, map, private: isPrivate, bots, fillBots }, this.hooks);
+    const room = createRoom(this.io, { id, code, name, mode, map, private: isPrivate, bots, fillBots, antiCheat: this.antiCheat }, this.hooks);
     this.rooms.set(id, room);
     return room;
   }
@@ -88,6 +101,12 @@ export class RoomManager {
     if (MODES[room.info.mode].ranked && !profile.username) {
       if (room.humanCount === 0) this.close(room);
       return { ok: false, error: 'FaceChiken is for registered players: tap “Save progress” to register (it’s free).' };
+    }
+    const ban = MODES[room.info.mode].ranked ? this.db.rankedBan(profile.id) : null;
+    if (ban) {
+      if (room.humanCount === 0) this.close(room);
+      const until = Number.isFinite(ban.until) ? `until ${new Date(ban.until).toUTCString()}` : 'for good';
+      return { ok: false, error: `You're banned from FaceChiken ${until} (anti-cheat: ${ban.reason}). Other modes are open.` };
     }
 
     this.leave(socket);

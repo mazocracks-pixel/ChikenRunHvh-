@@ -107,7 +107,29 @@ const MIGRATIONS = [
    CREATE INDEX users_xp ON users(xp DESC);`,
   // v5: ranks now move only in FaceChiken (the ranked mode), so everyone starts again at level 1.
   `UPDATE users SET xp = 0;`,
+  // v6: FaceChiken anti-cheat strikes (each one bans from ranked for a while).
+  `CREATE TABLE ac_strikes (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     reason TEXT NOT NULL,
+     details TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   );
+   CREATE INDEX ac_strikes_user ON ac_strikes(user_id, created_at);`,
 ];
+
+/** How long a FaceChiken ban lasts after the 1st, 2nd and 3rd+ anti-cheat strike. */
+export const RANKED_BAN_MS = [24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, Number.POSITIVE_INFINITY] as const;
+
+export interface Strike {
+  id: number;
+  userId: number;
+  username: string | null;
+  name: string;
+  reason: string;
+  details: string;
+  createdAt: number;
+}
 
 /** Limits for session lifetime and housekeeping. */
 export const DATA_RETENTION = {
@@ -363,6 +385,35 @@ export class GameDatabase {
       }
       return totals;
     });
+  }
+
+  /** The anti-cheat caught this account in FaceChiken. */
+  addStrike(userId: number, reason: string, details: Record<string, unknown>, now = Date.now()): void {
+    this.db.prepare('INSERT INTO ac_strikes (user_id, reason, details, created_at) VALUES (?, ?, ?, ?)').run(userId, reason.slice(0, 200), JSON.stringify(details).slice(0, 2000), now);
+  }
+
+  /** An active FaceChiken ban, from the account's strikes: longer with every strike. */
+  rankedBan(userId: number, now = Date.now()): { until: number; reason: string; strikes: number } | null {
+    const rows = this.db.prepare('SELECT reason, created_at FROM ac_strikes WHERE user_id = ? ORDER BY created_at').all(userId) as { reason: string; created_at: number }[];
+    if (rows.length === 0) return null;
+    const last = rows[rows.length - 1]!;
+    const until = last.created_at + RANKED_BAN_MS[Math.min(rows.length, RANKED_BAN_MS.length) - 1]!;
+    return until > now ? { until, reason: last.reason, strikes: rows.length } : null;
+  }
+
+  /** Strikes, newest first (for one account, or everyone). */
+  strikes(userId: number | null = null, limit = 50): Strike[] {
+    const rows = (
+      userId === null
+        ? this.db.prepare('SELECT s.id, s.user_id, u.username, u.name, s.reason, s.details, s.created_at FROM ac_strikes s JOIN users u ON u.id = s.user_id ORDER BY s.created_at DESC LIMIT ?').all(limit)
+        : this.db.prepare('SELECT s.id, s.user_id, u.username, u.name, s.reason, s.details, s.created_at FROM ac_strikes s JOIN users u ON u.id = s.user_id WHERE s.user_id = ? ORDER BY s.created_at DESC LIMIT ?').all(userId, limit)
+    ) as { id: number; user_id: number; username: string | null; name: string; reason: string; details: string; created_at: number }[];
+    return rows.map((r) => ({ id: r.id, userId: r.user_id, username: r.username, name: r.name, reason: r.reason, details: r.details, createdAt: r.created_at }));
+  }
+
+  /** Wipes an account's strikes (a mistake, or a second chance). Returns how many. */
+  clearStrikes(userId: number): number {
+    return Number(this.db.prepare('DELETE FROM ac_strikes WHERE user_id = ?').run(userId).changes);
   }
 
   /** Top players overall or in one mode (by wins, then kills); FaceChiken by rank points. */

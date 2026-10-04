@@ -83,6 +83,8 @@ export class ServerPlayer {
 
   /** Developer testing modifiers; null for everyone without developer access (and bots). */
   mods: DevMods | null = null;
+  /** The anti-cheat caught them; they're on their way out. */
+  removedForCheating = false;
   /** The melee weapon picked in the shop (knife skins replace the Knife in knife and bomb modes). */
   melee: WeaponId = DEFAULT_MELEE;
   /** Held in place by a developer (or ChikenBomb buy time): inputs are acknowledged but ignored. */

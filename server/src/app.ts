@@ -30,6 +30,8 @@ export interface GameServerOptions {
   devInPublicRooms?: boolean;
   /** Explicit rollout of equal, balanced assist controls in HvH; off by default. */
   publicHvhPanel?: boolean;
+  /** FaceChiken anti-cheat: remove cheaters (default), only log them, or off. */
+  antiCheat?: 'enforce' | 'log' | 'off';
   /** Only developer accounts (`npm run developer`) may use the passkey. On for public servers. */
   devAccountsOnly?: boolean;
   /** Guest accounts each IP may create per hour (tests raise this). */
@@ -65,7 +67,7 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
   const allowedOrigins = options.allowedOrigins ?? [];
   const http = createServer(app);
   const io: GameServer = new Server(http, { serveClient: false, maxHttpBufferSize: 64 * 1024 });
-  const rooms = new RoomManager(io, db);
+  const rooms = new RoomManager(io, db, { antiCheat: options.antiCheat });
   const dev = options.devPasskey
     ? new DevAccess({
         passkey: options.devPasskey,

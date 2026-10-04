@@ -76,7 +76,7 @@ it('real and fake poses replicate separately; Hide Shots delays reveal without c
   assert.ok(a.concealUntil>performance.now());assert.notEqual(a.yaw,a.fakeYaw);
   room.updateHvhPose(a,a.concealUntil+1);assert.equal(a.yaw,0);assert.equal(a.fakeYaw,0,'reveal starts after hide window');
   room.updateHvhPose(a,a.revealUntil+1);assert.notEqual(a.yaw,a.fakeYaw);
-  assert.equal(a.revealUntil-a.concealUntil,HVH.revealMs);
+  assert.ok(Math.abs(a.revealUntil-a.concealUntil-HVH.revealMs)<1e-6,'reveal window'); // timestamps are floats
   const state=a.toState();assert.equal(state.yaw,a.yaw);assert.equal(state.fakeYaw,a.fakeYaw);
 });
 it('public panel grants only HvH capabilities and never administrative privilege',async t=>{

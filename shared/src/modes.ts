@@ -74,7 +74,7 @@ const DEFS: ModeDef[] = [
     weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true,
   },
   {
-    id: 'face', name: 'FaceChiken', description: 'Ranked 5 vs 5 bomb. Real players only, no bots, no dev tools. The only mode that moves your level.',
+    id: 'face', name: 'FaceChiken', description: 'Ranked 5 vs 5 bomb. Real players only, anti-cheat on, no bots, no dev tools. The only mode that moves your level.',
     teams: true, maxPlayers: 10, scoreLimit: 6, timeLimitMs: 0, respawnMs: 2000, minPlayers: 4,
     maps: ['sandstown', 'harbor'], building: false, vehicles: false, wallbang: true,
     weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true, ranked: true,
