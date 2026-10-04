@@ -1,5 +1,5 @@
 import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
-import { h, storage } from './dom';
+import { clear, h, storage } from './dom';
 
 export interface MenuActions {
   /** `map` undefined: any map. */
@@ -8,6 +8,7 @@ export interface MenuActions {
   createRoom(): void;
   joinCode(): void;
   customize(): void;
+  friends(): void;
   /** Opens on that mode's tab, or overall. */
   leaderboard(mode?: ModeId): void;
   account(): void;
@@ -51,6 +52,9 @@ export class MainMenu {
   private readonly buttons: HTMLButtonElement[] = [];
   private readonly tabs = h('div', { class: 'tabs menu-tabs', role: 'tablist' });
   private readonly cards = new Map<ModeId, HTMLElement>();
+  private readonly playButtons: HTMLButtonElement[] = [];
+  private readonly friendsBadge = h('span', { class: 'badge', hidden: true });
+  private readonly partyStrip = h('div', { class: 'party-strip', hidden: true });
 
   constructor(container: HTMLElement, actions: MenuActions) {
     const button = (label: string, onClick: () => void, cls = '') => {
@@ -80,7 +84,7 @@ export class MainMenu {
         h('h3', null, m.name),
         h('p', null, m.description),
         m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, `🗺️ ${MAPS[m.maps[0]!].name}`),
-        button('Play', () => actions.quickPlay(id, isMapId(picker.value) ? picker.value : undefined), 'play'),
+        this.playButton(button('Play', () => actions.quickPlay(id, isMapId(picker.value) ? picker.value : undefined), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
       card.style.order = String(CATEGORIES.find((c) => c.modes.includes(id))?.modes.indexOf(id) ?? 0);
@@ -100,12 +104,14 @@ export class MainMenu {
         h('h1', { class: 'logo' }, 'ChikenRun', h('span', { class: 'accent' }, 'Hvh')),
         h('div', { class: 'profile-chip' }, this.rank, h('span', { class: 'who' }, this.name, this.record, this.xpBar), this.coins, this.accountBtn),
       ),
+      this.partyStrip,
       this.tabs,
       modes,
       h(
         'nav',
         { class: 'menu-actions' },
         button('🛒 Customize & Shop', actions.customize, 'secondary'),
+        this.withBadge(button('👥 Friends', actions.friends, 'secondary friends-btn')),
         button('🌐 Server browser', actions.browse, 'secondary'),
         button('➕ Create room', actions.createRoom, 'secondary'),
         button('🔑 Join with code', actions.joinCode, 'secondary'),
@@ -119,6 +125,36 @@ export class MainMenu {
     container.append(this.root);
     const saved = storage.get(TAB_KEY);
     this.showTab(CATEGORIES.some((c) => c.id === saved) ? saved! : CATEGORIES[0]!.id);
+  }
+
+private playButton(b: HTMLButtonElement): HTMLButtonElement {
+    this.playButtons.push(b);
+    return b;
+  }
+
+  private withBadge(b: HTMLButtonElement): HTMLButtonElement {
+    b.append(this.friendsBadge);
+    return b;
+  }
+
+  /**
+   * Friends and party: the badge (requests and invites waiting), who's in your party, and what
+   * Play does (the leader brings everyone; members wait for the leader).
+   */
+  setFriends(waiting: number, party: { names: string[]; leader: string; isLeader: boolean } | null): void {
+    this.friendsBadge.hidden = waiting === 0;
+    this.friendsBadge.textContent = String(waiting);
+    this.partyStrip.hidden = party === null;
+    if (party) {
+      clear(this.partyStrip);
+      this.partyStrip.append(
+        h('span', { class: 'party-title' }, `👥 Party · ${party.names.length}`),
+        ...party.names.map((n) => h('span', { class: 'party-chip' }, n === party.leader ? `👑 ${n}` : n)),
+        h('span', { class: 'muted' }, party.isLeader ? 'You pick the mode: everyone plays with you.' : `${party.leader} picks the mode.`),
+      );
+    }
+    const label = !party ? 'Play' : party.isLeader ? `Play with party (${party.names.length})` : 'Leader picks';
+    for (const b of this.playButtons) b.textContent = label;
   }
 
   /** Shows one tab's modes. */

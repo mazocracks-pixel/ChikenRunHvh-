@@ -172,6 +172,13 @@ with two bomb sites), Frostbite (a snowy outpost with wooden cabins you can shoo
 bases for CTF), Factory (a walled warehouse with machines, conveyors and raised catwalks, for close
 fights), and Flat World for building.
 
+**Friends and parties.** 👥 Friends on the menu (registered accounts): add someone by their username,
+accept or decline requests, and see who's online and what they're playing, live. Invite online friends to a
+party (up to 5): the leader picks a mode and presses Play, and everyone in the menu comes along, into the
+same room and onto the same team (bots give up their seats; a party only goes where it fits on one team,
+so a party of 5 can't queue 3 vs 3 Knife Fight). Members wait for the leader; a member still in another
+match holds the party up. Leave any time; going offline for 30 s takes you out; the next member leads.
+
 **Progress.** A guest account is created automatically; register to keep progress across devices.
 You earn coins after every match and spend them in the shop on skins, hats, beaks, sneakers and
 weapons. There's a loadout of up to 4 guns plus a melee weapon.

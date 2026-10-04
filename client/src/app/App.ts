@@ -2,6 +2,7 @@ import { MODES, type CreateRoomRequest, type JoinResponse, type JoinSuccess, typ
 import { Dev as ClassicDev } from '../dev/classic/Dev';
 import { combineDevHooks } from '../dev/combine';
 import { Dev } from '../dev/Dev';
+import { Friends } from '../ui/Friends';
 import { exitPlayFullscreen } from '../fullscreen';
 import { Game } from '../game/Game';
 import { Api } from '../net/Api';
@@ -23,6 +24,7 @@ export class App {
   private readonly net = new Network();
   private readonly game: Game;
   private readonly dev: Dev;
+  private readonly friends: Friends;
   /** The old mega?dev menu, on L (the HvH Lab above is on Insert). */
   private readonly classicDev: ClassicDev;
   private readonly menu: MainMenu;
@@ -52,10 +54,27 @@ export class App {
       createRoom: () => openCreateRoom((req: CreateRoomRequest) => this.enter(() => this.net.createRoom(req), true)),
       joinCode: () => openJoinCode((code) => this.enter(() => this.net.joinRoom({ code }), true)),
       customize: () => this.showShop(),
+      friends: () => this.friends.open(),
       leaderboard: (mode) => void openLeaderboard(this.api, mode),
       account: () => openAccount(this.api, () => this.net.reconnect()),
       settings: () => openSettings(this.game.audio),
       privacy: () => openPrivacy(),
+    });
+    // Friends and parties: the leader's Play brings the whole party along (the server moves them).
+    this.friends = new Friends(this.net.socket, ui, {
+      notice: (text) => (this.screen === 'game' ? this.game.hud.toast(text) : this.menu.setStatus(text)),
+      joined: (join) => {
+        if (this.screen === 'game') return;
+        this.startGame(join);
+        this.game.hud.toast(`👥 Your party leader started ${MODES[join.room.mode].name}: click to play`);
+      },
+      register: () => openAccount(this.api, () => this.net.reconnect()),
+    });
+    this.friends.onChange(() => {
+      const p = this.friends.party;
+      const names = p?.members.map((m) => m.name) ?? [];
+      const leader = p?.members.find((m) => m.userId === p.leader)?.name ?? '';
+      this.menu.setFriends(this.friends.waiting, p ? { names, leader, isLeader: this.friends.isLeader } : null);
     });
     this.cookieNotice = new CookieNotice(ui);
     // Developer menu: the menu key (Insert by default), or tap the logo five times on touch screens.
@@ -130,7 +149,10 @@ export class App {
     this.touch = this.isTouch ? new TouchControls(byId('hud-layer'), this.game.input) : null;
     this.game.input.touchMode = this.isTouch;
     this.game.input.onLockChange = () => this.refreshOverlays();
-    this.api.onProfile((p) => this.menu.setProfile(p));
+    this.api.onProfile((p) => {
+      this.menu.setProfile(p);
+      this.friends.selfId = p.id;
+    });
     this.bindConnection();
     this.menu.setVisible(false);
   }
@@ -190,6 +212,7 @@ export class App {
   private showMenu(status = '', error = false): void {
     this.clearHvhSetup();
     this.screen = 'menu';
+    this.friends.setInGame(false);
     this.shop.close();
     this.game.setPreview(null);
     this.menu.setVisible(true);
@@ -254,6 +277,7 @@ export class App {
     this.lastRoom = { id: join.room.id, mode: join.room.mode };
     this.touch?.setBombMode(MODES[join.room.mode].bomb === true);
     this.screen = 'game';
+    this.friends.setInGame(true);
     this.touchPaused = false;
     this.menu.setVisible(false);
     this.shop.close();

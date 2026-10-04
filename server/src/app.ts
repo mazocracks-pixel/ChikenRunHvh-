@@ -3,8 +3,9 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { Server } from 'socket.io';
-import { DEFAULT_MODS, MODES, HVH_PANEL_IDS, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus } from '@game/shared';
+import { DEFAULT_MODS, MODES, HVH_PANEL_IDS, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus, type MapId, type ModeId } from '@game/shared';
 import { createApiRouter } from './api';
+import { Social } from './social/Social';
 import { SESSION_COOKIE, hashToken, readCookie } from './auth';
 import { GameDatabase } from './db/Database';
 import { DevAccess } from './dev/DevAccess';
@@ -68,6 +69,7 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
   const http = createServer(app);
   const io: GameServer = new Server(http, { serveClient: false, maxHttpBufferSize: 64 * 1024 });
   const rooms = new RoomManager(io, db, { antiCheat: options.antiCheat });
+  const social = new Social(db, rooms);
   const dev = options.devPasskey
     ? new DevAccess({
         passkey: options.devPasskey,
@@ -114,7 +116,10 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
     next();
   });
 
-  io.on('connection', (socket) => attachHandlers(socket, rooms, dev, options.publicHvhPanel === true));
+  io.on('connection', (socket) => {
+    social.attach(socket);
+    attachHandlers(socket, rooms, social, dev, options.publicHvhPanel === true);
+  });
 
   const cleanup = () => {
     const removed = db.cleanup();
@@ -143,7 +148,7 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
   };
 }
 
-function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess | null, publicHvh: boolean): void {
+function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, dev: DevAccess | null, publicHvh: boolean): void {
   // Joining is cheap to spam and expensive to serve, so it gets its own budget.
   const joinLimiter = new TokenBucket(5, 0.5);
   const tooFast = { ok: false as const, error: 'Slow down a little.' };
@@ -166,7 +171,8 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
     if (!joinLimiter.take()) return ack(tooFast);
     const mode = isRecord(req) && isModeId(req.mode) ? req.mode : 'ffa';
     const map = isRecord(req) && isMapId(req.map) && MODES[mode].maps.includes(req.map) ? req.map : undefined;
-    ack(rooms.join(socket, rooms.quickPlay(mode, map)));
+    // With a party, the leader brings everyone (to a room with space for all of them).
+    ack(social.joinWithParty(socket, (size) => rooms.quickPlay(mode, map, size)));
   });
 
   socket.on('createRoom', (req, ack) => {
@@ -178,7 +184,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
     if (MODES[req.mode].ranked) return ack({ ok: false, error: `${MODES[req.mode].name} is matchmaking only: use Play on the menu.` });
     const bots = Number.isInteger(req.bots) ? Math.max(0, Math.min(8, req.bots as number)) : 0;
     const host = rooms.roomOf(socket.id)?.playerFor(socket.id)?.info.name;
-    ack(rooms.join(socket, rooms.create(req.mode, req.map, req.private === true, host ?? 'Player', bots)));
+    ack(social.joinWithParty(socket, () => rooms.create(req.mode as ModeId, req.map as MapId, req.private === true, host ?? 'Player', bots)));
   });
 
   socket.on('joinRoom', (req, ack) => {
@@ -192,7 +198,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAccess |
           ? rooms.byCode(req.code)
           : undefined;
     if (!room) return ack({ ok: false, error: 'Room not found. Check the code.' });
-    ack(rooms.join(socket, room));
+    ack(social.joinWithParty(socket, () => room));
   });
 
   socket.on('leaveRoom', () => rooms.leave(socket));

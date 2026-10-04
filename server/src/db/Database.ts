@@ -116,7 +116,27 @@ const MIGRATIONS = [
      created_at INTEGER NOT NULL
    );
    CREATE INDEX ac_strikes_user ON ac_strikes(user_id, created_at);`,
+  // v7: friends. A request is one row (requester → them, 'pending'); once accepted there's a row
+  // each way, so "my friends" is a single lookup.
+  `CREATE TABLE friends (
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     friend_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     status TEXT NOT NULL CHECK (status IN ('pending', 'accepted')),
+     created_at INTEGER NOT NULL,
+     PRIMARY KEY (user_id, friend_id)
+   );
+   CREATE INDEX friends_incoming ON friends(friend_id, status);`,
 ];
+
+export type FriendLink = 'none' | 'sent' | 'received' | 'friends';
+
+export interface FriendRow {
+  userId: number;
+  username: string;
+  name: string;
+  xp: number;
+  developer: boolean;
+}
 
 /** How long a FaceChiken ban lasts after the 1st, 2nd and 3rd+ anti-cheat strike. */
 export const RANKED_BAN_MS = [24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000, Number.POSITIVE_INFINITY] as const;
@@ -385,6 +405,72 @@ export class GameDatabase {
       }
       return totals;
     });
+  }
+
+// ---------------------------------------------------------------------------
+  // Friends
+  // ---------------------------------------------------------------------------
+
+  /** How `a` and `b` are linked: friends, a request one way, or nothing. */
+  friendLink(a: number, b: number): FriendLink {
+    const rows = this.db.prepare('SELECT user_id, status FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)').all(a, b, b, a) as { user_id: number; status: string }[];
+    if (rows.some((r) => r.status === 'accepted')) return 'friends';
+    if (rows.some((r) => r.user_id === a)) return 'sent';
+    if (rows.some((r) => r.user_id === b)) return 'received';
+    return 'none';
+  }
+
+  /** `from` asks `to` to be friends. */
+  addFriendRequest(from: number, to: number, now = Date.now()): void {
+    this.db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status, created_at) VALUES (?, ?, 'pending', ?)").run(from, to, now);
+  }
+
+  /** `by` accepts the request `requester` sent them: friends both ways. */
+  acceptFriend(by: number, requester: number, now = Date.now()): void {
+    this.transaction(() => {
+      this.db.prepare("UPDATE friends SET status = 'accepted' WHERE user_id = ? AND friend_id = ?").run(requester, by);
+      this.db.prepare("INSERT INTO friends (user_id, friend_id, status, created_at) VALUES (?, ?, 'accepted', ?) ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted'").run(by, requester, now);
+    });
+  }
+
+  /** Unfriends, declines or takes back a request: whatever links the two goes. */
+  removeFriendship(a: number, b: number): void {
+    this.db.prepare('DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)').run(a, b, b, a);
+  }
+
+  /** Accepted friends (registered accounts only), by name. */
+  friendsOf(userId: number): FriendRow[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT u.id, u.username, u.name, u.xp, u.developer FROM friends f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? AND f.status = 'accepted' AND u.username IS NOT NULL ORDER BY u.name COLLATE NOCASE",
+        )
+        .all(userId) as { id: number; username: string; name: string; xp: number; developer: number }[]
+    ).map((r) => ({ userId: r.id, username: r.username, name: r.name, xp: r.xp, developer: r.developer === 1 }));
+  }
+
+  /** Requests waiting for `userId` to answer, and the ones they sent. */
+  friendRequests(userId: number): { incoming: FriendRow[]; outgoing: FriendRow[] } {
+    const list = (sql: string) =>
+      (this.db.prepare(sql).all(userId) as { id: number; username: string; name: string; xp: number; developer: number }[]).map((r) => ({
+        userId: r.id,
+        username: r.username,
+        name: r.name,
+        xp: r.xp,
+        developer: r.developer === 1,
+      }));
+    return {
+      incoming: list("SELECT u.id, u.username, u.name, u.xp, u.developer FROM friends f JOIN users u ON u.id = f.user_id WHERE f.friend_id = ? AND f.status = 'pending' AND u.username IS NOT NULL ORDER BY f.created_at DESC"),
+      outgoing: list("SELECT u.id, u.username, u.name, u.xp, u.developer FROM friends f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? AND f.status = 'pending' AND u.username IS NOT NULL ORDER BY f.created_at DESC"),
+    };
+  }
+
+  /** Accepted friends, and requests sent and not answered yet (for the limits). */
+  friendCounts(userId: number): { friends: number; pending: number } {
+    const row = this.db
+      .prepare("SELECT SUM(status = 'accepted') AS friends, SUM(status = 'pending') AS pending FROM friends WHERE user_id = ?")
+      .get(userId) as { friends: number | null; pending: number | null };
+    return { friends: row.friends ?? 0, pending: row.pending ?? 0 };
   }
 
   /** The anti-cheat caught this account in FaceChiken. */

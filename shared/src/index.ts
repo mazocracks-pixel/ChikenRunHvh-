@@ -16,6 +16,7 @@ export * from './pickups';
 export * from './projectiles';
 export * from './protocol';
 export * from './ranks';
+export * from './social';
 export * from './raycast';
 export * from './rng';
 export * from './vehicles';

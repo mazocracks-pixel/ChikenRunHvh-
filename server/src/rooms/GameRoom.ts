@@ -123,6 +123,8 @@ export interface PlayerProfile {
   dev?: boolean;
   /** Rank level, 1–10. */
   rank?: number;
+  /** Team modes: put them on this team (their party is on it). */
+  team?: Team;
 }
 
 export interface MatchResult {
@@ -313,6 +315,9 @@ export class GameRoom {
   join(socket: GameSocket | null, profile: PlayerProfile): JoinResponse {
     if (this.closed) return { ok: false, error: 'That room has closed.' };
     if (this.isFull) return { ok: false, error: 'That room is full.' };
+    // A human takes a bot's seat (on their own team, when they come with one).
+    const wantTeam = this.mode.teams && profile.team ? profile.team : 0;
+    if (wantTeam && this.teamSize(wantTeam) >= this.mode.maxPlayers / 2) this.bots.removeOne(wantTeam);
     if (this.players.size >= this.mode.maxPlayers && !this.bots.removeOne()) return { ok: false, error: 'That room is full.' };
     if (socket && this.bySocket.has(socket.id)) return { ok: false, error: 'Already in this room.' };
 
@@ -320,7 +325,7 @@ export class GameRoom {
     const info: PlayerInfo = {
       pid: this.nextPid++,
       name: profile.name,
-      team: this.mode.teams ? this.pickTeam() : 0,
+      team: this.mode.teams ? (wantTeam || this.pickTeam()) : 0,
       appearance: profile.appearance,
       // Knife-only and bomb modes still let you bring your own knife skin.
       loadout: this.mode.weapons ? this.mode.weapons.map((w) => (w === 'knife' && isKnifeSkin(melee) ? melee : w)) : profile.loadout.length > 0 ? profile.loadout : ['pistol'],
@@ -427,6 +432,27 @@ export class GameRoom {
     for (const p of this.players.values()) void p.socket?.leave(this.channel);
     this.players.clear();
     this.bySocket.clear();
+  }
+
+/** Everyone on a team, bots included. */
+  private teamSize(team: Team): number {
+    let n = 0;
+    for (const p of this.players.values()) if (p.info.team === team) n++;
+    return n;
+  }
+
+  /**
+   * Where a party of `size` would go: the team with the most room for humans (bots give up
+   * their seats), 0 in free-for-all modes, or null if they don't fit together.
+   */
+  teamForParty(size: number): Team | null {
+    if (this.closed || this.humanCount + size > this.mode.maxPlayers) return null;
+    if (!this.mode.teams) return 0;
+    const humans: [number, number] = [0, 0];
+    for (const p of this.players.values()) if (!p.info.bot && (p.info.team === 1 || p.info.team === 2)) humans[p.info.team - 1]++;
+    const free = (t: 1 | 2) => this.mode.maxPlayers / 2 - humans[t - 1];
+    const best: 1 | 2 = free(1) === free(2) ? this.pickTeam() : free(1) > free(2) ? 1 : 2;
+    return free(best) >= size ? best : null;
   }
 
   private pickTeam(): 1 | 2 {

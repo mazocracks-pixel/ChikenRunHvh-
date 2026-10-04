@@ -2627,3 +2627,194 @@ code {
   height: 42px;
   font-size: 1rem;
 }
+
+/* ---------- friends and parties ---------- */
+
+.friends-btn {
+  position: relative;
+}
+
+.friends-btn .badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 20px;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1.2;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.party-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: min(1100px, 100%);
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background: var(--panel);
+  border: 1px solid rgba(255, 204, 51, 0.35);
+  border-radius: 12px;
+}
+
+.party-title {
+  font-weight: 900;
+}
+
+.party-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.party-chip.off {
+  opacity: 0.5;
+}
+
+.party-chip.invited {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.party-chip .chip-x {
+  padding: 0 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: none;
+  border: 0;
+}
+
+.friends {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.friends section h3 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.friends .row {
+  display: flex;
+  gap: 8px;
+}
+
+.friend-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.friends-party {
+  padding: 12px;
+  background: rgba(255, 204, 51, 0.06);
+  border: 1px solid rgba(255, 204, 51, 0.25);
+  border-radius: 12px;
+}
+
+.friends-party .party-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.friends-party p {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+}
+
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+}
+
+.friend-row .friend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-row small {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.friend-row button.small {
+  padding: 5px 11px;
+  font-size: 0.82rem;
+}
+
+.friend-row .small.muted {
+  font-size: 0.78rem;
+}
+
+.presence {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: #6b7280;
+}
+
+.presence.on {
+  background: var(--good);
+  box-shadow: 0 0 6px var(--good);
+}
+
+.presence.busy {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.party-popups {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 18;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(340px, calc(100vw - 32px));
+}
+
+.party-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--panel-solid);
+  border: 1px solid rgba(255, 204, 51, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.party-popup .row {
+  display: flex;
+  gap: 8px;
+}
+
+.party-popup button {
+  flex: 1;
+}

@@ -16,6 +16,7 @@ import {
   type NavGraph,
   type NavPoint,
   type Vec3,
+  type Team,
 } from '@game/shared';
 import type { BotGoal, GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
@@ -117,9 +118,10 @@ export class BotSystem {
     return true;
   }
 
-  /** Removes one bot (to make room for a human). */
-  removeOne(): boolean {
-    const last = [...this.brains.values()].pop();
+  /** Removes one bot (to make room for a human), from `team` if given and it has one. */
+  removeOne(team: Team = 0): boolean {
+    const brains = [...this.brains.values()];
+    const last = (team ? brains.filter((b) => b.p.info.team === team) : brains).pop();
     if (!last) return false;
     this.brains.delete(last.p.pid);
     this.usedNames.delete(last.p.info.name.replace('🤖 ', ''));

@@ -1,4 +1,4 @@
-import { MODES, levelFor, type JoinResponse, type MapId, type ModeId, type RoomSummary } from '@game/shared';
+import { MODES, levelFor, type JoinResponse, type MapId, type ModeId, type RoomSummary, type Team } from '@game/shared';
 import type { GameDatabase } from '../db/Database';
 import type { GameServer, GameSocket } from '../types';
 import { randomRoomCode, randomString } from '../util';
@@ -16,6 +16,8 @@ export class RoomManager {
   private readonly socketRooms = new Map<string, GameRoom>();
   private readonly hooks: RoomHooks;
   private publicCounter = 1;
+  /** Someone went into or out of a room (friends see what you're playing). */
+  onActivity: ((userId: number) => void) | null = null;
 
   private readonly antiCheat: AntiCheatMode;
 
@@ -68,10 +70,12 @@ export class RoomManager {
 
   /** The busiest public room of this mode that still has space, or a brand new one. */
   /** The busiest open public room for a mode (and map, if one is asked for), or a new one. */
-  quickPlay(mode: ModeId, map?: MapId): GameRoom | null {
+  quickPlay(mode: ModeId, map?: MapId, partySize = 1): GameRoom | null {
     let best: GameRoom | null = null;
     for (const room of this.rooms.values()) {
       if (room.info.private || room.info.mode !== mode || room.isFull || (map && room.info.map !== map)) continue;
+      // A party only goes where all of them fit (on one team).
+      if (partySize > 1 && room.teamForParty(partySize) === null) continue;
       if (!best || room.humanCount > best.humanCount) best = room;
     }
     if (best) return best;
@@ -92,21 +96,29 @@ export class RoomManager {
   }
 
   /** Moves a socket into a room (leaving any previous one) using its account profile. */
-  join(socket: GameSocket, room: GameRoom | null): JoinResponse {
+  /** Why this account can't play this mode (ranked rules), or null. */
+  blockedFrom(userId: number, mode: ModeId): string | null {
+    if (!MODES[mode].ranked) return null;
+    const profile = this.db.profile(userId);
+    if (!profile) return 'Account not found. Reload the page.';
+    // Ranked is for real, registered players.
+    if (!profile.username) return 'FaceChiken is for registered players: tap “Save progress” to register (it’s free).';
+    const ban = this.db.rankedBan(profile.id);
+    if (!ban) return null;
+    const until = Number.isFinite(ban.until) ? `until ${new Date(ban.until).toUTCString()}` : 'for good';
+    return `You're banned from FaceChiken ${until} (anti-cheat: ${ban.reason}). Other modes are open.`;
+  }
+
+  /** Moves a socket into a room (leaving any previous one) using its account profile. `team`: their party's team. */
+  join(socket: GameSocket, room: GameRoom | null, team?: Team): JoinResponse {
     if (!room) return { ok: false, error: 'The server is busy, try again soon.' };
     const profile = this.db.profile(socket.data.userId);
     if (!profile) return { ok: false, error: 'Account not found. Reload the page.' };
     if (this.socketRooms.get(socket.id) === room) return { ok: false, error: 'Already in this room.' };
-    // Ranked is for real, registered players.
-    if (MODES[room.info.mode].ranked && !profile.username) {
+    const blocked = this.blockedFrom(profile.id, room.info.mode);
+    if (blocked) {
       if (room.humanCount === 0) this.close(room);
-      return { ok: false, error: 'FaceChiken is for registered players: tap “Save progress” to register (it’s free).' };
-    }
-    const ban = MODES[room.info.mode].ranked ? this.db.rankedBan(profile.id) : null;
-    if (ban) {
-      if (room.humanCount === 0) this.close(room);
-      const until = Number.isFinite(ban.until) ? `until ${new Date(ban.until).toUTCString()}` : 'for good';
-      return { ok: false, error: `You're banned from FaceChiken ${until} (anti-cheat: ${ban.reason}). Other modes are open.` };
+      return { ok: false, error: blocked };
     }
 
     this.leave(socket);
@@ -117,10 +129,13 @@ export class RoomManager {
       loadout: profile.loadout,
       dev: profile.developer,
       rank: levelFor(profile.xp),
+      ...(team ? { team } : {}),
     };
     const res = room.join(socket, playerProfile);
-    if (res.ok) this.socketRooms.set(socket.id, room);
-    else if (room.humanCount === 0) this.close(room);
+    if (res.ok) {
+      this.socketRooms.set(socket.id, room);
+      this.onActivity?.(socket.data.userId);
+    } else if (room.humanCount === 0) this.close(room);
     return res;
   }
 
@@ -129,12 +144,20 @@ export class RoomManager {
     if (!room) return;
     this.socketRooms.delete(socket.id);
     room.leave(socket.id);
+    this.onActivity?.(socket.data.userId);
   }
 
   close(room: GameRoom): void {
     if (!this.rooms.delete(room.info.id)) return;
-    for (const [socketId, r] of this.socketRooms) if (r === room) this.socketRooms.delete(socketId);
+    const left: number[] = [];
+    for (const [socketId, r] of this.socketRooms) {
+      if (r !== room) continue;
+      this.socketRooms.delete(socketId);
+      const userId = room.playerFor(socketId)?.userId;
+      if (userId) left.push(userId);
+    }
     room.close();
+    for (const userId of left) this.onActivity?.(userId);
   }
 
   closeAll(): void {

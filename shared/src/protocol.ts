@@ -1,4 +1,5 @@
 import type { RoundState } from './bomb';
+import type { FriendsState, PartyInvite, PartyState, SocialResult } from './social';
 import type { DevAction, DevMods, DevResult, DevStatus } from './dev';
 import type { HvhLoadout } from './hvh';
 import type { Appearance } from './items';
@@ -526,6 +527,21 @@ export interface ClientToServerEvents {
   devAction: (action: DevAction, ack: (res: DevResult) => void) => void;
   /** Round-trip probe; the server just calls `ack` with its clock. */
   latency: (ack: (serverTime: number) => void) => void;
+
+  // Friends and parties (registered accounts).
+  friendsList: (ack: (state: FriendsState) => void) => void;
+  friendRequest: (username: string, ack: (res: SocialResult) => void) => void;
+  /** Answer a friend request from `userId`. */
+  friendRespond: (req: { userId: number; accept: boolean }, ack: (res: SocialResult) => void) => void;
+  /** Unfriend, or take back a request you sent. */
+  friendRemove: (userId: number, ack: (res: SocialResult) => void) => void;
+  partyState: (ack: (party: PartyState | null) => void) => void;
+  /** Invite a friend to your party (making one if you're not in one). */
+  partyInvite: (userId: number, ack: (res: SocialResult) => void) => void;
+  partyAnswer: (req: { partyId: string; accept: boolean }, ack: (res: SocialResult) => void) => void;
+  partyLeave: (ack: (res: SocialResult) => void) => void;
+  /** Leader only. */
+  partyKick: (userId: number, ack: (res: SocialResult) => void) => void;
 }
 
 export interface ServerToClientEvents {
@@ -561,6 +577,16 @@ export interface ServerToClientEvents {
   blockRemoved: (blockId: number) => void;
   /** The server removed you from the room (e.g. kicked); go back to the lobby. */
   roomClosed: (reason: string) => void;
+
+  /** Your friends list changed (a request, someone came online, started playing...). */
+  friends: (state: FriendsState) => void;
+  /** Your party changed (null: you're not in one any more). */
+  party: (party: PartyState | null) => void;
+  partyInvited: (invite: PartyInvite) => void;
+  /** Your party leader started a match: you're in it too. */
+  partyJoined: (join: JoinSuccess) => void;
+  /** Something to tell you ("Bob accepted your friend request"). */
+  notice: (text: string) => void;
 }
 
 // ---------------------------------------------------------------------------
