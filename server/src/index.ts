@@ -39,8 +39,9 @@ const server = await startGameServer({
   clientDist: isDev ? undefined : clientDist,
   // Developer menu passkey. Set DEV_PASSKEY to your own secret on a public server.
   devPasskey,
-  // On the local dev server developer tools work in every room; otherwise only in private rooms.
-  devInPublicRooms: isDev || process.env.DEV_PUBLIC_ROOMS === '1',
+  // Developer tools work in public matches too (still only for developer accounts with the
+  // passkey). DEV_PUBLIC_ROOMS=0 limits them to private rooms.
+  devInPublicRooms: process.env.DEV_PUBLIC_ROOMS !== '0',
   // A public server only lets developer accounts (npm run developer) try the passkey.
   devAccountsOnly: !isDev || process.env.DEV_ACCOUNTS_ONLY === '1',
   // Behind nginx / a load balancer: set TRUST_PROXY=1 (number of proxies) so rate limits see real IPs.

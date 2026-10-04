@@ -40,7 +40,7 @@ Environment variables:
 | `PORT` | Port to listen on (default 3000) |
 | `DB_PATH` | SQLite file (default `server/data/game.db`) |
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it developer tools are **off**. Use 12+ random characters on a public server |
-| `DEV_PUBLIC_ROOMS=1` | Developer tools in public rooms too (normally private rooms only) |
+| `DEV_PUBLIC_ROOMS=0` | Developer tools in private rooms only (by default they work in public matches too, still behind the passkey) |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Always on for a production server; this turns it on for `npm run dev` too |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
@@ -103,8 +103,7 @@ damage, recoil, spread, magazine), World (recolour every surface, sky, fog and l
 Misc (free camera, readouts) and saved configs. It asks for the
 developer passkey first, which **only the server knows**. Set it with `DEV_PASSKEY` (in `server/.env` for
 `npm run dev`; a public server sets its own variable). The server checks every request, and the tools work
-only in private rooms, or in every room on the local dev server (`npm run dev`, or set
-`DEV_PUBLIC_ROOMS=1`). On a production server only **developer accounts** may even try the
+in every room, public matches included (set `DEV_PUBLIC_ROOMS=0` for private rooms only). On a production server only **developer accounts** may even try the
 passkey; everyone else is refused without it being checked, so it can't be guessed.
 
 **Developer accounts.** Register an account in the game (*Save progress*), then on the server run
