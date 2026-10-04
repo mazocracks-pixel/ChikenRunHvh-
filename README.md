@@ -60,8 +60,9 @@ Environment variables:
 | --- | --- |
 | `PORT` | Port to listen on (default 3000) |
 | `DB_PATH` | SQLite file (default `server/data/game.db`) |
-| `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it developer tools are **off**. Use 12+ random characters on a public server |
-| `DEV_PUBLIC_ROOMS=1` | Developer tools in public rooms too (normally private rooms only) |
+| `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
+| `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
+| `HVH_PUBLIC_PANEL=1` | Opt-in public HvH Lab for all HvH players; normal stats and bounded abilities, no player administration. Default off |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Always on for a production server; this turns it on for `npm run dev` too |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
@@ -116,17 +117,44 @@ zoom level), invert Y, and a crosshair editor with a live preview: style (cross,
 colour, size, thickness, gap, opacity, outline and dynamic spread. Everything is saved in the
 browser and applies immediately, even mid-match.
 
-**Developer tools.** Press `Insert` (or tap the title five times on a phone) to open a
-developer/testing menu: Legit (aim assist, trigger, movement helpers), Rage (aim lock, no
-recoil/spread, infinite ammo, no rocket cooldown, no rocket damage, speed, fly, noclip, low gravity), Visuals (ESP, hitboxes, collision
-boxes), Players (spectate, teleport, freeze, respawn, health, armor, weapons), Weapons (fire rate,
-damage, recoil, spread, magazine), World (recolour every surface, sky, fog and light, with presets),
-Misc (free camera, readouts) and saved configs. It asks for the
-developer passkey first, which **only the server knows**. Set it with `DEV_PASSKEY` (in `server/.env` for
-`npm run dev`; a public server sets its own variable). The server checks every request, and the tools work
-only in private rooms, or in every room on the local dev server (`npm run dev`, or set
-`DEV_PUBLIC_ROOMS=1`). On a production server only **developer accounts** may even try the
-passkey; everyone else is refused without it being checked, so it can't be guessed.
+**HvH Lab.** Press `Insert`, choose *Pause → HvH Lab*, or tap the lobby title five times on a phone.
+The panel now has Aim, Anti-aim, Exploits, Movement, Visuals, Weapons, World, Telemetry,
+Settings and Configs tabs. Old configs migrate automatically: retired stat-changing powers are removed.
+
+- Aim: target priority/lock, head or body aim, body-if-lethal, minimum health damage after armor,
+  estimated hitchance from normal spread, bounded turns, reaction/switch delays, and optional
+  trigger/auto-fire. `H` holds the minimum-damage override; `J` forces body aim.
+- Autowall: optional shot selection through up to two crates, hay or wood boxes, retaining 65%
+  damage per box. Stone, brick, concrete and metal still stop bullets. The normal server penetration
+  rules decide every actual hit; prediction is an estimate.
+- Anti-aim: backward, left, right or spin bases, up to 45° jitter and 58° real/fake desync. Hold `K`
+  to invert. The server owns the real hitbox heading and separately replicates the fake body pose.
+  All HvH players see a cyan real-heading marker; the resolver uses that authoritative stance.
+  Ordinary shots reveal the stance for 300 ms. No fake pitch or invulnerability.
+- Exploits: Double Tap permits one extra bullet within a 500 ms window, with a second-shot interval
+  of `max(80 ms, normal interval × 0.2)` and an 8 s recharge. Normal damage, ammo, spread and reload
+  still apply. Hide Shots delays the normal 300 ms stance reveal by 150 ms and recharges in 6 s.
+  Both use one resource; switching mode/gun never restores charge. Rockets and melee cannot use it.
+  Respawning starts an 8 s recharge.
+- Movement: auto-stop changes ordinary movement intent; slow walk holds `Shift` at 45% input.
+  Hold `Z` to mark a peek anchor. After firing, release movement keys while holding `Z` to return.
+  Releasing `Z`, jumping, manual movement or an obstructed route cancels return. No teleporting.
+- Telemetry: target, predicted damage/hitchance, shot decision, five recent shot entries, charge,
+  and movement status. Balanced, Precision, Aggressive and Scout presets retain normal stats.
+
+Public access is prepared but **off by default**. Set `HVH_PUBLIC_PANEL=1` when ready to let every
+HvH player use the same panel without a passkey. This grants no access in other modes and no
+administration privilege. Until rollout, the existing developer passkey/account rules apply.
+Every HvH input, fire/reload and damage path clears legacy modifiers. Health/armor changes,
+freeze, kill, respawn, weapon grants and teleports are rejected in HvH even for developers.
+The older administration API remains restricted to authorized private non-HvH test rooms.
+The panel has no damage/rate/speed multipliers, ammo/fuel cheats, rocket immunity, flight,
+noclip, zero spread/recoil, silent shots, free camera or player-control buttons.
+
+Design inspiration: primary [Neverlose release notes](https://forum.neverlose.cc/t/neverlose-site-and-csgo-update-24-06/29064)
+for minimum damage, auto-stop and auto-peek, and [target/hitchance/body-aim notes](https://forum.neverlose.cc/t/neverlose-csgo-update-27-07/36286).
+These are independent mechanics in this game, with shared server limits. Defaults are a starting
+ruleset for PvP tuning; shot estimates do not guarantee a hit.
 
 **Developer accounts.** Register an account in the game (*Save progress*), then on the server run
 `npm run developer -- <username>` (on a built server: `node server/dist/tools/developer.js
@@ -204,15 +232,17 @@ client/src/
   game/Sky.ts          sky shader, clouds, hills;  game/Foliage.ts instanced grass, flowers, rocks
   game/Effects.ts      tracers, bullet holes, feathers, explosions, smoke;  game/Audio.ts synthesized sounds
   ui/                  HUD, crosshair, menus, shop, settings dialogs, touch controls
-  dev/                 developer menu: tabs.ts (every control, as data), DevRuntime (aim,
-                       movement, cameras), DevOverlay (ESP), config.ts (saved configs)
+  dev/                 HvH Lab: tabs.ts (controls), DevRuntime (aim / movement), tactics (shot estimates),
+                        config migration and presets. Legacy directory name is retained.
+                        DevOverlay (ESP), DevDebug3D (hitbox/collision outlines)
 server/src/dev/        passkey check + permissions (DevAccess), player actions (devActions)
-shared/src/dev.ts      developer modifiers shared by server rules and client prediction
+shared/src/dev.ts      private testing modifiers and access status
+shared/src/hvh.ts      bounded real/fake poses and shared exploit recharge rules
 ```
 
-To add a developer feature: add a field to `DevConfig` (`client/src/dev/config.ts`) and a control
-to a tab in `tabs.ts`. Anything that changes gameplay must also be a server-checked modifier
-(`shared/src/dev.ts`) or action (`server/src/dev/devActions.ts`).
+To add a panel feature: add a field to `DevConfig` (`client/src/dev/config.ts`) and a control
+in `tabs.ts`. HvH abilities must have bounded shared rules in `shared/src/hvh.ts`, server
+authorization through `devHvh`, and tests for resource/cooldown and mode isolation.
 
 ## Accounts and security
 

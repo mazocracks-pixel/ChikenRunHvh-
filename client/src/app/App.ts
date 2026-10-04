@@ -92,6 +92,7 @@ export class App {
         { class: 'panel card' },
         h('h2', null, 'Paused'),
         resume,
+        h('button', { type: 'button', class: 'secondary', onclick: () => void this.dev.openMenu() }, 'HvH Lab'),
         h('button', { type: 'button', class: 'secondary', onclick: () => openSettings(this.game.audio) }, 'Settings'),
         h('button', { type: 'button', class: 'secondary', onclick: () => this.leave() }, 'Leave match'),
       ),

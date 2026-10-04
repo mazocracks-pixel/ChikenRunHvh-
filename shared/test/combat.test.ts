@@ -113,6 +113,7 @@ describe('protocol packing', () => {
       fuel: 1.5, jumpHeld: true, jetting: true, alive: true, reloading: false, shielded: true, aiming: false,
       carryingFlag: true, hp: 55, armor: 20, weapon: 'sniper', mag: 3, eggs: 2, smokes: 1, ack: 991, vehicle: 0,
       gliding: true, hop: 0.24, groundTicks: 3, frozen: true, crouching: true,
+      fakeYaw: 2, hvhCharge: 0.5, hvhBurst: true, hvhConcealed: true,
     };
     const back = unpackPlayer(packPlayer(p));
     assert.deepEqual(back, { ...p, x: 1.235 });

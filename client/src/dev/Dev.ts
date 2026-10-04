@@ -3,7 +3,7 @@ import type { AudioEngine } from '../game/Audio';
 import type { Input } from '../game/Input';
 import type { GameSocket } from '../net/Network';
 import type { Hud } from '../ui/Hud';
-import { defaultConfig, getPath, loadConfigs, loadCurrent, saveConfigs, saveCurrent, setPath, toServerMods, type DevConfig, type NamedConfig } from './config';
+import { defaultConfig, getPath, loadConfigs, loadCurrent, sanitizeConfig, saveConfigs, saveCurrent, setPath, toServerMods, type DevConfig, type NamedConfig } from './config';
 import { DevMenu } from './DevMenu';
 import { DevRuntime } from './DevRuntime';
 import { showPasskeyPrompt } from './passkey';
@@ -38,7 +38,7 @@ export interface DevContext {
 export class Dev {
   config: DevConfig = loadCurrent();
   configs: NamedConfig[] = loadConfigs();
-  status: DevStatus = { granted: false, allowedHere: false, mods: { ...DEFAULT_MODS } };
+  status: DevStatus = { granted: false, allowedHere: false, profile: 'off', publicHvh: false, mods: { ...DEFAULT_MODS } };
   readonly runtime: DevRuntime;
   readonly input: Input;
   readonly hud: Hud;
@@ -50,6 +50,7 @@ export class Dev {
   private prompting = false;
   private readonly listeners = new Set<() => void>();
   private syncTimer: number | undefined;
+  private sessionVersion = 0;
   private toasts: HTMLElement | null = null;
 
   constructor(ctx: DevContext) {
@@ -64,6 +65,10 @@ export class Dev {
     window.addEventListener('keydown', this.onKey, true);
     // Grants live on the server; after a reconnect (e.g. server restart) ask again.
     this.socket.on('connect', () => void this.refreshStatus());
+    this.socket.on('disconnect', () => {
+      this.sessionVersion++;
+      this.setStatus({ ...this.status, granted: false, allowedHere: false, profile: 'off', mods: { ...DEFAULT_MODS } });
+    });
   }
 
   /** Developer features are on: access granted and allowed in the current room. */
@@ -116,6 +121,7 @@ export class Dev {
   }
 
   private changed(): void {
+    this.config = sanitizeConfig(this.config);
     saveCurrent(this.config);
     this.ctx.applyWorldLook(this.config.world);
     for (const fn of this.listeners) fn();
@@ -127,8 +133,10 @@ export class Dev {
   // ---------------------------------------------------------------------------
 
   async refreshStatus(): Promise<DevStatus> {
+    const version = this.sessionVersion;
     try {
-      this.setStatus(await this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devStatus'));
+      const status = await this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devStatus');
+      if (version === this.sessionVersion) this.setStatus(status);
     } catch {
       // Offline: keep what we had.
     }
@@ -174,27 +182,31 @@ export class Dev {
   syncNow(): void {
     window.clearTimeout(this.syncTimer);
     if (!this.status.granted || !this.runtime.currentSession) return;
-    this.socket
-      .timeout(REQUEST_TIMEOUT_MS)
-      .emitWithAck('devMods', toServerMods(this.config))
-      .then((s) => this.setStatus(s))
+    const version = this.sessionVersion;
+    const request = this.status.profile === 'hvh'
+      ? this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devHvh', this.config.hvh)
+      : this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devMods', toServerMods(this.config));
+    request
+      .then((s) => { if (version === this.sessionVersion) this.setStatus(s); })
       .catch(() => undefined);
   }
 
   private setStatus(s: DevStatus): void {
-    const wasActive = this.active;
+    const old = `${this.active}:${this.status.profile}:${this.status.publicHvh}`;
     this.status = s;
     this.runtime.applyServerMods();
-    if (wasActive !== this.active) for (const fn of this.listeners) fn();
+    if (old !== `${this.active}:${s.profile}:${s.publicHvh}`) for (const fn of this.listeners) fn();
   }
 
   sessionStarted(): void {
+    this.sessionVersion++;
     // New room, new permissions: check them, then send our modifiers.
     void this.refreshStatus().then(() => this.syncNow());
   }
 
   sessionEnded(): void {
-    this.status = { ...this.status, allowedHere: false, mods: { ...DEFAULT_MODS } };
+    this.sessionVersion++;
+    this.status = { ...this.status, allowedHere: false, profile: 'off', mods: { ...DEFAULT_MODS } };
     for (const fn of this.listeners) fn();
   }
 
@@ -214,7 +226,7 @@ export class Dev {
     this.input.releaseLock();
     this.ctx.onMenuChange();
     const status = await this.refreshStatus();
-    if (!status.granted) {
+    if (!status.granted && !status.publicHvh) {
       const unlocked = await showPasskeyPrompt((key) => this.unlock(key), this.config.settings);
       if (!unlocked) {
         this.prompting = false;

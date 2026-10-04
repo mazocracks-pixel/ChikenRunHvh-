@@ -7,6 +7,13 @@ import type { ServerPlayer } from '../rooms/ServerPlayer';
  * `actor` has developer access and that the room allows it; this validates the target and values.
  */
 export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAction): DevResult {
+  // Check at the mutation boundary as well as the socket API: no internal caller can
+  // accidentally grant an HvH player immunity, resources, freezes or teleports.
+  if (room.mode.id === 'hvh') {
+    room.enforceHvhRules(actor);
+    return fail('Player administration is unavailable in HvH.');
+  }
+  if (!room.info.private) return fail('Player administration only works in private test rooms.');
   const now = performance.now();
   if (action.kind === 'teleport') {
     if (!actor.alive) return fail('You are dead.');

@@ -1,5 +1,6 @@
 import type { RoundState } from './bomb';
 import type { DevAction, DevMods, DevResult, DevStatus } from './dev';
+import type { HvhLoadout } from './hvh';
 import type { Appearance } from './items';
 import type { MapId, Team } from './maps/types';
 import { round } from './math';
@@ -31,6 +32,10 @@ export interface PlayerInfo {
 
 /** The fast-changing state of a player, as carried in every snapshot. */
 export interface PlayerState extends MoveState {
+  fakeYaw?: number;
+  hvhCharge?: number;
+  hvhBurst?: boolean;
+  hvhConcealed?: boolean;
   pid: number;
   yaw: number;
   pitch: number;
@@ -104,6 +109,10 @@ export function packPlayer(p: PlayerState): PackedPlayer {
     p.vehicle,
     round(p.hop, 3),
     p.groundTicks,
+    round(p.fakeYaw ?? p.yaw, 3),
+    Math.floor((p.hvhCharge ?? 0) * 1000) / 1000,
+    p.hvhBurst ? 1 : 0,
+    p.hvhConcealed ? 1 : 0,
   ];
 }
 
@@ -141,6 +150,10 @@ export function unpackPlayer(a: PackedPlayer): PlayerState {
     vehicle: a[18] ?? 0,
     hop: a[19] ?? 0,
     groundTicks: a[20] ?? 255,
+    fakeYaw: a[21] ?? a[7] ?? 0,
+    hvhCharge: a[22] ?? 0,
+    hvhBurst: a[23] === 1,
+    hvhConcealed: a[24] === 1,
   };
 }
 
@@ -465,6 +478,7 @@ export interface ClientToServerEvents {
   devStatus: (ack: (status: DevStatus) => void) => void;
   /** Replace your own developer modifiers (ignored unless allowed). */
   devMods: (mods: Partial<DevMods>, ack: (status: DevStatus) => void) => void;
+  devHvh: (loadout: HvhLoadout, ack: (status: DevStatus) => void) => void;
   devAction: (action: DevAction, ack: (res: DevResult) => void) => void;
   /** Round-trip probe; the server just calls `ack` with its clock. */
   latency: (ack: (serverTime: number) => void) => void;

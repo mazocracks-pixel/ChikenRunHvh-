@@ -46,6 +46,8 @@ export interface InputFrame {
   crouch?: boolean;
   /** Use (E) held: plant / defuse the bomb. */
   use?: boolean;
+  /** HvH: invert the bounded fake pose; never changes movement or shot direction. */
+  invert?: boolean;
 }
 
 export function createMoveState(x: number, y: number, z: number): MoveState {

@@ -112,6 +112,7 @@ export interface SessionContext {
 
 /** How the developer system plugs into a match. Every hook is optional behaviour on top of normal play. */
 export interface DevHooks {
+  onShot?(session: GameSession): void;
   attach(session: GameSession): void;
   detach(session: GameSession): void;
   /** Start of every frame (aim assist, triggers). */
@@ -167,6 +168,7 @@ export class GameSession {
   private blockIndex = 0;
   private fireWasDown = false;
   private aimWasDown = false;
+  private lastMovementInput = { forward: 0, right: 0 };
   private readonly handlers: [keyof ServerToClientEvents, (...args: never[]) => void][] = [];
 
   private match: MatchState;
@@ -224,7 +226,7 @@ export class GameSession {
     this.isSoft = softBoxTest(ctx.world.map, (id) => this.blocks?.kindOf(id));
     this.wallbangBoxes = this.mode.wallbang ? WALLBANG.maxBoxes : 0;
     this.local = new LocalPlayer(ctx.scene, meInfo, me);
-    this.remotes = new RemotePlayers(ctx.scene);
+    this.remotes = new RemotePlayers(ctx.scene, this.mode.id === 'hvh');
     this.rig = new CameraRig(ctx.camera, this.collision);
     this.projectiles = new ClientProjectiles(ctx.scene, this.collision, this.effects);
     this.loot = new LootView(ctx.scene, ctx.world.map, this.effects);
@@ -297,6 +299,7 @@ export class GameSession {
       if (!this.local.alive) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
+      this.lastMovementInput = { forward: frame.forward, right: frame.right };
       this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon));
       net.socket.emit('input', frame);
     }
@@ -440,9 +443,8 @@ export class GameSession {
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
   }
 
-  private isMoving(): boolean {
-    const f = this.ctx.input.sample(0);
-    return f.forward !== 0 || f.right !== 0;
+  isMoving(): boolean {
+    return this.lastMovementInput.forward !== 0 || this.lastMovementInput.right !== 0;
   }
 
   private jetNozzle(pos: THREE.Vector3, yaw: number, side: number): Vec3 {
@@ -542,7 +544,8 @@ export class GameSession {
   // ---------------------------------------------------------------------------
 
   /** Where the crosshair points: first thing the camera ray hits (beyond the player). */
-  private aimDirection(eye: Vec3): Vec3 {
+  /** Actual camera-to-eye shot direction, including third-person parallax. */
+  aimDirection(eye: Vec3): Vec3 {
     const cam = this.ctx.camera;
     cam.getWorldDirection(this.camDir);
     const dir = { x: this.camDir.x, y: this.camDir.y, z: this.camDir.z };
@@ -550,7 +553,9 @@ export class GameSession {
     const skip = Math.max(0, (eye.x - cam.position.x) * dir.x + (eye.y - cam.position.y) * dir.y + (eye.z - cam.position.z) * dir.z);
     const origin = { x: cam.position.x + dir.x * skip, y: cam.position.y + dir.y * skip, z: cam.position.z + dir.z * skip };
     const ray = makeRay(origin, dir);
-    let t = this.raycastScene(ray, AIM_RANGE).t;
+    // Follow the same valid soft-cover path as the bullet, including in third person.
+    const penetrate = this.mode.wallbang === true && !this.weapons.def.projectile && !this.weapons.def.melee;
+    let t = this.raycastScene(ray, AIM_RANGE, penetrate).t;
     if (t < 1.5) t = 1.5;
     const target = pointOnRay(ray, t);
     return normalize({ x: target.x - eye.x, y: target.y - eye.y, z: target.z - eye.z });
@@ -583,6 +588,7 @@ export class GameSession {
   }
 
   private fire(aiming: boolean): void {
+    this.ctx.dev?.onShot?.(this);
     const { net, audio, input } = this.ctx;
     const w = this.weapons.def;
     const eye = this.eye();

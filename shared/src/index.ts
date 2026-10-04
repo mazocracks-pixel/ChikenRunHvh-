@@ -3,6 +3,7 @@ export * from './building';
 export * from './collision';
 export * from './constants';
 export * from './dev';
+export * from './hvh';
 export * from './items';
 export * from './maps';
 export * from './math';

@@ -1,5 +1,5 @@
 import { h, storage } from '../ui/dom';
-import { defaultConfig, sanitizeConfig } from './config';
+import { defaultConfig, getPath, setPath, sanitizeConfig } from './config';
 import { keyName, renderControl, type Control, type Rendered, type Section, type Tab } from './controls';
 import type { Dev } from './Dev';
 import { applyTheme } from './passkey';
@@ -8,7 +8,7 @@ import { buildTabs } from './tabs';
 const POSITION_KEY = 'chikengun:dev-pos';
 /** Live values (player list, readouts) refresh this often while the menu is open. */
 const LIVE_REFRESH_MS = 250;
-let lastTab = 'legit';
+let lastTab = 'aim';
 
 interface Placed {
   control: Control;
@@ -36,20 +36,20 @@ export class DevMenu {
   constructor(dev: Dev, onClose: () => void) {
     this.dev = dev;
     this.tabs = buildTabs(dev);
-    if (!this.tabs.some((t) => t.id === this.tab)) this.tab = 'legit';
+    if (!this.tabs.some((t) => t.id === this.tab)) this.tab = 'aim';
 
     const close = h('button', { type: 'button', class: 'dev-icon-btn', 'aria-label': 'Close menu' }, '✕');
     close.addEventListener('click', onClose);
     const header = h(
       'header',
       { class: 'dev-header' },
-      h('div', { class: 'dev-brand' }, h('span', { class: 'dev-logo' }, '◆'), h('b', null, 'CHICKEN'), h('span', null, '//DEV')),
+      h('div', { class: 'dev-brand' }, h('span', { class: 'dev-logo' }, '◆'), h('b', null, 'CHICKEN'), h('span', null, '//HVH LAB')),
       this.pill,
       this.search,
       close,
     );
     for (const t of this.tabs) {
-      const b = h('button', { type: 'button', class: 'dev-tab', role: 'tab', 'data-tab': t.id }, h('span', { class: 'dev-tab-icon' }, t.icon), t.label);
+      const b = h('button', { type: 'button', class: 'dev-tab', role: 'tab', 'data-tab': t.id }, h('span', { class: 'dev-tab-icon', 'aria-hidden': 'true' }, t.icon), t.label);
       b.addEventListener('click', () => {
         this.search.value = '';
         this.show(t.id);
@@ -57,6 +57,17 @@ export class DevMenu {
       });
       this.tabBar.append(b);
     }
+    this.tabBar.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const current = this.tabs.findIndex(t => t.id === this.tab);
+      const index = e.key === 'Home' ? 0 : e.key === 'End' ? this.tabs.length - 1 : (current + (e.key === 'ArrowRight' ? 1 : -1) + this.tabs.length) % this.tabs.length;
+      this.search.value = '';
+      this.show(this.tabs[index]!.id);
+      const button = this.tabBar.children[index] as HTMLElement;
+      button.focus();
+      button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
     this.search.addEventListener('input', () => this.render());
 
     const reset = h('button', { type: 'button', class: 'dev-btn' }, 'Reset tab');
@@ -81,6 +92,7 @@ export class DevMenu {
   }
 
   dispose(): void {
+    window.removeEventListener('resize', this.onResize);
     window.clearInterval(this.timer);
     window.removeEventListener('keydown', this.onKey, true);
     this.unsubscribe();
@@ -166,10 +178,10 @@ export class DevMenu {
     const d = this.dev;
     const inMatch = d.runtime.currentSession !== null;
     const [text, kind, title] = !inMatch
-      ? ['NOT IN MATCH', 'idle', 'Settings are saved and apply when you join a room that allows developer tools.']
+      ? [d.status.publicHvh ? 'JOIN HVH TO ACTIVATE' : 'NOT IN MATCH', 'idle', 'Settings are saved for your next eligible match.']
       : d.active
-        ? ['ACTIVE', 'on', 'Developer tools are active in this room.']
-        : ['LOCKED HERE', 'locked', 'This room does not allow developer tools. Use a private room.'];
+        ? [d.status.profile === 'hvh' ? 'HVH · SHARED RULES' : 'PRIVATE PRACTICE', 'on', 'Normal stats and server-governed abilities.']
+        : ['ACCESS REQUIRED', 'locked', 'Join HvH with public access enabled, or unlock developer access.'];
     if (this.pill.textContent !== text) {
       this.pill.textContent = text;
       this.pill.dataset.kind = kind;
@@ -206,7 +218,7 @@ export class DevMenu {
     if (!tab?.configKey) return this.dev.notify('Nothing to reset on this tab');
     const fresh = defaultConfig();
     const next = structuredClone(this.dev.config);
-    (next as unknown as Record<string, unknown>)[tab.configKey] = fresh[tab.configKey];
+    for (const path of typeof tab.configKey === 'string' ? [tab.configKey] : tab.configKey) setPath(next, path, structuredClone(getPath(fresh, path)));
     this.dev.replaceConfig(next);
     this.refreshAll();
     this.dev.notify(`${tab.label} reset to defaults`, 'good');
@@ -247,11 +259,13 @@ export class DevMenu {
       handle.addEventListener('pointermove', move);
       handle.addEventListener('pointerup', up);
     });
-    window.addEventListener('resize', () => {
-      const r = this.window.getBoundingClientRect();
-      this.place(r.left, r.top);
-    });
+    window.addEventListener('resize', this.onResize);
   }
+
+  private onResize = (): void => {
+    const r = this.window.getBoundingClientRect();
+    this.place(r.left, r.top);
+  };
 
   /** Moves the window, keeping its title bar on screen. */
   private place(x: number, y: number): void {

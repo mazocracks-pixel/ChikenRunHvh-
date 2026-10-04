@@ -1,4 +1,4 @@
-import { WEAPONS, WEAPON_SWITCH_MS, fireIntervalFor, magazineSize, shotUsesAmmo, type DevMods, type PlayerState, type WeaponDef, type WeaponId } from '@game/shared';
+import { WEAPONS, WEAPON_SWITCH_MS, HVH, HvhExploitClock, defaultHvhLoadout, fireIntervalFor, magazineSize, shotUsesAmmo, type DevMods, type PlayerState, type WeaponDef, type WeaponId } from '@game/shared';
 
 /** After firing, trust our own ammo count over (older) snapshots for this long. */
 const AMMO_TRUST_MS = 400;
@@ -21,6 +21,8 @@ export class WeaponController {
   mods: DevMods | null = null;
   /** Developer option: semi-automatic weapons keep firing while the trigger is held. */
   forceAutomatic = false;
+  hvh = defaultHvhLoadout();
+  private readonly exploit = new HvhExploitClock();
 
   constructor(loadout: WeaponId[]) {
     this.loadout = loadout.length > 0 ? loadout : ['pistol'];
@@ -45,7 +47,7 @@ export class WeaponController {
 
   /** Time between shots, including developer modifiers (fire rate, no rocket cooldown). */
   get fireInterval(): number {
-    return fireIntervalFor(this.def, this.mods);
+    return this.hvh.exploit === 'off' ? fireIntervalFor(this.def, this.mods) : this.exploit.interval(this.def, this.hvh.exploit, performance.now());
   }
 
   get reloading(): boolean {
@@ -59,6 +61,7 @@ export class WeaponController {
   }
 
   refill(): void {
+    this.exploit.reset(performance.now());
     for (const id of this.loadout) this.mags.set(id, this.magazineSize(id));
     this.reloadEndsAt = 0;
     this.switchReadyAt = 0;
@@ -102,9 +105,11 @@ export class WeaponController {
     this.triggerWasDown = down;
     if (!down || (!this.def.automatic && !this.forceAutomatic && !fresh)) return null;
     if (now < this.switchReadyAt || this.reloading) return null;
-    if (now - this.lastFireAt < this.fireInterval) return null;
+    const interval = this.hvh.exploit === 'off' ? fireIntervalFor(this.def, this.mods) : this.exploit.interval(this.def, this.hvh.exploit, now);
+    if (now - this.lastFireAt < interval) return null;
     if (this.mag <= 0) return fresh ? 'empty' : null;
     this.lastFireAt = now;
+    this.exploit.fired(this.def, this.hvh.exploit, now);
     if (shotUsesAmmo(this.def, this.mods)) this.mags.set(this.weapon, this.mag - 1);
     this.shotSeq++;
     return 'fire';
@@ -122,6 +127,7 @@ export class WeaponController {
 
   /** Adopt the server's numbers when we haven't just changed them ourselves. */
   sync(server: PlayerState, now: number): void {
+    if (now - this.lastFireAt > AMMO_TRUST_MS && server.hvhCharge !== undefined) this.exploit.readyAt = now + (1 - server.hvhCharge) * HVH.doubleTapRecharge;
     if (server.weapon !== this.weapon) {
       const slot = this.loadout.indexOf(server.weapon);
       if (slot >= 0 && now > this.switchReadyAt + 500) this.slot = slot;

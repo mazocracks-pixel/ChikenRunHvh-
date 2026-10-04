@@ -1,514 +1,216 @@
 import * as THREE from 'three';
-import { CROUCH, HITBOX, PLAYER, SIM_DT, makeRay, normalize, raycastWorld, wrapAngle, type InputFrame, type Vec3 } from '@game/shared';
-import { baseFov } from '../game/CameraRig';
+import { CROUCH, HITBOX, PLAYER, defaultHvhLoadout, hvhPose, makeRay, normalize, raycastWorld, raycastPenetrating, softBoxTest, WALLBANG, wrapAngle, type InputFrame, type Vec3 } from '@game/shared';
 import type { DevHooks, GameSession } from '../game/GameSession';
 import type { RemotePlayer } from '../game/RemotePlayers';
+import { h } from '../ui/dom';
 import type { Dev } from './Dev';
 import { DevDebug3D } from './DevDebug3D';
 import { DevOverlay } from './DevOverlay';
+import { boundedTurn, estimateShot, peekSteering, shotGate, type ShotTarget } from './tactics';
 
-const PITCH_MIN = -1.25;
-const PITCH_MAX = 1.1;
 const DEG = Math.PI / 180;
-/** Rage aim waits this long before moving to a new target when instant switching is off. */
-const SWITCH_DELAY_MS = 350;
-const JUMP_BUFFER_MS = 160;
-const FREECAM_SPEED = 14;
+export interface Candidate { pid: number; r: RemotePlayer; point: THREE.Vector3; angle: number; distance: number; hp: number; visible: boolean; target: ShotTarget }
+const xrayMaterial = () => new THREE.MeshBasicMaterial({ depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false });
 
-/** Draws only where something is in front (GreaterDepth): the hidden parts of a chicken. */
-function xrayMaterial(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({ depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false });
-}
-
-export interface Candidate {
-  pid: number;
-  r: RemotePlayer;
-  point: THREE.Vector3;
-  /** Angle from the crosshair, radians. */
-  angle: number;
-  distance: number;
-  hp: number;
-  visible: boolean;
-}
-
-/**
- * The gameplay side of the developer tools, plugged into the match through DevHooks.
- * Does nothing unless the server has confirmed developer access in this room.
- */
+/** Bounded assists plus explicit, server-governed HvH abilities. */
 export class DevRuntime implements DevHooks {
-  private readonly dev: Dev;
   readonly overlay: DevOverlay;
-  private debug3d: DevDebug3D | null = null;
   private session: GameSession | null = null;
-
-  // Aim state.
-  private legitPid = 0;
-  private legitSince = 0;
-  private ragePid = 0;
-  private rageSwitchAt = 0;
-  private rageAim: Vec3 | null = null;
-  private triggerSince = 0;
-  private triggerReady = false;
+  private debug3d: DevDebug3D | null = null;
+  private pid = 0;
+  private acquiredAt = 0;
+  private switchingUntil = 0;
+  private ready = false;
   private pulse = false;
-
-  // Movement helpers.
   private lastJump = false;
   private jumpBufferUntil = 0;
   private lastYaw = 0;
+  private peekHeld = false;
+  private peekAnchor: Vec3 | null = null;
+  private returning = false;
+  private peekReturnAt = 0;
+  private readonly enemy = xrayMaterial();
+  private readonly friendly = xrayMaterial();
+  private readonly info = h('div', { class: 'dev-tactical', role: 'status', 'aria-live': 'off' });
+  private infoKey = '';
+  private lastInfoAt = 0;
+  private readonly logs: string[] = [];
+  diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' };
 
-  // Wallhack: one shared silhouette material, recoloured from the config.
-  private readonly xrayEnemy = xrayMaterial();
-  private readonly xrayTeam = xrayMaterial();
-
-  // Spin bot.
-  private spinYaw = 0;
-  private spinning: { yaw: number; pitch: number } | null = null;
-
-  // Cameras.
-  private freeCamActive = false;
-  private readonly freePos = new THREE.Vector3();
-  private anchorYaw = 0;
-  private anchorPitch = 0;
-  /** pid being spectated (0 = none). */
-  spectatePid = 0;
-  private lastFireDown = false;
-  private lastSpectatorMode = false;
-
-  private readonly v1 = new THREE.Vector3();
-  private readonly v2 = new THREE.Vector3();
-
-  constructor(dev: Dev) {
-    this.dev = dev;
+  constructor(private readonly dev: Dev) {
     this.overlay = new DevOverlay(dev);
+    this.info.hidden = true;
+    (document.getElementById('hud-layer') ?? document.body).append(this.info);
   }
-
-  get currentSession(): GameSession | null {
-    return this.session;
-  }
-
-  private get active(): boolean {
-    return this.dev.active && this.session !== null;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
-
-  attach(session: GameSession): void {
-    this.session = session;
-    this.debug3d = new DevDebug3D(session);
-    this.reset();
-    this.dev.sessionStarted();
-  }
-
+  get currentSession(): GameSession | null { return this.session; }
+  get focusPid(): number { return this.pid; }
+  get peekState(): string { return this.returning ? 'Returning' : this.peekAnchor ? 'Anchor set' : 'Inactive'; }
+  get shotLog(): readonly string[] { return this.logs; }
+  private get active(): boolean { return this.dev.active && this.session !== null; }
+  private get playing(): boolean { return this.active && this.dev.input.active && !this.dev.menuOpen && this.session!.local.alive && !this.session!.local.car; }
+  attach(session: GameSession): void { this.session = session; this.debug3d = new DevDebug3D(session); this.reset(); this.dev.sessionStarted(); }
   detach(session: GameSession): void {
     if (this.session !== session) return;
-    this.debug3d?.dispose();
-    this.debug3d = null;
-    this.session = null;
-    this.overlay.clear();
-    this.reset();
-    this.dev.sessionEnded();
+    this.debug3d?.dispose(); this.debug3d = null; this.session = null;
+    this.overlay.clear(); this.reset(); this.dev.sessionEnded();
   }
-
   private reset(): void {
-    this.spinning = null;
-    this.legitPid = this.ragePid = this.spectatePid = 0;
-    this.rageAim = null;
-    this.triggerReady = false;
-    this.freeCamActive = false;
+    this.pid = 0; this.ready = false; this.acquiredAt = this.switchingUntil = 0;
+    this.peekAnchor = null; this.returning = this.peekHeld = false;
+    this.logs.length = 0; this.info.hidden = true;
+    this.diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' };
   }
-
-  /** The server confirmed (or withdrew) our modifiers: predict with exactly those. */
   applyServerMods(): void {
-    const s = this.session;
-    if (!s) return;
-    const mods = this.dev.active ? this.dev.status.mods : null;
-    s.local.mods = mods;
-    s.weapons.mods = mods;
+    if (!this.session) return;
+    // The panel never predicts stat changes, even in a legacy admin test room.
+    this.session.local.mods = this.session.weapons.mods = null;
+    this.session.weapons.hvh = this.session.mode.id === 'hvh' && this.dev.status.profile === 'hvh' ? this.dev.status.hvh ?? defaultHvhLoadout() : defaultHvhLoadout();
   }
-
-  // ---------------------------------------------------------------------------
-  // Hooks
-  // ---------------------------------------------------------------------------
-
-  beforeFrame(session: GameSession, _dt: number, now: number): void {
+  beforeFrame(session: GameSession, dt: number, now: number): void {
+    session.weapons.forceAutomatic = false;
     const c = this.dev.config;
-    const input = this.dev.input;
-    session.weapons.forceAutomatic = this.active && c.rage.weapon.automatic;
-    this.applyHud();
-    if (!this.active || !session.local.alive) {
-      this.ragePid = this.legitPid = 0;
-      this.rageAim = null;
-      this.triggerReady = false;
-      this.updateCameraModes(session, false);
-      return;
+    this.dev.hud.showCrosshair = !this.active || c.misc.crosshair;
+    this.dev.hud.showHitmarker = !this.active || c.misc.hitmarker;
+    this.dev.hud.showDamageIndicators = !this.active || c.misc.damageIndicator;
+    this.ready = false;
+    if (!this.playing) { this.pid = 0; this.peekAnchor = null; this.returning = false; this.diagnostics.state = 'Paused'; return; }
+    const a = c.rage.aim;
+    const trigger = c.legit.trigger;
+    if (!a.enabled && (!trigger.enabled || !this.keyHeld(trigger.key))) { this.pid = 0; this.diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' }; return; }
+    const forceBody = this.keyHeld(c.hvh.aim.bodyKey, false);
+    let part: 'head' | 'body' | 'nearest' = forceBody || c.hvh.aim.bodyAim === 'prefer' ? 'body' : a.enabled ? a.hitbox : 'nearest';
+    let list = this.candidates(session, part, true).filter(t => t.visible && t.angle <= (a.enabled ? a.fov : trigger.fov) * DEG);
+    if (!forceBody && a.enabled && c.hvh.aim.bodyAim === 'lethal') {
+      const bodies = this.candidates(session, 'body', true);
+      list = list.map(t => {
+        const b = bodies.find(b => b.pid === t.pid);
+        if (!b?.visible) return t;
+        const estimate = estimateShot(session.weapons.def, session.eye(), normalize({ x: b.point.x - session.eye().x, y: b.point.y - session.eye().y, z: b.point.z - session.eye().z }), b.target, session.isMoving(), !session.local.onGround, this.dev.input.aiming, session.collision, c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined);
+        return estimate.damage >= b.hp ? b : t;
+      });
     }
-    this.updateCameraModes(session, true);
-    if (this.freeCamActive || this.spectatePid) {
-      // Clicking while spectating moves on to the next player.
-      const down = input.firing;
-      if (this.spectatePid && down && !this.lastFireDown) this.spectatePid = this.nextSpectateTarget(session, this.spectatePid);
-      this.lastFireDown = down;
-      return;
+    const rank = (t: Candidate) => a.priority === 'health' ? t.hp : a.priority === 'distance' ? t.distance : t.angle;
+    const target = (a.lock && list.find(t => t.pid === this.pid)) || list.sort((x,y) => rank(x) - rank(y))[0];
+    if (!target) { this.pid = 0; this.diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Waiting for sight' }; return; }
+    if (target.pid !== this.pid) {
+      this.switchingUntil = this.pid ? now + c.hvh.aim.switchDelay : now;
+      this.pid = target.pid; this.acquiredAt = now;
     }
-
-    this.updateRage(session, now);
-    if (!c.rage.aim.enabled) this.updateLegit(session, _dt, now);
-    this.updateTrigger(session, now);
+    if (a.enabled && now >= this.switchingUntil && now - this.acquiredAt >= c.hvh.aim.reaction) {
+      const eye = session.camera.position, p = target.point;
+      const wantYaw = Math.atan2(-(p.x-eye.x), -(p.z-eye.z));
+      const wantPitch = Math.atan2(p.y-eye.y, Math.hypot(p.x-eye.x,p.z-eye.z));
+      this.dev.input.yaw = boundedTurn(this.dev.input.yaw, wantYaw, c.hvh.aim.turnRate, dt);
+      const step = c.hvh.aim.turnRate * DEG * Math.min(0.05, dt);
+      this.dev.input.pitch = Math.max(-1.25, Math.min(1.1, this.dev.input.pitch + Math.max(-step, Math.min(step, wantPitch-this.dev.input.pitch))));
+    }
+    const direction = session.aimDirection(session.eye());
+    const estimate = estimateShot(session.weapons.def, session.eye(), direction, target.target, session.isMoving(), !session.local.onGround, this.dev.input.aiming, session.collision, c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined);
+    const minimum = this.keyHeld(c.hvh.aim.overrideKey, false) ? c.hvh.aim.damageOverride : c.hvh.aim.minDamage;
+    let state = shotGate(estimate, minimum, c.hvh.aim.hitchance, target.hp, now-this.acquiredAt, Math.max(c.hvh.aim.reaction, a.enabled ? 0 : trigger.delay));
+    if (now < this.switchingUntil) state = 'Switching target';
+    if (session.weapons.def.projectile || session.weapons.def.melee) state = 'Manual weapon';
+    this.diagnostics = { target: target.r.info.name, damage: Math.round(estimate.damage), chance: Math.round(estimate.chance), state };
+    this.ready = state === 'Ready' && (a.enabled ? a.autoTarget : trigger.enabled);
   }
-
+  wantsFire(): boolean {
+    if (!this.playing || !this.ready) return false;
+    if (this.session!.weapons.def.automatic) return true;
+    this.pulse = !this.pulse; return this.pulse;
+  }
+  onShot(session: GameSession): void {
+    if (!this.active) return;
+    if (this.peekAnchor && this.peekHeld) { this.returning = true; this.peekReturnAt = performance.now(); }
+    const d = this.diagnostics;
+    const text = `${session.weapons.def.name} → ${d.target} · ~${d.damage} HP / ${d.chance}%`;
+    this.logs.unshift(text); if (this.logs.length > 5) this.logs.pop();
+  }
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame {
-    if (!this.active) return frame;
-    const c = this.dev.config;
-    const s = session.local.state;
-
-    if (this.freeCamActive || this.spectatePid) {
-      if (this.freeCamActive) this.moveFreeCam(frame);
-      // The chicken stays where it is, facing where it was.
-      return { ...frame, forward: 0, right: 0, jump: false, yaw: this.anchorYaw, pitch: this.anchorPitch };
-    }
-
-    const out = { ...frame };
-    const moving = out.forward !== 0 || out.right !== 0;
+    if (!this.playing) return frame;
+    const c = this.dev.config, s = session.local.state;
+    const out = { ...frame, invert: this.keyHeld(c.hvh.invertKey, false) };
     const now = performance.now();
-
+    const moving = frame.forward !== 0 || frame.right !== 0;
     if (c.legit.move.jumpAssist) {
-      // Jump pressed just before landing still counts.
-      if (frame.jump && !this.lastJump && !s.onGround) this.jumpBufferUntil = now + JUMP_BUFFER_MS;
-      if (s.onGround && now < this.jumpBufferUntil) {
-        out.jump = true;
-        this.jumpBufferUntil = 0;
-      }
+      if (frame.jump && !this.lastJump && !s.onGround) this.jumpBufferUntil = now + 160;
+      if (s.onGround && now < this.jumpBufferUntil) { out.jump = true; this.jumpBufferUntil = 0; }
     }
     this.lastJump = frame.jump;
-
     if (s.onGround && ((c.legit.move.bhop && moving) || c.misc.autoJump)) out.jump = true;
-    if (c.legit.move.assist && s.onGround && out.forward > 0 && this.obstacleAhead(session, out)) out.jump = true;
-
     if (c.legit.move.autoStrafe && !s.onGround && out.right === 0) {
-      // Strafe the way the mouse is turning (turning right = strafe right).
-      const turn = wrapAngle(out.yaw - this.lastYaw);
-      if (Math.abs(turn) > 0.002) out.right = turn < 0 ? 1 : -1;
+      const turn = wrapAngle(out.yaw-this.lastYaw); if (Math.abs(turn)>0.002) out.right = turn < 0 ? 1 : -1;
     }
     this.lastYaw = frame.yaw;
-    return this.antiAim(out);
-  }
-
-  /**
-   * Spin bot: send a spinning yaw (what others see, and where your head hitbox is), and rotate
-   * the movement keys by the difference so you still walk where the camera faces. Shots are
-   * unaffected: they carry their own direction.
-   */
-  private antiAim(frame: InputFrame): InputFrame {
-    const a = this.dev.config.rage.antiAim;
-    const m = this.dev.config.rage.move;
-    if (!a.spin || m.fly || m.noclip || this.session?.local.car) {
-      this.spinning = null;
-      return frame;
-    }
-    const step = a.speed * DEG * SIM_DT;
-    if (a.direction === 'jitter') this.spinYaw = frame.yaw + Math.PI + (Math.random() - 0.5) * Math.min(Math.PI, step * 6);
-    else this.spinYaw = wrapAngle(this.spinYaw + (a.direction === 'right' ? -step : step));
-    const yaw = wrapAngle(this.spinYaw);
-
-    // World-space walk direction for the real yaw...
-    let f = frame.forward;
-    let r = frame.right;
-    const len = Math.hypot(f, r);
-    if (len > 1) {
-      f /= len;
-      r /= len;
-    }
-    const sy = Math.sin(frame.yaw);
-    const cy = Math.cos(frame.yaw);
-    const dx = -sy * f + cy * r;
-    const dz = -cy * f - sy * r;
-    // ...expressed as forward/right relative to the spinning yaw.
-    const ss = Math.sin(yaw);
-    const cs = Math.cos(yaw);
-    const pitch = a.pitch === 'down' ? -1.2 : a.pitch === 'up' ? 1.05 : frame.pitch;
-    this.spinning = { yaw, pitch };
-    return { ...frame, yaw, pitch, forward: -ss * dx - cs * dz, right: cs * dx - ss * dz };
-  }
-
-  bodyAngles(): { yaw: number; pitch: number } | null {
-    return this.active && this.session?.local.alive && !this.freeCamActive && !this.spectatePid ? this.spinning : null;
-  }
-
-  wantsFire(): boolean {
-    if (!this.active) return false;
-    const c = this.dev.config;
-    const want = this.triggerReady || (c.rage.aim.enabled && c.rage.aim.autoTarget && this.rageAim !== null);
-    if (!want) return false;
-    const w = this.session?.weapons;
-    if (w && (w.def.automatic || w.forceAutomatic)) return true;
-    // Semi-automatic guns need a fresh press for every shot.
-    this.pulse = !this.pulse;
-    return this.pulse;
-  }
-
-  aimOverride(_session: GameSession, eye: Vec3): Vec3 | null {
-    if (!this.active || !this.dev.config.rage.aim.enabled || !this.rageAim) return null;
-    return normalize({ x: this.rageAim.x - eye.x, y: this.rageAim.y - eye.y, z: this.rageAim.z - eye.z });
-  }
-
-  recoilScale(): number {
-    if (!this.active) return 1;
-    const c = this.dev.config;
-    return c.rage.weapon.noRecoil ? 0 : c.weapons.recoil;
-  }
-
-  blocksShooting(): boolean {
-    return this.active && (this.freeCamActive || this.spectatePid !== 0);
-  }
-
-  controlCamera(session: GameSession, _dt: number): boolean {
-    if (!this.active) return false;
-    const cam = session.camera;
-    const input = this.dev.input;
-    if (this.freeCamActive) {
-      cam.position.copy(this.freePos);
-      cam.rotation.set(input.pitch, input.yaw, 0, 'YXZ');
-    } else if (this.spectatePid) {
-      const r = session.remotes.get(this.spectatePid);
-      if (!r) {
-        this.spectatePid = this.dev.config.misc.spectator ? this.nextSpectateTarget(session, 0) : 0;
-        return this.spectatePid !== 0 && this.controlCamera(session, _dt);
+    const held = c.hvh.movement.peekAssist && this.keyHeld(c.hvh.movement.peekKey, false);
+    if (held && !this.peekHeld && s.onGround) this.peekAnchor = { x:s.x, y:s.y, z:s.z };
+    this.peekHeld = held;
+    if (!held || !s.onGround || frame.jump || session.local.car) { this.peekAnchor = null; this.returning = false; }
+    if (this.returning && this.peekAnchor) {
+      if (moving) {
+        if (now-this.peekReturnAt<150) return out;
+        this.returning = false; this.peekAnchor = null;
       }
-      // Over the shoulder of the spectated player, looking where they look.
-      const yaw = r.yaw;
-      cam.position.set(r.position.x + Math.sin(yaw) * 3.8, r.position.y + 2.1, r.position.z + Math.cos(yaw) * 3.8);
-      cam.lookAt(r.position.x - Math.sin(yaw) * 4, r.position.y + 1.2, r.position.z - Math.cos(yaw) * 4);
-    } else {
-      return false;
+      else {
+        const steering = peekSteering(s, this.peekAnchor, frame.yaw);
+        const dx=this.peekAnchor.x-s.x, dz=this.peekAnchor.z-s.z, distance=Math.hypot(dx,dz);
+        const block = distance > 0.2 ? raycastWorld(makeRay({x:s.x,y:s.y+0.5,z:s.z},{x:dx/distance,y:0,z:dz/distance}),session.collision,Math.min(distance,PLAYER.radius+0.5)) : null;
+        if (!steering || block) { this.returning=false; this.peekAnchor=null; }
+        else { out.forward=steering.forward; out.right=steering.right; return out; }
+      }
     }
-    if (cam.fov !== baseFov()) {
-      cam.fov = baseFov();
-      cam.updateProjectionMatrix();
-    }
-    return true;
+    if (c.hvh.movement.autoStop && c.rage.aim.enabled && (c.rage.aim.autoTarget || this.dev.input.firing) && this.pid && !this.peekAnchor && s.onGround && !frame.jump) out.forward=out.right=0;
+    else if (c.hvh.movement.slowWalk && this.keyHeld(c.hvh.movement.slowKey,false) && s.onGround) { out.forward*=0.45; out.right*=0.45; }
+    return out;
   }
-
-  afterFrame(session: GameSession, _dt: number): void {
-    const on = this.active;
-    this.debug3d?.update(on ? this.dev.config : null);
-    this.overlay.render(on ? session : null, this);
+  aimOverride(): Vec3 | null { return null; }
+  recoilScale(): number { return 1; }
+  blocksShooting(): boolean { return false; }
+  controlCamera(): boolean { return false; }
+  bodyAngles(): { yaw:number; pitch:number } | null {
+    const s = this.session;
+    if (!this.playing || !s || this.dev.status.profile !== 'hvh') return null;
+    if (!this.dev.status.hvh?.antiAim.enabled) return null;
+    const pose = hvhPose(this.dev.input.yaw, this.dev.status.hvh ?? defaultHvhLoadout(), s.serverNow(), this.keyHeld(this.dev.config.hvh.invertKey,false), false);
+    return { yaw: s.local.server.hvhConcealed ? pose.fake : s.local.server.fakeYaw ?? pose.fake, pitch:this.dev.input.pitch };
   }
-
-  /** Developer wallhack: shows hidden chickens through walls (only where something is in front). */
+  afterFrame(session: GameSession): void {
+    this.debug3d?.update(this.active ? this.dev.config : null);
+    this.overlay.render(this.active ? session : null, this);
+    this.info.hidden = !this.active || !(this.dev.config.hvh.feedback.targetInfo || this.dev.config.hvh.feedback.shotLog);
+    if (this.info.hidden || performance.now()-this.lastInfoAt<150) return;
+    this.lastInfoAt=performance.now();
+    const c=this.dev.config.hvh, d=this.diagnostics;
+    const charge=Math.round((session.local.server.hvhCharge??0)*100);
+    const lines=[c.feedback.targetInfo ? `${d.target} · ~${d.damage} HP · ${d.chance}%\n${d.state} · ${this.peekState}\n${c.exploit === 'off' ? 'EXPLOIT OFF' : c.exploit === 'doubleTap' ? 'DOUBLE TAP' : 'HIDE SHOTS'} · ${charge}% charge` : '',c.feedback.shotLog ? this.logs.slice(0,3).join('\n') : ''].filter(Boolean);
+    const key=lines.join('\n');
+    if(key!==this.infoKey){this.infoKey=key;this.info.textContent=key;}
+  }
   xrayFor(session: GameSession, r: RemotePlayer): THREE.Material | null {
-    const w = this.dev.config.legit.wall;
+    const w=this.dev.config.legit.wall;
     if (!this.active || !w.enabled || !r.alive) return null;
-    this.xrayEnemy.color.set(w.enemyColor);
-    this.xrayTeam.color.set(w.teamColor);
-    this.xrayEnemy.opacity = this.xrayTeam.opacity = w.opacity;
-    const friendly = session.isFriendly(r.info);
-    if (friendly ? !w.teammates : !w.enemies) return null;
-    return friendly ? this.xrayTeam : this.xrayEnemy;
+    const team=session.isFriendly(r.info); if(team ? !w.teammates : !w.enemies) return null;
+    const m=team?this.friendly:this.enemy; m.color.set(team?w.teamColor:w.enemyColor); m.opacity=w.opacity; return m;
   }
-
-  // ---------------------------------------------------------------------------
-  // Aim
-  // ---------------------------------------------------------------------------
-
-  /** Enemy chickens with the chosen aim point, angle from the crosshair and visibility. */
-  candidates(session: GameSession, part: 'head' | 'body' | 'nearest', skipFriendly: boolean): Candidate[] {
-    const cam = session.camera;
-    const forward = cam.getWorldDirection(this.v1);
-    const eye = session.eye();
-    const out: Candidate[] = [];
-    for (const [pid, r] of session.remotes.players) {
-      if (!r.alive || (skipFriendly && session.isFriendly(r.info))) continue;
-      const k = r.latest?.crouching ? CROUCH.scale : 1;
-      const head = new THREE.Vector3(r.position.x - Math.sin(r.yaw) * HITBOX.headForward * k, r.position.y + HITBOX.headHeight * k, r.position.z - Math.cos(r.yaw) * HITBOX.headForward * k);
-      const body = new THREE.Vector3(r.position.x, r.position.y + HITBOX.bodyHeight * 0.55 * k, r.position.z);
-      const angleTo = (p: THREE.Vector3) => forward.angleTo(this.v2.subVectors(p, cam.position));
-      let point = part === 'head' ? head : body;
-      if (part === 'nearest' && angleTo(head) < angleTo(body)) point = head;
-      const distance = Math.hypot(point.x - eye.x, point.y - eye.y, point.z - eye.z);
-      out.push({ pid, r, point, angle: angleTo(point), distance, hp: r.latest?.hp ?? PLAYER.maxHealth, visible: this.visible(session, eye, point, distance) });
+  candidates(session: GameSession, part:'head'|'body'|'nearest', _skipFriendly:boolean): Candidate[] {
+    const out:Candidate[]=[], eye=session.eye();
+    const yaw=this.dev.input.yaw,pitch=this.dev.input.pitch;
+    const forward=new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch));
+    for(const [pid,r] of session.remotes.players){
+      if(!r.alive || session.isFriendly(r.info) || r.latest?.shielded || r.latest?.vehicle) continue;
+      const k=r.latest?.crouching?CROUCH.scale:1;
+      const heading=this.dev.config.hvh.feedback.resolver?r.yaw:r.latest?.fakeYaw??r.yaw;
+      const head=new THREE.Vector3(r.position.x-Math.sin(heading)*HITBOX.headForward*k,r.position.y+HITBOX.headHeight*k,r.position.z-Math.cos(heading)*HITBOX.headForward*k);
+      const body=new THREE.Vector3(r.position.x,r.position.y+HITBOX.bodyHeight*0.55*k,r.position.z);
+      const angleTo=(point:THREE.Vector3)=>forward.angleTo(point.clone().sub(session.camera.position));
+      const point=part==='head'?head:part==='nearest'&&angleTo(head)<angleTo(body)?head:body;
+      const distance=point.distanceTo(new THREE.Vector3(eye.x,eye.y,eye.z));
+      if(distance<0.01)continue;
+      const dir=normalize({x:point.x-eye.x,y:point.y-eye.y,z:point.z-eye.z});
+      const ray=makeRay(eye,dir);
+      const cover=this.dev.config.hvh.aim.autowall && session.mode.wallbang ? raycastPenetrating(ray,session.collision,distance,softBoxTest(session.map),WALLBANG.maxBoxes).wall : raycastWorld(ray,session.collision,distance);
+      out.push({pid,r,point,angle:angleTo(point),distance,hp:r.latest?.hp??100,visible:!cover||cover.t>=distance-0.01,target:{x:r.position.x,y:r.position.y,z:r.position.z,yaw:heading,scale:k,hp:r.latest?.hp??100,armor:r.latest?.armor??0}});
     }
     return out;
   }
-
-  private visible(session: GameSession, eye: Vec3, p: THREE.Vector3, distance: number): boolean {
-    const dir = { x: (p.x - eye.x) / distance, y: (p.y - eye.y) / distance, z: (p.z - eye.z) / distance };
-    const hit = raycastWorld(makeRay(eye, dir), session.collision, distance);
-    return !hit || hit.t >= distance - 0.25;
-  }
-
-  /** Yaw/pitch that put the camera's centre on `p`. */
-  private anglesTo(session: GameSession, p: THREE.Vector3): { yaw: number; pitch: number } {
-    const c = session.camera.position;
-    const dx = p.x - c.x;
-    const dy = p.y - c.y;
-    const dz = p.z - c.z;
-    return { yaw: Math.atan2(-dx, -dz), pitch: Math.max(PITCH_MIN, Math.min(PITCH_MAX, Math.atan2(dy, Math.hypot(dx, dz)))) };
-  }
-
-  private keyHeld(code: string): boolean {
-    return code === '' || this.dev.input.isDown(code);
-  }
-
-  private updateLegit(session: GameSession, dt: number, now: number): void {
-    const a = this.dev.config.legit.aim;
-    const input = this.dev.input;
-    const conditions = a.whileFiring || a.whileAds;
-    const conditionMet = !conditions || (a.whileFiring && input.firing) || (a.whileAds && input.aiming);
-    if (!a.enabled || !this.keyHeld(a.key) || !conditionMet) {
-      this.legitPid = 0;
-      return;
-    }
-    const best = this.candidates(session, a.target, a.teamCheck)
-      .filter((t) => t.angle <= a.fov * DEG && (!a.visCheck || t.visible))
-      .sort((x, y) => x.angle - y.angle)[0];
-    if (!best) {
-      this.legitPid = 0;
-      return;
-    }
-    if (best.pid !== this.legitPid) {
-      this.legitPid = best.pid;
-      this.legitSince = now;
-    }
-    if (now - this.legitSince < a.reaction) return;
-    // Ease towards the target: smoother = slower, strength scales the pull.
-    const k = (1 - Math.exp((-dt * 30) / a.smooth)) * (a.strength / 100);
-    const want = this.anglesTo(session, best.point);
-    input.yaw = wrapAngle(input.yaw + wrapAngle(want.yaw - input.yaw) * k);
-    input.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, input.pitch + (want.pitch - input.pitch) * k));
-  }
-
-  private updateRage(session: GameSession, now: number): void {
-    const a = this.dev.config.rage.aim;
-    this.rageAim = null;
-    if (!a.enabled) {
-      this.ragePid = 0;
-      return;
-    }
-    const list = this.candidates(session, a.hitbox, true).filter((t) => t.visible && t.angle <= a.fov * DEG);
-    let target = a.lock ? list.find((t) => t.pid === this.ragePid) : undefined;
-    if (!target) {
-      if (this.ragePid !== 0) {
-        // Lost the previous target.
-        if (!a.instantSwitch) this.rageSwitchAt = now + SWITCH_DELAY_MS;
-        this.ragePid = 0;
-      }
-      if (now < this.rageSwitchAt) return;
-      const by = { health: (t: Candidate) => t.hp, distance: (t: Candidate) => t.distance, crosshair: (t: Candidate) => t.angle }[a.priority];
-      target = list.sort((x, y) => by(x) - by(y))[0];
-    }
-    if (!target) return;
-    this.ragePid = target.pid;
-    this.rageAim = target.point.clone();
-    if (!a.silent) {
-      const want = this.anglesTo(session, target.point);
-      this.dev.input.yaw = want.yaw;
-      this.dev.input.pitch = want.pitch;
-    }
-  }
-
-  private updateTrigger(session: GameSession, now: number): void {
-    const t = this.dev.config.legit.trigger;
-    if (!t.enabled || !this.keyHeld(t.key)) {
-      this.triggerReady = false;
-      this.triggerSince = 0;
-      return;
-    }
-    const onTarget = this.candidates(session, 'nearest', true).some((c) => c.angle <= t.fov * DEG && (!t.visCheck || c.visible));
-    if (!onTarget) {
-      this.triggerSince = 0;
-      this.triggerReady = false;
-      return;
-    }
-    if (!this.triggerSince) this.triggerSince = now;
-    this.triggerReady = now - this.triggerSince >= t.delay;
-  }
-
-  /** The pid of the target the aim tools are on (for the ESP highlight). */
-  get focusPid(): number {
-    return this.ragePid || this.legitPid;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Movement and cameras
-  // ---------------------------------------------------------------------------
-
-  /** Something jumpable right in front of us (Movement assistance hops over it). */
-  private obstacleAhead(session: GameSession, f: InputFrame): boolean {
-    const s = session.local.state;
-    const dx = -Math.sin(f.yaw) * f.forward + Math.cos(f.yaw) * f.right;
-    const dz = -Math.cos(f.yaw) * f.forward - Math.sin(f.yaw) * f.right;
-    const len = Math.hypot(dx, dz) || 1;
-    const dir = { x: dx / len, y: 0, z: dz / len };
-    const reach = PLAYER.radius + 0.45;
-    const low = raycastWorld(makeRay({ x: s.x, y: s.y + 0.3, z: s.z }, dir), session.collision, reach);
-    if (!low || low.id === -1) return false;
-    // Only if it's low enough to clear with a jump.
-    const high = raycastWorld(makeRay({ x: s.x, y: s.y + 1.25, z: s.z }, dir), session.collision, reach + 0.3);
-    return !high;
-  }
-
-  private moveFreeCam(frame: InputFrame): void {
-    const input = this.dev.input;
-    const yaw = input.yaw;
-    const pitch = input.pitch;
-    const step = FREECAM_SPEED * SIM_DT * this.dev.config.rage.move.speed;
-    const fx = -Math.sin(yaw) * Math.cos(pitch);
-    const fy = Math.sin(pitch);
-    const fz = -Math.cos(yaw) * Math.cos(pitch);
-    this.freePos.x += (fx * frame.forward + Math.cos(yaw) * frame.right) * step;
-    this.freePos.y += (fy * frame.forward + (frame.jump ? 1 : 0)) * step;
-    this.freePos.z += (fz * frame.forward - Math.sin(yaw) * frame.right) * step;
-    this.freePos.y = Math.max(0.2, this.freePos.y);
-  }
-
-  /** Starts / stops free camera and spectator mode as the config changes. */
-  private updateCameraModes(session: GameSession, allowed: boolean): void {
-    const m = this.dev.config.misc;
-    const input = this.dev.input;
-    const wantFree = allowed && m.freeCam;
-    if (wantFree && !this.freeCamActive) {
-      this.freeCamActive = true;
-      this.freePos.copy(session.camera.position);
-      this.anchorYaw = input.yaw;
-      this.anchorPitch = input.pitch;
-    } else if (!wantFree && this.freeCamActive) {
-      this.freeCamActive = false;
-      input.yaw = this.anchorYaw;
-      input.pitch = this.anchorPitch;
-    }
-    if (this.lastSpectatorMode && !m.spectator) this.spectatePid = 0;
-    this.lastSpectatorMode = m.spectator;
-    if (allowed && !this.freeCamActive && m.spectator && !this.spectatePid) {
-      this.spectatePid = this.nextSpectateTarget(session, 0);
-      this.anchorYaw = input.yaw;
-      this.anchorPitch = input.pitch;
-    }
-    if (!allowed || this.freeCamActive) this.spectatePid = 0;
-  }
-
-  /** Start spectating someone from the Players tab (0 stops). */
-  spectate(pid: number): void {
-    if (pid && !this.spectatePid) {
-      this.anchorYaw = this.dev.input.yaw;
-      this.anchorPitch = this.dev.input.pitch;
-    }
-    this.spectatePid = pid;
-  }
-
-  private nextSpectateTarget(session: GameSession, after: number): number {
-    const pids = [...session.remotes.players.keys()].sort((a, b) => a - b);
-    if (pids.length === 0) return 0;
-    return pids.find((p) => p > after) ?? pids[0]!;
-  }
-
-  private applyHud(): void {
-    const on = this.active;
-    const m = this.dev.config.misc;
-    const hud = this.dev.hud;
-    hud.showCrosshair = !on || m.crosshair;
-    hud.showHitmarker = !on || m.hitmarker;
-    hud.showDamageIndicators = !on || m.damageIndicator;
-  }
+  private keyHeld(code:string, emptyMeansAlways=true):boolean { return code ? this.dev.input.isDown(code) : emptyMeansAlways; }
 }

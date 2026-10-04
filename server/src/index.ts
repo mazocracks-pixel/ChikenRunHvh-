@@ -39,6 +39,8 @@ const server = await startGameServer({
   clientDist: isDev ? undefined : clientDist,
   // Developer menu passkey. Set DEV_PASSKEY to your own secret on a public server.
   devPasskey,
+  // Explicit rollout only: everyone receives the same restricted panel in HvH.
+  publicHvhPanel: process.env.HVH_PUBLIC_PANEL === '1',
   // On the local dev server developer tools work in every room; otherwise only in private rooms.
   devInPublicRooms: isDev || process.env.DEV_PUBLIC_ROOMS === '1',
   // A public server only lets developer accounts (npm run developer) try the passkey.
@@ -63,7 +65,8 @@ for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
     // Not supported here (e.g. some Windows file systems): nothing to do.
   }
 }
-if (!devPasskey) console.log(`[server] developer tools are off (set DEV_PASSKEY${isDev ? ' in server/.env' : ''} to enable them)`);
+if (process.env.HVH_PUBLIC_PANEL === '1') console.log('[server] balanced public HvH panel is on; weapon stats and movement remain equal');
+if (!devPasskey) console.log(`[server] private developer administration is off (set DEV_PASSKEY${isDev ? ' in server/.env' : ''} to enable it)`);
 else {
   console.log(`[server] developer tools are on (${isDev ? 'any account' : 'developer accounts only'}); passkey length ${devPasskey.length}`);
   if (!isDev && devPasskey.length < 12) console.warn('[server] DEV_PASSKEY is short: use 12+ random characters on a public server');

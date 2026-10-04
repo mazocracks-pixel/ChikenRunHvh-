@@ -17,6 +17,8 @@ import {
   eyeHeightOf,
   fireIntervalFor,
   hopMaxFor,
+  hvhPose,
+  HVH,
   isWeaponId,
   makeRay,
   meleeHit,
@@ -231,6 +233,21 @@ export class GameRoom {
     return this.mode.teams && a !== b && a.info.team !== 0 && a.info.team === b.info.team;
   }
 
+  /** Defense at the rules layer, even when an internal caller bypasses socket authorization. */
+  enforceHvhRules(p: ServerPlayer): void {
+    if (this.mode.id !== 'hvh') return;
+    p.mods = null;
+    p.frozen = false;
+    for (const [id, mag] of p.mags) p.mags.set(id, Math.min(mag, WEAPONS[id].magazine));
+  }
+
+  updateHvhPose(p: ServerPlayer, now: number): void {
+    if (this.mode.id !== 'hvh' || !p.hvhEnabled) return;
+    const pose = hvhPose(p.lookYaw, p.hvh, now, p.lastInput?.invert === true, !p.alive || p.vehicle !== 0 || (now >= p.concealUntil && now < p.revealUntil));
+    p.yaw = pose.real;
+    p.fakeYaw = pose.fake;
+  }
+
   // ---------------------------------------------------------------------------
   // Membership
   // ---------------------------------------------------------------------------
@@ -366,6 +383,7 @@ export class GameRoom {
   // ---------------------------------------------------------------------------
 
   handleInput(p: ServerPlayer, raw: unknown): void {
+    this.enforceHvhRules(p);
     const frame = parseInput(raw);
     if (!frame || frame.seq <= p.lastSeq) return;
     if (!p.takeInputToken(performance.now())) return; // over budget: the client's reconciliation corrects it
@@ -373,8 +391,10 @@ export class GameRoom {
     p.lastSeq = frame.seq;
     p.useHeld = frame.use === true;
     p.yaw = frame.yaw;
+    p.lookYaw = frame.yaw;
     p.pitch = frame.pitch;
     p.lastInput = frame;
+    this.updateHvhPose(p, performance.now());
     // Dead chickens don't move, but we still acknowledge the input so the client can drop it.
     if (!p.alive || p.frozen) return;
     if (p.vehicle && this.vehicles) {
@@ -385,6 +405,7 @@ export class GameRoom {
   }
 
   handleFire(p: ServerPlayer, raw: unknown): void {
+    this.enforceHvhRules(p);
     const req = parseFire(raw);
     if (!req || !p.alive || p.vehicle || this.match.phase === 'ended' || this.actionsBlocked()) return;
     if (req.shot <= p.lastShotSeq || req.weapon !== p.weapon) return;
@@ -392,13 +413,21 @@ export class GameRoom {
     const now = performance.now();
     const mods = p.mods;
     if (now < p.switchReadyAt || p.reloadUntil > 0 || p.mag <= 0) return;
-    if (now - p.lastFireAt < fireIntervalFor(w, mods) * FIRE_RATE_TOLERANCE) return;
+    const interval = this.mode.id === 'hvh' && p.hvhEnabled ? p.exploit.interval(w, p.hvh.exploit, now) : fireIntervalFor(w, mods);
+    const burst = this.mode.id === 'hvh' && p.hvhEnabled && p.hvh.exploit === 'doubleTap' && p.exploit.burst && now <= p.exploit.burstUntil;
+    if (now - p.lastFireAt < interval * (burst ? 1 : FIRE_RATE_TOLERANCE)) return;
 
     p.lastShotSeq = req.shot;
     p.lastFireAt = now;
     if (shotUsesAmmo(w, mods)) p.mags.set(req.weapon, p.mag - 1);
     p.shieldUntil = 0;
     p.aiming = req.aiming;
+    if (this.mode.id === 'hvh' && p.hvhEnabled) {
+      const hidden = p.exploit.fired(w, p.hvh.exploit, now);
+      p.concealUntil = hidden ? now + HVH.hideMs : 0;
+      p.revealUntil = now + HVH.revealMs + (hidden ? HVH.hideMs : 0);
+      this.updateHvhPose(p, now);
+    }
 
     const eye = { x: p.state.x, y: p.state.y + eyeHeightOf(p.state), z: p.state.z };
     const len = Math.hypot(req.dx, req.dy, req.dz);
@@ -510,6 +539,7 @@ export class GameRoom {
   }
 
   handleReload(p: ServerPlayer): void {
+    this.enforceHvhRules(p);
     const w = WEAPONS[p.weapon];
     if (!p.alive || p.reloadUntil > 0 || p.mag >= p.magazineSize(w.id)) return;
     p.reloadUntil = performance.now() + (p.mods?.instantReload ? 0.001 : w.reloadTime);
@@ -574,6 +604,8 @@ export class GameRoom {
 
   /** Applies damage (armor first), reports it to both sides, and kills when health runs out. */
   damage(victim: ServerPlayer, attacker: ServerPlayer | null, amount: number, headshot: boolean, cause: KillCause, from: Vec3, now: number): void {
+    this.enforceHvhRules(victim);
+    if (attacker) this.enforceHvhRules(attacker);
     if (!victim.alive || amount <= 0 || this.match.phase === 'ended') return;
     if (now < victim.shieldUntil) return;
     if (attacker && this.areTeammates(attacker, victim)) return;
@@ -664,6 +696,7 @@ export class GameRoom {
   }
 
   protected spawn(p: ServerPlayer, now: number, announce: boolean): void {
+    this.enforceHvhRules(p);
     const point = this.pickSpawn(p);
     p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
@@ -851,6 +884,8 @@ export class GameRoom {
 
   protected fixedUpdate(now: number): void {
     for (const p of this.players.values()) {
+      this.enforceHvhRules(p);
+      this.updateHvhPose(p, now);
       p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state) });
       if (p.reloadUntil > 0 && now >= p.reloadUntil) {
         p.reloadUntil = 0;
@@ -907,6 +942,7 @@ function parseInput(raw: unknown): InputFrame | null {
     pitch: isFiniteNumber(pitch) ? clamp(pitch, -1.5, 1.5) : 0,
     crouch: raw.crouch === true,
     use: raw.use === true,
+    invert: raw.invert === true,
   };
 }
 
