@@ -23,7 +23,8 @@ const clientDist = fileURLToPath(new URL('../../client/dist', import.meta.url));
 mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
 
 /** Developer menu passkey. Never written in the code: set DEV_PASSKEY (server/.env locally). */
-const devPasskey = process.env.DEV_PASSKEY || undefined;
+// Forgive copy-paste slips in a host's variables screen: surrounding spaces or quotes.
+const devPasskey = (process.env.DEV_PASSKEY ?? '').trim().replace(/^(['"])(.*)$/, '$2').trim() || undefined;
 const list = (value: string | undefined) => (value ?? '').split(',').map((x) => x.trim()).filter(Boolean);
 
 const server = await startGameServer({
@@ -57,7 +58,10 @@ for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
   }
 }
 if (!devPasskey) console.log(`[server] developer tools are off (set DEV_PASSKEY${isDev ? ' in server/.env' : ''} to enable them)`);
-else if (!isDev && devPasskey.length < 12) console.warn('[server] DEV_PASSKEY is short: use 12+ random characters on a public server');
+else {
+  console.log(`[server] developer tools are on (${isDev ? 'any account' : 'developer accounts only'}); passkey length ${devPasskey.length}`);
+  if (!isDev && devPasskey.length < 12) console.warn('[server] DEV_PASSKEY is short: use 12+ random characters on a public server');
+}
 
 console.log(`[server] database: ${dbPath}`);
 if (isDev) console.log('[server] dev mode: open the Vite URL (http://localhost:5173)');
