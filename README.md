@@ -11,6 +11,27 @@ included), a shop full of hats, and AI bots so there's always someone to fight.
 
 All models, textures and sounds are generated in code. There are no asset files.
 
+### The Coop upgrade
+
+A new orange, cream and midnight lobby gives HvH a prominent launch button, all eight modes
+their own selector, and a compact Flight School guide. Armory, rooms, accounts, settings and
+leaderboards are still available from the lobby, including on phones.
+
+Farmyard now feels like a chicken sporting arena: painted field markings and cover trims,
+an orchard skyline, distant barn and windmill, warm lighting, daisies, and more expressive
+chickens with team scarf tails. Decorative scenery stays outside the playable bounds; cover
+still matches the authoritative collision boxes.
+
+Guns have distinct layered sounds, distance muffling, first-person kick and recovery. Hits
+show server-confirmed damage, rapid eliminations call out Double / Triple / Quad Plucks,
+and the HUD tracks your current life streak. Results include your kills, deaths, K/D and
+best locally observed streak for that match. Death breaks a multikill chain; a new match
+resets the streak record. ChikenBomb warmup is excluded when the first buy round begins.
+
+Explosions gain expanding shockwaves and cleaner impact particles. Effects are pooled,
+weapon models are reused, and completed audio graphs disconnect. The browser's reduced
+motion preference disables camera shake and reduces weapon motion and menu animation.
+
 ## Getting started
 
 Requires Node.js 22.13+ (for the built-in SQLite; developed on Node 24).

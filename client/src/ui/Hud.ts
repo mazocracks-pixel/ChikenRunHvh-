@@ -1,5 +1,6 @@
 import { JETPACK, MODES, PLAYER, TEAM_COLORS, WEAPONS, teamName, type ChatMessage, type KillCause, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId } from '@game/shared';
 import { watchSettings } from '../settings';
+import { CombatFeedback } from '../game/CombatFeedback';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
 
@@ -37,6 +38,15 @@ export class Hud {
   private readonly teamScores = h('div', { class: 'team-scores' });
   private readonly modeLabel = h('div', { class: 'mode-label' });
   private readonly stats = h('div', { class: 'hud-stats' });
+  private readonly personalScore = h('div', { class: 'personal-score' });
+  private readonly objective = h('div', { class: 'mode-objective' });
+  private readonly damageNumber = h('div', { class: 'damage-number' });
+  private readonly eliminationLabel = h('div', { class: 'elimination-label' });
+  private readonly streakLabel = h('div', { class: 'streak-label' });
+  private readonly elimination = h('div', { class: 'elimination' }, this.eliminationLabel, this.streakLabel);
+  private readonly feedback = new CombatFeedback();
+  private damageUntil = 0;
+  private eliminationUntil = 0;
   private readonly roomCode = h('div', { class: 'room-code' });
   private readonly killfeed = h('div', { class: 'killfeed' });
   private readonly crosshair = new CrosshairView();
@@ -94,18 +104,21 @@ export class Hud {
     this.money.hidden = true;
     this.roundLine.hidden = true;
     this.progress.hidden = true;
+    this.damageNumber.hidden = true;
+    this.elimination.hidden = true;
 
     this.root = h(
       'div',
       { id: 'hud', class: 'hud' },
-      h('div', { class: 'hud-top-left' }, this.stats, this.roomCode),
-      h('div', { class: 'hud-top-center' }, this.modeLabel, this.timer, this.teamScores, this.roundLine),
+      h('div', { class: 'hud-top-left' }, this.personalScore, this.stats, this.roomCode),
+      h('div', { class: 'hud-top-center' }, this.modeLabel, this.timer, this.teamScores, this.roundLine, this.objective),
       h('div', { class: 'hud-top-right' }, this.killfeed),
       this.scope,
       this.vignette,
       this.indicators,
       this.crosshair.root,
       this.hitmarker,
+      h('div', { class: 'combat-feedback', 'aria-hidden': 'true' }, this.damageNumber, this.elimination),
       this.banner,
       this.toasts,
       this.death,
@@ -128,10 +141,25 @@ export class Hud {
   setRoom(room: RoomInfo): void {
     this.mode = MODES[room.mode];
     this.modeLabel.textContent = this.mode.name;
+    this.objective.textContent = this.mode.bomb ? 'Plant or defuse · Hold E on a site' : this.mode.id === 'ctf' ? 'Steal their flag. Bring it home.' : this.mode.building ? 'B to build · X to change block' : `${this.mode.teams ? 'Team' : 'First to'} ${this.mode.scoreLimit} ${this.mode.teams ? 'kills to win' : 'kills wins'}`;
     this.roomCode.textContent = room.private ? `Room code: ${room.code}` : '';
     this.teamScores.hidden = !this.mode.teams;
     clear(this.killfeed);
     clear(this.chatLog);
+    this.resetCombatFeedback();
+  }
+
+  resetCombatFeedback(): void {
+    this.feedback.reset();
+    this.damageNumber.hidden = true;
+    this.elimination.hidden = true;
+    this.damageUntil = this.eliminationUntil = 0;
+  }
+
+  setPersonalScore(kills: number, deaths: number): void {
+    const text = `${kills} K  /  ${deaths} D${this.feedback.streak >= 2 ? `  ·  ${this.feedback.streak} STREAK` : ''}`;
+    if (this.personalScore.textContent !== text) this.personalScore.textContent = text;
+    this.personalScore.classList.toggle('on-streak', this.feedback.streak >= 3);
   }
 
   setStats(ping: number | null, fps: number, players: number): void {
@@ -192,8 +220,15 @@ export class Hud {
     this.crosshair.setSpread(spreadPx);
   }
 
-  hit(headshot: boolean, killed: boolean): void {
+  hit(headshot: boolean, killed: boolean, damage = 0): void {
     if (!this.showHitmarker) return;
+    if (damage > 0) {
+      const now = performance.now();
+      this.damageNumber.textContent = String(this.feedback.hit(damage, headshot, now));
+      this.damageNumber.classList.toggle('headshot', this.feedback.headshot);
+      this.damageNumber.hidden = false;
+      this.damageUntil = now + 800;
+    }
     this.hitmarker.classList.toggle('kill', killed);
     this.hitmarker.classList.toggle('headshot', headshot);
     this.hitmarker.classList.add('show');
@@ -220,6 +255,14 @@ export class Hud {
 
   kill(killer: PlayerInfo | undefined, victim: PlayerInfo | undefined, cause: KillCause, headshot: boolean, selfPid: number): void {
     if (!victim) return;
+    if (killer?.pid === selfPid && victim.pid !== selfPid) {
+      const label = this.feedback.eliminate(performance.now());
+      this.eliminationLabel.textContent = `${label} · ${victim.name}`;
+      this.streakLabel.textContent = this.feedback.streak >= 3 ? `${this.feedback.streak} IN A ROW${headshot ? ' · HEADSHOT' : ''}` : headshot ? 'HEADSHOT' : '';
+      this.elimination.classList.toggle('multi', this.feedback.chain > 1);
+      this.elimination.hidden = false;
+      this.eliminationUntil = performance.now() + 2400;
+    }
     const involved = killer?.pid === selfPid || victim.pid === selfPid;
     const row = h('div', { class: `kill${involved ? ' mine' : ''}` });
     if (killer && killer.pid !== victim.pid) row.append(nameEl(killer.name, killer.team, killer.pid === selfPid, killer.dev), ' ');
@@ -249,6 +292,9 @@ export class Hud {
   }
 
   showDeath(killer: PlayerInfo | undefined, cause: KillCause, selfPid: number): void {
+    this.feedback.died();
+    this.damageNumber.hidden = true;
+    this.elimination.hidden = true;
     clear(this.deathText);
     if (!killer || killer.pid === selfPid) this.deathText.append(cause === 'egg' ? 'Your own egg got you!' : 'You died');
     else this.deathText.append('Plucked by ', nameEl(killer.name, killer.team, false, killer.dev), ` · ${causeLabel(cause)}`);
@@ -395,6 +441,11 @@ export class Hud {
     if (this.mode.teams) title = match.winnerTeam ? `${teamName(this.mode, match.winnerTeam)} team wins!` : "It's a draw!";
     else title = winner ? `${winner.name} wins!` : 'No winner';
     this.results.append(h('h2', { class: selfWon ? 'won' : '' }, selfWon ? `🏆 ${title}` : title));
+    const self = lines.find((line) => line.self)?.info;
+    if (self) {
+      const stat = (value: number | string, label: string) => h('div', null, h('b', null, value), h('span', null, label));
+      this.results.append(h('div', { class: 'result-stats' }, stat(self.kills, 'PLUCKS'), stat(self.deaths, 'DEATHS'), stat((self.kills / Math.max(1, self.deaths)).toFixed(2), 'K / D'), stat(this.feedback.bestStreak, 'BEST STREAK')));
+    }
     if (this.mode.teams) this.results.append(h('div', { class: 'final-score' }, `${teamScores[0]} : ${teamScores[1]}`));
     if (mvp) this.results.append(h('div', { class: 'mvp' }, 'MVP: ', nameText(mvp), ` · ${mvp.kills} kills`));
     const sorted = [...lines].sort((a, b) => b.info.score - a.info.score);
@@ -416,6 +467,15 @@ export class Hud {
   }
 
   update(): void {
+    const now = performance.now();
+    if (this.damageUntil && now > this.damageUntil) {
+      this.damageNumber.hidden = true;
+      this.damageUntil = 0;
+    }
+    if (this.eliminationUntil && now > this.eliminationUntil) {
+      this.elimination.hidden = true;
+      this.eliminationUntil = 0;
+    }
     if (this.hitmarkerUntil && performance.now() > this.hitmarkerUntil) {
       this.hitmarker.classList.remove('show');
       this.hitmarkerUntil = 0;

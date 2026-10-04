@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mulberry32, type Aabb, type CollisionWorld, type MapDef } from '@game/shared';
 
 /** Tufts per square metre at full detail, inside and just outside the fence. */
-const NEAR_DENSITY = 0.75;
+const NEAR_DENSITY = 0.6;
 /** Further out, where fog hides most of it anyway. */
 const FAR_DENSITY = 0.25;
 const NEAR_BAND = 22;
@@ -11,7 +11,7 @@ const BLADES = 5;
 const scratch: Aabb[] = [];
 
 /**
- * Purely visual grass tufts, flowers and rocks, instanced so thousands cost a few draw calls.
+ * Purely visual grass tufts, daisies and rocks, instanced so thousands cost a few draw calls.
  * Grass sways in the wind on the GPU. Inside the fence it only grows on grass maps, and never
  * inside solid boxes; rocks stay outside the fence so nobody mistakes them for cover.
  */
@@ -22,6 +22,7 @@ export class Foliage {
 
   constructor(map: MapDef, collision: CollisionWorld, detail: number) {
     const rand = mulberry32(31);
+    detail = Math.max(0, Math.min(1, detail));
     const tufts: THREE.Vector3[] = [];
     const flowers: THREE.Vector3[] = [];
     const rocks: THREE.Vector3[] = [];
@@ -100,10 +101,10 @@ export class Foliage {
     const color = new THREE.Color();
     spots.forEach((p, i) => {
       q.setFromAxisAngle(up, rand() * Math.PI * 2);
-      const size = 0.55 + rand() * 0.4;
+        const size = 0.5 + rand() * 0.35;
       s.set(size, size * (0.7 + rand() * 0.4), size);
       mesh.setMatrixAt(i, m.compose(p, q, s));
-      mesh.setColorAt(i, color.setHSL(0.25 + rand() * 0.04, 0.48 + rand() * 0.1, 0.33 + rand() * 0.06));
+      mesh.setColorAt(i, color.setHSL(0.2 + rand() * 0.055, 0.4 + rand() * 0.1, 0.35 + rand() * 0.08));
     });
     mesh.receiveShadow = true;
     this.root.add(mesh);
@@ -111,16 +112,39 @@ export class Foliage {
 
   private addFlowers(spots: THREE.Vector3[], rand: () => number): void {
     if (spots.length === 0) return;
-    const colors = [0xffffff, 0xfff176, 0xf48fb1, 0xce93d8, 0xffb74d];
-    const geometry = this.track(new THREE.IcosahedronGeometry(0.07, 0));
-    geometry.translate(0, 0.28, 0);
-    const mesh = new THREE.InstancedMesh(geometry, this.track(new THREE.MeshStandardMaterial({ roughness: 0.8, flatShading: true })), spots.length);
+    // Each daisy is one geometry: five petals, a golden centre and a thin stem.
+    // Per-vertex colours keep the whole meadow to one draw call.
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const colors: number[] = [];
+    const append = (geometry: THREE.BufferGeometry, tint: number) => {
+      const g = geometry.index ? geometry.toNonIndexed() : geometry;
+      const p = g.getAttribute('position');
+      const n = g.getAttribute('normal');
+      const color = new THREE.Color(tint);
+      for (let i = 0; i < p.count; i++) {
+        positions.push(p.getX(i), p.getY(i), p.getZ(i));
+        normals.push(n.getX(i), n.getY(i), n.getZ(i));
+        colors.push(color.r, color.g, color.b);
+      }
+      if (g !== geometry) geometry.dispose();
+      g.dispose();
+    };
+    append(new THREE.CylinderGeometry(0.009, 0.012, 0.25, 4).translate(0, 0.125, 0), 0x627c3e);
+    for (let petal = 0; petal < 5; petal++) {
+      const a = petal / 5 * Math.PI * 2;
+      append(new THREE.IcosahedronGeometry(0.055, 0).scale(1, 0.35, 0.6).rotateY(-a).translate(Math.cos(a) * 0.055, 0.255, Math.sin(a) * 0.055), 0xfff3cf);
+    }
+    append(new THREE.IcosahedronGeometry(0.034, 0).scale(1, 0.6, 1).translate(0, 0.27, 0), 0xf4b83f);
+    const geometry = this.track(new THREE.BufferGeometry());
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const mesh = new THREE.InstancedMesh(geometry, this.track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true })), spots.length);
     const m = new THREE.Matrix4();
-    const color = new THREE.Color();
     spots.forEach((p, i) => {
-      const k = 0.8 + rand() * 0.6;
+      const k = 0.7 + rand() * 0.5;
       mesh.setMatrixAt(i, m.makeScale(k, k, k).setPosition(p));
-      mesh.setColorAt(i, color.set(colors[Math.floor(rand() * colors.length)]!));
     });
     this.root.add(mesh);
   }
@@ -159,7 +183,7 @@ function tuftGeometry(rand: () => number): THREE.BufferGeometry {
     const r = 0.04 + rand() * 0.09;
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
-    const height = 0.26 + rand() * 0.22;
+    const height = 0.2 + rand() * 0.16;
     const width = 0.035 + rand() * 0.02;
     // Blade faces a random direction and leans outwards.
     const fa = rand() * Math.PI;

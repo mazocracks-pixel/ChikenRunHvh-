@@ -53,6 +53,8 @@ export class CameraRig {
   private distance = DISTANCE;
   private zoom = 1;
   private shakeAmount = 0;
+  private shakeTime = 0;
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   private deathAngle = 0;
 
   constructor(camera: THREE.PerspectiveCamera, world: CollisionWorld) {
@@ -71,6 +73,7 @@ export class CameraRig {
   }
 
   addShake(amount: number): void {
+    if (!Number.isFinite(amount) || amount <= 0 || this.reducedMotion.matches) return;
     this.shakeAmount = Math.min(1, this.shakeAmount + amount);
   }
 
@@ -125,18 +128,22 @@ export class CameraRig {
   }
 
   private applyZoomAndShake(zoom: number, dt: number): void {
+    this.shakeTime += dt;
     this.zoom = damp(this.zoom, zoom, 14, dt);
     const fov = baseFov() / this.zoom;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
-    if (this.shakeAmount > 0.001) {
-      const s = this.shakeAmount * 0.25;
-      this.camera.position.x += (Math.random() - 0.5) * s;
-      this.camera.position.y += (Math.random() - 0.5) * s;
-      this.camera.position.z += (Math.random() - 0.5) * s;
-      this.shakeAmount = damp(this.shakeAmount, 0, 6, dt);
-    }
+    if (this.reducedMotion.matches) this.shakeAmount = 0;
+    if (this.shakeAmount <= 0.001) return;
+    // Continuous vibration feels like an impact instead of changing direction randomly each frame.
+    // Translation only: no extra aim kick, and less displacement through a magnified scope.
+    const amplitude = this.shakeAmount ** 1.6 * 0.11 / Math.sqrt(this.zoom);
+    const t = this.shakeTime;
+    this.camera.position.x += (Math.sin(t * 61) + Math.sin(t * 97) * 0.35) * amplitude;
+    this.camera.position.y += (Math.sin(t * 73 + 1.2) + Math.sin(t * 113) * 0.3) * amplitude * 0.7;
+    this.camera.position.z += Math.sin(t * 53 + 0.7) * amplitude * 0.4;
+    this.shakeAmount = damp(this.shakeAmount, 0, 7.5, dt);
   }
 }

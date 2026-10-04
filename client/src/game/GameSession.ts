@@ -420,6 +420,7 @@ export class GameSession {
     const server = this.local.server;
     const w = this.weapons;
     hud.setStats(net.ping, fps, this.infos.size);
+    hud.setPersonalScore(this.self.kills, this.self.deaths);
     hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel);
     hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
     hud.setGrenades(server.eggs, server.smokes);
@@ -715,6 +716,7 @@ export class GameSession {
     const { hud, audio } = this.ctx;
     const mine = this.self.team;
     if (r.phase === 'buy' && prev?.phase !== 'buy') {
+      if (prev?.phase === 'warmup') hud.resetCombatFeedback();
       this.hasKit = false;
       hud.toast(`Round ${r.round} · buy time: press B`);
       if (r.bomb.carrier === this.selfPid) hud.toast('💣 You carry the bomb: plant it on A or B', 'good');
@@ -1060,7 +1062,7 @@ export class GameSession {
         hud.damageFrom(-wrapAngle(angle - this.ctx.input.yaw));
       }
     } else if (e.attacker === this.selfPid) {
-      hud.hit(e.headshot, e.hp <= 0);
+      hud.hit(e.headshot, e.hp <= 0, e.amount);
       audio.play(e.headshot ? 'headshot' : 'hit');
     }
   }
@@ -1083,7 +1085,6 @@ export class GameSession {
       }
       if (e.killer === this.selfPid) {
         audio.play('kill');
-        hud.toast(`You plucked ${victim?.name ?? 'someone'}${e.headshot ? ' · headshot!' : ''}`, 'good');
       }
     }
   }
@@ -1171,6 +1172,7 @@ export class GameSession {
     this.match = m;
     this.teamScores = m.teamScores;
     if (m.phase === 'playing' && previous !== 'playing') {
+      hud.resetCombatFeedback();
       hud.toast('Fight!', 'good');
       audio.play('reward');
     }

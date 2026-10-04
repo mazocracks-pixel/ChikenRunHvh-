@@ -124,7 +124,8 @@ describe('multiplayer over sockets', () => {
     const snaps: WorldSnapshot[] = [];
     a.on('snapshot', (s) => snaps.push(s));
     const joinedNames: string[] = [];
-    a.on('playerJoined', (p) => joinedNames.push(p.name));
+    // Quick Play may fill a seat with a bot while the second player's handshake is in flight.
+    a.on('playerJoined', (p) => { if (!p.bot) joinedNames.push(p.name); });
 
     const ra = (await a.emitWithAck('quickPlay', { mode: 'duel' })) as JoinSuccess;
     assert.ok(ra.ok);

@@ -6,6 +6,8 @@ const MAX_PARTICLES = 1500;
 const TRACER_POOL = 64;
 const SPRITE_POOL = 160;
 const HOLE_POOL = 96;
+const SHOCKWAVE_POOL = 12;
+const SHOCKWAVE_LIFE = 0.42;
 /** Bright colours go above 1 so they glow (bloom) and survive tone mapping as near-white. */
 const TRACER_GLOW = 2.5;
 const SPARK = new THREE.Color(4, 2.6, 1.1);
@@ -48,6 +50,8 @@ export class Effects {
 
   private readonly tracers: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number }[] = [];
   private nextTracer = 0;
+  private readonly shockwaves: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number; radius: number }[] = [];
+  private nextShockwave = 0;
   private readonly sprites: Sprite[] = [];
   private readonly puff = puffTexture();
 
@@ -90,6 +94,19 @@ export class Effects {
       this.root.add(mesh);
     }
 
+    const waveGeometry = new THREE.TorusGeometry(1, 0.018, 4, 48).rotateX(-Math.PI / 2);
+    for (let i = 0; i < SHOCKWAVE_POOL; i++) {
+      const material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(2.5, 1.6, 0.55), transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(waveGeometry, material);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.shockwaves.push({ mesh, material, life: 0, radius: 1 });
+      this.root.add(mesh);
+    }
+
     for (let i = 0; i < SPRITE_POOL; i++) {
       const material = new THREE.SpriteMaterial({ map: this.puff, transparent: true, depthWrite: false, opacity: 0 });
       const sprite = new THREE.Sprite(material);
@@ -113,6 +130,8 @@ export class Effects {
     (this.particles.material as THREE.Material).dispose();
     this.tracers[0]?.mesh.geometry.dispose();
     for (const t of this.tracers) t.material.dispose();
+    this.shockwaves[0]?.mesh.geometry.dispose();
+    for (const wave of this.shockwaves) wave.material.dispose();
     for (const s of this.sprites) s.material.dispose();
     this.puff.dispose();
     this.holes.geometry.dispose();
@@ -125,9 +144,10 @@ export class Effects {
   // ---------------------------------------------------------------------------
 
   tracer(from: Vec3, to: Vec3, color = 0xfff1a8): void {
+    const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+    if (!Number.isFinite(length) || length < 0.01) return;
     const t = this.tracers[this.nextTracer];
     this.nextTracer = (this.nextTracer + 1) % TRACER_POOL;
-    const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
     t.mesh.position.set(from.x, from.y, from.z);
     t.mesh.lookAt(to.x, to.y, to.z);
     t.mesh.scale.set(0.025, 0.025, length);
@@ -138,7 +158,7 @@ export class Effects {
   }
 
   muzzleFlash(at: Vec3, big = false): void {
-    this.spawnSprite(at, { color: 0xffd36b, life: 0.06, startScale: big ? 0.7 : 0.4, endScale: big ? 0.9 : 0.55, opacity: 1, additive: true, glow: 3 });
+    this.spawnSprite(at, { color: 0xffe7b5, life: 0.055, startScale: big ? 0.65 : 0.32, endScale: big ? 0.85 : 0.5, opacity: 1, additive: true, glow: 3 });
     this.flash.position.set(at.x, at.y, at.z);
     this.flash.intensity = big ? 7 : 4.5;
     this.flashLife = 0.06;
@@ -148,7 +168,8 @@ export class Effects {
   impact(at: Vec3, color = 0xcbb89b): void {
     for (let i = 0; i < 6; i++) this.particle(at, rand3(3), color, 0.05 + Math.random() * 0.04, 0.35, 12, 2);
     for (let i = 0; i < 3; i++) this.particle(at, rand3(9), SPARK, 0.025, 0.12 + Math.random() * 0.1, 10, 1);
-    this.spawnSprite(at, { color: 0xd8d0c4, life: 0.5, startScale: 0.3, endScale: 0.9, opacity: 0.6, vy: 0.4 });
+    this.spawnSprite(at, { color: 0xffe3aa, life: 0.08, startScale: 0.12, endScale: 0.24, opacity: 0.7, additive: true, glow: 2 });
+    this.spawnSprite(at, { color: 0xd8d0c4, life: 0.38, startScale: 0.22, endScale: 0.75, opacity: 0.45, vy: 0.4 });
   }
 
   /** A dark mark where a bullet hit a surface with normal `n`. Old holes get reused. */
@@ -196,6 +217,14 @@ export class Effects {
   }
 
   explosion(at: Vec3, radius: number): void {
+    const wave = this.shockwaves[this.nextShockwave];
+    this.nextShockwave = (this.nextShockwave + 1) % SHOCKWAVE_POOL;
+    wave.mesh.position.set(at.x, Math.max(0.045, at.y + 0.05), at.z);
+    wave.mesh.scale.setScalar(0.35);
+    wave.mesh.visible = true;
+    wave.material.opacity = 0.85;
+    wave.radius = Math.max(0.5, radius * 1.45);
+    wave.life = SHOCKWAVE_LIFE;
     this.spawnSprite(at, { color: 0xffb347, life: 0.35, startScale: 0.6, endScale: radius * 1.3, opacity: 1, additive: true, glow: 2.5 });
     this.spawnSprite(at, { color: 0xfff3c4, life: 0.15, startScale: 0.4, endScale: radius * 0.8, opacity: 1, additive: true, glow: 4 });
     this.blast.position.set(at.x, at.y + 0.5, at.z);
@@ -263,7 +292,7 @@ export class Effects {
   ): void {
     // Reuse a free sprite, or the one closest to finishing.
     let s = this.sprites.find((x) => !x.active);
-    if (!s) s = this.sprites.reduce((a, b) => (a.maxLife - a.life > b.maxLife - b.life ? a : b));
+    if (!s) s = this.sprites.reduce((a, b) => (a.maxLife - a.life < b.maxLife - b.life ? a : b));
     s.active = true;
     s.life = 0;
     s.maxLife = o.life;
@@ -273,9 +302,15 @@ export class Effects {
     s.fadeIn = o.fadeIn ?? 0;
     s.vy = o.vy ?? 0;
     s.material.color.set(o.color).multiplyScalar(o.glow ?? 1);
-    s.material.blending = o.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
-    s.material.needsUpdate = true;
+    const blending = o.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+    if (s.material.blending !== blending) {
+      s.material.blending = blending;
+      s.material.needsUpdate = true;
+    }
+    s.material.rotation = Math.random() * Math.PI * 2;
+    s.material.opacity = s.fadeIn > 0 ? 0 : o.opacity;
     s.sprite.position.set(at.x, at.y, at.z);
+    s.sprite.scale.set(o.startScale, o.startScale, 1);
     s.sprite.visible = true;
   }
 
@@ -300,7 +335,13 @@ export class Effects {
       this.vel[i * 3 + 1] = this.vel[i * 3 + 1] * k - this.gravity[i] * dt;
       this.vel[i * 3 + 2] *= k;
       this.pos[i * 3] += this.vel[i * 3] * dt;
-      this.pos[i * 3 + 1] = Math.max(0.02, this.pos[i * 3 + 1] + this.vel[i * 3 + 1] * dt);
+      this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
+      if (this.pos[i * 3 + 1] < 0.02) {
+        this.pos[i * 3 + 1] = 0.02;
+        this.vel[i * 3 + 1] = Math.abs(this.vel[i * 3 + 1]) * 0.2;
+        this.vel[i * 3] *= 0.7;
+        this.vel[i * 3 + 2] *= 0.7;
+      }
       this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
       const t = Math.max(0, this.life[i] / this.maxLife[i]);
       const s = this.size[i] * (0.3 + 0.7 * t);
@@ -317,6 +358,15 @@ export class Effects {
       t.life -= dt;
       t.material.opacity = Math.max(0, t.life / 0.07) * 0.9;
       if (t.life <= 0) t.mesh.visible = false;
+    }
+
+    for (const wave of this.shockwaves) {
+      if (!wave.mesh.visible) continue;
+      wave.life = Math.max(0, wave.life - dt);
+      const progress = 1 - wave.life / SHOCKWAVE_LIFE;
+      wave.mesh.scale.setScalar(0.35 + (wave.radius - 0.35) * (1 - (1 - progress) ** 2));
+      wave.material.opacity = 0.85 * (1 - progress) ** 2;
+      if (wave.life === 0) wave.mesh.visible = false;
     }
 
     for (const s of this.sprites) {
