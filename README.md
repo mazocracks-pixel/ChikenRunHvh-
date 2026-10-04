@@ -97,8 +97,14 @@ Smoke grenades (`Q`). Wallbang: bullets go through crates, hay and wood (up to t
 boxes, losing 35% damage each), while stone, brick, metal and concrete stop them. Hold jump to auto bunny hop: every hop right as you land adds speed (up to
 +60%, or +80% with a melee weapon out), and hitting a wall resets it. Press jump again in the air to fly with jetpack fuel, or to
 glide without it. Mystery loot boxes: shoot one open for a medkit, armor, fuel or eggs. Every kill also drops a random bonus pickup
-where the victim fell (it lasts 20 seconds). Drivable buggies
-(`E`) that run over chickens and can be blown up.
+where the victim fell (it lasts 20 seconds). Drivable buggies (`E`) that run over chickens and can be
+blown up: they slide a little in fast turns, drift with the handbrake (`Space`, leaving skid marks and
+tyre smoke), and have a nitro tank (`Shift`, blue flames, refills when you let go). You can shoot and
+throw eggs from the driver's seat (no melee): your chicken turns to where you aim. The car's body
+takes the bullets that hit it, but a driver's head above it can be shot. The buggy has a roll cage
+with a light bar, steering front wheels and steering wheel, suspension that leans and dips, glowing
+head and brake lights, dust behind it, an engine that growls with your speed, and smoke when it's
+badly damaged.
 
 **Modes.** Against All (FFA), Team Fight (red vs blue), HvH (Team Fight 5 vs 5 where everyone sees
 enemies through walls), Knife Fight (3 vs 3, knives only, no grenades), ChikenBomb (see below), Arms
@@ -228,13 +234,13 @@ or first person (`V`). Synthesized sound effects.
 | Key           | Action                    | Key     | Action                       |
 | ------------- | ------------------------- | ------- | ---------------------------- |
 | WASD / arrows | Move (drive in a buggy)   | Mouse   | Look / aim                   |
-| Space         | Jump (hold: bunny hop)    | Click   | Shoot                        |
+| Space         | Jump (hold: bunny hop); drift (driving) | Click | Shoot (on foot or driving) |
 | Space in air  | Glide / jetpack (again)   | V       | First / third person (saved) |
 | Right-click   | Zoom / sniper scope       | R       | Reload                       |
 | 1–4, wheel    | Switch gun                | 5       | Melee weapon                 |
 | F             | Inspect weapon            | G       | Throw explosive egg          |
 | Q             | Smoke grenade             | E       | Get in / out of a buggy      |
-| Tab           | Scoreboard                |         |                              |
+| Tab           | Scoreboard                | Shift   | Nitro (driving)              |
 | T / Enter     | Chat                      | Esc     | Pause                        |
 | B             | Build mode (Sandbox) / buy menu (ChikenBomb) | X | Next block type (Sandbox) |
 | E (hold)      | Plant / defuse the bomb (ChikenBomb) |  |                     |

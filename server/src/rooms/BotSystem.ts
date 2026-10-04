@@ -174,11 +174,11 @@ export class BotSystem {
   private pickTarget(b: Brain): ServerPlayer | null {
     const p = b.p;
     // Stick with a target we can still see.
-    if (b.target && b.target.alive && !b.target.vehicle && this.room.players.has(b.target.pid) && this.canSee(p, b.target)) return b.target;
+    if (b.target && b.target.alive && this.room.players.has(b.target.pid) && this.canSee(p, b.target)) return b.target;
     let best: ServerPlayer | null = null;
     let bestDist = Infinity;
     for (const t of this.room.players.values()) {
-      if (t === p || !t.alive || t.vehicle || this.room.areTeammates(p, t)) continue;
+      if (t === p || !t.alive || this.room.areTeammates(p, t)) continue;
       if (performance.now() < t.shieldUntil) continue;
       const d = Math.hypot(t.state.x - p.state.x, t.state.z - p.state.z);
       if (d < bestDist && this.canSee(p, t)) {

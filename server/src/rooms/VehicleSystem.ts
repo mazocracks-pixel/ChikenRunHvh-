@@ -5,6 +5,8 @@ import {
   SIM_DT,
   carAabb,
   isSpaceFree,
+  newCar,
+  seatPosition,
   packVehicle,
   rayAabb,
   stepCar,
@@ -42,7 +44,7 @@ export class VehicleSystem {
     this.vehicles = room.map.vehicles.map((spot, i) => ({
       id: i + 1,
       spot,
-      state: { x: spot.x, z: spot.z, yaw: spot.yaw, speed: 0 },
+      state: newCar(spot.x, spot.z, spot.yaw),
       driver: null,
       hp: BUGGY.maxHp,
       respawnAt: 0,
@@ -52,7 +54,7 @@ export class VehicleSystem {
 
   packed(): PackedVehicle[] {
     return this.vehicles.map((v) =>
-      packVehicle({ id: v.id, x: v.state.x, z: v.state.z, yaw: v.state.yaw, speed: v.state.speed, driver: v.driver?.pid ?? 0, hp: v.respawnAt ? 0 : v.hp }),
+      packVehicle({ id: v.id, x: v.state.x, z: v.state.z, yaw: v.state.yaw, speed: v.state.speed, driver: v.driver?.pid ?? 0, hp: v.respawnAt ? 0 : v.hp, slip: v.state.slip, boost: v.state.boost }),
     );
   }
 
@@ -135,16 +137,22 @@ export class VehicleSystem {
       }
       if (v.driver && (!v.driver.alive || !this.room.players.has(v.driver.pid))) this.eject(v.driver);
       // Empty cars keep rolling until friction stops them.
-      if (!v.driver && v.state.speed !== 0) stepCar(v.state, NEUTRAL, SIM_DT, this.room.world);
+      if (!v.driver && (v.state.speed !== 0 || v.state.slip !== 0 || v.state.boost < 1)) stepCar(v.state, NEUTRAL, SIM_DT, this.room.world);
       if (Math.abs(v.state.speed) >= BUGGY.ramMinSpeed) this.ram(v, now);
     }
   }
 
-  /** Nearest intact car along a bullet's path. */
-  raycast(ray: Ray, maxT: number): { id: number; t: number } | null {
+  /** Where `p` sits if they're driving (the seat, for shooting and being shot), else null. */
+  seatOf(p: ServerPlayer): { x: number; y: number; z: number; yaw: number; speed: number } | null {
+    const v = p.vehicle ? this.vehicles.find((x) => x.driver === p) : undefined;
+    return v ? { ...seatPosition(v.state), yaw: v.state.yaw, speed: Math.hypot(v.state.speed, v.state.slip) } : null;
+  }
+
+  /** Nearest intact car along a bullet's path (a driver's own car never blocks their shots). */
+  raycast(ray: Ray, maxT: number, shooter: ServerPlayer | null = null): { id: number; t: number } | null {
     let best: { id: number; t: number } | null = null;
     for (const v of this.vehicles) {
-      if (v.respawnAt) continue;
+      if (v.respawnAt || (shooter && v.driver === shooter)) continue;
       const t = rayAabb(ray, carAabb(v.state), best ? best.t : maxT);
       if (t >= 0) best = { id: v.id, t };
     }
@@ -180,7 +188,7 @@ export class VehicleSystem {
   }
 
   private restore(v: Vehicle): void {
-    v.state = { x: v.spot.x, z: v.spot.z, yaw: v.spot.yaw, speed: 0 };
+    v.state = newCar(v.spot.x, v.spot.z, v.spot.yaw);
     v.hp = BUGGY.maxHp;
     v.respawnAt = 0;
     v.lastRam.clear();

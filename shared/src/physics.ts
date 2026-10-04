@@ -50,6 +50,8 @@ export interface InputFrame {
   use?: boolean;
   /** HvH: invert the bounded fake pose; never changes movement or shot direction. */
   invert?: boolean;
+  /** Shift held: nitro while driving. */
+  boost?: boolean;
 }
 
 export function createMoveState(x: number, y: number, z: number): MoveState {

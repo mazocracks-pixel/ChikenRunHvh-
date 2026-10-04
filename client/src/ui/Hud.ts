@@ -66,7 +66,8 @@ export class Hud {
   private readonly armorText = h('span');
   private readonly armorBar = h('div', { class: 'bar armor' }, this.armorFill, this.armorText);
   private readonly fuelFill = h('div', { class: 'fill' });
-  private readonly fuelBar = h('div', { class: 'bar fuel' }, this.fuelFill, h('span', null, 'JETPACK'));
+  private readonly fuelLabel = h('span', null, 'JETPACK');
+  private readonly fuelBar = h('div', { class: 'bar fuel' }, this.fuelFill, this.fuelLabel);
   private readonly hopBadge = h('div', { class: 'hop-badge' });
   private readonly weaponName = h('div', { class: 'weapon-name' });
   private readonly ammo = h('div', { class: 'ammo' });
@@ -179,6 +180,16 @@ export class Hud {
   // ---------------------------------------------------------------------------
   // Vitals and weapon
   // ---------------------------------------------------------------------------
+
+  /** While driving the fuel bar shows nitro (0–1) instead of jetpack fuel. */
+  setNitro(nitro: number | null): void {
+    const label = nitro === null ? 'JETPACK' : 'NITRO (SHIFT)';
+    if (this.fuelLabel.textContent !== label) this.fuelLabel.textContent = label;
+    this.fuelBar.classList.toggle('nitro', nitro !== null);
+    if (nitro === null) return;
+    this.fuelBar.hidden = false;
+    this.fuelFill.style.width = `${Math.round(nitro * 100)}%`;
+  }
 
   setVitals(hp: number, armor: number, fuel: number): void {
     const hpPct = Math.max(0, Math.min(100, (hp / PLAYER.maxHealth) * 100));

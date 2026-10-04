@@ -62,8 +62,11 @@ export class CameraRig {
     this.world = world;
   }
 
+  /** Driving always uses the chase camera (the roll cage would fill a first-person view). */
+  driving = false;
+
   get firstPerson(): boolean {
-    return preferredMode === 'first';
+    return preferredMode === 'first' && !this.driving;
   }
 
   /** V key: switch between third and first person. Returns the new mode. */
@@ -85,7 +88,8 @@ export class CameraRig {
     const fy = Math.sin(pitch);
     const fz = -Math.cos(yaw) * cosPitch;
 
-    if (preferredMode === 'first' || forceFirst) {
+    this.driving = driving;
+    if ((preferredMode === 'first' && !driving) || forceFirst) {
       this.camera.position.set(target.x + fx * 0.3, target.y + PLAYER.eyeHeight * bodyScale + 0.05, target.z + fz * 0.3);
     } else {
       this.back.set(-fx, -fy, -fz);
@@ -93,7 +97,7 @@ export class CameraRig {
       // Further back and centred while driving, so you can see the whole buggy.
       const shoulder = driving ? 0 : SHOULDER_OFFSET;
       const maxDistance = driving ? DRIVE_DISTANCE : DISTANCE;
-      this.focus.set(target.x + Math.cos(yaw) * shoulder, target.y + (driving ? 2 : HEAD_HEIGHT * (0.4 + 0.6 * bodyScale)), target.z - Math.sin(yaw) * shoulder);
+      this.focus.set(target.x + Math.cos(yaw) * shoulder, target.y + (driving ? 1.6 : HEAD_HEIGHT * (0.4 + 0.6 * bodyScale)), target.z - Math.sin(yaw) * shoulder);
       let wanted = maxDistance;
       const hit = raycastWorld(makeRay(this.focus, this.back), this.world, maxDistance);
       if (hit) wanted = Math.max(MIN_DISTANCE, hit.t - WALL_PADDING);

@@ -107,7 +107,7 @@ export class LocalPlayer {
     copyMoveState(server, this.state);
     this.pending = this.pending.filter((p) => p.frame.seq > server.ack);
     this.vehicleId = server.vehicle;
-    this.car = server.vehicle && car ? { x: car.x, z: car.z, yaw: car.yaw, speed: car.speed } : null;
+    this.car = server.vehicle && car ? { x: car.x, z: car.z, yaw: car.yaw, speed: car.speed, slip: car.slip, boost: car.boost } : null;
     if (!server.alive) this.pending = [];
     for (const p of this.pending) this.step(p.frame, world, p.hopMax, p.speed);
 

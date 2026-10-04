@@ -179,16 +179,20 @@ export interface VehicleState {
   /** pid of the driver, 0 when empty. */
   driver: number;
   hp: number;
+  /** Sideways slide (drifting), m/s. */
+  slip: number;
+  /** Nitro left, 0–1. */
+  boost: number;
 }
 
 export type PackedVehicle = number[];
 
 export function packVehicle(v: VehicleState): PackedVehicle {
-  return [v.id, round(v.x, 3), round(v.z, 3), round(v.yaw, 4), round(v.speed, 3), v.driver, Math.ceil(v.hp)];
+  return [v.id, round(v.x, 3), round(v.z, 3), round(v.yaw, 4), round(v.speed, 3), v.driver, Math.ceil(v.hp), round(v.slip, 3), round(v.boost, 3)];
 }
 
 export function unpackVehicle(a: PackedVehicle): VehicleState {
-  return { id: a[0] ?? 0, x: a[1] ?? 0, z: a[2] ?? 0, yaw: a[3] ?? 0, speed: a[4] ?? 0, driver: a[5] ?? 0, hp: a[6] ?? 0 };
+  return { id: a[0] ?? 0, x: a[1] ?? 0, z: a[2] ?? 0, yaw: a[3] ?? 0, speed: a[4] ?? 0, driver: a[5] ?? 0, hp: a[6] ?? 0, slip: a[7] ?? 0, boost: a[8] ?? 1 };
 }
 
 export type BlockKind = 'crate' | 'stone' | 'brick' | 'wood' | 'hay' | 'metal' | 'concrete';

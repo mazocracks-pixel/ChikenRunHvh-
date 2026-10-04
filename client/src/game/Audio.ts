@@ -91,6 +91,50 @@ export class AudioEngine {
     if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
   }
 
+  private engine: { osc: OscillatorNode; sub: OscillatorNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+
+  /**
+   * Your own buggy's engine: a growl whose pitch follows the speed (0–1+), louder on nitro.
+   * null turns it off.
+   */
+  setEngine(level: number | null, boosting = false): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || ctx.state !== 'running') return;
+    const t = ctx.currentTime;
+    if (level === null) {
+      if (!this.engine) return;
+      const e = this.engine;
+      this.engine = null;
+      e.gain.gain.setTargetAtTime(0, t, 0.08);
+      e.osc.stop(t + 0.5);
+      e.sub.stop(t + 0.5);
+      return;
+    }
+    if (!this.engine) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      const sub = ctx.createOscillator();
+      sub.type = 'square';
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.Q.value = 3;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      osc.connect(filter);
+      sub.connect(filter);
+      filter.connect(gain).connect(this.master);
+      osc.start();
+      sub.start();
+      this.engine = { osc, sub, filter, gain };
+    }
+    const e = this.engine;
+    const l = Math.max(0, level);
+    e.osc.frequency.setTargetAtTime(48 + l * 95 + (boosting ? 35 : 0), t, 0.06);
+    e.sub.frequency.setTargetAtTime(24 + l * 47, t, 0.06);
+    e.filter.frequency.setTargetAtTime(380 + l * 900 + (boosting ? 900 : 0), t, 0.08);
+    e.gain.gain.setTargetAtTime(0.05 + l * 0.05 + (boosting ? 0.04 : 0), t, 0.1);
+  }
+
   setListener(x: number, y: number, z: number, yaw: number): void {
     this.listener = { x, y, z, yaw };
   }

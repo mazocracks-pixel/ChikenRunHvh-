@@ -77,6 +77,7 @@ import {
   isMelee,
   levelFor,
   rankedPoints,
+  carAimSpeed,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -428,9 +429,11 @@ export class GameRoom {
   handleFire(p: ServerPlayer, raw: unknown): void {
     this.enforceHvhRules(p);
     const req = parseFire(raw);
-    if (!req || !p.alive || p.vehicle || this.match.phase === 'ended' || this.actionsBlocked()) return;
+    if (!req || !p.alive || this.match.phase === 'ended' || this.actionsBlocked()) return;
     if (req.shot <= p.lastShotSeq || req.weapon !== p.weapon) return;
     const w = WEAPONS[req.weapon];
+    // From the car: guns and launchers, but no knifing out of the driver's seat.
+    if (p.vehicle && w.melee) return;
     const now = performance.now();
     const mods = p.mods;
     if (now < p.switchReadyAt || p.reloadUntil > 0 || p.mag <= 0) return;
@@ -454,7 +457,7 @@ export class GameRoom {
       this.updateHvhPose(p, now);
     }
 
-    const eye = { x: p.state.x, y: p.state.y + eyeHeightOf(p.state), z: p.state.z };
+    const eye = this.eyeOf(p);
     const len = Math.hypot(req.dx, req.dy, req.dz);
     const aim = { x: req.dx / len, y: req.dy / len, z: req.dz / len };
 
@@ -469,7 +472,9 @@ export class GameRoom {
       return;
     }
 
-    const spread = spreadFor(w, p.state.horizontalSpeed, !p.state.onGround, req.aiming) * (mods?.spread ?? 1);
+    // A moving car shakes your aim like walking does.
+    const seat = this.vehicles?.seatOf(p);
+    const spread = spreadFor(w, seat ? carAimSpeed(seat.speed) : p.state.horizontalSpeed, !p.state.onGround, req.aiming) * (mods?.spread ?? 1);
     const dirs = pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot));
     const targets = this.targetsAt(p, rewindTo);
 
@@ -501,7 +506,7 @@ export class GameRoom {
         kind = 0;
         this.loot.smash(box.id, now);
       }
-      const car = this.vehicles?.raycast(ray, maxT);
+      const car = this.vehicles?.raycast(ray, maxT, p);
       if (car) {
         maxT = car.t;
         victim = null;
@@ -532,13 +537,31 @@ export class GameRoom {
     for (const [victim, { amount, headshot }] of damageByVictim) this.damage(victim, p, amount, headshot, req.weapon, eye, now);
   }
 
-  /** Every enemy `p` could hit, where they were at `rewindTo` (lag compensation). */
+  /** Where `p` shoots and throws from: their eyes, or the driver's seat in a car. */
+  eyeOf(p: ServerPlayer): Vec3 {
+    const seat = this.vehicles?.seatOf(p);
+    if (seat) return { x: seat.x, y: seat.y + PLAYER.eyeHeight, z: seat.z };
+    return { x: p.state.x, y: p.state.y + eyeHeightOf(p.state), z: p.state.z };
+  }
+
+  /**
+   * Every enemy `p` could hit, where they were at `rewindTo` (lag compensation). Drivers sit
+   * in their seat: the car's body takes the bullets that hit it, but a head above it can be shot.
+   */
   private targetsAt(p: ServerPlayer, rewindTo: number): MeleeTarget<ServerPlayer>[] {
     const targets: MeleeTarget<ServerPlayer>[] = [];
     for (const t of this.players.values()) {
-      if (t === p || !t.alive || t.vehicle || this.areTeammates(p, t)) continue;
+      if (t === p || !t.alive || this.areTeammates(p, t)) continue;
       const past = t.history.at(rewindTo);
       if (past && !past.alive) continue;
+      const seat = this.vehicles?.seatOf(t);
+      if (seat) {
+        // The car's offset from where it was then (the seat moves with it).
+        const dx = (past?.x ?? t.state.x) - t.state.x;
+        const dz = (past?.z ?? t.state.z) - t.state.z;
+        targets.push({ key: t, x: seat.x + dx, y: seat.y, z: seat.z + dz, yaw: past?.yaw ?? t.yaw, scale: 1 });
+        continue;
+      }
       targets.push({ key: t, x: past?.x ?? t.state.x, y: past?.y ?? t.state.y, z: past?.z ?? t.state.z, yaw: past?.yaw ?? t.yaw, scale: past?.scale ?? bodyScale(t.state) });
     }
     return targets;
@@ -588,14 +611,14 @@ export class GameRoom {
   handleThrow(p: ServerPlayer, raw: unknown): void {
     const req = parseThrow(raw);
     const now = performance.now();
-    if (!req || !p.alive || p.vehicle || this.match.phase === 'ended' || this.actionsBlocked() || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
+    if (!req || !p.alive || this.match.phase === 'ended' || this.actionsBlocked() || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
     if (req.kind === 'egg' ? p.eggs <= 0 : p.smokes <= 0) return;
     if (req.kind === 'egg') p.eggs--;
     else p.smokes--;
     p.lastThrowSeq = req.seq;
     p.nextThrowAt = now + THROW_COOLDOWN_MS;
     p.shieldUntil = 0;
-    const eye = { x: p.state.x, y: p.state.y + eyeHeightOf(p.state), z: p.state.z };
+    const eye = this.eyeOf(p);
     const dir = { x: req.dx, y: req.dy, z: req.dz };
     this.projectiles.launch(req.kind, p, this.safeLaunchPoint(eye, dir), dir, req.seq, now);
   }
@@ -1043,6 +1066,7 @@ function parseInput(raw: unknown): InputFrame | null {
     crouch: raw.crouch === true,
     use: raw.use === true,
     invert: raw.invert === true,
+    boost: raw.boost === true,
   };
 }
 

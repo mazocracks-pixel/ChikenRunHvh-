@@ -186,6 +186,8 @@ export class Input {
       jump: active && (this.keys.has('Space') || this.touchButtons.jump),
       crouch: active && (this.anyDown(CROUCH) || this.touchButtons.crouch),
       use: active && (this.keys.has('KeyE') || this.touchButtons.use),
+      // Nitro while driving (on a touch screen: the crouch button).
+      boost: active && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchButtons.crouch),
       yaw: this.yaw,
       pitch: this.pitch,
     };

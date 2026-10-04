@@ -68,6 +68,9 @@ import {
   type WorldSnapshot,
   levelFor,
   rankOf,
+  BUGGY,
+  seatPosition,
+  carAimSpeed,
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
@@ -225,7 +228,7 @@ export class GameSession {
 
     this.collision = createCollisionWorld(ctx.world.map);
     this.effects = new Effects(ctx.scene);
-    this.vehicles = new Vehicles(ctx.scene);
+    this.vehicles = new Vehicles(ctx.scene, this.effects);
     this.blocks = this.mode.building ? new Blocks(ctx.scene, this.collision) : null;
     for (const b of join.blocks) this.blocks?.add(b);
     this.flags = this.mode.id === 'ctf' ? new Flags(ctx.scene, ctx.world.map, join.flags) : null;
@@ -326,15 +329,18 @@ export class GameSession {
 
     // Render everything.
     const renderTime = this.serverNow() - INTERP_DELAY_MS;
-    this.vehicles.render(renderTime, dt, this.local.car ? { id: this.local.vehicleId, car: this.local.car } : null);
-    const seat = this.local.car ? this.vehicles.seatOf(this.local.vehicleId, new THREE.Vector3()) : null;
+    this.vehicles.render(renderTime, dt, this.local.car ? { id: this.local.vehicleId, car: this.local.car, input: this.local.alive ? input.sample(0) : null } : null);
+    // In the seat the chicken turns to face where you aim (that's where its gun points).
+    const carSeat = this.local.car ? this.vehicles.seatOf(this.local.vehicleId, new THREE.Vector3()) : null;
+    const seat = carSeat ? { position: carSeat.position, yaw: input.yaw } : null;
+    this.updateEngine();
     const body = dev?.bodyAngles() ?? null;
     this.local.render(this.accumulator / SIM_DT, dt, body?.yaw ?? input.yaw, body?.pitch ?? input.pitch, seat);
     this.remotes.render(renderTime, dt);
     for (const r of this.remotes.players.values()) {
       const v = r.latest?.vehicle;
       const remoteSeat = v ? this.vehicles.seatOf(v, new THREE.Vector3()) : null;
-      if (remoteSeat && r.alive) r.sitAt(remoteSeat.position, remoteSeat.yaw);
+      if (remoteSeat && r.alive) r.sitAt(remoteSeat.position, r.yaw);
     }
     this.flags?.update(dt, (pid) => this.drawnAt(pid));
     this.updateBombView();
@@ -355,9 +361,9 @@ export class GameSession {
       this.local.chicken.setBodyVisible(true);
       this.updateViewmodel(dt, false);
     } else if (this.local.alive) {
-      this.rig.follow(this.local.position, input.yaw, input.pitch, zoom, dt, scoped, this.local.car !== null, this.local.eyeScale);
+      this.rig.follow(seat?.position ?? this.local.position, input.yaw, input.pitch, zoom, dt, scoped, this.local.car !== null, this.local.eyeScale);
       this.local.chicken.setBodyVisible(!(this.rig.firstPerson || scoped));
-      this.updateViewmodel(dt, this.rig.firstPerson && !scoped && !this.local.car, aiming);
+      this.updateViewmodel(dt, this.rig.firstPerson && !scoped, aiming);
     } else if (this.deathPos) {
       this.updateViewmodel(dt, false);
       this.rig.orbit(this.deathPos, dt);
@@ -370,7 +376,8 @@ export class GameSession {
 
     // Weapons.
     this.weapons.update(now);
-    const canShoot = input.active && this.local.alive && !this.local.car && !this.building && !dev?.blocksShooting();
+    // In a buggy you can shoot (and throw) but not swing a melee weapon.
+    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !dev?.blocksShooting();
     if (aiming !== this.aimingSent) {
       this.aimingSent = aiming;
       net.socket.emit('aim', aiming);
@@ -441,6 +448,7 @@ export class GameSession {
     hud.setStats(net.ping, fps, this.infos.size);
     hud.setPersonalScore(this.self.kills, this.self.deaths);
     hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel);
+    hud.setNitro(this.local.alive && this.local.car ? this.local.car.boost : null);
     hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
     hud.setGrenades(server.eggs, server.smokes);
     hud.setHop(this.local.alive && !this.local.car ? this.local.state.hop : 0, hopMaxFor(w.weapon));
@@ -465,10 +473,22 @@ export class GameSession {
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
   }
 
-  horizontalSpeed(): number { return this.local.state.horizontalSpeed; }
+  /** How fast you are going, for weapon spread (a moving buggy shakes your aim like walking). */
+  horizontalSpeed(): number {
+    if (this.local.car) return carAimSpeed(Math.hypot(this.local.car.speed, this.local.car.slip));
+    return this.local.state.horizontalSpeed;
+  }
 
   isMoving(): boolean {
     return this.lastMovementInput.forward !== 0 || this.lastMovementInput.right !== 0;
+  }
+
+  /** Your engine growls with your speed while you drive. */
+  private updateEngine(): void {
+    const car = this.local.alive ? this.local.car : null;
+    if (!car) return this.ctx.audio.setEngine(null);
+    const f = this.ctx.input.sample(0);
+    this.ctx.audio.setEngine(Math.abs(car.speed) / BUGGY.maxSpeed, f.boost === true && f.forward > 0 && car.boost > 0.02);
   }
 
   private jetNozzle(pos: THREE.Vector3, yaw: number, side: number): Vec3 {
@@ -512,7 +532,7 @@ export class GameSession {
         this.throwGrenade(action);
         break;
       case 'camera':
-        this.ctx.hud.toast(this.rig.toggle() === 'first' ? 'First-person view (V)' : 'Third-person view (V)');
+        this.ctx.hud.toast(this.rig.toggle() === 'first' ? (this.local.car ? 'First-person view (V) once you get out' : 'First-person view (V)') : 'Third-person view (V)');
         break;
       case 'chat':
         this.openChat();
@@ -591,18 +611,25 @@ export class GameSession {
     const normal = wall ? { x: wall.nx, y: wall.ny, z: wall.nz } : { x: 0, y: 1, z: 0 };
     let best = { t: wall ? wall.t : range, pid: 0, headshot: false, world: !!wall, normal, soft };
     for (const [pid, r] of this.remotes.players) {
-      if (!r.alive || r.latest?.alive === false || r.latest?.vehicle || this.isFriendly(r.info)) continue;
+      // Drivers count too: they sit in their seat (see sitAt), head above the car.
+      if (!r.alive || r.latest?.alive === false || this.isFriendly(r.info)) continue;
       const hit = rayChicken(ray, r.position.x, r.position.y, r.position.z, r.yaw, best.t, r.latest?.crouching ? CROUCH.scale : 1);
       if (hit) best = { t: hit.t, pid, headshot: hit.headshot, world: false, normal, soft };
     }
     const box = this.loot.raycast(ray, best.t);
     if (box >= 0) best = { t: box, pid: 0, headshot: false, world: false, normal, soft };
-    const car = this.vehicles.raycast(ray, best.t);
+    // Your own buggy never gets in the way of your aim (the server skips it too).
+    const car = this.vehicles.raycast(ray, best.t, this.local.car ? this.local.vehicleId : 0);
     if (car >= 0) best = { t:car, pid:0, headshot:false, world:false, normal, soft };
     return best;
   }
 
   eye(): Vec3 {
+    // Driving: your eyes are in the seat (where the server shoots from too).
+    if (this.local.car) {
+      const seat = seatPosition(this.local.car);
+      return { x: seat.x, y: seat.y + PLAYER.eyeHeight, z: seat.z };
+    }
     const s = this.local.state;
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
   }
@@ -720,7 +747,7 @@ export class GameSession {
     if (!this.local.alive) return this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup' ? 'You’re back when the next round starts' : null;
     const bomb = this.bombHint();
     if (bomb) return bomb;
-    if (this.local.car) return 'Driving · E to get out · Space handbrake';
+    if (this.local.car) return 'Driving · Shoot with the mouse · Space drift · Shift nitro · E to get out';
     if (this.building) {
       const kind = BLOCK_KINDS[this.blockIndex]!;
       return `Build mode · ${kind[0]!.toUpperCase()}${kind.slice(1)} (X to change) · Click place · Right-click remove · B to exit`;
@@ -1303,6 +1330,7 @@ export class GameSession {
     this.projectiles.dispose();
     this.loot.dispose();
     this.vehicles.dispose();
+    this.ctx.audio.setEngine(null);
     this.blocks?.dispose();
     this.flags?.dispose();
     this.effects.dispose();

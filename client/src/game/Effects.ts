@@ -258,6 +258,30 @@ export class Effects {
     }
   }
 
+  /** Dust kicked up behind a wheel. */
+  dust(at: Vec3, color = 0xcbbd9f): void {
+    this.spawnSprite({ x: at.x + (Math.random() - 0.5) * 0.3, y: at.y + 0.15, z: at.z + (Math.random() - 0.5) * 0.3 }, { color, life: 0.7 + Math.random() * 0.4, startScale: 0.35, endScale: 1.3, opacity: 0.4, vy: 0.5 });
+  }
+
+  /** Grey smoke from a sliding tyre. */
+  tireSmoke(at: Vec3): void {
+    this.spawnSprite({ x: at.x + (Math.random() - 0.5) * 0.3, y: at.y + 0.2, z: at.z + (Math.random() - 0.5) * 0.3 }, { color: 0xe6e8ea, life: 0.9 + Math.random() * 0.5, startScale: 0.5, endScale: 1.9, opacity: 0.55, vy: 0.7 });
+  }
+
+  /** Nitro: a blue-white flame out of an exhaust, blowing along `dir`. */
+  nitro(at: Vec3, dir: Vec3): void {
+    this.spawnSprite(at, { color: Math.random() > 0.5 ? 0x6fb8ff : 0xffb347, life: 0.14, startScale: 0.4, endScale: 0.15, opacity: 1, additive: true, glow: 3 });
+    for (let i = 0; i < 2; i++) {
+      const k = 5 + Math.random() * 3;
+      this.particle(at, { x: dir.x * k + (Math.random() - 0.5), y: dir.y * k + Math.random() * 0.5, z: dir.z * k + (Math.random() - 0.5) }, Math.random() > 0.4 ? 0x9fd4ff : 0xffe082, 0.06, 0.28, 0, 3);
+    }
+  }
+
+  /** Dark smoke from a badly damaged engine. */
+  engineSmoke(at: Vec3): void {
+    this.spawnSprite({ x: at.x + (Math.random() - 0.5) * 0.3, y: at.y, z: at.z + (Math.random() - 0.5) * 0.3 }, { color: 0x3c3c3c, life: 1.4 + Math.random() * 0.6, startScale: 0.4, endScale: 1.6, opacity: 0.6, vy: 1.4 });
+  }
+
   /** Jetpack exhaust puff. */
   exhaust(at: Vec3): void {
     this.particle(at, { x: (Math.random() - 0.5) * 0.6, y: -3 - Math.random() * 2, z: (Math.random() - 0.5) * 0.6 }, Math.random() > 0.5 ? 0xffa726 : 0xffe082, 0.06, 0.25, 0, 3);
