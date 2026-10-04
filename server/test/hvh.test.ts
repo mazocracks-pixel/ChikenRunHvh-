@@ -24,6 +24,7 @@ it('HvH setup stages a human outside combat and spawns only once after a valid c
   await new Promise(resolve=>setTimeout(resolve,75));assert.equal(p.alive,false,'room ticks must not auto-spawn setup players');
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','unknown' as never)).ok,false);
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','lab')).ok,false,'public flag is off');
+  assert.equal((await c.timeout(3000).emitWithAck('hvhReady','skeet')).ok,false,'Skeet uses the same access gate');
   assert.equal(p.alive,false);
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','manual')).ok,true);
   assert.equal(p.hvhPreparing,false);assert.equal(p.alive,true);assert.equal(p.hvhEnabled,false);

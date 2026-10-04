@@ -118,7 +118,8 @@ export interface SessionContext {
 
 /** How the developer system plugs into a match. Every hook is optional behaviour on top of normal play. */
 export interface DevHooks {
-  onShot?(session: GameSession): void;
+  onShot?(session: GameSession, assisted?: boolean): void;
+  onServerShot?(session: GameSession, shot: ShotEvent): void;
   attach(session: GameSession): void;
   detach(session: GameSession): void;
   /** Start of every frame (aim assist, triggers). */
@@ -378,7 +379,7 @@ export class GameSession {
     if (canShoot && this.match.phase !== 'ended') {
       const assisted = dev?.wantsFire(now) ?? false;
       const result = this.weapons.trigger(input.firing || assisted, now, assisted);
-      if (result === 'fire') this.fire(aiming);
+      if (result === 'fire') this.fire(aiming, assisted);
       else if (result === 'empty') {
         audio.play('empty');
         this.startReload(now);
@@ -405,6 +406,8 @@ export class GameSession {
   get buyMenuOpen(): boolean {
     return this.buyMenu?.open ?? false;
   }
+  setWeaponTint(color: string | null): void { this.viewmodel.setTint(color); }
+  inspectWeapon(): void { this.viewmodel.inspect(); }
 
   /** Silhouettes through walls: the developer wallhack wins, otherwise HvH shows enemies. */
   private updateXray(): void {
@@ -607,8 +610,8 @@ export class GameSession {
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
   }
 
-  private fire(aiming: boolean): void {
-    this.ctx.dev?.onShot?.(this);
+  private fire(aiming: boolean, assisted = false): void {
+    this.ctx.dev?.onShot?.(this, assisted);
     const { net, audio, input } = this.ctx;
     const w = this.weapons.def;
     const eye = this.eye();
@@ -1072,6 +1075,7 @@ export class GameSession {
   }
 
   private onShot(e: ShotEvent): void {
+    this.ctx.dev?.onServerShot?.(this, e);
     if (e.pid === this.selfPid) return;
     const remote = this.remotes.get(e.pid);
     const origin = remote ? remote.chicken.muzzleWorldPosition(this.tmp) : new THREE.Vector3(e.ox, e.oy, e.oz);

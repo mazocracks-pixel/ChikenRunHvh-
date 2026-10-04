@@ -38,6 +38,10 @@ export class ServerPlayer {
   yaw = 0;
   lookYaw = 0;
   fakeYaw = 0;
+  fakePitch = 0;
+  hvhCoverSide = 0;
+  hvhTargetYaw: number | undefined;
+  hvhCoverAt = -Infinity;
   hvh = defaultHvhLoadout();
   hvhEnabled = false;
   hvhPanel: import('@game/shared').HvhPanelId = 'manual';
@@ -131,6 +135,8 @@ export class ServerPlayer {
     this.state = createMoveState(x, 0, z);
     this.yaw = yaw;
     this.lookYaw = this.fakeYaw = yaw;
+    this.fakePitch = 0;
+    this.hvhCoverAt = -Infinity; this.hvhCoverSide = 0; this.hvhTargetYaw = undefined;
     this.exploit.reset(now);
     this.revealUntil = this.concealUntil = 0;
     this.pitch = 0;
@@ -171,6 +177,7 @@ export class ServerPlayer {
       vehicle: this.vehicle,
       frozen: this.frozen,
       fakeYaw: this.hvhEnabled ? this.fakeYaw : this.yaw,
+      fakePitch: this.hvhEnabled ? this.fakePitch : this.pitch,
       hvhCharge: this.hvhEnabled ? this.exploit.charge(performance.now()) : 0,
       hvhBurst: this.hvhEnabled && this.exploit.burst && performance.now() <= this.exploit.burstUntil,
       hvhPreparing: this.hvhPreparing,

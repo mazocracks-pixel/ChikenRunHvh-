@@ -39,6 +39,7 @@ export interface DevContext {
 export class Dev {
   config: DevConfig = loadCurrent();
   panelId: HvhPanelId = 'lab';
+  private configPanel: 'lab' | 'skeet' = 'lab';
   configs: NamedConfig[] = loadConfigs();
   status: DevStatus = { granted: false, allowedHere: false, profile: 'off', publicHvh: false, mods: { ...DEFAULT_MODS } };
   readonly runtime: DevRuntime;
@@ -109,19 +110,26 @@ export class Dev {
   }
 
   selectPanel(id: HvhPanelId): void {
+    const changedPanel = id !== this.panelId;
+    if (id !== 'manual' && id !== this.configPanel) {
+      saveCurrent(this.config, this.configPanel); saveConfigs(this.configs, this.configPanel);
+      this.configPanel = id; this.config = loadCurrent(id); this.configs = loadConfigs(id);
+      this.ctx.applyWorldLook(this.config.world);
+    }
     this.panelId = id;
+    if (changedPanel) this.runtime.panelChanged();
     this.runtime.applyServerMods();
     for (const fn of this.listeners) fn();
     this.syncNow();
   }
 
   resetAll(): void {
-    this.config = defaultConfig();
+    this.config = defaultConfig(this.configPanel);
     this.changed();
   }
 
   saveConfigList(): void {
-    saveConfigs(this.configs);
+    saveConfigs(this.configs, this.configPanel);
   }
 
   onChange(fn: () => void): () => void {
@@ -131,7 +139,7 @@ export class Dev {
 
   private changed(): void {
     this.config = sanitizeConfig(this.config);
-    saveCurrent(this.config);
+    saveCurrent(this.config, this.configPanel);
     this.ctx.applyWorldLook(this.config.world);
     for (const fn of this.listeners) fn();
     this.scheduleSync();

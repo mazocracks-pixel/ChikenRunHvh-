@@ -9,7 +9,7 @@ export class HvhSetup {
   private selected: HvhPanelId = 'manual';
   private readonly status = h('p', { class: 'status', role: 'status', 'aria-live': 'polite' });
   private readonly begin = h('button', { type: 'button' }, 'Begin match');
-  private readonly configure = h('button', { type: 'button', class: 'secondary' }, 'Configure HvH Lab');
+  private readonly configure = h('button', { type: 'button', class: 'secondary' }, 'Configure panel');
   private readonly choices = new Map<HvhPanelId, HTMLInputElement>();
   private disposed = false;
   private busy = false;
@@ -32,11 +32,11 @@ export class HvhSetup {
         this.status, this.configure, this.begin,
         h('button', { type: 'button', class: 'secondary', onclick: leave }, 'Leave match')));
     this.configure.addEventListener('click', () => {
-      dev.selectPanel('lab');
+      dev.selectPanel(this.selected);
       void dev.openMenu().then(() => {
         if (!this.disposed) this.status.textContent = dev.status.allowedHere
-          ? 'Lab access confirmed. Configure your tools, then close the panel to begin.'
-          : 'This server requires the developer passkey for HvH Lab. Manual play is available.';
+          ? 'Panel access confirmed. Configure your tools, then close the panel to begin.'
+          : 'This server requires the developer passkey for assisted panels. Manual play is available.';
       });
     });
     this.begin.addEventListener('click', () => {
@@ -54,8 +54,8 @@ export class HvhSetup {
       if (this.disposed || this.busy) return;
       if (!this.hasChosen) this.selected = s.allowedHere ? dev.panelId : 'manual';
       this.status.textContent = s.allowedHere
-        ? 'HvH Lab is available. Both choices use the same weapon and movement rules.'
-        : 'Manual play is available. HvH Lab requires access on this server.';
+        ? 'Assisted panels are available. Every panel uses the same weapon and movement rules.'
+        : 'Manual play is available. Assisted panels require access on this server.';
       this.refresh();
     });
   }
@@ -63,7 +63,8 @@ export class HvhSetup {
   private refresh(): void {
     for (const [id, radio] of this.choices) { radio.checked = id === this.selected; radio.disabled = this.busy; }
     this.begin.disabled = this.configure.disabled = this.busy;
-    this.configure.hidden = this.selected !== 'lab';
+    this.configure.hidden = this.selected === 'manual';
+    this.configure.textContent = `Configure ${HVH_PANELS[this.selected].name}`;
   }
   dispose(): void { this.disposed = true; this.root.remove(); }
 }

@@ -1,12 +1,15 @@
 import { DEFAULT_MODS, MOD_LIMITS, WEAPON_IDS, defaultHvhLoadout, type HvhLoadout, type DevMods, type WeaponId } from '@game/shared';
 import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
+import { SKEET_GROUPS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
+import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
 
 /**
  * Everything the developer menu can change. Plain JSON, so it can be saved, exported and
  * imported as a config. Gameplay-changing values only take effect when the server allows them.
  */
 export interface DevConfig {
+  skeet: SkeetConfig;
   hvh: HvhLoadout & {
     aim: { minDamage: number; hitchance: number; bodyAim: 'off' | 'prefer' | 'lethal'; autowall: boolean; reaction: number; switchDelay: number; turnRate: number; damageOverride: number; overrideKey: string; bodyKey: string };
     movement: { autoStop: boolean; slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string };
@@ -95,8 +98,9 @@ export interface DevConfig {
   };
 }
 
-export function defaultConfig(): DevConfig {
-  return {
+export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
+  const out: DevConfig = {
+    skeet: defaultSkeetConfig(),
     hvh: {
       ...defaultHvhLoadout(),
       aim: { minDamage: 20, hitchance: 60, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
@@ -138,6 +142,8 @@ export function defaultConfig(): DevConfig {
     },
     settings: { menuKey: 'Insert', scale: 1, opacity: 0.97, animSpeed: 1, theme: 'claude', accent: '#d97757', sounds: true, notifications: true },
   };
+  if (panel === 'skeet') Object.assign(out.settings, { theme: 'carbon', accent: '#b6d77a' });
+  return out;
 }
 
 /** Numeric ranges (also used by the menu's sliders). */
@@ -181,6 +187,11 @@ export const RANGES: Record<string, { min: number; max: number; step: number }> 
 
 /** Allowed values of the dropdowns. */
 export const CHOICES: Record<string, readonly string[]> = {
+  'skeet.aimStyle': ['rage', 'legit'],
+  'skeet.resolver.mode': ['adaptive', 'real', 'visual'],
+  'skeet.antiAim.jitterMode': ['center', 'offset', 'random'],
+  'skeet.antiAim.desyncMode': ['static', 'alternate', 'sway'],
+  'skeet.antiAim.visualPitch': ['look', 'down', 'up', 'zero'],
   'hvh.aim.bodyAim': ['off', 'prefer', 'lethal'],
   'hvh.antiAim.mode': ['backward', 'left', 'right', 'spin'],
   'hvh.exploit': ['off', 'doubleTap', 'hideShots'],
@@ -192,6 +203,25 @@ export const CHOICES: Record<string, readonly string[]> = {
   'weapons.selected': WEAPON_IDS,
   'settings.theme': ['claude', 'midnight', 'carbon', 'crimson', 'ocean'],
 };
+
+Object.assign(RANGES, {
+  'skeet.smoothing': { min: 1, max: 20, step: 1 },
+  'skeet.resolver.history': { min: 4, max: 16, step: 1 },
+  'skeet.resolver.memoryMs': { min: 300, max: 1200, step: 50 },
+  'skeet.resolver.preferBodyBelow': { min: 0, max: 100, step: 1 },
+  'skeet.resolver.missedShots': { min: 0, max: 4, step: 1 },
+  'skeet.antiAim.interval': { min: 150, max: 600, step: 10 },
+});
+for (const id of SKEET_GROUPS) {
+  for (const [key, min, max] of [['minDamage', 1, 100], ['hitchance', 0, 100], ['pointScale', 0, 75]] as const)
+    RANGES[`skeet.profiles.${id}.${key}`] = { min, max, step: 1 };
+  CHOICES[`skeet.profiles.${id}.bodyAim`] = ['off', 'prefer', 'lethal'];
+}
+for (const id of HVH_STANCES) {
+  for (const [key, min, max] of [['yawOffset', -180, 180], ['desync', 0, 58], ['jitter', 0, 45]] as const)
+    RANGES[`skeet.antiAim.states.${id}.${key}`] = { min, max, step: 1 };
+  CHOICES[`skeet.antiAim.states.${id}.mode`] = ['backward', 'left', 'right', 'spin'];
+}
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -239,6 +269,7 @@ export function sanitizeConfig(raw: unknown): DevConfig {
     }
   };
   walk(out as unknown as Record<string, unknown>, raw, '');
+  out.skeet.antiAim = sanitizeSkeetAntiAim(out.skeet.antiAim);
   const fresh = defaultConfig();
   // Old exports remain readable, but retired powers never survive migration.
   out.rage.weapon = fresh.rage.weapon;
@@ -278,7 +309,15 @@ export interface NamedConfig {
 }
 
 /** Ready-made configs, added the first time the menu opens. */
-export function presetConfigs(): NamedConfig[] {
+export function presetConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
+  if (panel === 'skeet') {
+    const balanced = defaultConfig('skeet'); balanced.rage.aim.enabled = balanced.visuals.esp.enabled = true;
+    const scout = structuredClone(balanced); scout.rage.aim.fov = 20; scout.hvh.exploit = 'hideShots';
+    scout.skeet.profiles.snipers.hitchance = 85;
+    const aggressive = structuredClone(balanced); aggressive.rage.aim.autoTarget = aggressive.hvh.antiAim.enabled = true;
+    aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap';
+    return [{ name: 'Skeet Balanced', config: balanced }, { name: 'Skeet Scout', config: scout }, { name: 'Skeet Aggressive', config: aggressive }];
+  }
   const balanced = defaultConfig();
   balanced.rage.aim.enabled = true;
   balanced.visuals.esp.enabled = true;
@@ -301,32 +340,34 @@ export function presetConfigs(): NamedConfig[] {
   return [{ name: 'Balanced', config: balanced }, { name: 'Precision', config: precision }, { name: 'Aggressive', config: aggressive }, { name: 'Scout', config: scout }];
 }
 
-export function loadCurrent(): DevConfig {
+const panelKey = (key: string, panel: 'lab' | 'skeet') => panel === 'lab' ? key : `${key}:${panel}`;
+export function loadCurrent(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
   try {
-    return sanitizeConfig(JSON.parse(storage.get(CURRENT_KEY) ?? 'null'));
+    const text = storage.get(panelKey(CURRENT_KEY, panel));
+    return text ? sanitizeConfig(JSON.parse(text)) : defaultConfig(panel);
   } catch {
-    return defaultConfig();
+    return defaultConfig(panel);
   }
 }
 
-export function saveCurrent(config: DevConfig): void {
-  storage.set(CURRENT_KEY, JSON.stringify(config));
+export function saveCurrent(config: DevConfig, panel: 'lab' | 'skeet' = 'lab'): void {
+  storage.set(panelKey(CURRENT_KEY, panel), JSON.stringify(config));
 }
 
-export function loadConfigs(): NamedConfig[] {
+export function loadConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
   try {
-    const raw = JSON.parse(storage.get(CONFIGS_KEY) ?? 'null') as unknown;
-    if (!Array.isArray(raw)) return presetConfigs();
+    const raw = JSON.parse(storage.get(panelKey(CONFIGS_KEY, panel)) ?? 'null') as unknown;
+    if (!Array.isArray(raw)) return presetConfigs(panel);
     return raw
       .filter((c): c is { name: string; config: unknown } => !!c && typeof c === 'object' && typeof (c as { name?: unknown }).name === 'string')
       .map((c) => ({ name: cleanName(c.name), config: sanitizeConfig(c.config) }));
   } catch {
-    return presetConfigs();
+    return presetConfigs(panel);
   }
 }
 
-export function saveConfigs(list: NamedConfig[]): void {
-  storage.set(CONFIGS_KEY, JSON.stringify(list));
+export function saveConfigs(list: NamedConfig[], panel: 'lab' | 'skeet' = 'lab'): void {
+  storage.set(panelKey(CONFIGS_KEY, panel), JSON.stringify(list));
 }
 
 export function cleanName(name: string): string {

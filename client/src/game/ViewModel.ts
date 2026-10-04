@@ -166,6 +166,9 @@ export class ViewModel {
   private gun: GunModel | null = null;
   private gunId: WeaponId | null = null;
   private readonly guns = new Map<WeaponId, GunModel>();
+  private tint: string | null = null;
+  private readonly tintClones = new Map<THREE.Material, THREE.Material>();
+  private readonly tintSources = new Map<THREE.Material, THREE.Material>();
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly flash: THREE.Mesh;
   private flashLife = 0;
@@ -337,6 +340,30 @@ export class ViewModel {
     this.flash.removeFromParent();
     (this.flash.material as THREE.Material).dispose();
     this.guns.clear();
+    for (const material of this.tintClones.values()) material.dispose();
+    this.tintClones.clear(); this.tintSources.clear();
+  }
+
+  /** Local finishes clone materials; shared gun models and other players are never recolored. */
+  setTint(color: string | null): void {
+    if (this.tint === color) return;
+    this.tint = color;
+    for (const gun of this.guns.values()) this.tintGun(gun);
+  }
+  private tintGun(gun: GunModel): void {
+    const tint = this.tint ? new THREE.Color(this.tint) : null;
+    gun.group.traverse(node => {
+      if (!(node instanceof THREE.Mesh) || node === this.flash) return;
+      const paint = (material: THREE.Material) => {
+        const source = this.tintSources.get(material) ?? material;
+        if (!tint || !(source instanceof THREE.MeshStandardMaterial)) return source;
+        let clone = this.tintClones.get(source) as THREE.MeshStandardMaterial | undefined;
+        if (!clone) { clone = source.clone(); this.tintClones.set(source, clone); this.tintSources.set(clone, source); }
+        clone.color.copy(source.color).multiply(tint);
+        return clone;
+      };
+      node.material = Array.isArray(node.material) ? node.material.map(paint) : paint(node.material);
+    });
   }
 
   private swap(id: WeaponId): void {
@@ -357,6 +384,7 @@ export class ViewModel {
     this.flash.visible = false;
     this.swingT = -1;
     this.inspectT = -1;
+    if (this.tint) this.tintGun(this.gun);
   }
 }
 

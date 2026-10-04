@@ -37,6 +37,8 @@ export interface PlayerInfo {
 /** The fast-changing state of a player, as carried in every snapshot. */
 export interface PlayerState extends MoveState {
   fakeYaw?: number;
+  /** Cosmetic head pose only; the true pitch and hitboxes stay unchanged. */
+  fakePitch?: number;
   hvhCharge?: number;
   hvhBurst?: boolean;
   hvhConcealed?: boolean;
@@ -120,6 +122,7 @@ export function packPlayer(p: PlayerState): PackedPlayer {
     p.hvhConcealed ? 1 : 0,
     round(p.horizontalSpeed, 3),
     p.hvhPreparing ? 1 : 0,
+    round(p.fakePitch ?? p.pitch, 3),
   ];
 }
 
@@ -163,6 +166,7 @@ export function unpackPlayer(a: PackedPlayer): PlayerState {
     hvhConcealed: a[24] === 1,
     horizontalSpeed: a[25] ?? 0,
     hvhPreparing: a[26] === 1,
+    fakePitch: a[27] ?? a[8] ?? 0,
   };
 }
 
@@ -346,6 +350,8 @@ export interface FireRequest {
 }
 
 export interface ShotEvent {
+  /** Accepted client sequence, for matching assistance telemetry without guessed misses. */
+  shot?: number;
   pid: number;
   weapon: WeaponId;
   /** Muzzle-ish origin (eye position). */
