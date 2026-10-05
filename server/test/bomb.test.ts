@@ -178,7 +178,7 @@ describe('the bomb', () => {
     assert.equal(round(s.room).winner, 1);
   });
 
-  it('can’t be planted off-site or while moving, and letting go of use cancels', () => {
+  it('can’t be planted off-site, and letting go of use cancels', () => {
     const s = setup(2);
     toLive(s);
     const carrier = s.t.find((p) => p.pid === round(s.room).bomb.carrier)!;
@@ -187,14 +187,70 @@ describe('the bomb', () => {
     s.step(BOMB.plantMs + 500);
     assert.equal(round(s.room).phase, 'live', 'not on a site');
     place(carrier, SITE_A.x, SITE_A.z);
-    carrier.lastInput = { seq: 2, forward: 1, right: 0, jump: false, yaw: 0, pitch: 0, use: true };
-    s.step(BOMB.plantMs + 500);
-    assert.equal(round(s.room).phase, 'live', 'moving');
     holdUse(carrier);
     s.step(1500);
+    assert.equal(round(s.room).bomb.action?.kind, 'plant');
     holdUse(carrier, false);
     s.step(100);
     assert.equal(round(s.room).bomb.action, null, 'released: cancelled');
+  });
+
+  it('holding W (or jumping) with E still plants: you stay put, crouched, until it is done', () => {
+    const s = setup(2);
+    toLive(s);
+    const carrier = s.t.find((p) => p.pid === round(s.room).bomb.carrier)!;
+    place(carrier, SITE_A.x, SITE_A.z);
+    let seq = 5000;
+    const start = { x: carrier.state.x, z: carrier.state.z };
+    for (let i = 0; i < Math.ceil((BOMB.plantMs + 400) / (SIM_DT * 1000)) && round(s.room).phase === 'live'; i++) {
+      (carrier as unknown as { inputTokens: number }).inputTokens = 100;
+      s.room.handleInput(carrier, { seq: ++seq, forward: 1, right: 1, jump: true, yaw: 0, pitch: 0, use: true });
+      s.step(SIM_DT * 1000);
+      if (i === 5) assert.equal(carrier.state.crouching, true, 'crouched while planting');
+    }
+    assert.equal(round(s.room).phase, 'planted', 'planted despite the keys');
+    assert.ok(Math.hypot(carrier.state.x - start.x, carrier.state.z - start.z) < 0.05, 'did not move');
+  });
+
+  it('a person on the team gets the bomb, and a bot hands it over when asked', () => {
+    const { io } = fakeIo();
+    const room = createRoom(io, { id: 'h', code: 'HAND1', name: 'Hand', mode: 'bomb', map: 'sandstown', private: true, bots: 4 }, {}) as BombRoom;
+    current = room;
+    clearInterval((room as unknown as { tickTimer: NodeJS.Timeout }).tickTimer);
+    const me = addPlayer(room, 'Me');
+    let now = performance.now();
+    const update = (room as unknown as { fixedUpdate(now: number): void }).fixedUpdate.bind(room);
+    const step = (ms: number) => {
+      const end = now + ms;
+      while (now < end) {
+        now = Math.min(end, now + SIM_DT * 1000);
+        update(now);
+      }
+    };
+    step(1500); // the bots arrive
+    me.info.team = 1;
+    room.startNow();
+    step(BOMB.warmupMs + 50);
+    assert.equal(round(room).bomb.carrier, me.pid, 'the person carries it');
+
+    // Give it to a bot teammate, then ask for it back.
+    const bot = [...room.players.values()].find((p) => p.info.bot && p.info.team === 1);
+    assert.ok(bot, 'a chikenT bot');
+    (room as unknown as { state: RoundState }).state = { ...round(room), bomb: { ...round(room).bomb, carrier: bot.pid } };
+    step(BOMB.buyMs + 50);
+    place(me, bot.state.x + 1, bot.state.z);
+    holdUse(me);
+    step(100);
+    assert.equal(round(room).bomb.carrier, me.pid, 'handed over');
+  });
+
+  it('a carrier shot in mid-air drops the bomb on the floor, not in the air', () => {
+    const s = setup(2);
+    toLive(s);
+    const carrier = s.t.find((p) => p.pid === round(s.room).bomb.carrier)!;
+    place(carrier, 10, -38, 3);
+    killAll(s.room, [carrier]);
+    assert.ok(round(s.room).bomb.y < 0.05, `on the floor (${round(s.room).bomb.y})`);
   });
 
   it('is defused by a chikenCT in 10 s, or 5 s with a kit', () => {

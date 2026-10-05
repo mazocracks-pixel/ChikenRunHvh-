@@ -397,6 +397,11 @@ export class GameRoom {
   }
 
   /** Shooting and throwing are off (ChikenBomb buy time). */
+  /** Modes can hold a player still (planting a bomb). */
+  protected movementLocked(_p: ServerPlayer): boolean {
+    return false;
+  }
+
   protected actionsBlocked(): boolean {
     return false;
   }
@@ -474,12 +479,14 @@ export class GameRoom {
 
   handleInput(p: ServerPlayer, raw: unknown): void {
     this.enforceHvhRules(p);
-    const frame = parseInput(raw);
+    let frame = parseInput(raw);
     if (!frame || frame.seq <= p.lastSeq) return;
     if (!p.takeInputToken(performance.now())) return; // over budget: the client's reconciliation corrects it
 
     p.lastSeq = frame.seq;
     p.useHeld = frame.use === true;
+    // Planting / defusing (bomb modes): held still, crouched, whatever keys are down.
+    if (this.movementLocked(p)) frame = { ...frame, forward: 0, right: 0, jump: false, crouch: true };
     p.yaw = frame.yaw;
     p.lookYaw = frame.yaw;
     p.pitch = frame.pitch;

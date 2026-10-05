@@ -95,6 +95,12 @@ export class Hud {
   private readonly reloadBar = h('div', { class: 'reload-bar' }, h('div'));
   private readonly slots = h('div', { class: 'weapon-slots' });
   private readonly grenades = h('div', { class: 'grenades' });
+  /** Big moments in the middle of the screen ("BOMB PLANTED"). */
+  private readonly announcer = h('div', { class: 'announce', hidden: true });
+  private announceTimer = 0;
+  /** Markers on screen (bomb sites, the bomb). */
+  private readonly markerLayer = h('div', { class: 'markers' });
+  private readonly markerPool: HTMLElement[] = [];
   /** Flashbanged: the screen goes white and fades back. */
   private readonly flashOverlay = h('div', { class: 'flash-overlay' });
   private flashTimer = 0;
@@ -161,6 +167,8 @@ export class Hud {
       this.progress,
       h('div', { class: 'hud-bottom-left' }, h('div', { class: 'chat' }, this.chatLog, this.chatInput), h('div', { class: 'vitals' }, this.money, this.hopBadge, h('div', { class: 'bar hp' }, this.hpFill, this.hpText), this.armorBar, this.fuelBar)),
       h('div', { class: 'hud-bottom-right' }, this.grenades, h('div', { class: 'weapon-panel' }, this.weaponName, this.ammo, this.reloadBar), this.slots),
+      this.markerLayer,
+      this.announcer,
       this.flashOverlay,
       this.scoreboard,
       this.results,
@@ -465,6 +473,37 @@ export class Hud {
   }
 
   /** Planting / defusing progress (0..1), or null to hide it. */
+/** A big centred message for a moment ("💣 BOMB PLANTED"). */
+  announce(title: string, sub: string, kind: 'good' | 'bad' | 'info' = 'info'): void {
+    clear(this.announcer);
+    this.announcer.className = `announce ${kind}`;
+    this.announcer.append(h('b', null, title), h('span', null, sub));
+    this.announcer.hidden = false;
+    void this.announcer.offsetWidth;
+    this.announcer.classList.add('show');
+    window.clearTimeout(this.announceTimer);
+    this.announceTimer = window.setTimeout(() => (this.announcer.hidden = true), 2800);
+  }
+
+  /** Screen-space markers (already projected by the caller). */
+  setMarkers(list: { x: number; y: number; label: string; sub: string; kind: string }[]): void {
+    while (this.markerPool.length < list.length) {
+      const el = h('div', { class: 'marker' }, h('b'), h('small'));
+      this.markerPool.push(el);
+      this.markerLayer.append(el);
+    }
+    this.markerPool.forEach((el, i) => {
+      const m = list[i];
+      el.hidden = !m;
+      if (!m) return;
+      el.className = `marker ${m.kind}`;
+      el.style.transform = `translate(${Math.round(m.x)}px, ${Math.round(m.y)}px)`;
+      const [label, sub] = el.children as unknown as [HTMLElement, HTMLElement];
+      if (label.textContent !== m.label) label.textContent = m.label;
+      if (sub.textContent !== m.sub) sub.textContent = m.sub;
+    });
+  }
+
   setBombProgress(label: string | null, progress: number): void {
     this.progress.hidden = label === null;
     if (label === null) return;

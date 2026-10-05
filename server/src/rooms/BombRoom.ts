@@ -21,10 +21,16 @@ import {
   type RoundState,
   type Team,
   type WeaponId,
+  bombHoldsPlayer,
+  makeRay,
+  raycastWorld,
 } from '@game/shared';
 import type { GameServer } from '../types';
 import { GameRoom, type BotGoal, type RoomHooks, type RoomOptions } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
+
+/** How close a chikenT person must be to take the bomb from a bot. */
+const HANDOVER_RANGE = 2.5;
 
 const REASON_TEXT: Record<RoundEndReason, string> = {
   exploded: 'the bomb exploded',
@@ -140,7 +146,10 @@ export class BombRoom extends GameRoom {
     const sites = this.map.bombSites ?? [];
     this.targetSite = sites[Math.floor(Math.random() * sites.length)] ?? null;
     const ts = [...this.players.values()].filter((p) => p.info.team === 1);
-    const carrier = ts[Math.floor(Math.random() * ts.length)];
+    // A person gets the bomb if there is one on the team (bots hand it over when asked, too).
+    const humans = ts.filter((p) => !p.info.bot);
+    const pool = humans.length > 0 ? humans : ts;
+    const carrier = pool[Math.floor(Math.random() * pool.length)];
     this.state = { phase: 'buy', round: n, endsAt: now + BOMB.buyMs, bomb: { ...noBomb(), carrier: carrier?.pid ?? 0 }, winner: 0, reason: null };
     for (const p of this.players.values()) if (p.info.bot) this.botBuy(p);
     this.emitRound();
@@ -207,8 +216,9 @@ export class BombRoom extends GameRoom {
       const carrier = bomb.carrier ? this.players.get(bomb.carrier) : undefined;
       if (carrier) {
         const site = this.siteAt(carrier);
-        const can = carrier.alive && carrier.useHeld && carrier.state.onGround && !carrier.moving && site !== null;
         const planting = bomb.action?.kind === 'plant' && bomb.action.pid === carrier.pid;
+        const can = carrier.alive && carrier.useHeld && site !== null && (planting || carrier.state.onGround);
+        if (!planting && carrier.info.bot) this.handOver(carrier, now);
         if (planting && !can) this.setAction(null);
         else if (planting && now >= bomb.action!.endsAt) this.plant(carrier, site!, now);
         else if (!planting && can) this.setAction({ pid: carrier.pid, kind: 'plant', startedAt: now, endsAt: now + BOMB.plantMs });
@@ -244,7 +254,26 @@ export class BombRoom extends GameRoom {
 
   private canDefuse(p: ServerPlayer): boolean {
     const bomb = this.state.bomb;
-    return p.alive && p.useHeld && !p.moving && Math.hypot(p.state.x - bomb.x, p.state.z - bomb.z) <= BOMB.defuseRange && Math.abs(p.state.y - bomb.y) < 2;
+    return p.alive && p.useHeld && Math.hypot(p.state.x - bomb.x, p.state.z - bomb.z) <= BOMB.defuseRange && Math.abs(p.state.y - bomb.y) < 2;
+  }
+
+/** Planting or defusing: you stay put (see bombHoldsPlayer). */
+  protected override movementLocked(p: ServerPlayer): boolean {
+    if (this.phase !== 'playing') return false;
+    return bombHoldsPlayer(this.state, { pid: p.pid, team: p.info.team, x: p.state.x, y: p.state.y, z: p.state.z, onGround: p.state.onGround, useHeld: p.useHeld }, this.map.bombSites ?? []);
+  }
+
+  /** A bot carrying the bomb gives it to a chikenT person who stands next to it holding E. */
+  private handOver(bot: ServerPlayer, now: number): void {
+    for (const p of this.players.values()) {
+      if (p.info.bot || p.info.team !== 1 || !p.alive || !p.useHeld) continue;
+      if (Math.hypot(p.state.x - bot.state.x, p.state.z - bot.state.z) > HANDOVER_RANGE) continue;
+      this.state = { ...this.state, bomb: { ...this.state.bomb, carrier: p.pid, action: null } };
+      p.socket?.emit('notice', `💣 ${bot.info.name} gave you the bomb`);
+      this.emitRound();
+      void now;
+      return;
+    }
   }
 
   /** The bomb site a player stands on, or null. */
@@ -283,12 +312,18 @@ export class BombRoom extends GameRoom {
       changed = true;
     }
     if (bomb.carrier === p.pid) {
-      next = { ...next, carrier: 0, x: round(p.state.x, 2), y: round(p.state.y, 2), z: round(p.state.z, 2) };
+      next = { ...next, carrier: 0, x: round(p.state.x, 2), y: round(this.floorBelow(p.state.x, p.state.y, p.state.z), 2), z: round(p.state.z, 2) };
       changed = true;
     }
     if (!changed) return;
     this.state = { ...this.state, bomb: next };
     this.emitRound();
+  }
+
+  /** Height of whatever is under (x, y, z): a box top, or the ground. */
+  private floorBelow(x: number, y: number, z: number): number {
+    const hit = raycastWorld(makeRay({ x, y: y + 0.1, z }, { x: 0, y: -1, z: 0 }), this.world, y + 0.1);
+    return hit ? Math.max(0, y + 0.1 - hit.t) : 0;
   }
 
   private setAction(action: RoundState['bomb']['action']): void {

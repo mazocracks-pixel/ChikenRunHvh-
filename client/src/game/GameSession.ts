@@ -70,14 +70,16 @@ import {
   rankOf,
   BUGGY,
   seatPosition,
-  carAimSpeed, type FlashedEvent } from '@game/shared';
+  carAimSpeed, type FlashedEvent,
+  bombHoldsPlayer,
+} from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
 import type { Hud, ScoreLine } from '../ui/Hud';
 import type { AudioEngine } from './Audio';
 import { Blocks } from './Blocks';
-import { BombView } from './BombView';
+import { BombView, type BombMode } from './BombView';
 import { CameraRig, zoomLookScale } from './CameraRig';
 import { Effects } from './Effects';
 import { Flags } from './Flags';
@@ -188,6 +190,7 @@ export class GameSession {
   private readonly bombView: BombView | null;
   private hasKit = false;
   private nextBeep = 0;
+  private readonly markerPoint = new THREE.Vector3();
   private teamScores: [number, number] = [0, 0];
   private accumulator = 0;
   private nextSeq = 1;
@@ -311,6 +314,7 @@ export class GameSession {
       if (!this.local.alive) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
+      if (this.bombHolds(frame)) frame = { ...frame, forward: 0, right: 0, jump: false, crouch: true };
       this.lastMovementInput = { forward: frame.forward, right: frame.right };
       this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon));
       net.socket.emit('input', frame);
@@ -344,6 +348,7 @@ export class GameSession {
     }
     this.flags?.update(dt, (pid) => this.drawnAt(pid));
     this.updateBombView();
+    this.updateBombMarkers();
     for (const r of this.remotes.players.values()) {
       if (r.latest?.jetting && r.alive) this.effects.exhaust(this.jetNozzle(r.position, r.yaw, Math.random() > 0.5 ? 0.1 : -0.1));
     }
@@ -778,8 +783,12 @@ export class GameSession {
       if (r.bomb.carrier === this.selfPid) hud.toast('💣 You carry the bomb: plant it on A or B', 'good');
     }
     if (r.phase === 'planted' && prev?.phase !== 'planted') {
-      hud.toast(`💣 The bomb is planted at ${r.bomb.site}!`, mine === 2 ? 'bad' : 'good');
-      audio.play('beep');
+      hud.announce('💣 BOMB PLANTED', `Site ${r.bomb.site} · ${mine === 2 ? 'defuse it!' : 'defend it!'}`, mine === 2 ? 'bad' : 'good');
+      audio.play('bombPlanted');
+    }
+    if (r.phase === 'over' && prev?.phase !== 'over' && r.reason === 'defused') {
+      hud.announce('✂️ BOMB DEFUSED', mine === 2 ? 'Nice work!' : 'They got it in time', mine === 2 ? 'good' : 'bad');
+      audio.play('defused');
     }
     if (r.phase === 'live' && prev?.bomb.carrier !== this.selfPid && r.bomb.carrier === this.selfPid && prev?.phase === 'live') hud.toast('💣 You picked up the bomb', 'good');
     if (r.phase === 'over' && prev?.phase !== 'over') {
@@ -876,47 +885,118 @@ export class GameSession {
     const me = this.local.state;
     if (r.phase === 'buy') return 'Buy time · B to open the buy menu';
     if (r.phase === 'live' && r.bomb.carrier === this.selfPid) {
+      if (r.bomb.action?.kind === 'plant') return 'Planting… keep holding E';
       const site = this.map.bombSites?.find((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius);
-      return site ? `Site ${site.id} · hold E (standing still) to plant the bomb` : '💣 You have the bomb · plant it on site A or B';
+      return site ? `Site ${site.id} · hold E to plant the bomb (3 s)` : '💣 You have the bomb · follow the A / B markers and plant it';
+    }
+    if (r.phase === 'live' && this.self.team === 1) {
+      const carrier = r.bomb.carrier ? this.infos.get(r.bomb.carrier) : undefined;
+      if (!r.bomb.carrier) return '💣 The bomb is on the floor · pick it up (follow the marker)';
+      if (carrier?.bot) return `🤖 ${carrier.name} has the bomb · stand next to it and hold E to take it`;
+      if (carrier) return `${carrier.name} has the bomb · cover them`;
     }
     if (r.phase === 'planted' && this.self.team === 2) {
       const near = Math.hypot(me.x - r.bomb.x, me.z - r.bomb.z) <= BOMB.defuseRange;
+      if (r.bomb.action?.kind === 'defuse' && r.bomb.action.pid === this.selfPid) return 'Defusing… keep holding E';
       return near ? `Hold E to defuse${this.hasKit ? ' (kit: 5 s)' : ' (10 s)'}` : `💣 Find the bomb on site ${r.bomb.site} and defuse it`;
     }
+    if (r.phase === 'planted' && this.self.team === 1) return `💣 Defend the bomb on site ${r.bomb.site}`;
     return null;
   }
 
-  /** The bomb model (on the carrier's back, dropped or planted) and the beeping. */
+  /**
+   * The bomb: on the carrier's back, on the floor in front of whoever is planting it (the code
+   * goes in digit by digit), dropped, or planted and counting down (beeping faster and faster),
+   * with key clicks while planting and wire clicks while defusing.
+   */
   private updateBombView(): void {
     const r = this.round;
     if (!r || !this.bombView) return;
     const b = r.bomb;
+    const now = this.serverNow();
+    const exploded = r.phase === 'over' && r.reason === 'exploded';
+    const action = b.action;
+    const progress = action ? Math.min(1, Math.max(0, (now - action.startedAt) / (action.endsAt - action.startedAt))) : 0;
     let at: THREE.Vector3 | null = null;
     let yaw = 0;
-    let blink = 0;
-    const exploded = r.phase === 'over' && r.reason === 'exploded';
-    if (b.carrier) {
+    let mode: BombMode = 'dropped';
+    let blink = 0.5;
+    if (action?.kind === 'plant' && b.carrier) {
+      // On the floor just in front of the planter.
+      const d = this.drawnAt(b.carrier);
+      if (d) {
+        yaw = d.yaw;
+        at = this.tmp.set(d.position.x - Math.sin(yaw) * 0.55, d.position.y + 0.02, d.position.z - Math.cos(yaw) * 0.55);
+        mode = 'planting';
+      }
+      if (now >= this.nextBeep) {
+        this.nextBeep = now + 380;
+        this.ctx.audio.play('keypad', at ?? undefined, 0.7);
+      }
+    } else if (b.carrier) {
       const d = this.drawnAt(b.carrier);
       if (d && !(b.carrier === this.selfPid && this.rig.firstPerson)) {
         yaw = d.yaw;
         at = this.tmp.set(d.position.x + Math.sin(yaw) * 0.42, d.position.y + 0.7, d.position.z + Math.cos(yaw) * 0.42);
+        mode = 'carried';
       }
     } else if ((r.phase === 'live' || r.phase === 'planted' || r.phase === 'over') && !exploded) {
       at = this.tmp.set(b.x, b.y, b.z);
+      mode = r.phase === 'planted' ? (action?.kind === 'defuse' ? 'defusing' : 'planted') : r.phase === 'over' && r.reason === 'defused' ? 'defused' : 'dropped';
     }
-    const now = this.serverNow();
+    const left = b.explodeAt !== null ? Math.max(0, b.explodeAt - now) : 0;
     if (r.phase === 'planted' && b.explodeAt !== null) {
       // Beeps speed up from once a second to frantic as the fuse runs out.
-      const left = Math.max(0, b.explodeAt - now) / BOMB.fuseMs;
-      const interval = 120 + 880 * left;
+      const interval = 120 + 880 * (left / BOMB.fuseMs);
       blink = 1000 / interval;
       if (now >= this.nextBeep) {
         this.nextBeep = now + interval;
         this.ctx.audio.play('beep', { x: b.x, y: b.y, z: b.z });
+        if (action?.kind === 'defuse') this.ctx.audio.play('defuseTick', { x: b.x, y: b.y, z: b.z }, 0.8);
       }
-    } else if (b.site && r.phase === 'over' && r.reason === 'defused') blink = 0;
-    else blink = 0.5;
-    this.bombView.update(at, yaw, blink, now / 1000);
+    } else if (mode === 'defused' || mode === 'carried') blink = 0;
+    this.bombView.update(at, yaw, mode, progress, left / 1000, blink, now / 1000);
+  }
+
+  /** Planting / defusing holds you still, crouched (the server does the same). */
+  private bombHolds(frame: InputFrame): boolean {
+    if (!this.round || !this.local.alive || this.match.phase !== 'playing') return false;
+    const s = this.local.state;
+    return bombHoldsPlayer(this.round, { pid: this.selfPid, team: this.self.team, x: s.x, y: s.y, z: s.z, onGround: s.onGround, useHeld: frame.use === true }, this.map.bombSites ?? []);
+  }
+
+  /** On-screen markers: the sites, the planted bomb with its timer, and (for chikenT) the bomb or its carrier. */
+  private updateBombMarkers(): void {
+    const r = this.round;
+    const hud = this.ctx.hud;
+    if (!r || this.match.phase !== 'playing' || !(r.phase === 'live' || r.phase === 'planted' || r.phase === 'buy')) return hud.setMarkers([]);
+    const cam = this.ctx.camera;
+    const w = window.innerWidth;
+    const hgt = window.innerHeight;
+    const out: { x: number; y: number; label: string; sub: string; kind: string }[] = [];
+    const add = (x: number, y: number, z: number, label: string, kind: string) => {
+      const p = this.markerPoint.set(x, y, z);
+      const dist = cam.position.distanceTo(p);
+      p.project(cam);
+      if (p.z > 1 || p.z < -1) return;
+      out.push({ x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * hgt, label, sub: `${Math.round(dist)} m`, kind });
+    };
+    const b = r.bomb;
+    for (const s of this.map.bombSites ?? []) {
+      if (r.phase === 'planted' && b.site === s.id) continue;
+      add(s.x, 2.2, s.z, s.id, b.carrier === this.selfPid ? 'site go' : 'site');
+    }
+    if (r.phase === 'planted') {
+      const left = b.explodeAt !== null ? Math.max(0, b.explodeAt - this.serverNow()) / 1000 : 0;
+      add(b.x, b.y + 1.2, b.z, `💣 ${b.site ?? ''} · ${Math.ceil(left)}s`, 'bomb');
+    } else if (this.self.team === 1 && r.phase === 'live') {
+      if (!b.carrier) add(b.x, b.y + 0.9, b.z, '💣 Bomb', 'dropped');
+      else if (b.carrier !== this.selfPid) {
+        const d = this.drawnAt(b.carrier);
+        if (d) add(d.position.x, d.position.y + 2.1, d.position.z, '💣', 'carrier');
+      }
+    }
+    hud.setMarkers(out);
   }
 
   private blockCentre(b: BlockState): Vec3 {
@@ -1249,9 +1329,17 @@ export class GameSession {
       this.ctx.audio.play('meleeHit', at, 0.6);
       return;
     }
+    const dist = this.ctx.camera.position.distanceTo(this.tmp.set(e.x, e.y, e.z));
+    if (e.id === -1) {
+      // The bomb (the server sends it as id -1).
+      this.effects.bombExplosion(at);
+      this.ctx.audio.play('bigBoom', at, 1.4);
+      this.rig.addShake(Math.max(0.15, 1.8 - dist / 30));
+      if (dist < 25) this.ctx.hud.flash(Math.round(1100 - dist * 40));
+      return;
+    }
     this.effects.explosion(at, PROJECTILES[e.kind].splashRadius);
     this.ctx.audio.play('explosion', at);
-    const dist = this.ctx.camera.position.distanceTo(this.tmp.set(e.x, e.y, e.z));
     this.rig.addShake(Math.max(0, 1 - dist / 25));
   }
 

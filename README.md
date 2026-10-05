@@ -133,6 +133,15 @@ a pistol replaces your pistol, anything else your main gun; you keep your own kn
 chikenT only, the Golden Rifle and defuse kit chikenCT only. Survivors keep what they bought. First
 to 6 rounds wins.
 
+Planting is easy to get right: a person on chikenT always gets the bomb if there is one (a bot
+carrying it hands it over if you stand next to it and hold `E`), and holding `E` on a site plants it
+even while you press a movement key: you crouch and stay put until it's done (letting go cancels).
+Defusing works the same way. On screen: A / B markers (yellow for the carrier), the dropped bomb or its
+carrier for chikenT, and the planted bomb with its timer for everyone. The bomb is a C4-style charge
+whose little screen shows the code going in while it's planted, then the countdown (beeping faster and
+faster, a red glow) and SAFE when defused; a big BOMB PLANTED / DEFUSED banner with an alarm, and a much
+bigger explosion than a rocket (flash, fireball, debris, a smoke column, a hard shake).
+
 **FaceChiken (ranked).** The same 5 vs 5 bomb rules, but only real players: no bots, registered
 accounts only, quick play only (no private rooms), developer tools locked by the server, and it needs
 at least 4 players to start. It's the only mode that moves your level: a win gives 30 rank points, a

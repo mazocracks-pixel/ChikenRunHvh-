@@ -27,7 +27,12 @@ export type SoundName =
   | 'countdown'
   | 'engine'
   | 'flashbang'
-  | 'ring';
+  | 'ring'
+  | 'keypad'
+  | 'defuseTick'
+  | 'bombPlanted'
+  | 'defused'
+  | 'bigBoom';
 
 const VOLUME_KEY = 'chikengun:volume';
 /** Beyond this distance a sound is silent. */
@@ -442,6 +447,31 @@ export class AudioEngine {
         break;
       case 'countdown':
         this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 740, gain: 0.3 });
+        break;
+      case 'keypad':
+        // A key going in on the bomb.
+        this.tone(ctx, out, t, { dur: 0.06, type: 'square', freq: 1500 + Math.random() * 600, gain: 0.12 });
+        break;
+      case 'defuseTick':
+        // Wire cutters at work.
+        this.burst(ctx, out, t, { dur: 0.03, type: 'highpass', freq: 4200, gain: 0.45 });
+        break;
+      case 'bombPlanted':
+        // A two-tone alarm, three times.
+        for (let i = 0; i < 3; i++) {
+          this.tone(ctx, out, t, { dur: 0.16, type: 'square', freq: 880, gain: 0.12, delay: i * 0.36 });
+          this.tone(ctx, out, t, { dur: 0.16, type: 'square', freq: 660, gain: 0.12, delay: i * 0.36 + 0.18 });
+        }
+        break;
+      case 'defused':
+        [520, 660, 880].forEach((f, i) => this.tone(ctx, out, t, { dur: 0.14, type: 'triangle', freq: f, gain: 0.25, delay: i * 0.1 }));
+        break;
+      case 'bigBoom':
+        // A crack, a long low rumble and debris.
+        this.burst(ctx, out, t, { dur: 0.12, type: 'highpass', freq: 2400, gain: 1.4 });
+        this.burst(ctx, out, t, { dur: 1.8, type: 'lowpass', freq: 900, to: 60, gain: 1.8 });
+        this.tone(ctx, out, t, { dur: 1.4, type: 'sine', freq: 58, to: 24, gain: 1.4 });
+        this.burst(ctx, out, t, { dur: 0.8, type: 'bandpass', freq: 500, q: 0.8, gain: 0.5, delay: 0.25 });
         break;
       case 'flashbang':
         // A sharp crack and a thump.

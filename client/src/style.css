@@ -2818,3 +2818,121 @@ code {
 .party-popup button {
   flex: 1;
 }
+
+/* ---------- bomb: markers and announcements ---------- */
+
+.markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: -18px 0 0 -40px;
+  width: 80px;
+  text-align: center;
+  will-change: transform;
+}
+
+.marker b {
+  padding: 2px 9px;
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 8px;
+}
+
+.marker small {
+  margin-top: 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.marker.site.go b {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: #fff3c4;
+}
+
+.marker.bomb b {
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(229, 57, 53, 0.85);
+  border-color: #ffcdd2;
+  animation: marker-pulse 1s ease-in-out infinite;
+}
+
+.marker.dropped b,
+.marker.carrier b {
+  background: rgba(229, 57, 53, 0.6);
+  border-color: #ffcdd2;
+}
+
+@keyframes marker-pulse {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+.announce {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 28px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: rgba(10, 12, 16, 0.6);
+  border-radius: 14px;
+}
+
+.announce b {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.announce span {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.announce.good b {
+  color: var(--accent);
+}
+
+.announce.bad b {
+  color: #ff6b5f;
+}
+
+.announce.show {
+  animation: announce-in 2.8s ease forwards;
+}
+
+@keyframes announce-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.3);
+  }
+  10%,
+  80% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+  }
+}

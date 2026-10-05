@@ -111,6 +111,24 @@ export function isSidearm(id: WeaponId): boolean {
   return SIDEARMS.has(id);
 }
 
+/**
+ * Holding E to plant (the carrier, on the ground on a site) or to defuse (a chikenCT next to the
+ * bomb) holds you in place, crouched, until you let go: no key can knock you off it by accident.
+ * The client uses the same rule, so its prediction doesn't fight the server.
+ */
+export function bombHoldsPlayer(
+  round: RoundState,
+  me: { pid: number; team: Team; x: number; y: number; z: number; onGround: boolean; useHeld: boolean },
+  sites: readonly { x: number; z: number; radius: number }[],
+): boolean {
+  const b = round.bomb;
+  if (b.action?.pid === me.pid) return me.useHeld;
+  if (!me.useHeld) return false;
+  if (round.phase === 'live' && b.carrier === me.pid) return me.onGround && sites.some((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius);
+  if (round.phase === 'planted' && me.team === 2) return Math.hypot(me.x - b.x, me.z - b.z) <= BOMB.defuseRange && Math.abs(me.y - b.y) < 2;
+  return false;
+}
+
 /** What everyone starts each life with (survivors keep what they bought). */
 export const BOMB_START_LOADOUT: readonly WeaponId[] = ['pistol', 'knife'];
 

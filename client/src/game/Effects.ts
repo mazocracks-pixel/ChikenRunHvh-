@@ -240,6 +240,29 @@ export class Effects {
     }
   }
 
+/** The bomb going off: a fireball much bigger than a rocket's, a flash, debris and a smoke column. */
+  bombExplosion(at: Vec3): void {
+    this.explosion(at, 7);
+    this.spawnSprite(at, { color: 0xfff6dc, life: 0.22, startScale: 3, endScale: 22, opacity: 1, additive: true, glow: 5 });
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 1 + Math.random() * 3;
+      const p = { x: at.x + Math.cos(a) * r, y: at.y + 0.5 + Math.random() * 3, z: at.z + Math.sin(a) * r };
+      this.spawnSprite(p, { color: Math.random() > 0.5 ? 0xff8a2a : 0xffc04a, life: 0.7 + Math.random() * 0.5, startScale: 2, endScale: 7 + Math.random() * 4, opacity: 1, additive: true, glow: 2.6, vy: 1.5 });
+    }
+    for (let i = 0; i < 24; i++) {
+      const p = { x: at.x + (Math.random() - 0.5) * 3, y: at.y + 0.5 + i * 0.45, z: at.z + (Math.random() - 0.5) * 3 };
+      this.spawnSprite(p, { color: i < 6 ? 0x3a3530 : 0x6b6b6b, life: 5 + Math.random() * 2.5, startScale: 2.5, endScale: 7 + Math.random() * 3, opacity: 0.6, vy: 1.1 + Math.random() * 0.6, fadeIn: 0.3 });
+    }
+    for (let i = 0; i < 60; i++) {
+      const v = rand3(16);
+      v.y = Math.abs(v.y) * 0.9 + 3;
+      this.particle(at, v, Math.random() > 0.5 ? 0xff7a1a : 0x2b2b2b, 0.1 + Math.random() * 0.14, 1 + Math.random(), 18, 0.6);
+    }
+    this.blast.position.set(at.x, at.y + 1, at.z);
+    this.blastLife = BLAST_LIFE * 1.7;
+  }
+
   /** A smoke grenade's cloud, lasting `duration` seconds. */
   smokeCloud(at: Vec3, duration: number): void {
     for (let i = 0; i < 22; i++) {
