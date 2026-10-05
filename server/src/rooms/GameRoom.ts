@@ -1070,7 +1070,8 @@ export class GameRoom {
         else if (now >= (m.endsAt ?? 0)) this.startMatch(now);
         break;
       case 'playing':
-        if (!enough) this.setPhase('waiting', null);
+        // Needing a full lobby to start is not a reason to end a match when one person leaves.
+        if (this.players.size < (this.mode.noBots ? Math.min(2, this.mode.minPlayers) : this.mode.minPlayers)) this.setPhase('waiting', null);
         else if (m.endsAt !== null && now >= m.endsAt) this.endMatch(now);
         break;
       case 'ended':
@@ -1275,8 +1276,8 @@ export class GameRoom {
     if (now < this.nextBotCheck || this.closed || this.humanCount === 0) return;
     this.nextBotCheck = now + 1000;
     let wanted = 0;
-    // Ranked: real players only.
-    if (this.mode.ranked) wanted = 0;
+    // Ranked and real-players-only modes: no bots at all.
+    if (this.mode.ranked || this.mode.noBots) wanted = 0;
     else if (this.botTarget !== null) wanted = this.botTarget;
     else if (this.fillBots && !this.mode.building) wanted = Math.max(0, (this.mode.fillBots ?? (this.mode.maxPlayers === 2 ? 2 : 4)) - this.humanCount);
     wanted = Math.min(wanted, this.mode.maxPlayers - this.humanCount);

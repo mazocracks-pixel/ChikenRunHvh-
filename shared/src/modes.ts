@@ -1,7 +1,7 @@
 import type { MapId, Team } from './maps/types';
 import type { WeaponId } from './weapons';
 
-export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face';
+export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face' | 'squad';
 
 export interface ModeDef {
   id: ModeId;
@@ -43,6 +43,8 @@ export interface ModeDef {
   spawnProtectionMs?: number;
   /** Quick play tops the room up with bots to this many players (default 4, 2 in duels). */
   fillBots?: number;
+  /** Real players only: never any bots (not even in practice or quick-play rooms). */
+  noBots?: boolean;
   /**
    * Ranked (FaceChiken): the only mode that moves your level. Real players only (no bots,
    * registered accounts), matchmaking only (no private rooms), developer tools off.
@@ -61,6 +63,11 @@ const DEFS: ModeDef[] = [
     id: 'tdm', name: 'Team Fight', description: 'Red vs Blue, 5 vs 5. First team to 40 kills wins.',
     teams: true, maxPlayers: 10, scoreLimit: 40, timeLimitMs: 6 * 60_000, respawnMs: 3000, minPlayers: 2,
     maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, teamKills: true, wallbang: true,
+  },
+  {
+    id: 'squad', name: 'Squad Up', description: 'Team Fight with real players only, no bots. Waits until 4 people join, then starts. First team to 40 kills.',
+    teams: true, maxPlayers: 10, scoreLimit: 40, timeLimitMs: 6 * 60_000, respawnMs: 3000, minPlayers: 4,
+    maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, teamKills: true, wallbang: true, noBots: true,
   },
   {
     id: 'hvh', name: 'HvH', description: 'Red vs Blue, 5 vs 5, and everyone sees enemies through walls. First to 40 kills.',

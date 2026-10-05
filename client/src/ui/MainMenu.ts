@@ -16,11 +16,11 @@ export interface MenuActions {
   privacy(): void;
 }
 
-export const MODE_ICONS: Record<ModeId, string> = { face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
+export const MODE_ICONS: Record<ModeId, string> = { squad: '👥', face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
 
 /** Mode tabs. Any mode not listed lands in the last one. */
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
-  { id: 'casual', label: '🐔 Casual', modes: ['ffa', 'tdm', 'duel'] },
+  { id: 'casual', label: '🐔 Casual', modes: ['ffa', 'tdm', 'squad', 'duel'] },
   { id: 'competitive', label: '🏆 Competitive', modes: ['face', 'bomb', 'hvh'] },
   { id: 'fun', label: '🎉 Fun', modes: ['arms', 'knife', 'ctf', 'sandbox'] },
 ];
