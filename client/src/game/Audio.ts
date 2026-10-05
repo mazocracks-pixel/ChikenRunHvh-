@@ -42,6 +42,8 @@ export type SoundName =
   | 'giggle';
 
 const VOLUME_KEY = 'chikengun:volume';
+/** Your own sound files live in client/public/sounds/ (served from /sounds/). */
+export const JUMPSCARE_FILE = '/sounds/jumpscare.mp3';
 /** Beyond this distance a sound is silent. */
 const HEARING_RANGE = 70;
 const MAX_VOICES = 64;
@@ -74,6 +76,8 @@ export class AudioEngine {
   private volumeValue = safeVolume(Number(storage.get(VOLUME_KEY) ?? '0.6'));
   private readonly voices = new WeakMap<AudioNode, Voice>();
   private activeVoices = 0;
+  /** Decoded sound files by URL (null: it could not be loaded, so the built-in sound is used). */
+  private readonly files = new Map<string, Promise<AudioBuffer | null>>();
 
   get volume(): number {
     return this.volumeValue;
@@ -101,6 +105,7 @@ export class AudioEngine {
       compressor.release.value = 0.18;
       this.master.connect(compressor).connect(this.ctx.destination);
       this.noise = this.makeNoise();
+      void this.load(JUMPSCARE_FILE);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
   }
@@ -198,6 +203,41 @@ export class AudioEngine {
     this.voices.set(out, voice);
     this.synth(name, ctx, out, ctx.currentTime);
     if (voice.sources === 0) voice.release();
+  }
+
+  private load(url: string): Promise<AudioBuffer | null> {
+    let buffer = this.files.get(url);
+    if (!buffer) {
+      const ctx = this.ctx;
+      buffer = ctx
+        ? fetch(url)
+            .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
+            .then((data) => ctx.decodeAudioData(data))
+            .catch(() => null)
+        : Promise.resolve(null);
+      this.files.set(url, buffer);
+    }
+    return buffer;
+  }
+
+  /** Plays one of your own sound files at full screen volume; false if it isn't available (use a built-in sound). */
+  async playFile(url: string, volume = 1): Promise<boolean> {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || ctx.state !== 'running') return false;
+    const buffer = await this.load(url);
+    if (!buffer) return false;
+    if (this.volumeValue === 0) return true;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = Math.min(2, Math.max(0, volume));
+    src.connect(gain).connect(this.master);
+    src.onended = () => {
+      src.disconnect();
+      gain.disconnect();
+    };
+    src.start();
+    return true;
   }
 
   /** Disconnect complete graphs after the final layer; automatic fire must not retain silent nodes. */

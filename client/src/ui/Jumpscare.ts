@@ -1,5 +1,5 @@
 import type { JumpscareStyle } from '@game/shared';
-import type { AudioEngine, SoundName } from '../game/Audio';
+import { JUMPSCARE_FILE, type AudioEngine, type SoundName } from '../game/Audio';
 
 /**
  * A demon chicken: ragged feathers, veined skin, slit-pupil eyes that pulse, and a jaw full of
@@ -234,10 +234,16 @@ export function showJumpscare(style: JumpscareStyle, audio: AudioEngine): void {
   el.append(layer('jumpscare-whiteout'));
   document.body.append(el);
 
-  for (const [name, delay, volume] of plan.sounds) {
-    if (delay === 0) audio.play(name, undefined, volume);
-    else at(delay, () => audio.play(name, undefined, volume));
-  }
+  const playBuiltIn = () => {
+    for (const [name, delay, volume] of plan.sounds) {
+      if (delay === 0) audio.play(name, undefined, volume);
+      else at(delay, () => audio.play(name, undefined, volume));
+    }
+  };
+  // The faces use your own sound file (client/public/sounds/jumpscare.mp3); the built-in sounds
+  // are the fallback if it is missing. The white flash keeps its flashbang.
+  if (style === 'flash') playBuiltIn();
+  else void audio.playFile(JUMPSCARE_FILE, 1.4).then((played) => played || playBuiltIn());
   shakeGame(plan.shake);
   at(plan.ms, () => {
     el.remove();
