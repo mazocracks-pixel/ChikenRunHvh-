@@ -29,7 +29,7 @@ export interface GameServerOptions {
   devPasskey?: string;
   /** Allow developer tools in public rooms (a local dev server). Otherwise: private rooms only. */
   devInPublicRooms?: boolean;
-  /** Explicit rollout of equal, balanced assist controls in HvH; off by default. */
+  /** Equal, balanced HvH panels for every player in HvH matches, no passkey; on by default (false turns it off). */
   publicHvhPanel?: boolean;
   /** FaceChiken anti-cheat: remove cheaters (default), only log them, or off. */
   antiCheat?: 'enforce' | 'log' | 'off';
@@ -118,7 +118,7 @@ export async function startGameServer(options: GameServerOptions): Promise<Runni
 
   io.on('connection', (socket) => {
     social.attach(socket);
-    attachHandlers(socket, rooms, social, dev, options.publicHvhPanel === true);
+    attachHandlers(socket, rooms, social, dev, options.publicHvhPanel !== false);
   });
 
   const cleanup = () => {

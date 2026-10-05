@@ -73,7 +73,7 @@ Environment variables:
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
 | `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
 | `ANTICHEAT=log` | FaceChiken anti-cheat only logs cheaters instead of removing them (`off` turns it off). Default: removes them |
-| `HVH_PUBLIC_PANEL=1` | Opt-in public HvH Lab and Skeet panels for all HvH players; normal stats and bounded abilities, no player administration. Default off |
+| `HVH_PUBLIC_PANEL=0` | Require the passkey for the HvH Lab and Skeet panels too. By default every HvH player gets them without a passkey (normal stats, bounded abilities, no player administration) |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Optional restriction for servers that require developer accounts |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
@@ -265,9 +265,9 @@ administration (teleport, heal, give weapons) only works in private rooms.
 - Telemetry: target, predicted damage/hitchance, shot decision, five recent shot entries, charge,
   and movement status. Balanced, Precision, Aggressive and Scout presets retain normal stats.
 
-Public access is prepared but **off by default**. Set `HVH_PUBLIC_PANEL=1` when ready to let every
-HvH player use the same panel without a passkey. This grants no access in other modes and no
-administration privilege. Until rollout, the existing developer passkey/account rules apply.
+Public access is **on by default**: every HvH player can use the same panels without a passkey.
+This grants no access in other modes and no administration privilege; mega?dev (L) still needs
+the developer passkey/account. Set `HVH_PUBLIC_PANEL=0` to require the passkey in HvH as well.
 Every HvH input, fire/reload and damage path clears legacy modifiers. Health/armor changes,
 freeze, kill, respawn, weapon grants and teleports are rejected in HvH even for developers.
 The older administration API remains restricted to authorized private non-HvH test rooms.

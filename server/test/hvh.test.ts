@@ -7,7 +7,7 @@ import { runDevAction } from '../src/dev/devActions';
 import { addPlayer, makeRoom, place } from './helpers';
 type Client=Socket<ServerToClientEvents,ClientToServerEvents>;
 it('HvH setup stages a human outside combat and spawns only once after a valid choice',async t=>{
-  const server=await startGameServer({port:0,dbPath:':memory:',guestsPerHour:1000});t.after(()=>server.close());
+  const server=await startGameServer({port:0,dbPath:':memory:',publicHvhPanel:false,guestsPerHour:1000});t.after(()=>server.close());
   const base=`http://localhost:${server.port}`;
   const auth=await fetch(`${base}/api/auth/guest`,{method:'POST',headers:{'x-session-transport':'token'}});
   const {token}=await auth.json() as {token:string};
@@ -97,14 +97,28 @@ it('public panel grants only HvH capabilities and never administrative privilege
   assert.equal((await status()).granted,false);assert.equal((await status()).profile,'off');
   const denied=await c.timeout(3000).emitWithAck('devHvh',{...defaultHvhLoadout(),exploit:'doubleTap'});assert.equal(denied.allowedHere,false);
 });
-it('public rollout stays off by default, and passkey HvH still uses shared rules',async t=>{
+it('HvH panels need no passkey by default, but the passkey still grants no admin mods in HvH',async t=>{
   const server=await startGameServer({port:0,dbPath:':memory:',devPasskey:'test-secret',guestsPerHour:1000});t.after(()=>server.close());
   const base=`http://localhost:${server.port}`;
   const auth=await fetch(`${base}/api/auth/guest`,{method:'POST',headers:{'x-session-transport':'token'}});const {token}=await auth.json() as {token:string};
   const c:Client=connect(base,{transports:['websocket'],auth:{token},reconnection:false});t.after(()=>c.disconnect());
   await new Promise<void>((resolve,reject)=>{c.once('connect',resolve);c.once('connect_error',reject);});
   const joined:JoinResponse=await c.timeout(3000).emitWithAck('createRoom',{mode:'hvh',map:'farm',private:true,bots:0});assert.ok(joined.ok);
-  assert.equal((await c.timeout(3000).emitWithAck('devStatus')).granted,false);
+  const open=await c.timeout(3000).emitWithAck('devStatus');assert.equal(open.granted,true);assert.equal(open.profile,'hvh');assert.equal(open.publicHvh,true);
   await c.timeout(3000).emitWithAck('devAuth','test-secret');
-  const s=await c.timeout(3000).emitWithAck('devMods',{infiniteAmmo:true,damage:20});assert.equal(s.profile,'hvh');assert.deepEqual(s.mods,DEFAULT_MODS);assert.equal(s.publicHvh,false);
+  const s=await c.timeout(3000).emitWithAck('devMods',{infiniteAmmo:true,damage:20});assert.equal(s.profile,'hvh');assert.deepEqual(s.mods,DEFAULT_MODS);
+  // Outside HvH there is no free access: no passkey, no mega?dev.
+  const c2:Client=connect(base,{transports:['websocket'],auth:{token:(await (await fetch(`${base}/api/auth/guest`,{method:'POST',headers:{'x-session-transport':'token'}})).json() as {token:string}).token},reconnection:false});t.after(()=>c2.disconnect());
+  await new Promise<void>((resolve,reject)=>{c2.once('connect',resolve);c2.once('connect_error',reject);});
+  assert.ok((await c2.timeout(3000).emitWithAck('createRoom',{mode:'ffa',map:'farm',private:true,bots:0})).ok);
+  const ffa=await c2.timeout(3000).emitWithAck('devMods',{infiniteAmmo:true});assert.equal(ffa.granted,false);assert.equal(ffa.profile,'off');assert.deepEqual(ffa.mods,DEFAULT_MODS);
+});
+it('HVH_PUBLIC_PANEL off: HvH needs the passkey again',async t=>{
+  const server=await startGameServer({port:0,dbPath:':memory:',devPasskey:'test-secret',publicHvhPanel:false,guestsPerHour:1000});t.after(()=>server.close());
+  const base=`http://localhost:${server.port}`;
+  const auth=await fetch(`${base}/api/auth/guest`,{method:'POST',headers:{'x-session-transport':'token'}});const {token}=await auth.json() as {token:string};
+  const c:Client=connect(base,{transports:['websocket'],auth:{token},reconnection:false});t.after(()=>c.disconnect());
+  await new Promise<void>((resolve,reject)=>{c.once('connect',resolve);c.once('connect_error',reject);});
+  assert.ok((await c.timeout(3000).emitWithAck('createRoom',{mode:'hvh',map:'farm',private:true,bots:0})).ok);
+  assert.equal((await c.timeout(3000).emitWithAck('devStatus')).granted,false);
 });

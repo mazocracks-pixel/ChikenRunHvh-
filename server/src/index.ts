@@ -39,8 +39,9 @@ const server = await startGameServer({
   clientDist: isDev ? undefined : clientDist,
   // Developer menu passkey. Set DEV_PASSKEY to your own secret on a public server.
   devPasskey,
-  // Explicit rollout only: everyone receives the same restricted panel in HvH.
-  publicHvhPanel: process.env.HVH_PUBLIC_PANEL === '1',
+  // HvH panels for everyone in HvH matches, no passkey (HVH_PUBLIC_PANEL=0 turns it off).
+  // The passkey is still needed for mega?dev (developer administration) in every other mode.
+  publicHvhPanel: process.env.HVH_PUBLIC_PANEL !== '0',
   // Developer tools work in public matches too (still only for developer accounts with the
   // passkey). DEV_PUBLIC_ROOMS=0 limits them to private rooms.
   devInPublicRooms: process.env.DEV_PUBLIC_ROOMS !== '0',
@@ -69,7 +70,7 @@ for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
     // Not supported here (e.g. some Windows file systems): nothing to do.
   }
 }
-if (process.env.HVH_PUBLIC_PANEL === '1') console.log('[server] balanced public HvH panel is on; weapon stats and movement remain equal');
+if (process.env.HVH_PUBLIC_PANEL !== '0') console.log('[server] balanced public HvH panel is on; weapon stats and movement remain equal');
 if (!devPasskey) console.log(`[server] private developer administration is off (set DEV_PASSKEY${isDev ? ' in server/.env' : ''} to enable it)`);
 else {
   console.log(`[server] developer tools are on (${isDev ? 'any account' : 'developer accounts only'}); passkey length ${devPasskey.length}`);
