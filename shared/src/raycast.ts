@@ -1,5 +1,7 @@
 import type { Aabb, CollisionWorld } from './collision';
 import type { Vec3 } from './math';
+import { CHICKEN_POSE } from './chickenPose';
+import { rayHvhChicken } from './hvh/geometry';
 
 export interface Ray {
   ox: number;
@@ -103,10 +105,10 @@ export function raycastWorld(ray: Ray, world: CollisionWorld, maxT: number, skip
 export const HITBOX = {
   bodyRadius: 0.42,
   bodyHeight: 1.12,
-  headRadius: 0.27,
-  headHeight: 1.27,
+  headRadius: CHICKEN_POSE.headRadius,
+  headHeight: CHICKEN_POSE.headHeight,
   /** The head sits forward of the body centre, in the facing direction. */
-  headForward: 0.3,
+  headForward: CHICKEN_POSE.headForward,
 } as const;
 
 export interface ChickenHit {
@@ -115,25 +117,8 @@ export interface ChickenHit {
 }
 
 /** Ray against one chicken standing at (x, y, z) facing `yaw`; `scale` < 1 while crouched. */
-export function rayChicken(ray: Ray, x: number, y: number, z: number, yaw: number, maxT: number, scale = 1): ChickenHit | null {
-  const hx = x - Math.sin(yaw) * HITBOX.headForward * scale;
-  const hz = z - Math.cos(yaw) * HITBOX.headForward * scale;
-  const head = raySphere(ray, hx, y + HITBOX.headHeight * scale, hz, HITBOX.headRadius * scale, maxT);
-  const body = rayAabb(
-    ray,
-    {
-      minX: x - HITBOX.bodyRadius * scale,
-      maxX: x + HITBOX.bodyRadius * scale,
-      minY: y,
-      maxY: y + HITBOX.bodyHeight * scale,
-      minZ: z - HITBOX.bodyRadius * scale,
-      maxZ: z + HITBOX.bodyRadius * scale,
-    },
-    maxT,
-  );
-  if (head < 0 && body < 0) return null;
-  if (head >= 0 && (body < 0 || head <= body)) return { t: head, headshot: true };
-  return { t: body, headshot: false };
+export function rayChicken(ray: Ray, x: number, y: number, z: number, yaw: number, maxT: number, scale = 1, pitch = 0): ChickenHit | null {
+  return rayHvhChicken(ray, x, y, z, yaw, maxT, scale, pitch);
 }
 
 /** Distance from a point to a chicken's chest (for splash damage). */

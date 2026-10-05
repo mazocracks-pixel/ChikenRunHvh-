@@ -1,4 +1,4 @@
-import { HITBOX, eyeHeightOf, makeRay, raycastWorld, type MeleeTarget, type Vec3 } from '@game/shared';
+import { HITBOX, chickenHeadCenter, eyeHeightOf, makeRay, raycastWorld, type MeleeTarget, type Vec3 } from '@game/shared';
 import type { GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
@@ -136,7 +136,7 @@ export class AntiCheat {
     const w = this.watch(p);
     const s = target.scale;
     const centre = headshot
-      ? { x: target.x - Math.sin(target.yaw) * HITBOX.headForward * s, y: target.y + HITBOX.headHeight * s, z: target.z - Math.cos(target.yaw) * HITBOX.headForward * s }
+      ? chickenHeadCenter(target, target.yaw, s, target.pitch)
       : { x: target.x, y: target.y + (HITBOX.bodyHeight * s) / 2, z: target.z };
     const to = { x: centre.x - eye.x, y: centre.y - eye.y, z: centre.z - eye.z };
     const dist = Math.hypot(to.x, to.y, to.z);

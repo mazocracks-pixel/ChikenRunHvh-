@@ -41,12 +41,14 @@ export interface ObservableRecord {
   pid: number; tick: number; t: number; origin: Vec3; velocity: Vec3; eyeYaw: number; lowerBodyYaw: number;
   speed: number; crouch: number; grounded: boolean; turnWeight: number; alive: boolean; hp: number; armor: number;
   fired: boolean; concealed: boolean; defensive: boolean;
+  /** Observable physical head pitch; never a hidden-body orientation. */
+  pitch?: number;
 }
 export function copyObservableRecord(r: ObservableRecord): ObservableRecord {
   return { pid: r.pid, tick: r.tick, t: r.t, origin: { x: r.origin.x, y: r.origin.y, z: r.origin.z },
     velocity: { x: r.velocity.x, y: r.velocity.y, z: r.velocity.z }, eyeYaw: r.eyeYaw, lowerBodyYaw: r.lowerBodyYaw,
     speed: r.speed, crouch: r.crouch, grounded: r.grounded, turnWeight: r.turnWeight, alive: r.alive,
-    hp: r.hp, armor: r.armor, fired: r.fired, concealed: r.concealed, defensive: r.defensive };
+    hp: r.hp, armor: r.armor, fired: r.fired, concealed: r.concealed, defensive: r.defensive, pitch: r.pitch ?? 0 };
 }
 export function observableRecord(pid: number, tick: number, t: number, origin: Vec3, velocity: Vec3,
   a: AuthoritativeAnimation, hp: number, armor: number, alive: boolean, fired = false, concealed = false, defensive = false): ObservableRecord {

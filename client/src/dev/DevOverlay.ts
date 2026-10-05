@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HITBOX, PLAYER, TEAM_COLORS, TEAM_NAMES, WEAPONS, type PickupKind } from '@game/shared';
+import { CHICKEN_POSE, chickenHeadCenter, chickenHeadPose, HITBOX, PLAYER, TEAM_COLORS, TEAM_NAMES, WEAPONS, type PickupKind } from '@game/shared';
 import type { GameSession } from '../game/GameSession';
 import { h, hex } from '../ui/dom';
 import type { Dev } from './Dev';
@@ -155,12 +155,12 @@ export class DevOverlay {
         g.fillStyle = `hsl(${Math.round(hp * 120)}, 90%, 50%)`;
         g.fillRect(left - 5, top.y + boxH * (1 - hp), 2, boxH * hp);
       }
-      if (e.skeleton) this.drawSkeleton(session, r.position, r.yaw, color, w, hgt);
+      const scale = r.scale;
+      if (e.skeleton) this.drawSkeleton(session, r.position, r.yaw, color, w, hgt, r.pitch, scale);
       if (e.headCircle) {
-        const hx = p.x - Math.sin(r.yaw) * HITBOX.headForward;
-        const hz = p.z - Math.cos(r.yaw) * HITBOX.headForward;
-        const head = this.project(session, hx, p.y + HITBOX.headHeight, hz, w, hgt);
-        const rim = this.project(session, hx, p.y + HITBOX.headHeight + HITBOX.headRadius, hz, w, hgt);
+        const center = chickenHeadCenter(p,r.yaw,scale,r.pitch);
+        const head = this.project(session, center.x, center.y, center.z, w, hgt);
+        const rim = this.project(session, center.x, center.y + HITBOX.headRadius * scale, center.z, w, hgt);
         if (head && rim) {
           g.beginPath();
           g.arc(head.x, head.y, Math.max(2, head.y - rim.y), 0, Math.PI * 2);
@@ -177,14 +177,21 @@ export class DevOverlay {
     }
   }
 
-  private drawSkeleton(session: GameSession, pos: THREE.Vector3, yaw: number, color: string, w: number, hgt: number): void {
+  private drawSkeleton(session: GameSession, pos: THREE.Vector3, yaw: number, color: string, w: number, hgt: number, pitch = 0, scale = 1): void {
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
     const screen = {} as Record<Joint, { x: number; y: number } | null>;
+    const {tilt,tuck}=chickenHeadPose(pitch);
     for (const name of Object.keys(JOINTS) as Joint[]) {
-      const [x, y, z] = JOINTS[name];
+      const [x, originalY, originalZ] = JOINTS[name];
+      let y:number=originalY,z:number=originalZ;
+      if (name==='head'||name==='beak'||name==='neck') {
+        const dy=y-CHICKEN_POSE.neckHeight,dz=z+CHICKEN_POSE.neckForward;
+        y=CHICKEN_POSE.neckHeight-tuck+dy*Math.cos(tilt)-dz*Math.sin(tilt);
+        z=-CHICKEN_POSE.neckForward+dy*Math.sin(tilt)+dz*Math.cos(tilt);
+      }
       // Rotate the local joint by the chicken's yaw.
-      screen[name] = this.project(session, pos.x + x * cos + z * sin, pos.y + y, pos.z - x * sin + z * cos, w, hgt);
+      screen[name] = this.project(session, pos.x + (x * cos + z * sin)*scale, pos.y + y*scale, pos.z + (-x * sin + z * cos)*scale, w, hgt);
     }
     for (const [a, b] of BONES) {
       const pa = screen[a];

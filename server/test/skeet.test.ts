@@ -27,14 +27,14 @@ it('Skeet is accepted by the shared access gate and Manual clears its pose witho
   await c.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'farm', private: true, bots: 0 });
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady', 'skeet')).ok, false);
 });
-it('the server derives Skeet stance from real movement and keeps visual pitch out of shot and hitbox state', t => {
+it('the server derives Skeet stance and physical pitch while keeping the camera independent', t => {
   const { room } = makeRoom('hvh', 'flat'); t.after(() => room.close()); const p = addPlayer(room, 'A');
   p.hvhEnabled = true; p.hvh = defaultHvhLoadout(); p.hvh.antiAim.enabled = true; p.hvh.skeet = defaultSkeetAntiAim(); p.hvh.skeet.visualPitch = 'down';
   p.lookYaw = 0.2; p.pitch = 0.3; p.revealUntil = p.concealUntil = 0;
   for (const state of [{ onGround: true, crouching: false, horizontalSpeed: 0 }, { onGround: true, crouching: false, horizontalSpeed: 5 }, { onGround: true, crouching: true, horizontalSpeed: 5 }, { onGround: false, crouching: true, horizontalSpeed: 5 }]) {
     Object.assign(p.state, state); room.updateHvhPose(p, 1000);
     const expected = hvhPose(p.lookYaw, p.hvh, 1000, false, false, { speed: state.horizontalSpeed, ...state, seed: p.pid });
-    assert.equal(p.animation.eyeYaw, expected.real); assert.equal(p.fakeYaw, expected.real); assert.equal(p.pitch, 0.3); assert.equal(p.fakePitch, -0.65);
+    assert.equal(p.animation.eyeYaw, expected.real); assert.equal(p.fakeYaw, expected.real); assert.equal(p.pitch, 0.3); assert.equal(p.fakePitch, -1.15);
   }
   p.revealUntil = 2000; room.updateHvhPose(p, 1100); assert.equal(p.fakePitch, p.pitch); assert.equal(p.animation.eyeYaw, p.lookYaw);
 });

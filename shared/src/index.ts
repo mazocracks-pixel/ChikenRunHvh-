@@ -2,6 +2,7 @@ export * from './arms';
 export * from './bomb';
 export * from './building';
 export * from './collision';
+export * from './chickenPose';
 export * from './constants';
 export * from './dev';
 export * from './hvh';

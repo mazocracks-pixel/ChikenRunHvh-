@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CROUCH, PLAYER, TEAM_COLORS, clamp, damp, getItem, type Appearance, type Team, type WeaponId } from '@game/shared';
+import { CHICKEN_POSE, chickenHeadPose, bodyScale, PLAYER, TEAM_COLORS, clamp, damp, getItem, type Appearance, type Team, type WeaponId } from '@game/shared';
 import { buildGun, type GunModel } from './Guns';
 import { buildHat } from './Hats';
 import { box, cone, cylinder, part, solid, sphere } from './materials';
@@ -11,7 +11,7 @@ const INSPECT_SECONDS = 2.4;
 
 const GEO = {
   body: sphere(0.42, 24, 18),
-  head: sphere(0.25, 20, 16),
+  head: sphere(CHICKEN_POSE.headRadius, 20, 16),
   tail: sphere(0.2, 12, 10),
   wing: sphere(0.3, 16, 12),
   comb: sphere(0.075, 10, 8),
@@ -71,6 +71,7 @@ const DEATH_SHRINK = 0.25;
 
 /** Head-top position (where hats sit), relative to the feet. */
 const HEAD_TOP = new THREE.Vector3(0, 1.47, -0.32);
+const NECK_REST = new THREE.Vector3(0, CHICKEN_POSE.neckHeight, -CHICKEN_POSE.neckForward);
 
 /**
  * A low-poly chicken built from primitives. Origin is at the feet; it faces -Z.
@@ -136,7 +137,7 @@ export class Chicken {
     });
     this.featherMeshes.push(body, ...tails);
 
-    const head = part(GEO.head, feather, 0, 1.25, -0.32);
+    const head = part(GEO.head, feather, 0, CHICKEN_POSE.headHeight, -CHICKEN_POSE.headForward);
     this.featherMeshes.push(head);
     this.beak = part(GEO.beak, MAT.legs, 0, 1.22, -0.62);
     this.beak.scale.set(1.2, 1, 0.8);
@@ -162,12 +163,14 @@ export class Chicken {
     }
     this.headGroup.add(head, this.beak, wattle, ...eyes);
     // Rotate the head around the neck, not the feet.
-    this.headGroup.position.set(0, 1.05, -0.25);
-    for (const child of this.headGroup.children) child.position.sub(this.headGroup.position);
+    this.headGroup.position.copy(NECK_REST);
+    for (const child of this.headGroup.children) child.position.sub(NECK_REST);
 
     this.scarf = part(GEO.scarf, MAT.red, 0, 1.03, -0.2);
     this.scarf.rotation.x = Math.PI / 2 - 0.25;
-    this.bodyPivot.add(body, ...tails, this.headGroup, this.scarf);
+    this.bodyPivot.add(body, ...tails, this.scarf);
+    // Keep the physical head stable while the decorative body feathers bob during a walk.
+    this.pose.add(this.headGroup);
     for (const side of [-1, 1]) {
       const tail = part(GEO.scarfTail, MAT.red, side * 0.065, 0.91, -0.42);
       tail.rotation.x = -0.25;
@@ -255,7 +258,7 @@ export class Chicken {
     this.hat = buildHat(a.hat);
     for (const comb of this.combs) comb.visible = !this.hat;
     if (this.hat) {
-      this.hat.position.copy(HEAD_TOP).sub(this.headGroup.position);
+      this.hat.position.copy(HEAD_TOP).sub(NECK_REST);
       this.headGroup.add(this.hat);
     }
   }
@@ -281,7 +284,9 @@ export class Chicken {
   /** Tilts the gun and head with the aim pitch. */
   setAim(pitch: number): void {
     this.gunPivot.rotation.x = clamp(pitch, -1.2, 1.2);
-    this.headGroup.rotation.x = clamp(pitch * 0.5, -0.5, 0.5);
+    const { tilt, tuck } = chickenHeadPose(pitch);
+    this.headGroup.rotation.x = tilt;
+    this.headGroup.position.y = CHICKEN_POSE.neckHeight - tuck;
   }
 
   setJetpack(hasFuel: boolean, firing: boolean): void {
@@ -290,8 +295,9 @@ export class Chicken {
   }
 
   /** Crouched chickens are drawn smaller (matching their smaller hitbox). */
-  setCrouch(crouching: boolean): void {
-    this.crouchTarget = crouching ? CROUCH.scale : 1;
+  setCrouch(crouching: boolean, amount?: number): void {
+    this.crouchTarget = bodyScale({crouching,crouchAmount:amount});
+    this.crouchScale = this.crouchTarget;
   }
 
   /** Kicks the gun back a little (called on every shot). */
@@ -353,7 +359,7 @@ export class Chicken {
       return;
     }
 
-    this.crouchScale = damp(this.crouchScale, this.crouchTarget, 14, dt);
+    this.crouchScale = this.crouchTarget;
     this.pose.scale.setScalar(this.crouchScale);
     this.blob.scale.set(1.1 * this.crouchScale, 1, 1.3 * this.crouchScale);
 
@@ -369,7 +375,6 @@ export class Chicken {
     this.bodyPivot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06 * this.walkBlend + Math.sin(this.time * 2.4) * 0.01 * idle;
     this.bodyPivot.rotation.x = -0.1 * this.walkBlend;
     this.bodyPivot.rotation.z = Math.sin(this.walkPhase) * 0.025 * this.walkBlend;
-    this.headGroup.rotation.z = Math.sin(this.time * 1.8) * 0.018 * idle;
     this.scarfTails.forEach((tail, i) => {
       tail.rotation.x = -0.25 + Math.sin(this.time * 8 + i) * 0.12 * moving;
     });

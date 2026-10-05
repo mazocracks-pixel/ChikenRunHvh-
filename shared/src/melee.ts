@@ -10,6 +10,7 @@ export interface MeleeTarget<T> {
   y: number;
   z: number;
   yaw: number;
+  pitch?: number;
   /** Body scale, smaller while crouched. */
   scale: number;
 }
@@ -34,7 +35,7 @@ export function meleeHit<T>(eye: Vec3, aim: Vec3, w: WeaponDef, targets: readonl
   let maxT = wall ? wall.t : reach;
   let best: MeleeHit<T> | null = null;
   for (const t of targets) {
-    const hit = rayChicken(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale);
+    const hit = rayChicken(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale, t.pitch);
     if (hit) {
       maxT = hit.t;
       best = { key: t.key, headshot: hit.headshot, point: pointOnRay(ray, hit.t) };

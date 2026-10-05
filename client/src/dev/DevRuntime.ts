@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CROUCH, HITBOX, PLAYER, defaultHvhLoadout, hvhPose, makeRay, normalize, raycastWorld, raycastPenetrating, softBoxTest, wallbangScale, WALLBANG, wrapAngle, type InputFrame, type Vec3, type ShotEvent } from '@game/shared';
+import { HITBOX, PLAYER, chickenHeadCenter, defaultHvhLoadout, hvhPose, makeRay, normalize, raycastWorld, raycastPenetrating, softBoxTest, wallbangScale, WALLBANG, wrapAngle, type InputFrame, type Vec3, type ShotEvent } from '@game/shared';
 import type { DevHooks, GameSession } from '../game/GameSession';
 import type { RemotePlayer } from '../game/RemotePlayers';
 import { h } from '../ui/dom';
@@ -11,7 +11,7 @@ import { estimateShot, peekSteering, shotGate, type ShotTarget } from './tactics
 import type { DevConfig } from './config';
 import { skeetEffectiveConfig, skeetProfile } from './skeet/model';
 import { skeetPointOffsets, skeetSafeRay } from './skeet/points';
-import { ResolverSystem, scanRage, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
+import { ResolverSystem, scanRage, buildHvhMatrix, hvhHitchance, afterArmor, directionFromAngles, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
   autoStopInput, planAutoStop, predictEnemyPeek, type AutoStopPlan, type PeekForecast, type ObservableRecord, type ShotCandidate, type ShotIntent } from '@game/shared';
 
 const DEG = Math.PI / 180;
@@ -184,7 +184,22 @@ export class DevRuntime implements DevHooks {
       if (!this.playing || !enabled || !this.coreTarget || !this.coreReady || this.coreTarget.scope) return false;
       if (session.serverNow() - this.coreTarget.record.t > 300 || session.remotes.players.get(this.coreTarget.target)?.latest?.alive === false) return false;
       const w = session.weapons;
-      return w.shotState(now) === 'Ready' && !w.reloading;
+      if (w.shotState(now) !== 'Ready' || w.reloading) return false;
+      // The shooter may have moved since the bounded scan. Validate the shot from the current eye.
+      const target = this.coreTarget, eye = session.eye(), skeet = this.dev.panelId === 'skeet';
+      const direction = a.enabled ? normalize({x:target.point.x-eye.x,y:target.point.y-eye.y,z:target.point.z-eye.z})
+        : directionFromAngles(this.dev.input.yaw,this.dev.input.pitch);
+      const resolution = this.coreResolver.resolve(target.record, c.hvh.feedback.resolver && (!skeet || c.skeet.resolver.mode === 'adaptive'), undefined, c.hvh.resolverPolicy);
+      const hypotheses = resolution.hypotheses.map(h => ({probability:h.probability,
+        matrix:buildHvhMatrix(target.record.origin,h.yaw,1-target.record.crouch*0.3,target.record.pitch)}));
+      const estimate = hvhHitchance(w.def,eye,direction,buildHvhMatrix(target.record.origin,target.yaw,1-target.record.crouch*0.3,target.record.pitch),
+        session.horizontalSpeed(),!session.local.onGround,this.dev.input.aiming || this.dev.input.assistedAds,session.collision,
+        c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined,32,w.heat,hypotheses);
+      const overridden=this.keyHeld(c.hvh.aim.overrideKey,false);
+      const requiredDamage = !overridden && c.hvh.aim.hpRelative >= 0 ? target.record.hp+c.hvh.aim.hpRelative
+        : Math.min(target.record.hp,overridden ? c.hvh.aim.damageOverride : c.hvh.aim.minDamage);
+      return estimate.chance+1e-9 >= (session.local.onGround ? c.hvh.aim.hitchance : c.hvh.aim.airHitchance)/100
+        && afterArmor(estimate.damage,target.record.armor)+1e-9 >= requiredDamage;
     }
     if (!this.playing || !session || !this.target) return false;
     const auto = a.enabled && a.autoTarget;
@@ -309,7 +324,7 @@ export class DevRuntime implements DevHooks {
     if (session.mode.id === 'hvh') {
       const target = this.coreTarget;
       return this.coreReady && target && session.serverNow() - target.record.t <= 300 && session.remotes.players.get(target.target)?.latest?.alive
-        ? target.direction : null;
+        ? normalize({ x: target.point.x - session.eye().x, y: target.point.y - session.eye().y, z: target.point.z - session.eye().z }) : null;
     }
     const target = this.target, eye = session.eye();
     return target?.r.alive && target.visible ? normalize({ x: target.point.x - eye.x, y: target.point.y - eye.y, z: target.point.z - eye.z }) : null;
@@ -326,7 +341,7 @@ export class DevRuntime implements DevHooks {
       const t = s.simulationTime || remote.latestAt;
       const record: ObservableRecord = { pid, tick: Math.round(t / (1000 / 64)), t,
         origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
-        eyeYaw: s.yaw, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
+        eyeYaw: s.yaw, pitch: s.fakePitch ?? s.pitch, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
         grounded: s.onGround, turnWeight: s.turnWeight ?? 0, hp: s.hp, armor: s.armor, alive: s.alive,
         fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
       this.coreResolver.observe(record, this.dev.panelId === 'skeet' ? c.skeet.resolver : { history: 16, memoryMs: 1000 });
@@ -357,14 +372,15 @@ export class DevRuntime implements DevHooks {
         heat: session.weapons.heat, playerRules: this.playerRules,
         scoreCandidate: candidate => this.extensions.score(candidate),
         allowScope: !skeet || profile.autoScope,
+        allowStop: c.hvh.movement.autoStop,
         stopSpeed: c.hvh.movement.autoStopSlowWalk ? PLAYER.speed*moveSpeedFor(session.weapons.weapon)*PLAYER.slowWalkSpeed : 0,
         viewDirection: { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) },
         forceDirection: !a.enabled && triggering ? { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) } : undefined,
         ads: this.dev.input.aiming || this.coreScoped, world: session.collision, records: visible, resolver: this.coreResolver, currentTarget: this.coreTarget?.target,
         isSoft: c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined,
         settings: { ...DEFAULT_RAGE, resolver: c.hvh.feedback.resolver && (!skeet || c.skeet.resolver.mode === 'adaptive'),
-          resolverPolicy: c.hvh.resolverPolicy, preferBodyBelow: skeet ? c.skeet.resolver.preferBodyBelow / 100 : 0.2,
-          bodyAfterMisses: skeet ? c.skeet.resolver.missedShots : 0,
+          resolverPolicy: c.hvh.resolverPolicy, preferBodyBelow: skeet ? c.skeet.resolver.preferBodyBelow / 100 : 0.5,
+          bodyAfterMisses: skeet ? c.skeet.resolver.missedShots : 2,
           minDamage: this.keyHeld(c.hvh.aim.overrideKey, false) ? c.hvh.aim.damageOverride : c.hvh.aim.minDamage,
           hitchance: (session.local.onGround ? c.hvh.aim.hitchance : c.hvh.aim.airHitchance) / 100,
           forceSafe: skeet ? profile.safePoints : c.hvh.aim.forceSafe, preferSafe: c.hvh.aim.preferSafe,
@@ -440,9 +456,9 @@ export class DevRuntime implements DevHooks {
       if(onlyPid !== undefined && onlyPid !== pid) continue;
       if(skeet && this.playerRule(pid).ignore) continue;
       if(!r.alive || r.latest?.alive === false || session.serverNow()-r.latestAt>500 || session.isFriendly(r.info) || r.latest?.shielded || r.latest?.vehicle) continue;
-      const k=r.latest?.crouching?CROUCH.scale:1;
+      const k=r.scale;
       const heading=HVH_PANELS[this.dev.panelId].resolveYaw(r,this.dev.config);
-      const head=new THREE.Vector3(r.position.x-Math.sin(heading)*HITBOX.headForward*k,r.position.y+HITBOX.headHeight*k,r.position.z-Math.cos(heading)*HITBOX.headForward*k);
+      const head=new THREE.Vector3().copy(chickenHeadCenter(r.position,heading,k,r.pitch));
       const body=new THREE.Vector3(r.position.x,r.position.y+HITBOX.bodyHeight*0.55*k,r.position.z);
       const angleTo=(point:THREE.Vector3)=>forward.angleTo(point.clone().sub(session.camera.position));
       const preferBody = skeet && this.playerRule(pid).body;
@@ -463,7 +479,7 @@ export class DevRuntime implements DevHooks {
       }
       const distance=point.distanceTo(new THREE.Vector3(eye.x,eye.y,eye.z));
       if(distance<0.01)continue;
-      out.push({pid,r,point,part:targetPart,offset,angle:angleTo(point),distance,hp:r.latest?.hp??100,visible,target:{x:r.position.x,y:r.position.y,z:r.position.z,yaw:heading,scale:k,hp:r.latest?.hp??100,armor:r.latest?.armor??0}});
+      out.push({pid,r,point,part:targetPart,offset,angle:angleTo(point),distance,hp:r.latest?.hp??100,visible,target:{x:r.position.x,y:r.position.y,z:r.position.z,yaw:heading,pitch:r.pitch,scale:k,hp:r.latest?.hp??100,armor:r.latest?.armor??0}});
     }
     return out;
   }

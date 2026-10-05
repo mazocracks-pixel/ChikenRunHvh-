@@ -1,6 +1,6 @@
 import { PLAYER, WALLBANG, damageAt, makeRay, pelletDirections, rayChicken, raycastPenetrating, raycastWorld, wallbangScale, spreadFor, wrapAngle, type CollisionWorld, type Vec3, type WeaponDef, type Ray } from '@game/shared';
 
-export interface ShotTarget { x: number; y: number; z: number; yaw: number; scale: number; hp: number; armor: number }
+export interface ShotTarget { x: number; y: number; z: number; yaw: number; scale: number; hp: number; armor: number; pitch?: number }
 export interface ShotEstimate { damage: number; chance: number }
 /** Fixed trial seeds estimate accuracy; they do not predict the next server shot seed. */
 export function estimateShot(w: WeaponDef, eye: Vec3, direction: Vec3, target: ShotTarget, horizontalSpeed: number, airborne: boolean, ads: boolean, world?: CollisionWorld, isSoft?: (id:number)=>boolean, trace?: (ray: Ray, range: number) => {t:number;headshot:boolean;scale:number} | null): ShotEstimate {
@@ -13,7 +13,7 @@ export function estimateShot(w: WeaponDef, eye: Vec3, direction: Vec3, target: S
     for (const dir of pelletDirections(w, direction, spreadFor(w, horizontalSpeed, airborne, ads), 4177 + n * 7919)) {
       const ray = makeRay(eye, dir);
       const traced = trace?.(ray, w.range);
-      const hit = trace ? traced : rayChicken(ray, target.x, target.y, target.z, target.yaw, w.range, target.scale);
+      const hit = trace ? traced : rayChicken(ray, target.x, target.y, target.z, target.yaw, w.range, target.scale, target.pitch);
       if (!hit) continue;
       let scale = traced?.scale ?? 1;
       if (!trace && world) {

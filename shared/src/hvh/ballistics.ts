@@ -35,17 +35,23 @@ export function hvhHitDamage(w: WeaponDef, hit: HvhHit, cover: BallisticTrace): 
 }
 export function afterArmor(damage: number, armor: number): number { return damage - Math.min(armor, damage * PLAYER.armorAbsorb); }
 export interface HitchanceResult { chance: number; damage: number; samples: number }
+export interface HitchanceHypothesis { matrix: HvhMatrix; probability: number }
 export function hvhHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: HvhMatrix, speed: number,
-  airborne: boolean, ads: boolean, world: CollisionWorld, isSoft?: (id: number) => boolean, samples = 32, heat = 0): HitchanceResult {
+  airborne: boolean, ads: boolean, world: CollisionWorld, isSoft?: (id: number) => boolean, samples = 32, heat = 0,
+  hypotheses: readonly HitchanceHypothesis[] = [{ matrix, probability: 1 }]): HitchanceResult {
   let hits = 0, damage = 0;
+  const weight = hypotheses.reduce((n, h) => n + h.probability, 0);
+  if (weight <= 0) return { chance: 0, damage: 0, samples };
   for (let n = 0; n < samples; n++) {
-    let trial = 0;
+    const trial = hypotheses.map(() => 0);
     for (const dir of pelletDirections(w, direction, hvhSpread(w, speed, airborne, ads, heat), 4177 + n * 7919)) {
       const ray = makeRay(eye, dir), cover = traceHvhCover(ray, world, w.range, isSoft);
-      const hit = rayHvhMatrix(ray, matrix, cover.wallDistance);
-      if (hit) trial += hvhHitDamage(w, hit, cover);
+      hypotheses.forEach((h, i) => {
+        const hit = rayHvhMatrix(ray, h.matrix, cover.wallDistance);
+        if (hit) trial[i]! += hvhHitDamage(w, hit, cover);
+      });
     }
-    if (trial > 0) { hits++; damage += trial; }
+    trial.forEach((amount, i) => { if (amount > 0) { const p = hypotheses[i]!.probability / weight; hits += p; damage += amount * p; } });
   }
-  return { chance: hits / samples, damage: hits ? damage / hits : 0, samples };
+  return { chance: Math.min(1, hits / samples), damage: hits ? damage / hits : 0, samples };
 }

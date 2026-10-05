@@ -10,6 +10,7 @@ export interface HistorySample {
   y: number;
   z: number;
   yaw: number;
+  pitch?: number;
   alive: boolean;
   /** Body scale (smaller while crouched). */
   scale: number;
@@ -69,6 +70,7 @@ export class History {
       y: lerp(a.y, b.y, k),
       z: lerp(a.z, b.z, k),
       yaw: lerpAngle(a.yaw, b.yaw, k),
+      pitch: lerp(a.pitch ?? 0, b.pitch ?? 0, k),
       alive: a.alive && b.alive,
       scale: lerp(a.scale, b.scale, k),
       broken: a.broken || b.broken,

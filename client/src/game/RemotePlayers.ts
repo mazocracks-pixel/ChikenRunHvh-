@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAM_COLORS, damp, lerp, lerpAngle, unpackPlayer, type PlayerInfo, type PlayerState, type WeaponId, type WorldSnapshot } from '@game/shared';
+import { TEAM_COLORS, bodyScale, damp, lerp, lerpAngle, unpackPlayer, type PlayerInfo, type PlayerState, type WeaponId, type WorldSnapshot } from '@game/shared';
 import { Chicken } from './models/Chicken';
 import { NameTag } from './models/NameTag';
 
@@ -25,6 +25,8 @@ export class RemotePlayer {
   readonly position = new THREE.Vector3();
   yaw = 0;
   fakeYaw = 0;
+  pitch = 0;
+  scale = 1;
   private readonly realHeading = new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0.12, 0), 0.9, 0x6bf5e5, 0.22, 0.12);
   alive = true;
   /**
@@ -120,7 +122,8 @@ export class RemotePlayer {
     root.position.copy(this.position);
     const fakeYaw = b && renderTime > a.t ? lerpAngle(a.s.fakeYaw ?? a.s.yaw, b.s.fakeYaw ?? b.s.yaw, (renderTime-a.t)/(b.t-a.t)) : s.fakeYaw ?? this.yaw;
     this.fakeYaw = fakeYaw;
-    this.chicken.setAim(b && renderTime > a.t ? lerp(a.s.fakePitch ?? a.s.pitch, b.s.fakePitch ?? b.s.pitch, (renderTime-a.t)/(b.t-a.t)) : s.fakePitch ?? s.pitch);
+    this.pitch = b && renderTime > a.t ? lerp(a.s.fakePitch ?? a.s.pitch, b.s.fakePitch ?? b.s.pitch, (renderTime-a.t)/(b.t-a.t)) : s.fakePitch ?? s.pitch;
+    this.chicken.setAim(this.pitch);
     if (this.alive) root.rotation.y = fakeYaw;
     this.realHeading.visible = false;
     const heading = this.yaw-fakeYaw;
@@ -133,7 +136,11 @@ export class RemotePlayer {
     this.tag.animate(performance.now() / 1000);
     this.chicken.setWeapon(s.weapon as WeaponId);
     this.chicken.setJetpack(s.fuel > 0, s.jetting);
-    this.chicken.setCrouch(s.crouching);
+    const crouchAmount = b && renderTime > a.t
+      ? lerp(a.s.crouchAmount ?? (a.s.crouching ? 1 : 0),b.s.crouchAmount ?? (b.s.crouching ? 1 : 0),(renderTime-a.t)/(b.t-a.t))
+      : s.crouchAmount ?? (s.crouching ? 1 : 0);
+    this.scale = bodyScale({crouching:s.crouching,crouchAmount});
+    this.chicken.setCrouch(s.crouching,crouchAmount);
 
     if (this.hasRendered && dt > 0) {
       const moved = Math.hypot(this.position.x - this.lastPosition.x, this.position.z - this.lastPosition.z);
