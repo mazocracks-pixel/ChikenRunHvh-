@@ -95,6 +95,26 @@ describe('developer modifiers in a room', () => {
     room.close();
   });
 
+  it('unlimited flashbangs: the stack never runs out, and only with the mod', () => {
+    const { room } = makeRoom();
+    const p = addPlayer(room, 'Dev');
+    room.startNow();
+    p.flashes = 1;
+    const flash = (seq: number) => {
+      p.nextThrowAt = 0;
+      room.handleThrow(p, { kind: 'flash', seq, dx: 0, dy: 0, dz: -1 });
+    };
+    flash(1);
+    assert.equal(p.flashes, 0, 'normally each throw uses one');
+    flash(2);
+    assert.equal(p.lastThrowSeq, 1, 'and with none left you cannot throw');
+    p.mods = { ...DEFAULT_MODS, infiniteFlashes: true };
+    flash(3);
+    assert.equal(p.lastThrowSeq, 3, 'with the mod an empty stack still throws');
+    assert.equal(p.flashes, PLAYER.maxFlashes, 'and is full again');
+    room.close();
+  });
+
   it('no rocket damage: blasts don’t hurt you but still push you', () => {
     // The clear lane on the farm.
     const { room } = makeRoom();

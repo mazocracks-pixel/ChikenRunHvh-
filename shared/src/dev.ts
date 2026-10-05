@@ -37,6 +37,8 @@ export interface DevMods {
   noRocketCooldown: boolean;
   /** Rocket blasts (anyone's) don't hurt you; they still push you (rocket jumps). */
   noRocketDamage: boolean;
+  /** Flashbangs never run out. */
+  infiniteFlashes: boolean;
 }
 
 /** The movement part of DevMods, used by the shared physics. */
@@ -58,6 +60,7 @@ export const DEFAULT_MODS: Readonly<DevMods> = {
   magazine: 1,
   noRocketCooldown: false,
   noRocketDamage: false,
+  infiniteFlashes: false,
 };
 
 /** Allowed range of every numeric modifier (the server clamps to these). */
@@ -74,7 +77,7 @@ export const MOD_LIMITS = {
 
 type NumericMod = keyof typeof MOD_LIMITS;
 const NUMERIC = Object.keys(MOD_LIMITS) as NumericMod[];
-const BOOLEAN = ['fly', 'noclip', 'infiniteFuel', 'infiniteAmmo', 'instantReload', 'noRocketCooldown', 'noRocketDamage'] as const;
+const BOOLEAN = ['fly', 'noclip', 'infiniteFuel', 'infiniteAmmo', 'instantReload', 'noRocketCooldown', 'noRocketDamage', 'infiniteFlashes'] as const;
 
 /** Builds a complete, in-range DevMods from untrusted input, keeping `base` for anything missing. */
 export function sanitizeMods(raw: unknown, base: Readonly<DevMods> = DEFAULT_MODS): DevMods {

@@ -3,7 +3,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { Server } from 'socket.io';
-import { DEFAULT_MODS, MODES, HVH_PANEL_IDS, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus, type MapId, type ModeId } from '@game/shared';
+import { DEFAULT_MODS, MODES, PLAYER, HVH_PANEL_IDS, defaultHvhLoadout, sanitizeHvhLoadout, isDefaultMods, isMapId, isModeId, parseDevAction, sanitizeMods, type DevStatus, type MapId, type ModeId } from '@game/shared';
 import { createApiRouter } from './api';
 import { Social } from './social/Social';
 import { SESSION_COOKIE, hashToken, readCookie } from './auth';
@@ -275,6 +275,7 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
       player.mods = isDefaultMods(mods) ? null : mods;
       // Magazines can't hold more than the (possibly smaller) new size.
       for (const [id, n] of player.mags) player.mags.set(id, Math.min(n, player.magazineSize(id)));
+      if (player.mods?.infiniteFlashes) player.flashes = PLAYER.maxFlashes;
     }
     ack(status());
   });

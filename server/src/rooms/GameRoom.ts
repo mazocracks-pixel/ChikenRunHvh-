@@ -717,9 +717,12 @@ export class GameRoom {
     const req = parseThrow(raw);
     const now = performance.now();
     if (!req || !p.alive || this.match.phase === 'ended' || this.actionsBlocked() || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
+    // Developer "infinite flashbangs": the stack is refilled, so it never runs out.
+    if (req.kind === 'flash' && p.mods?.infiniteFlashes) p.flashes = PLAYER.maxFlashes;
     if ((req.kind === 'egg' ? p.eggs : req.kind === 'smoke' ? p.smokes : p.flashes) <= 0) return;
     if (req.kind === 'egg') p.eggs--;
     else if (req.kind === 'smoke') p.smokes--;
+    else if (p.mods?.infiniteFlashes) p.flashes = PLAYER.maxFlashes;
     else p.flashes--;
     p.lastThrowSeq = req.seq;
     p.nextThrowAt = now + THROW_COOLDOWN_MS;

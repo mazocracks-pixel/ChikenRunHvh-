@@ -106,6 +106,7 @@ export function buildTabs(dev: Dev): Tab[] {
           { type: 'toggle', label: 'Rapid fire', path: 'rage.weapon.rapidFire', hint: '×3 fire rate' },
           { type: 'toggle', label: 'No rocket cooldown', path: 'rage.weapon.noRocketCooldown', hint: 'Rocket launcher: no delay between shots, no reloading', keywords: 'rocket launcher spam cooldown reload' },
           { type: 'toggle', label: 'No rocket damage', path: 'rage.weapon.noRocketDamage', hint: 'Rockets (yours or anyone’s) can’t hurt you; the blast still pushes you, so rocket jump', keywords: 'rocket explosion self damage immune rocket jump' },
+          { type: 'toggle', label: 'Unlimited flashbangs', path: 'rage.weapon.infiniteFlashes', hint: 'Flashbangs (Z) never run out', keywords: 'flash bang grenade infinite unlimited blind' },
           { type: 'slider', label: 'Damage multiplier', path: 'weapons.damage', unit: '×' },
           { type: 'slider', label: 'Projectile speed', path: 'weapons.projectileSpeed', unit: '×', hint: 'Rockets' },
           { type: 'toggle', label: 'Automatic fire', path: 'rage.weapon.automatic', hint: 'Hold to keep firing semi-auto guns' },

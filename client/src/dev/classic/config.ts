@@ -42,7 +42,7 @@ export interface DevConfig {
       fov: number;
       autoTarget: boolean;
     };
-    weapon: { noRecoil: boolean; noSpread: boolean; infiniteAmmo: boolean; instantReload: boolean; rapidFire: boolean; automatic: boolean; infiniteMag: boolean; noRocketCooldown: boolean; noRocketDamage: boolean };
+    weapon: { noRecoil: boolean; noSpread: boolean; infiniteAmmo: boolean; instantReload: boolean; rapidFire: boolean; automatic: boolean; infiniteMag: boolean; noRocketCooldown: boolean; noRocketDamage: boolean; infiniteFlashes: boolean };
     move: { speed: number; jump: number; fly: boolean; noclip: boolean; infiniteStamina: boolean; lowGravity: boolean };
     antiAim: {
       /** Spin bot: your chicken's body spins for everyone else; your view and aim don't. */
@@ -99,7 +99,7 @@ export function defaultConfig(): DevConfig {
     },
     rage: {
       aim: { enabled: false, lock: true, silent: false, instantSwitch: true, priority: 'crosshair', hitbox: 'head', fov: 90, autoTarget: false },
-      weapon: { noRecoil: false, noSpread: false, infiniteAmmo: false, instantReload: false, rapidFire: false, automatic: false, infiniteMag: false, noRocketCooldown: false, noRocketDamage: false },
+      weapon: { noRecoil: false, noSpread: false, infiniteAmmo: false, instantReload: false, rapidFire: false, automatic: false, infiniteMag: false, noRocketCooldown: false, noRocketDamage: false, infiniteFlashes: false },
       move: { speed: 1, jump: 1, fly: false, noclip: false, infiniteStamina: false, lowGravity: false },
       antiAim: { spin: false, speed: 720, direction: 'right', pitch: 'normal' },
     },
@@ -245,6 +245,7 @@ export function toServerMods(c: DevConfig): Partial<DevMods> {
     magazine: r.weapon.infiniteMag ? MOD_LIMITS.magazine.max : w.magazine,
     noRocketCooldown: r.weapon.noRocketCooldown,
     noRocketDamage: r.weapon.noRocketDamage,
+    infiniteFlashes: r.weapon.infiniteFlashes,
   };
 }
 
