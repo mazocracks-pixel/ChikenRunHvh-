@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { io as connect, type Socket } from 'socket.io-client';
-import { DEFAULT_MODS, PLAYER, parseDevAction, PROJECTILES, ROCKET_SPAM_INTERVAL_MS, SIM_DT, WALLBANG, WEAPONS, sanitizeMods, type ClientToServerEvents, type DevStatus, type JoinResponse, type ServerToClientEvents } from '@game/shared';
+import { DEFAULT_MODS, PLAYER, parseDevAction, PROJECTILES, ROCKET_SPAM_INTERVAL_MS, WALLBANG, WEAPONS, sanitizeMods, type ClientToServerEvents, type DevStatus, type JoinResponse, type ServerToClientEvents } from '@game/shared';
 import { startGameServer, type RunningServer } from '../src/app';
 import { runDevAction } from '../src/dev/devActions';
 import { DevAccess } from '../src/dev/DevAccess';
-import { addPlayer, makeRoom, place } from './helpers';
+import { addPlayer, makeRoom, place, stepRoom } from './helpers';
 
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -50,12 +50,15 @@ describe('developer modifiers in a room', () => {
     room.close();
   });
 
-  it('frozen players ignore input; speed multiplies walking', () => {
+  it('frozen players ignore input; speed modifiers increase walking through acceleration', t => {
     const { room } = makeRoom('ffa', 'flat');
+    t.after(() => room.close());
     const a = addPlayer(room, 'A');
     const b = addPlayer(room, 'B');
+    const normal = addPlayer(room, 'Normal');
     place(a, 0, -10);
     place(b, 0, 10);
+    place(normal, 0, 20);
     const input = (seq: number) => ({ seq, forward: 1, right: 0, jump: false, yaw: Math.PI / 2, pitch: 0 });
     b.frozen = true;
     a.mods = sanitizeMods({ speed: 2 });
@@ -63,12 +66,14 @@ describe('developer modifiers in a room', () => {
     for (let i = 1; i <= 12; i++) {
       room.handleInput(a, input(i));
       room.handleInput(b, input(i));
+      room.handleInput(normal, input(i));
+      stepRoom(room);
     }
     assert.equal(b.state.x, 0, 'frozen player did not move');
     assert.equal(b.lastSeq, 12, 'but inputs are still acknowledged');
-    const expected = 6 * 2 * 12 * SIM_DT;
-    assert.ok(Math.abs(-a.state.x - expected) < 0.05, `moved ${-a.state.x}, expected ${expected}`);
-    room.close();
+    assert.ok(a.state.horizontalSpeed > normal.state.horizontalSpeed);
+    assert.ok(a.state.horizontalSpeed < PLAYER.speed * 2, 'running accelerates gradually');
+    assert.ok(-a.state.x > -normal.state.x);
   });
 
   it('no rocket cooldown: rockets back to back without using ammo, with a tiny floor', () => {
@@ -242,8 +247,9 @@ describe('developer modifiers in a room', () => {
 });
 
 describe('HvH mode', () => {
-  it('is 5 vs 5 and kills score for the team', () => {
+  it('is 5 vs 5 and kills score for the team', t => {
     const { room } = makeRoom('hvh', 'farm');
+    t.after(() => room.close());
     const a = addPlayer(room, 'A');
     const b = addPlayer(room, 'B');
     assert.equal(room.mode.maxPlayers, 10);

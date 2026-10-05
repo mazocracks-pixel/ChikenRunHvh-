@@ -54,8 +54,8 @@ export function buildTabs(dev: Dev): Tab[] {
         title: 'Movement',
         icon: '➶',
         items: [
-          { type: 'toggle', label: 'Bunny hop', path: 'legit.move.bhop', hint: 'Jumps the moment you land while moving' },
-          { type: 'toggle', label: 'Auto strafe', path: 'legit.move.autoStrafe', hint: 'Strafes with your mouse in the air' },
+          { type: 'toggle', label: 'Bunny hop', path: 'legit.move.bhop', hint: 'Hold Space to re-jump on landing; adds no speed by itself' },
+          { type: 'toggle', label: 'Auto strafe', path: 'legit.move.autoStrafe', hint: 'HvH only; optimizes WASD air steering without turning your view' },
           { type: 'toggle', label: 'Movement assistance', path: 'legit.move.assist', hint: 'Hops over low obstacles in your way' },
           { type: 'toggle', label: 'Jump assist', path: 'legit.move.jumpAssist', hint: 'A jump pressed just before landing still counts' },
         ],
@@ -411,7 +411,7 @@ export function buildTabs(dev: Dev): Tab[] {
         items: [
           { type: 'toggle', label: 'Bunny hop', path: 'legit.move.bhop' },
           { type: 'toggle', label: 'Auto jump', path: 'misc.autoJump', hint: 'Jump whenever you touch the ground' },
-          { type: 'info', label: 'Max bunny-hop bonus', value: () => `+${Math.round(0.6 * 100)}% speed · base ${PLAYER.speed} m/s` },
+          { type: 'info', label: 'Takeoff limit', value: () => `110% of weapon movement speed · base ${PLAYER.speed} m/s` },
         ],
       },
     ],

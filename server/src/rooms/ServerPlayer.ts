@@ -5,7 +5,7 @@ import {
   createMoveState,
   magazineSize,
   defaultHvhLoadout,
-  HvhExploitClock,
+  CommandBuffer, ExploitResource, createAnimation, ResolverSystem,
   type DevMods,
   type InputFrame,
   type MoveState,
@@ -46,7 +46,17 @@ export class ServerPlayer {
   hvhEnabled = false;
   hvhPanel: import('@game/shared').HvhPanelId = 'manual';
   hvhPreparing = false;
-  readonly exploit = new HvhExploitClock();
+  readonly commands = new CommandBuffer();
+  readonly resource = new ExploitResource();
+  animation = createAnimation();
+  readonly resolver = new ResolverSystem();
+  readonly fireQueue: Readonly<import('@game/shared').FireRequest>[] = [];
+  hvhMode = false;
+  simulationTime = 0;
+  lastFiredTick = -100;
+  antiBruteSide = 1;
+  lastThreatTick = -100;
+  weaponHeat = 0;
   revealUntil = 0;
   concealUntil = 0;
   pitch = 0;
@@ -142,7 +152,9 @@ export class ServerPlayer {
     this.lookYaw = this.fakeYaw = yaw;
     this.fakePitch = 0;
     this.hvhCoverAt = -Infinity; this.hvhCoverSide = 0; this.hvhTargetYaw = undefined;
-    this.exploit.reset(now);
+    this.commands.clear(); this.fireQueue.length = 0; this.resource.reset(); this.animation = createAnimation(yaw);
+    this.simulationTime = now; this.lastFiredTick = this.lastThreatTick = -100; this.antiBruteSide = 1;
+    this.weaponHeat = 0;
     this.revealUntil = this.concealUntil = 0;
     this.pitch = 0;
     this.alive = true;
@@ -161,13 +173,14 @@ export class ServerPlayer {
     this.vehicle = 0;
     for (const id of this.info.loadout) this.mags.set(id, this.magazineSize(id));
     this.history.clear();
+    if (this.hvhMode) this.history.push({ t: now, x, y: 0, z, yaw, alive: true, scale: 1 });
   }
 
   toState(): PlayerState {
     return {
       ...this.state,
       pid: this.pid,
-      yaw: this.yaw,
+      yaw: this.hvhMode ? this.animation.eyeYaw : this.yaw,
       pitch: this.pitch,
       alive: this.alive,
       reloading: this.reloadUntil > 0,
@@ -184,10 +197,15 @@ export class ServerPlayer {
       ack: this.lastSeq,
       vehicle: this.vehicle,
       frozen: this.frozen,
-      fakeYaw: this.hvhEnabled ? this.fakeYaw : this.yaw,
+      fakeYaw: this.hvhMode ? this.fakeYaw : this.yaw,
       fakePitch: this.hvhEnabled ? this.fakePitch : this.pitch,
-      hvhCharge: this.hvhEnabled ? this.exploit.charge(performance.now()) : 0,
-      hvhBurst: this.hvhEnabled && this.exploit.burst && performance.now() <= this.exploit.burstUntil,
+      hvhCharge: this.hvhMode ? this.resource.charge : 0,
+      hvhBurst: false,
+      simulationTime: this.simulationTime,
+      lowerBodyYaw: this.hvhMode ? this.animation.lowerBodyYaw : this.yaw,
+      turnWeight: this.animation.turnWeight,
+      weaponHeat: this.weaponHeat,
+      hvhDefensive: this.hvhMode && performance.now() < this.concealUntil && this.hvh.core?.defensive === true,
       hvhPreparing: this.hvhPreparing,
       hvhConcealed: this.hvhEnabled && performance.now() < this.concealUntil,
     };

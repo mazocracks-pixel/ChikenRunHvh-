@@ -1,73 +1,46 @@
-# Skeet panel adaptation
+# Skeet panel and native HvH controllers
 
-The locally supplied Skeet SDK exposes its menu API in `SkeetSDK/skeetsdk.h`:
-`ETab` lists RAGE, AA, LEGIT, VISUALS, MISC, SKINS, PLIST, CONFIG and LUA.
-The header defines checkbox, combo, slider, list, child, label, hotkey, color and text widgets;
-`CMenu` exposes window/tabs/config registration. Its game module is compiled code loaded by a
-native wrapper. The readable `ida_sig_resolver` parses signatures, not enemy gameplay stance.
-No readable original gameplay resolver or anti-aim implementation was available.
+The supplied SDK exposed nine menu categories: Rage, AA, Legit, Visuals, Misc, Skins,
+Players, Config and Lua. Its readable signature parser was not a gameplay resolver;
+the original gameplay module was compiled. This game uses those menu categories with
+original TypeScript controllers. SDK binaries, loaders and foreign-engine offsets are absent.
 
-This is an original browser-game implementation based on those exposed menu categories.
-Neither the SDK loader nor its binaries are included, executed, translated or linked into the game.
+The subsequent guide-driven rewrite replaced public-real-yaw aiming and cooldown-based
+abilities. [HvH simulation](hvh-simulation.md) describes the shared authoritative rules.
 
-| SDK category | Chicken-game counterpart |
+| Category | Native implementation |
 | --- | --- |
-| Rage | Target priority, FOV/reaction/turn limits, autowall, hold overrides; general, pistol, rifle, sniper, shotgun, SMG and heavy profiles |
-| AA | Per-stance yaw/desync/jitter; target-facing, freestanding cover, inversion, three jitter/desync patterns; resolver; shared charged abilities |
-| Legit | Smooth bounded aim and trigger delay/FOV, using the same weapon profiles and geometry |
-| Visuals | ESP, arena/objective markers, real hitbox/collision outlines, local arena palette |
-| Misc | Keybind/resolver/watermark indicators, shot decisions, readouts, slow-walk/peek/jump helpers, menu controls |
-| Skins | Local first-person weapon tint and inspect animation; fixed-stat weapon reference |
-| Players | Ignore or prefer body for an opponent in assisted targeting; live public health/stance/score roster |
-| Config | Independent current and named Skeet configs, import/export, load/save/reset |
-| Lua | Extensions: native precision, ground-peek and stance recipes composed from supported settings |
+| Rage | Seven weapon profiles; hidden-body hypotheses; historical matrix reconstruction; multipoint; real safe points; shared penetration and spread trials; damage/accuracy/safety/confidence weights |
+| Anti-aim | Six movement-state policies; constrained body animation; target-facing and damage-based freestanding; deterministic center/offset/random/three-way jitter; inversion; four era profiles; command choking and gradual fake duck |
+| Legit | Camera-following bounded turns with working smoothing, reaction/FOV and trigger; the same resolver and ballistics as Rage |
+| Visuals | ESP, silhouettes, public-hypothesis skeletons, selected historical matrix, collision and arena markers |
+| Misc | Physical stop/slow walk/peek return; keybind list, charge, watermark and classified shot log; local menu/arena settings |
+| Skins | Local first-person weapon tint and inspect animation, with fixed HvH weapon reference |
+| Players | Per-match ignore/body targeting overrides, public roster and scores |
+| Config | Independent Lab/Skeet current and named configs; sanitized import/export; old real/visual resolver values migrate to center assumption |
+| Extensions | Native recipes plus bounded typed command, observation, candidate, own anti-aim, shot/result and render callbacks |
 
-## Resolver
+Skeet defaults to adaptive resolution; Lab defaults to animation priors. The policy selector
+offers adaptive feedback, animation-weighted feedback and a cycle after confirmed resolver
+misses. Skeet's center option deliberately assumes eye yaw for comparison; it never reveals
+authoritative body yaw. Both panels share weapon stats, ammo, movement and stored-tick costs.
 
-Chicken HvH already publishes authoritative real yaw to everyone. The adaptive resolver uses
-that interpolated real heading for head geometry, retains 4–16 public snapshot observations
-over 300–1200 ms, detects wrapped yaw changes and movement state, and estimates stability.
-Low confidence or a configured number of recent server-confirmed assisted misses can prefer body.
-Hits reset recent misses; old misses expire after three seconds. Teleports/time reversals reset
-history. Rejected/unconfirmed requests and manual shots cannot increment the counter.
-Real mode directly uses the public real stance; visual mode deliberately uses the rendered fake
-heading. This is not a reconstruction of CSGO lower-body-yaw or animation-layer logic.
+Public observations include eye yaw, intermittent lower-body updates, speed, crouch amount,
+ground state, turn weight and time. Body yaw, enemy settings/inverter, authoritative matrices
+and enemy resolver state are not transmitted. Incorrect reconstructed head locations can miss.
+Force-safe points test overlap across plausible LEFT/CENTER/RIGHT and low-delta alternatives;
+safe body shots generally sacrifice head damage. Body hits clear recent misses without
+reinforcing an orientation guess. Spread, cover and server rejection never count as resolver errors.
 
-Multipoint samples the center and four interior head/body points. The point scale is capped at
-75%. Safe-point hit chance additionally requires rays to intersect real chicken geometry at
-the observed heading and both ends of the bounded yaw uncertainty. Sampling accounts for actual
-speed, airborne spread, recoil, armor, cover, penetration and normal fire opportunities.
+Opponent overrides and observations clear on match exit or panel changes. Panel changes do not
+restore health, ammo or resource charge. Cosmetic pitch affects head rendering only. The classic
+private developer menu remains separate outside HvH; ranked mode still denies these capabilities.
+Public HvH panels are available by default, matching the main game's access policy.
+Set `HVH_PUBLIC_PANEL=0` to require the passkey for HvH panels.
 
-## Anti-aim and ability limits
-
-The server selects standing/moving/crouching/airborne policy from real player state, computes
-target-facing and cover sides at most ten times per second, and replicates separate real/fake yaw.
-Jitter is deterministic per player and interval; desync remains at most 58 degrees and jitter
-at most 45. Cosmetic pitch never changes shot direction or hit volumes. A shot reveal, death or
-vehicle entry restores normal pose. The cyan real-heading marker remains available to every player.
-The fallback builder uses the original Lab stance settings.
-
-Double Tap gives one extra ordinary bullet, excludes projectiles/melee/native bursts, and shares
-an eight-second recharge. Hide Shots delays normal stance reveal with a six-second recharge.
-Switching panels, weapon or mode cannot refill health, magazines or charge. No packet choking,
-tickbase shifting, invulnerability, damage multipliers, infinite ammo or movement bypass is exposed.
-
-## Lifecycle and extension points
-
-`panels.ts` registers each assisted panel; `Dev.ts` scopes its saved settings.
-`skeet/model.ts`, `resolver.ts`, `points.ts` and `tabs.ts` own Skeet policy and controls. Shared
-`hvh.ts` bounds server-facing anti-aim; the server validates access using the same opt-in public
-flag or developer passkey as Lab. Opponent overrides/history are transient and clear on match
-exit or panel switching. Imports are sanitized and old unsafe settings are retired.
-Visual tint clones local weapon materials, restores the originals when disabled, and releases
-clones on disposal. Lua/native SDK execution is replaced with explicit supported recipes.
-
-The latest upstream classic menu on L and vehicle improvements remain intact. Combined panel
-hooks forward assisted-shot identity and accepted server feedback. The inactive classic panel
-preserves HvH HUD choices. Skeet activates only in HvH;
-outside HvH the private classic panel retains ownership of predicted server modifiers.
-
-Tests cover malformed configs, stance selection, determinism/reveal/inversion, weapon profile
-fallback, angle wrapping/history/miss expiry, hit-volume safe points, config isolation, socket
-access, resource preservation, and accepted/rejected shot feedback. Browser QA additionally
-checks all nine tabs, touch layout, real multiplayer pose replication and native runtime behavior.
+Controller additions register through `runtime.extensions.register(...)` and the typed panel
+registry. Hooks receive immutable public data or the owner's sanitized configuration. They
+can change bounded movement intent, candidate score or their own anti-aim configuration;
+the server revalidates gameplay. Throwing callbacks disable themselves. These are trusted
+repository-owned callbacks, not a sandbox for uploaded JavaScript or CSGO Lua. Add a new panel
+in source, test its policy, and register it deliberately.

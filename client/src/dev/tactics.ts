@@ -33,7 +33,7 @@ export function estimateShot(w: WeaponDef, eye: Vec3, direction: Vec3, target: S
   return { damage: hits ? total / hits : 0, chance: hits / trials * 100 };
 }
 export function shotGate(estimate: ShotEstimate, minDamage: number, minChance: number, hp: number, elapsed: number, reaction: number): string {
-  if (elapsed < Math.max(100, reaction)) return 'Acquiring target';
+  if (elapsed < Math.max(0, reaction)) return 'Acquiring target';
   if (estimate.damage < minDamage && estimate.damage < hp) return 'Waiting for damage';
   if (estimate.chance < minChance || estimate.chance === 0) return 'Waiting for accuracy';
   return 'Ready';

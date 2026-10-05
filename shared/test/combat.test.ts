@@ -115,8 +115,14 @@ describe('protocol packing', () => {
       carryingFlag: true, hp: 55, armor: 20, weapon: 'sniper', mag: 3, eggs: 2, smokes: 1, flashes: 2, ack: 991, vehicle: 0,
       gliding: true, hop: 0.24, groundTicks: 3, frozen: true, crouching: true,
       fakeYaw: 2, hvhCharge: 0.5, hvhBurst: true, hvhConcealed: true,
+      walkVx: -2.375, walkVz: 4.125, simulationTime: 1234, lowerBodyYaw: 0.625,
+      turnWeight: 0.35, hvhDefensive: false, weaponHeat: 0.45, crouchAmount: 0.4,
     };
-    const back = unpackPlayer(packPlayer(p));
+    const packed = packPlayer(p), back = unpackPlayer(packed);
+    assert.equal(packed[28], p.flashes, 'retain the upstream flashbang slot');
     assert.deepEqual(back, { ...p, x: 1.235, fakePitch: p.pitch });
+    const old = unpackPlayer(packed.slice(0,29));
+    assert.equal(old.flashes, 2);assert.equal(old.walkVx, 0);assert.equal(old.simulationTime, 0);
+    assert.equal(old.lowerBodyYaw, p.yaw);assert.equal(old.crouchAmount, undefined);
   });
 });

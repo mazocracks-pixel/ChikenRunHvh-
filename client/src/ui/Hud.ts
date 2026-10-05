@@ -238,12 +238,12 @@ export class Hud {
     this.vignette.style.opacity = String(hpPct < 35 ? (35 - hpPct) / 50 : 0);
   }
 
-  /** Bunny-hop speed bonus (0..max, higher with a melee weapon), shown while it's building. */
-  setHop(bonus: number, max: number): void {
-    const pct = Math.round(bonus * 100);
+  /** Actual momentum above the held weapon's normal running speed; never a granted bonus. */
+  setHop(excessSpeed: number, max: number): void {
+    const pct = Math.round(excessSpeed * 100);
     this.hopBadge.hidden = pct < 2;
-    this.hopBadge.textContent = `🐇 Bunny hop +${pct}% speed`;
-    this.hopBadge.classList.toggle('max', bonus >= max - 0.01);
+    this.hopBadge.textContent = `🐇 Momentum +${pct}%`;
+    this.hopBadge.classList.toggle('max', excessSpeed >= max - 0.01);
   }
 
   setWeapon(weapon: WeaponId, mag: number, reloading: boolean, reloadProgress: number, loadout: WeaponId[], slot: number): void {

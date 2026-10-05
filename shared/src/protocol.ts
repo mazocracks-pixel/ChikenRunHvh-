@@ -37,6 +37,12 @@ export interface PlayerInfo {
 
 /** The fast-changing state of a player, as carried in every snapshot. */
 export interface PlayerState extends MoveState {
+  /** Public animation observations. The authoritative body yaw is never serialized in HvH. */
+  simulationTime?: number;
+  lowerBodyYaw?: number;
+  turnWeight?: number;
+  hvhDefensive?: boolean;
+  weaponHeat?: number;
   fakeYaw?: number;
   /** Cosmetic head pose only; the true pitch and hitboxes stay unchanged. */
   fakePitch?: number;
@@ -127,6 +133,10 @@ export function packPlayer(p: PlayerState): PackedPlayer {
     p.hvhPreparing ? 1 : 0,
     round(p.fakePitch ?? p.pitch, 3),
     p.flashes ?? 0,
+    round(p.walkVx ?? 0, 3), round(p.walkVz ?? 0, 3), p.simulationTime ?? 0,
+    round(p.lowerBodyYaw ?? p.yaw, 3), p.turnWeight ?? 0, p.hvhDefensive ? 1 : 0,
+    round(p.weaponHeat ?? 0, 3),
+    p.crouchAmount === undefined ? -1 : round(p.crouchAmount, 3),
   ];
 }
 
@@ -172,6 +182,10 @@ export function unpackPlayer(a: PackedPlayer): PlayerState {
     hvhPreparing: a[26] === 1,
     fakePitch: a[27] ?? a[8] ?? 0,
     flashes: a[28] ?? 0,
+    walkVx: a[29] ?? 0, walkVz: a[30] ?? 0, simulationTime: a[31] ?? 0,
+    lowerBodyYaw: a[32] ?? a[7] ?? 0, turnWeight: a[33] ?? 0, hvhDefensive: a[34] === 1,
+    weaponHeat: a[35] ?? 0,
+    crouchAmount: (a[36] ?? -1) < 0 ? undefined : a[36],
   };
 }
 
@@ -346,6 +360,8 @@ export interface JoinRoomRequest {
 // ---------------------------------------------------------------------------
 
 export interface FireRequest {
+  command?: number;
+  intent?: import('./hvh/rage').ShotIntent;
   /** Strictly increasing per player; also seeds the pellet pattern. */
   shot: number;
   weapon: WeaponId;
@@ -359,6 +375,12 @@ export interface FireRequest {
 }
 
 export interface ShotEvent {
+  /** Owner-only authoritative firing acknowledgement, in server simulation time. */
+  readyAt?: number;
+  mag?: number;
+  charge?: number;
+  audit?: import('./hvh/rage').ShotAudit;
+  burst?: number;
   /** Accepted client sequence, for matching assistance telemetry without guessed misses. */
   shot?: number;
   pid: number;

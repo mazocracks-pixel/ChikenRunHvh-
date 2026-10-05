@@ -36,7 +36,7 @@ client prediction.
 
 | Feature | How |
 |---|---|
-| Explosive egg (`G`) | Thrown projectile simulated on the server at 60 Hz (the client draws the same path). Breaks on impact: area damage with falloff, knockback, walls block damage |
+| Explosive egg (`G`) | Thrown projectile simulated on the server at 64 Hz (the client draws the same path). Breaks on impact: area damage with falloff, knockback, walls block damage |
 | Smoke grenade (`Q`) | Projectile that releases a smoke cloud for 10 s |
 | Knockback | Physics gets an external velocity with friction, so explosions push chickens around (predicted and reconciled) |
 | Jetpack | Fuel in the movement state; hold `Space` in the air to fly; fuel bar in the HUD |

@@ -33,36 +33,38 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
     { id: 'rage', label: 'Rage', icon: '⌖', configKey: ['rage.aim', 'hvh.aim', 'skeet.profiles'], sections: [
       sections('aim')[1]!,
       { title: 'Shot overrides', icon: 'ϟ', items: [
-        select('Aim style', 'skeet.aimStyle'), toggle('Autowall', 'hvh.aim.autowall', 'Uses the normal crate, hay and wood penetration rules'),
+        toggle('Autowall', 'hvh.aim.autowall', 'Uses shared thickness-based penetration'),
         key('Force body aim', 'hvh.aim.bodyKey'), slider('Damage override threshold', 'hvh.aim.damageOverride', 'HP'), key('Damage override key', 'hvh.aim.overrideKey'),
         info('Active profile', () => { const w = dev.runtime.currentSession?.weapons.def; return w ? `${w.name} · ${skeetWeaponGroup(w)}${skeetProfile(dev.config, w) === dev.config.skeet.profiles.general ? ' · general fallback' : ''}` : 'Join a match to see your weapon profile'; }),
-      ] }, ...profiles,
+      ] }, ...profiles, sections('aim')[4]!,
     ] },
     { id: 'antiaim', label: 'Anti-aim', icon: '↻', configKey: ['hvh.antiAim', 'hvh.invertKey', 'hvh.exploit', 'skeet.antiAim', 'skeet.resolver'], sections: [
       { title: 'Stance builder', icon: '↻', items: [
         toggle('Enable anti-aim', 'hvh.antiAim.enabled'), toggle('Use state builder', 'skeet.antiAim.enabled', 'Uses a separate policy for each movement state'),
-        toggle('At targets', 'skeet.antiAim.atTargets'), toggle('Freestanding', 'skeet.antiAim.freestanding', 'The server tests cover on either side of your chicken'),
-        select('Jitter pattern', 'skeet.antiAim.jitterMode'), slider('Jitter interval', 'skeet.antiAim.interval', 'ms'),
+        toggle('At targets', 'skeet.antiAim.atTargets'), toggle('Freestanding', 'skeet.antiAim.freestanding', 'Tests incoming damage at alternative head and body matrices'),
+        select('Jitter pattern', 'skeet.antiAim.jitterMode'), slider('Jitter interval', 'skeet.antiAim.interval', 'ms', '1–600 ms; phase sampled at 64 simulation ticks per second'),
         select('Desync pattern', 'skeet.antiAim.desyncMode'), select('Visual pitch', 'skeet.antiAim.visualPitch', 'Cosmetic head tilt; shooting and hitboxes use real pitch'),
         slider('Spin speed', 'hvh.antiAim.spinSpeed', '°/s'), key('Invert desync', 'hvh.invertKey'),
         info('Current state', () => { const s = dev.runtime.currentSession?.local; return s ? hvhStance({ speed: s.server.horizontalSpeed, crouching: s.server.crouching, onGround: s.server.onGround }) : 'Standing'; }),
       ] },
       { title: 'Resolver', icon: '◈', items: [
-        select('Resolver mode', 'skeet.resolver.mode'), slider('History samples', 'skeet.resolver.history'), slider('History window', 'skeet.resolver.memoryMs', 'ms'),
+        select('Resolver mode', 'skeet.resolver.mode', 'Center assumes eye yaw; Adaptive ranks hidden-body hypotheses'), slider('History samples', 'skeet.resolver.history'), slider('History window', 'skeet.resolver.memoryMs', 'ms'),
         slider('Prefer body below confidence', 'skeet.resolver.preferBodyBelow', '%'), slider('Prefer body after misses', 'skeet.resolver.missedShots', 'shots', '0 disables this fallback. Counts only server-confirmed assisted shots'),
-        info('Stance reading', () => dev.runtime.resolverInfo), info('Public real stance', () => 'Cyan arrow = real heading · shot reveal = 300 ms'),
+        info('Stance reading', () => dev.runtime.resolverInfo), info('Hidden body', () => 'Colored matrices are resolver guesses. Enemy body yaw stays on the server.'),
       ] },
       ...HVH_STANCES.map(state => ({ title: `${state[0]!.toUpperCase()}${state.slice(1)} stance`, icon: '◇', items: [
         select('Yaw base', `skeet.antiAim.states.${state}.mode`), slider('Yaw offset', `skeet.antiAim.states.${state}.yawOffset`, '°'),
         slider('Desync angle', `skeet.antiAim.states.${state}.desync`, '°'), slider('Jitter amplitude', `skeet.antiAim.states.${state}.jitter`, '°'),
       ] })),
-      ...sections('exploits'),
-      { title: 'Fallback stance', icon: '↻', items: [select('Fallback yaw', 'hvh.antiAim.mode'), slider('Fallback desync', 'hvh.antiAim.desync', '°'), slider('Fallback jitter', 'hvh.antiAim.jitter', '°')] },
+      ...sections('network').map(s => ({...s,items:s.items.filter(c => !('path' in c) || !['hvh.core.fakeLag','hvh.core.fakeLagMode'].includes(c.path ?? ''))})), ...sections('exploits'),
+      { title: 'Fallback stance', icon: '↻', items: [select('Fallback yaw', 'hvh.antiAim.mode'), slider('Fallback desync', 'hvh.antiAim.desync', '°'), slider('Fallback jitter', 'hvh.antiAim.jitter', '°'), slider('Fallback jitter interval', 'hvh.antiAim.jitterInterval', 'ms')] },
     ] },
-    { id: 'legit', label: 'Legit', icon: '◎', configKey: ['skeet.aimStyle', 'skeet.smoothing', 'legit.trigger'], sections: [
-      { title: 'Smooth targeting', icon: '◎', items: [select('Aim style', 'skeet.aimStyle'), toggle('Aim assist', 'rage.aim.enabled'), slider('Smoothing', 'skeet.smoothing', '×'), slider('Aim FOV', 'rage.aim.fov', '°'), slider('Reaction delay', 'hvh.aim.reaction', 'ms'), info('Shared target policy', () => 'Uses Rage weapon profiles and resolver settings')] },
-      { ...sections('aim')[3]!, items: sections('aim')[3]!.items.map(c => c.label === 'Trigger assist' ? { ...c, hint: 'Works with smooth targeting or with aim assist disabled' } : c) },
-    ] },
+    { id: 'fakelag', label: 'Fake lag', icon: '⌁', configKey: 'skeet.fakeLag', sections: [
+      {title:'Packet control',icon:'⌁',items:[toggle('Fake lag','skeet.fakeLag.enabled','HvH only; holds command delivery and remote movement updates'),
+        slider('Choke limit','skeet.fakeLag.limit','ticks','1–12; higher values make your updates less frequent'),
+        select('Choke mode','skeet.fakeLag.mode'),toggle('Break on shot','skeet.fakeLag.breakOnShot','Sends pending commands and exposes a fresh update when firing'),
+        info('Tradeoff',()=> 'Delayed updates · normal hitboxes and weapon timers','Your own command delivery is delayed too. Fake lag never grants invulnerability or extra movement time.')]}]},
+    { id: 'legit', label: 'Trigger', icon: '◎', configKey: 'legit.trigger', sections: [sections('aim')[3]!] },
     { id: 'visuals', label: 'Visuals', icon: '◈', configKey: ['visuals', 'legit.wall', 'world'], sections: [...sections('visuals'), ...sections('world')] },
     { id: 'misc', label: 'Misc', icon: '☰', configKey: ['misc', 'hvh.feedback', 'skeet.indicators', 'legit.move', 'hvh.movement', 'settings'], sections: [
       { title: 'Indicators', icon: '▤', items: [toggle('Resolver indicator', 'skeet.indicators.resolver'), toggle('Keybind list', 'skeet.indicators.binds'), toggle('Watermark', 'skeet.indicators.watermark')] },
@@ -84,9 +86,10 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
     { id: 'extensions', label: 'Extensions', icon: '⌘', sections: [
       { title: 'Native recipes', icon: '⌘', wide: true, items: [
         recipe('Precision safe points', () => { const c = structuredClone(dev.config); Object.assign(c.skeet.profiles.snipers, { enabled: true, hitchance: 85, safePoints: true, pointScale: 35, autoScope: true }); dev.replaceConfig(c); }),
-        recipe('Ground peek', () => { const c = structuredClone(dev.config); c.hvh.movement.peekAssist = c.hvh.movement.slowWalk = true; dev.replaceConfig(c); }),
+        recipe('Ground peek', () => { const c = structuredClone(dev.config); c.hvh.movement.peekAssist = true; dev.replaceConfig(c); }),
         recipe('State jitter', () => { const c = structuredClone(dev.config); c.hvh.antiAim.enabled = c.skeet.antiAim.enabled = true; c.skeet.antiAim.jitterMode = 'center'; c.skeet.antiAim.desyncMode = 'alternate'; dev.replaceConfig(c); }),
         info('Recipe library', () => 'Apply a recipe, adjust its settings, then save it as a config.'),
+        info('Controller hooks', () => 'Command, observations, candidates, anti-aim, shot results and rendering. Add typed controllers in the game source.'),
       ] },
     ] },
   ];

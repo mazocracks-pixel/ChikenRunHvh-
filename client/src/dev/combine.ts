@@ -29,6 +29,7 @@ export function combineDevHooks(a: DevHooks, b: DevHooks): DevHooks {
     },
     modifyFrame: (s, frame) => b.modifyFrame(s, a.modifyFrame(s, frame)),
     wantsFire: (now) => a.wantsFire(now) || b.wantsFire(now),
+    shotIntent: () => a.shotIntent?.() ?? b.shotIntent?.(),
     aimOverride: (s, eye) => a.aimOverride(s, eye) ?? b.aimOverride(s, eye),
     recoilScale: () => a.recoilScale() * b.recoilScale(),
     blocksShooting: () => a.blocksShooting() || b.blocksShooting(),

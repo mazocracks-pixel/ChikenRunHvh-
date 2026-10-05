@@ -27,6 +27,7 @@ function input(r: GameRoom, p: ServerPlayer, frame: Partial<InputFrame>, times =
   for (let i = 0; i < times; i++) {
     (p as unknown as { inputTokens: number }).inputTokens = 100;
     r.handleInput(p, { seq: ++seq, forward: 0, right: 0, jump: false, yaw: 0, pitch: 0, ...frame });
+    tick(r,1);
   }
 }
 

@@ -73,7 +73,7 @@ Environment variables:
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
 | `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
 | `ANTICHEAT=log` | FaceChiken anti-cheat only logs cheaters instead of removing them (`off` turns it off). Default: removes them |
-| `HVH_PUBLIC_PANEL=0` | Require the passkey for the HvH Lab and Skeet panels too. By default every HvH player gets them without a passkey (normal stats, bounded abilities, no player administration) |
+| `HVH_PUBLIC_PANEL=0` | Require the passkey for the HvH Lab and Skeet panels too. By default every HvH player gets them without a passkey (equal HvH stats, bounded abilities, no player administration) |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Optional restriction for servers that require developer accounts |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
@@ -101,9 +101,11 @@ they are and the more they were looking at it, with ringing ears; blinded bots c
 say how they were done, CS-style: *no scope*, *through a wall*, *through smoke*, *in mid-air* and
 *while blind* tags in the kill feed, "a no-scope headshot through the wall, in mid-air" on the death
 screen, and the same on your own kill banner. Wallbang: bullets go through crates, hay and wood (up to two
-boxes, losing 35% damage each), while stone, brick, metal and concrete stop them. Hold jump to auto bunny hop: every hop right as you land adds speed (up to
-+60%, or +80% with a melee weapon out), and hitting a wall resets it. Press jump again in the air to fly with jetpack fuel, or to
-glide without it. Mystery loot boxes: shoot one open for a medkit, armor, fuel or eggs. Every kill also drops a random bonus pickup
+boxes, losing 35% damage each), while stone, brick, metal and concrete stop them. Source-style air strafing builds momentum
+through coordinated A/D and mouse turning. Timed hops retain it; they grant no fixed speed bonus, and takeoff is bounded to
+110% of the held weapon's running speed. Manual hops require fresh Space presses; a panel's Bunny hop helper times landing
+jumps while Space is held. See [movement research and adaptation details](docs/source-movement.md).
+Outside HvH, press jump again in the air to fly with jetpack fuel, or glide without it. Mystery loot boxes: shoot one open for a medkit, armor, fuel or eggs. Every kill also drops a random bonus pickup
 where the victim fell (it lasts 20 seconds). Drivable buggies (`E`) that run over chickens and can be
 blown up: they slide a little in fast turns, drift with the handbrake (`Space`, leaving skid marks and
 tyre smoke), and have a nitro tank (`Shift`, blue flames, refills when you let go). You can shoot and
@@ -213,26 +215,29 @@ colour, size, thickness, gap, opacity, outline and dynamic spread. Everything is
 browser and applies immediately, even mid-match.
 
 **HvH setup.** Every human joining HvH starts outside combat, with a personal setup pause.
+New players start in first-person view; `V` switches camera view and preserves their preference.
 Choose **HvH Lab**, **Skeet**, or **Manual play**, configure your tools, and press **Begin match** to spawn.
 Assisted panel access follows the passkey/public-rollout policy; Manual play is always available.
 Changing panels later does not restore health, ammo or exploit charge. The typed panel registry
 (`client/src/dev/panels.ts`) provides separate resolver and anti-aim configuration hooks for future panels.
 
 **Skeet.** A separate nine-tab panel adapts the readable Skeet SDK's menu categories to this game.
-It adds seven weapon profiles with multipoint, safe points, auto-stop and auto-scope; public-stance
-history with confidence/body fallback; and standing, moving, crouching and airborne anti-aim policies.
-The server computes target-facing/freestanding cover, deterministic jitter and bounded desync.
-Visual pitch changes only the rendered chicken. Real pitch, hitboxes, spread, recoil and resources
-keep the normal rules. Double Tap and Hide Shots retain their shared charge limits.
+It adds seven weapon profiles, geometric safe points, historical shot selection, auto-stop and
+auto-scope. Its resolver ranks hidden-body hypotheses from public animation observations and
+classified shot outcomes. Six anti-aim states include slow walking and crouched flight. The server
+constrains actual body matrices by velocity, crouch, ground state and turn rate, and computes
+target-facing/freestanding cover. Visual pitch changes only the rendered chicken. Every panel and
+bot uses the same HvH weapon, movement and shared-charge rules.
 
 Skins tint your local first-person weapon. Players offers per-match targeting overrides. Configs
 are stored separately from HvH Lab. Extensions applies native recipes; it does not run CSGO Lua.
 The supplied SDK wraps compiled gameplay code, so its original resolver/anti-aim algorithms cannot
 be verified or ported exactly. See [the adaptation map](docs/skeet-adaptation.md) for implemented
-counterparts and deliberate substitutions. No SDK loader, binaries, hooks or offsets are bundled.
+counterparts and deliberate substitutions. No SDK loader, binaries or foreign-engine offsets are bundled.
+The combat rewrite and its validation contracts are documented in [HvH simulation](docs/hvh-simulation.md).
 
 **HvH Lab.** Only in HvH matches: press `Insert` or choose *Pause → HvH panels* (the button only shows in HvH).
-The panel now has Aim, Anti-aim, Exploits, Movement, Visuals, Weapons, World, Telemetry,
+The panel now has Aim, Anti-aim, Simulation, Exploits, Movement, Visuals, Weapons, World, Telemetry,
 Settings and Configs tabs. Old configs migrate automatically: retired stat-changing powers are removed.
 
 **Classic mega?dev.** Press `L` (or tap the menu title five times on a phone) for the old developer menu, exactly as it was, in every mode except HvH: Legit, Rage (speed, fly,
@@ -242,28 +247,42 @@ settings (the first time it picks up the ones saved before the HvH Lab). It work
 allows developer tools except HvH (equal stats there: use the HvH Lab) and ranked; player
 administration (teleport, heal, give weapons) only works in private rooms.
 
-- Aim: target priority/lock, head or body aim, body-if-lethal, minimum health damage after armor,
-  estimated hitchance from velocity-based spread, bounded turns, reaction/switch delays, and optional
-  trigger/auto-fire. Autofire uses normal weapon cadence, including semi-auto and bursts;
-  each due shot checks current camera aim, collision-resolved speed, cover, intervening enemies,
-  loot and vehicles. Reload, switch, pause and stale-target checks prevent unwanted shots. `H` holds the minimum-damage override; `J` forces body aim.
-- Autowall: optional shot selection through up to two crates, hay or wood boxes, retaining 65%
-  damage per box. Stone, brick, concrete and metal still stop bullets. The normal server penetration
-  rules decide every actual hit; prediction is an estimate.
-- Anti-aim: backward, left, right or spin bases, up to 45° jitter and 58° real/fake desync. Hold `K`
-  to invert. The server owns the real hitbox heading and separately replicates the fake body pose.
-  All HvH players see a cyan real-heading marker; the resolver uses that authoritative stance.
-  Ordinary shots reveal the stance for 300 ms. No fake pitch or invulnerability.
-- Exploits: Double Tap permits one extra bullet within a 500 ms window, with a second-shot interval
-  of `max(80 ms, normal interval × 0.2)` and an 8 s recharge. Normal damage, ammo, spread and reload
-  still apply. Hide Shots delays the normal 300 ms stance reveal by 150 ms and recharges in 6 s.
-  Both use one resource; switching mode/gun never restores charge. Projectiles, melee and native burst weapons cannot use it.
-  Respawning starts an 8 s recharge.
-- Movement: auto-stop changes ordinary movement intent; slow walk holds `Shift` at 45% input.
+- Aim: target priority/persistence, historical records, multipoint, geometric safe points, body
+  fallback, flat or HP-relative minimum damage, separate air hitchance and configurable decision
+  weights. Expensive spread trials are bounded and run after cheap geometry/cover gates. Reload,
+  switch, pause and stale-target checks prevent unwanted shots. `H` overrides the damage threshold;
+  `J` forces body aim. Silent rage shots keep camera and movement direction independent; smooth
+  targeting and trigger use the same geometry and shared ballistics.
+- Autowall: up to two soft boxes; retained damage depends on each box's actual thickness.
+  Stone, brick, concrete and metal stop bullets. Prediction and server execution share this model.
+- Anti-aim: backward, left, right or spin bases, jitter up to 45° and requested desync up to 58°.
+  Hold `K` to invert. Body yaw and authoritative skeletons stay on the server. Public eye yaw,
+  lower-body updates, motion, crouch and turn weight let the resolver reconstruct alternatives.
+  Wrong-side head shots can miss; debug matrices are estimates. Ordinary shots expose on-shot
+  orientation for 300 ms. Defensive transitions spend charge and remain hittable.
+- Simulation: every mode uses 64 Hz and at most one queued movement command per tick.
+  HvH adds 0–12 choked commands, seeded input latency/jitter/loss, gradual real crouch/fake duck
+  and four era profiles. Skeet's Fake lag tab has a separate enable switch, limit, mode and
+  Break on shot control; owners receive fresh state and accepted shots can refresh remote poses. HvH has
+  no vehicles. Friendly fire is blocked; enemy kills still score for the team.
+- Exploits: one 32-tick resource recharges in four idle, unchoked seconds after recovery. Double
+  Tap spends the full budget to advance the weapon's simulation clock through its unchanged
+  normal interval and validate two rounds in one delivery. Intervals above 500 ms, projectiles,
+  melee and native bursts cannot shift. Hide Shots spends 14 ticks to protect on-shot orientation
+  for 150 ms. Defensive transitions spend 12 ticks. Damage, magazine and reload rules still apply.
+  Respawn empties charge; changing panel, mode or weapon cannot refill it.
+- Movement: inertial acceleration and physical counter-strafing; slow walk holds `Shift` at 45% input.
+  Auto-stop options include native slow walking, stopping between shots and bounded prediction
+  of enemy cover-edge peeks. Slow walk plus prediction prepares before the likely peek; current
+  accuracy can still require a full stop. See [the auto-stop reference](docs/auto-stop.md).
+  Assisted HvH auto strafe optimizes WASD air intent without turning the camera. Optional Subtick
+  strafe re-optimizes eight times within one ordinary tick for faster air movement, keeping the
+  normal gravity and takeoff limit. These panel helpers are blocked in other modes and Manual HvH.
   Hold `Z` to mark a peek anchor. After firing, release movement keys while holding `Z` to return.
   Releasing `Z`, jumping, manual movement or an obstructed route cancels return. No teleporting.
-- Telemetry: target, predicted damage/hitchance, shot decision, five recent shot entries, charge,
-  and movement status. Balanced, Precision, Aggressive and Scout presets retain normal stats.
+- Telemetry: hypothesis/confidence, geometric safety, predicted damage/hitchance, historical shot
+  decisions and server classifications for hit, spread, resolver error, obstruction, invalid record
+  or weapon rejection. Bots see the same public observations. All presets retain equal game stats.
 
 Public access is **on by default**: every HvH player can use the same panels without a passkey.
 This grants no access in other modes and no administration privilege; mega?dev (L) still needs
@@ -295,14 +314,14 @@ or first person (`V`). Synthesized sound effects.
 | Key           | Action                    | Key     | Action                       |
 | ------------- | ------------------------- | ------- | ---------------------------- |
 | WASD / arrows | Move (drive in a buggy)   | Mouse   | Look / aim                   |
-| Space         | Jump (hold: bunny hop); drift (driving) | Click | Shoot (on foot or driving) |
-| Space in air  | Glide / jetpack (again)   | V       | First / third person (saved) |
+| Space         | Jump (hold with Bunny hop helper); drift (driving) | Click | Shoot (on foot or driving) |
+| Space in air  | Glide / jetpack outside HvH | V     | First / third person (saved) |
 | Right-click   | Zoom / sniper scope       | R       | Reload                       |
 | 1–4, wheel    | Switch gun                | 5       | Melee weapon                 |
 | F             | Inspect weapon            | G       | Throw explosive egg          |
 | Q / Z         | Smoke grenade / flashbang | E       | Get in / out of a buggy      |
-| Tab           | Scoreboard                | Shift   | Nitro (driving)              |
-| T / Enter     | Chat                      | Esc     | Pause                        |
+| Tab           | Scoreboard                | Shift   | Slow walk (on foot); nitro (driving) |
+| Y / U         | All / team chat           | Esc     | Pause                        |
 | B             | Build mode (Sandbox) / buy menu (ChikenBomb) | X | Next block type (Sandbox) |
 | E (hold)      | Plant / defuse the bomb (ChikenBomb) |  |                     |
 | Ctrl / C      | Crouch (slower, smaller)  |         |                              |
@@ -398,7 +417,7 @@ authorization through `devHvh`, and tests for resource/cooldown and mode isolati
 
 The server is the authority; the client stays responsive by predicting:
 
-1. Every fixed tick (60 Hz) the client samples input, **applies it locally right away** with the
+1. Every fixed tick (64 Hz) the client samples input, **applies it locally right away** with the
    shared `stepPlayer` (or `stepCar` while driving), remembers it, and sends it with an increasing
    `seq`.
 2. The server validates each input (shape, ordering, a token bucket so clients can't speed-hack)

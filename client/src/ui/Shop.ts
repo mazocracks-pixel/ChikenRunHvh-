@@ -75,7 +75,7 @@ export class ShopScreen {
 
     clear(this.grid);
     if (this.tab === 'weapon') {
-      this.grid.append(h('p', { class: 'muted wide' }, `Tap owned guns to put them in your loadout (up to ${LOADOUT_SIZE}, keys 1-${LOADOUT_SIZE}). Your melee weapon always comes last: bunny hop with it out for up to +80% speed.`));
+      this.grid.append(h('p', { class: 'muted wide' }, `Tap owned guns to put them in your loadout (up to ${LOADOUT_SIZE}, keys 1-${LOADOUT_SIZE}). Your melee weapon always comes last. All weapons use the same air-strafe and bunny-hop rules.`));
     }
     for (const item of ITEMS.filter((i) => i.slot === this.tab)) this.grid.append(this.card(item, p));
   }

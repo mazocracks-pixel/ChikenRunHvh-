@@ -1,5 +1,5 @@
 /** Fixed simulation rate. Client prediction and server authority both step at exactly this rate. */
-export const SIM_RATE = 60;
+export const SIM_RATE = 64;
 export const SIM_DT = 1 / SIM_RATE;
 
 /** How often the server broadcasts world snapshots to clients. */
@@ -22,6 +22,8 @@ export const PLAYER = {
   eyeHeight: 1.3,
   /** Metres per second. */
   speed: 6,
+  /** Grounded Shift walking: fraction of normal walking speed. */
+  slowWalkSpeed: 0.45,
   jumpVelocity: 8,
   gravity: 24,
   /** Holding jump while falling flaps the wings and caps the fall speed. */
@@ -39,18 +41,10 @@ export const PLAYER = {
   maxFlashes: 2,
 } as const;
 
-/** Bunny hopping: chain jumps right as you land to build speed. */
+/** Standard CS-style takeoff ceiling; speed comes from air acceleration, never a hop bonus. */
 export const HOP = {
-  /** Jumping within this many ticks of landing keeps the chain going (holding jump does it on tick 0). */
-  windowTicks: 6,
-  /** Extra speed per chained hop, as a fraction of walking speed. */
-  gain: 0.08,
-  /** Cap: at most +60% speed... */
-  max: 0.6,
-  /** ...or +80% with a melee weapon out. */
-  meleeMax: 0.8,
-  /** How fast the bonus fades once you stop hopping (fraction per second). */
-  decay: 4,
+  max: 0.1,
+  meleeMax: 0.1,
 } as const;
 
 /** Crouching (Ctrl / C): slower, and the chicken (model, hitbox, eyes) shrinks. */

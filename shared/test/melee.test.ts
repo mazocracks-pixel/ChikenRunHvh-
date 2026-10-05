@@ -6,6 +6,7 @@ import {
   HOP,
   LOADOUT_SIZE,
   SIM_DT,
+  PLAYER,
   WEAPONS,
   createMoveState,
   hopMaxFor,
@@ -19,30 +20,29 @@ import {
 } from '../src/index';
 
 const flat = new CollisionWorld(200, []);
-const hopFrame = (seq: number): InputFrame => ({ seq, forward: 1, right: 0, jump: true, yaw: 0, pitch: 0 });
+const hopFrame = (seq: number): InputFrame => ({ seq, forward: 1, right: 0, jump: true, autoHop:true, yaw: 0, pitch: 0 });
 
-/** Bunny hops (holding forward + jump) for `seconds` and returns the speed bonus. */
+/** Straight held-jump timing helper; it must never manufacture acceleration. */
 function hopFor(seconds: number, hopMax: number, s = createMoveState(0, 0, 90)): ReturnType<typeof createMoveState> {
   for (let i = 0; i < seconds / SIM_DT; i++) stepPlayer(s, hopFrame(i), SIM_DT, flat, null, hopMax);
   return s;
 }
 
 describe('melee bunny hops', () => {
-  it('build up to +80% speed with a melee weapon, +60% with a gun', () => {
+  it('melee and guns share the same takeoff ceiling and neither gets a speed bonus per hop', () => {
     assert.equal(hopMaxFor('knife'), HOP.meleeMax);
-    assert.equal(hopMaxFor('katana'), 0.8);
+    assert.equal(hopMaxFor('katana'), 0.1);
     assert.equal(hopMaxFor('rifle'), HOP.max);
     const melee = hopFor(12, hopMaxFor('knife'));
-    assert.ok(Math.abs(melee.hop - 0.8) < 1e-9, `melee bonus ${melee.hop}`);
+    assert.equal(melee.hop,0);
     const gun = hopFor(12, hopMaxFor('rifle'));
-    assert.ok(Math.abs(gun.hop - 0.6) < 1e-9, `gun bonus ${gun.hop}`);
+    assert.equal(gun.hop,0);assert.equal(melee.horizontalSpeed,gun.horizontalSpeed);
   });
 
-  it('putting the melee weapon away drops the extra speed', () => {
-    const s = hopFor(12, HOP.meleeMax);
-    assert.ok(s.hop > HOP.max);
+  it('a fresh takeoff crops carried velocity to the current weapon speed ceiling', () => {
+    const s = createMoveState(0,0,90);s.walkVz=-10;
     stepPlayer(s, hopFrame(9999), SIM_DT, flat, null, hopMaxFor('pistol'));
-    assert.ok(s.hop <= HOP.max + 1e-9, `after switching ${s.hop}`);
+    assert.ok(Math.abs(s.horizontalSpeed-PLAYER.speed*1.1)<1e-9);
   });
 });
 
@@ -99,15 +99,14 @@ describe('meleeHit', () => {
 });
 
 describe('bunny hop while crouching', () => {
-  it('builds no speed, and loses what it had', () => {
+  it('creates no crouch-hop bonus and retains the running-speed takeoff ceiling while crouched', () => {
     const crouchHop = (seq: number): InputFrame => ({ ...hopFrame(seq), crouch: true });
     const s = createMoveState(0, 0, 90);
     for (let i = 0; i < 6 / SIM_DT; i++) stepPlayer(s, crouchHop(i), SIM_DT, flat, null, HOP.max);
     assert.equal(s.hop, 0, 'crouched hops give nothing');
-    const fast = hopFor(6, HOP.max);
-    assert.ok(fast.hop > 0.3);
-    for (let i = 0; i < 2 / SIM_DT; i++) stepPlayer(fast, crouchHop(i), SIM_DT, flat, null, HOP.max);
-    assert.equal(fast.hop, 0, 'holding Ctrl drops the bonus on the next hop');
+    const fast=createMoveState(0,0,90);fast.walkVz=-10;
+    stepPlayer(fast,crouchHop(1),SIM_DT,flat,null,HOP.max);
+    assert.ok(Math.abs(fast.horizontalSpeed-PLAYER.speed*1.1)<1e-9);
   });
 });
 
