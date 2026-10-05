@@ -231,11 +231,11 @@ The supplied SDK wraps compiled gameplay code, so its original resolver/anti-aim
 be verified or ported exactly. See [the adaptation map](docs/skeet-adaptation.md) for implemented
 counterparts and deliberate substitutions. No SDK loader, binaries, hooks or offsets are bundled.
 
-**HvH Lab.** Press `Insert`, choose *Pause → HvH panels*, or tap the lobby title five times on a phone.
+**HvH Lab.** Only in HvH matches: press `Insert` or choose *Pause → HvH panels* (the button only shows in HvH).
 The panel now has Aim, Anti-aim, Exploits, Movement, Visuals, Weapons, World, Telemetry,
 Settings and Configs tabs. Old configs migrate automatically: retired stat-changing powers are removed.
 
-**Classic mega?dev.** Press `L` for the old developer menu, exactly as it was: Legit, Rage (speed, fly,
+**Classic mega?dev.** Press `L` (or tap the menu title five times on a phone) for the old developer menu, exactly as it was, in every mode except HvH: Legit, Rage (speed, fly,
 noclip, infinite ammo, no recoil/spread, rapid fire, no rocket cooldown/damage...), Visuals, World,
 Players, Weapons, Misc, Configs and Settings. It asks for the same passkey and keeps its own saved
 settings (the first time it picks up the ones saved before the HvH Lab). It works wherever the server

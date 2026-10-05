@@ -24,6 +24,8 @@ export class App {
   private readonly net = new Network();
   private readonly game: Game;
   private readonly dev: Dev;
+  /** Pause menu: the HvH panels, only shown in HvH matches. */
+  private readonly hvhPanelsButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.openHvhSetup() }, 'HvH panels');
   private readonly friends: Friends;
   /** The old mega?dev menu, on L (the HvH Lab above is on Insert). */
   private readonly classicDev: ClassicDev;
@@ -130,7 +132,7 @@ export class App {
         { class: 'panel card' },
         h('h2', null, 'Paused'),
         resume,
-        h('button', { type: 'button', class: 'secondary', onclick: () => this.game.activeSession?.mode.id === 'hvh' ? this.openHvhSetup() : void this.dev.openMenu() }, 'HvH panels'),
+        this.hvhPanelsButton,
         h('button', { type: 'button', class: 'secondary', onclick: () => openSettings(this.game.audio) }, 'Settings'),
         h('button', { type: 'button', class: 'secondary', onclick: () => this.leave() }, 'Leave match'),
       ),
@@ -166,7 +168,8 @@ export class App {
       taps = [...taps.filter((t) => now - t < 3000), now];
       if (taps.length >= 5) {
         taps = [];
-        void this.dev.openMenu();
+        // The logo is on the menu (not in an HvH match): that's mega?dev.
+        void this.classicDev.openMenu();
       }
     });
   }
@@ -240,6 +243,7 @@ export class App {
     this.game.input.suspended = Boolean(this.hvhSetup) || overlay || paused;
     if (this.hvhSetup) this.hvhSetup.root.hidden = devMenu;
     this.pause.hidden = !paused || anyModalOpen() || overlay || Boolean(this.hvhSetup);
+    this.hvhPanelsButton.hidden = this.game.activeSession?.mode.id !== 'hvh';
     this.pauseButton.hidden = !inGame || !this.isTouch || paused || overlay || Boolean(this.hvhSetup);
     this.touch?.setVisible(inGame && !paused && !overlay && !this.hvhSetup);
     this.cookieNotice.setVisible(this.screen === 'menu' || this.screen === 'shop');

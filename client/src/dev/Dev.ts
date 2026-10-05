@@ -75,7 +75,14 @@ export class Dev {
   }
 
   /** Developer features are on: access granted and allowed in the current room. */
+  /** In an HvH match: the only place the HvH panels work. */
+  get inHvh(): boolean {
+    return this.runtime.currentSession?.mode.id === 'hvh';
+  }
+
   get active(): boolean {
+    // HvH panels are for HvH matches only (mega?dev, on L, covers every other mode).
+    if (!this.inHvh) return false;
     if (this.panelId === 'skeet' && this.status.profile !== 'hvh') return false;
     return this.status.granted && this.status.allowedHere && (this.runtime.currentSession?.mode.id !== 'hvh' || HVH_PANELS[this.panelId].assisted);
   }
@@ -219,12 +226,14 @@ export class Dev {
 
   sessionStarted(): void {
     this.sessionVersion++;
+    if (!this.inHvh) this.closeMenu();
     // New room, new permissions: check them, then send our modifiers.
     void this.refreshStatus().then(() => this.syncNow());
   }
 
   sessionEnded(): void {
     this.sessionVersion++;
+    this.closeMenu();
     this.status = { ...this.status, allowedHere: false, profile: 'off', mods: { ...DEFAULT_MODS } };
     for (const fn of this.listeners) fn();
   }
@@ -241,6 +250,10 @@ export class Dev {
   /** Opens the menu, asking for the passkey first if this account hasn't unlocked it yet. */
   async openMenu(): Promise<void> {
     if (this.menuOpen) return;
+    if (!this.inHvh) {
+      this.notify('HvH panels only open in HvH matches · press L for mega?dev', 'bad');
+      return;
+    }
     this.prompting = true;
     this.input.releaseLock();
     this.ctx.onMenuChange();

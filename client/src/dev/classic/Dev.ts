@@ -190,6 +190,8 @@ export class Dev {
   }
 
   sessionStarted(): void {
+    // HvH has its own panels: mega?dev steps aside there.
+    if (this.runtime.currentSession?.mode.id === 'hvh') this.closeMenu();
     // New room, new permissions: check them, then send our modifiers.
     void this.refreshStatus().then(() => this.syncNow());
   }
@@ -211,6 +213,10 @@ export class Dev {
   /** Opens the menu, asking for the passkey first if this account hasn't unlocked it yet. */
   async openMenu(): Promise<void> {
     if (this.menuOpen) return;
+    if (this.runtime.currentSession?.mode.id === 'hvh') {
+      this.notify('mega?dev is off in HvH matches · press Insert for the HvH panels', 'bad');
+      return;
+    }
     this.prompting = true;
     this.input.releaseLock();
     this.ctx.onMenuChange();
