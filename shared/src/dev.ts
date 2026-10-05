@@ -141,10 +141,10 @@ export type DevAction =
   | { kind: 'jumpscare'; target: number; style: JumpscareStyle };
 
 /** The jumpscares mega?dev can send. */
-export const JUMPSCARE_STYLES = ['chicken', 'ghost', 'glitch'] as const;
+export const JUMPSCARE_STYLES = ['chicken', 'ghost', 'glitch', 'flash'] as const;
 export type JumpscareStyle = (typeof JUMPSCARE_STYLES)[number];
-/** How long one lasts on screen, and how soon the same player can be scared again. */
-export const JUMPSCARE = { ms: 1600, cooldownMs: 5000 } as const;
+/** How soon the same player can be scared again (so the flash can never strobe). */
+export const JUMPSCARE = { cooldownMs: 5000 } as const;
 
 export interface DevResult {
   ok: boolean;

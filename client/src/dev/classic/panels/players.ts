@@ -29,8 +29,9 @@ export function playersPanel(dev: Dev): HTMLElement & { refresh: () => void } {
   armor.addEventListener('input', () => (armorValue.textContent = armor.value));
   const weapon = h('select', { class: 'dev-select', 'aria-label': 'Weapon' }, ...WEAPON_IDS.map((id) => h('option', { value: id }, WEAPONS[id].name)));
 
-  const SCARE_NAMES: Record<JumpscareStyle, string> = { chicken: 'Demon chicken', ghost: 'Ghost', glitch: 'Glitch' };
-  const scare = h('select', { class: 'dev-select', 'aria-label': 'Jumpscare' }, ...JUMPSCARE_STYLES.map((id) => h('option', { value: id }, SCARE_NAMES[id])));
+  const SCARE_NAMES: Record<JumpscareStyle, string> = { chicken: 'Demon chicken', ghost: 'Ghost', glitch: 'Glitch', flash: 'White flash' };
+  const scare = h('select', { class: 'dev-select', 'aria-label': 'Jumpscare' }, h('option', { value: 'random' }, 'Random'), ...JUMPSCARE_STYLES.map((id) => h('option', { value: id }, SCARE_NAMES[id])));
+  const scareStyle = (): JumpscareStyle => (scare.value === 'random' ? JUMPSCARE_STYLES[Math.floor(Math.random() * JUMPSCARE_STYLES.length)]! : (scare.value as JumpscareStyle));
 
   const rows = (): Row[] => {
     const s = dev.runtime.currentSession;
@@ -112,7 +113,8 @@ export function playersPanel(dev: Dev): HTMLElement & { refresh: () => void } {
       'div',
       { class: 'dev-btns' },
       scare,
-      btn('Jumpscare', act((pid) => ({ kind: 'jumpscare', target: pid, style: scare.value as JumpscareStyle }), (r) => `Jumpscared ${r.name} 👻`), 'danger'),
+      btn('Jumpscare', act((pid) => ({ kind: 'jumpscare', target: pid, style: scareStyle() }), (r) => `Jumpscared ${r.name} 👻`), 'danger'),
+      btn('White flash', act((pid) => ({ kind: 'jumpscare', target: pid, style: 'flash' }), (r) => `Flashed ${r.name} ⚪`)),
     ),
   );
 

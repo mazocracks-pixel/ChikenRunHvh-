@@ -2949,6 +2949,9 @@ code {
   background: radial-gradient(circle at 50% 50%, #3a0000 0%, #0a0000 70%, #000 100%);
   animation: js-fade var(--js-ms) linear forwards;
 }
+.jumpscare > * {
+  grid-area: 1 / 1;
+}
 .jumpscare-ghost {
   background: radial-gradient(circle at 50% 45%, #1c232c 0%, #050608 75%);
 }
@@ -2957,8 +2960,22 @@ code {
   background-size: 256px 256px;
   animation: js-fade var(--js-ms) linear forwards, js-noise 0.25s steps(4) infinite;
 }
+.jumpscare-flash {
+  background: none;
+}
+
+/* The one white flash everything starts with (held longer for the "White flash" prank). */
+.jumpscare-whiteout {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: js-whiteout 520ms ease-out forwards;
+}
+.jumpscare-flash .jumpscare-whiteout {
+  animation: js-whiteout-long var(--js-ms) ease-in forwards;
+}
+
 .jumpscare-face {
-  grid-area: 1 / 1;
   width: min(118vmin, 1000px);
   height: min(118vmin, 1000px);
   animation: js-lunge var(--js-ms) cubic-bezier(0.1, 0.9, 0.2, 1) forwards, js-shake 0.09s linear infinite;
@@ -2967,6 +2984,27 @@ code {
   width: 100%;
   height: 100%;
   display: block;
+}
+.jumpscare-face .js-jaw {
+  animation: js-jaw var(--js-ms) ease-out forwards;
+}
+.jumpscare-face .js-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: js-eyes 0.42s ease-in-out infinite;
+}
+.jumpscare-face .js-pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: js-pupil var(--js-ms) ease-out forwards;
+}
+.jumpscare-face .js-mouth {
+  transform-box: fill-box;
+  transform-origin: 50% 20%;
+  animation: js-mouth var(--js-ms) cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
+}
+.jumpscare-ghost .jumpscare-face {
+  animation: js-lunge var(--js-ms) cubic-bezier(0.1, 0.9, 0.2, 1) forwards, js-twitch 0.5s steps(2) infinite;
 }
 .jumpscare-split-r,
 .jumpscare-split-c {
@@ -2984,17 +3022,98 @@ code {
 .jumpscare-glitch .jumpscare-face {
   animation: js-lunge var(--js-ms) cubic-bezier(0.1, 0.9, 0.2, 1) forwards, js-tear 0.3s steps(3) infinite;
 }
+
+/* Blood from the top of the screen, cracked glass, and a red heartbeat at the edges. */
+.jumpscare-blood,
+.jumpscare-cracks {
+  position: absolute;
+  inset: 0;
+}
+.jumpscare-blood svg,
+.jumpscare-cracks svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.jumpscare-blood svg {
+  fill: #7a0008;
+}
+.jumpscare-blood .js-drip {
+  transform-box: fill-box;
+  transform-origin: top;
+  transform: scaleY(0);
+  animation: js-drip 1.6s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+.jumpscare-cracks path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.jumpscare-cracks {
+  animation: js-crack 90ms ease-out;
+}
+.jumpscare-cracks .js-crack-shadow path {
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3px;
+}
+.jumpscare-cracks .js-crack-line path {
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 1.4px;
+}
+.jumpscare-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, transparent 35%, rgba(150, 0, 0, 0.85) 100%);
+  opacity: 0;
+  animation: js-heartbeat var(--js-ms) linear forwards;
+}
+
+@keyframes js-whiteout {
+  0%, 18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes js-whiteout-long {
+  0%, 30% { opacity: 1; }
+  100% { opacity: 0; }
+}
 @keyframes js-lunge {
-  0% { transform: scale(0.15); }
-  12% { transform: scale(1.05); }
-  100% { transform: scale(1.25); }
+  0% { transform: scale(0.2); }
+  9% { transform: scale(1.12); }
+  14% { transform: scale(1.02); }
+  100% { transform: scale(1.3); }
 }
 @keyframes js-shake {
   0% { translate: 0 0; }
-  25% { translate: 7px -5px; }
-  50% { translate: -6px 6px; }
-  75% { translate: 5px 4px; }
+  25% { translate: 9px -6px; }
+  50% { translate: -8px 7px; }
+  75% { translate: 6px 5px; }
   100% { translate: 0 0; }
+}
+@keyframes js-twitch {
+  0% { translate: 0 0; rotate: 0deg; }
+  50% { translate: -10px 4px; rotate: -2deg; }
+  100% { translate: 8px -3px; rotate: 1.5deg; }
+}
+@keyframes js-jaw {
+  0% { transform: translateY(-34px); }
+  7% { transform: translateY(6px); }
+  14% { transform: translateY(-18px); }
+  22% { transform: translateY(10px); }
+  32% { transform: translateY(-6px); }
+  100% { transform: translateY(14px); }
+}
+@keyframes js-eyes {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+@keyframes js-pupil {
+  0% { transform: scale(1, 1); }
+  10% { transform: scale(0.5, 1.2); }
+  100% { transform: scale(1.6, 1.1); }
+}
+@keyframes js-mouth {
+  0% { transform: scale(0.6, 0.2); }
+  10% { transform: scale(1, 1.15); }
+  100% { transform: scale(1.1, 1.45); }
 }
 @keyframes js-tear {
   0% { clip-path: inset(0 0 0 0); translate: 0 0; }
@@ -3005,13 +3124,29 @@ code {
 @keyframes js-noise {
   to { background-position: 128px 64px; }
 }
+@keyframes js-drip {
+  to { transform: scaleY(1); }
+}
+@keyframes js-crack {
+  from { opacity: 0; transform: scale(0.97); }
+}
+/* Two slow heartbeats once the face starts to fade. */
+@keyframes js-heartbeat {
+  0%, 58% { opacity: 0; }
+  63% { opacity: 1; }
+  68% { opacity: 0.35; }
+  72% { opacity: 0.9; }
+  82% { opacity: 0.2; }
+  100% { opacity: 0; }
+}
 @keyframes js-fade {
-  0%, 80% { opacity: 1; }
+  0%, 82% { opacity: 1; }
   100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .jumpscare,
   .jumpscare-face,
+  .jumpscare-ghost .jumpscare-face,
   .jumpscare-glitch .jumpscare-face {
     animation: js-fade var(--js-ms) linear forwards;
   }

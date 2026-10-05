@@ -34,7 +34,11 @@ export type SoundName =
   | 'defused'
   | 'bigBoom'
   | 'scream'
-  | 'static';
+  | 'static'
+  | 'scareHit'
+  | 'glassCrack'
+  | 'wail'
+  | 'heartbeat';
 
 const VOLUME_KEY = 'chikengun:volume';
 /** Beyond this distance a sound is silent. */
@@ -487,13 +491,37 @@ export class AudioEngine {
         this.tone(ctx, out, t, { dur: 2.2, type: 'sine', freq: 4400, to: 4200, gain: 0.035 });
         break;
       case 'scream':
-        // Jumpscare: a hit, then a screeching, wobbling chicken scream.
-        this.tone(ctx, out, t, { dur: 0.5, type: 'sine', freq: 90, to: 30, gain: 1.5 });
-        this.burst(ctx, out, t, { dur: 0.15, type: 'highpass', freq: 1800, gain: 1.2 });
+        // Jumpscare: a long screeching, wobbling chicken scream (several overlapping squawks).
         this.squawk(ctx, out, t, { delay: 0, freq: 700, peak: 1500, end: 1100, dur: 0.7, gain: 0.7 });
         this.squawk(ctx, out, t, { delay: 0.02, freq: 960, peak: 1900, end: 1300, dur: 0.7, gain: 0.5 });
-        this.squawk(ctx, out, t, { delay: 0.55, freq: 1300, peak: 1700, end: 600, dur: 0.9, gain: 0.6 });
-        this.burst(ctx, out, t, { dur: 1.3, type: 'bandpass', freq: 2600, to: 1400, q: 2, gain: 0.9 });
+        this.squawk(ctx, out, t, { delay: 0.4, freq: 1100, peak: 2100, end: 1500, dur: 0.7, gain: 0.6 });
+        this.squawk(ctx, out, t, { delay: 0.8, freq: 1300, peak: 1800, end: 500, dur: 0.9, gain: 0.6 });
+        this.burst(ctx, out, t, { dur: 1.6, type: 'bandpass', freq: 2600, to: 1200, q: 2, gain: 0.9 });
+        break;
+      case 'scareHit':
+        // The jumpscare's slam: a sub-bass drop, a thud and a crack.
+        this.tone(ctx, out, t, { dur: 1.1, type: 'sine', freq: 75, to: 24, gain: 1.8 });
+        this.burst(ctx, out, t, { dur: 0.7, type: 'lowpass', freq: 1400, to: 70, gain: 1.6 });
+        this.burst(ctx, out, t, { dur: 0.12, type: 'highpass', freq: 2600, gain: 1.2 });
+        this.tone(ctx, out, t, { dur: 0.9, type: 'sawtooth', freq: 140, to: 70, gain: 0.35 });
+        break;
+      case 'glassCrack':
+        // The screen cracking: a sharp snap and a few splinters.
+        this.burst(ctx, out, t, { dur: 0.22, type: 'highpass', freq: 4200, gain: 1.4 });
+        this.burst(ctx, out, t, { dur: 0.08, type: 'bandpass', freq: 6500, q: 3, gain: 1, delay: 0.04 });
+        this.burst(ctx, out, t, { dur: 0.06, type: 'bandpass', freq: 5200, q: 3, gain: 0.8, delay: 0.09 });
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 7400, q: 3, gain: 0.6, delay: 0.15 });
+        break;
+      case 'wail':
+        // A ghost's scream: high and falling, with a hollow breathy layer.
+        this.tone(ctx, out, t, { dur: 1.7, type: 'sine', freq: 1400, to: 380, gain: 0.55 });
+        this.tone(ctx, out, t, { dur: 1.6, type: 'triangle', freq: 1480, to: 420, gain: 0.35 });
+        this.squawk(ctx, out, t, { delay: 0, freq: 900, peak: 1600, end: 400, dur: 1.4, gain: 0.45 });
+        this.burst(ctx, out, t, { dur: 1.7, type: 'bandpass', freq: 1800, to: 500, q: 3, gain: 0.8 });
+        break;
+      case 'heartbeat':
+        // Lub-dub, twice.
+        for (const [d, f] of [[0, 62], [0.2, 52], [0.75, 62], [0.95, 52]] as const) this.tone(ctx, out, t, { dur: 0.16, type: 'sine', freq: f, to: 38, gain: 1.4, delay: d });
         break;
       case 'static':
         // Jumpscare: TV static and a deep wrong hum.

@@ -1125,8 +1125,7 @@ export class GameSession {
         this.ctx.hud.toast('👻 A developer tried to jumpscare you (jumpscares are off in Settings)');
         return;
       }
-      showJumpscare(e.style);
-      this.ctx.audio.play(e.style === 'glitch' ? 'static' : 'scream', undefined, 1.6);
+      showJumpscare(e.style, this.ctx.audio);
     });
     this.on('loot', (e) => this.onLoot(e));
     this.on('pickup', (e) => this.onPickup(e));
