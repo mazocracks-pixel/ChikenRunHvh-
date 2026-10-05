@@ -34,6 +34,8 @@ export interface Settings {
   /** Vertical field of view in degrees. */
   fov: number;
   crosshair: CrosshairSettings;
+  /** Show developer jumpscares (a mega?dev prank); off shows a small note instead. */
+  jumpscares: boolean;
 }
 
 export const CROSSHAIR_STYLES: { id: CrosshairStyle; label: string }[] = [
@@ -89,6 +91,7 @@ export function defaultSettings(): Settings {
     quality: prefersLowPower() ? 'medium' : 'high',
     fov: 70,
     crosshair: defaultCrosshair(),
+    jumpscares: true,
   };
 }
 
@@ -120,6 +123,7 @@ function sanitize(raw: Partial<Settings> | null): Settings {
       opacity: num(c.opacity, d.crosshair.opacity, L.opacity.min, L.opacity.max),
       dynamic: typeof c.dynamic === 'boolean' ? c.dynamic : d.crosshair.dynamic,
     },
+    jumpscares: typeof raw.jumpscares === 'boolean' ? raw.jumpscares : d.jumpscares,
   };
 }
 

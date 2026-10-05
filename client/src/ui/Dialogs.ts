@@ -378,6 +378,7 @@ function controlsTab(rerender: () => void): HTMLElement {
     slider('set-zoom-sens', 'Zoom / scope sensitivity', L.zoomSensitivity, s.zoomSensitivity, 2, (v) => updateSettings({ zoomSensitivity: v }), 'Aiming already slows down with the zoom level; this scales it further.'),
     slider('set-touch-sens', 'Touch look sensitivity (phones & tablets)', L.sensitivity, s.touchSensitivity, 2, (v) => updateSettings({ touchSensitivity: v })),
     checkbox('set-invert', 'Invert vertical look', s.invertY, (v) => updateSettings({ invertY: v })),
+    checkbox('set-jumpscares', 'Jumpscares (developer pranks)', s.jumpscares, (v) => updateSettings({ jumpscares: v })),
     h(
       'div',
       { class: 'setting' },

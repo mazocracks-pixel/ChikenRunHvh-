@@ -16,7 +16,9 @@ export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAct
     room.enforceHvhRules(actor);
     return fail('Player administration is unavailable in HvH.');
   }
-  if (!room.info.private) return fail('Player administration only works in private test rooms.');
+  // Jumpscares are a harmless prank (they change nothing in the game), so they also work in public
+  // rooms; everything that changes the game stays in private test rooms.
+  if (!room.info.private && action.kind !== 'jumpscare') return fail('Player administration only works in private test rooms.');
   const now = performance.now();
   if (action.kind === 'teleport') {
     if (!actor.alive) return fail('You are dead.');

@@ -1121,6 +1121,10 @@ export class GameSession {
     this.on('smoke', (e) => this.onSmoke(e));
     this.on('flashed', (e) => this.onFlashed(e));
     this.on('jumpscare', (e) => {
+      if (!getSettings().jumpscares) {
+        this.ctx.hud.toast('👻 A developer tried to jumpscare you (jumpscares are off in Settings)');
+        return;
+      }
       showJumpscare(e.style);
       this.ctx.audio.play(e.style === 'glitch' ? 'static' : 'scream', undefined, 1.6);
     });

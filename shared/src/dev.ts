@@ -137,7 +137,7 @@ export type DevAction =
   | { kind: 'giveWeapon'; target: number; weapon: WeaponId }
   | { kind: 'removeWeapon'; target: number; weapon: WeaponId }
   | { kind: 'refill'; target: number }
-  /** A prank: a scary face and a scream on that player's screen (people only, not bots). */
+  /** A prank: a scary face and a scream on that player's screen (people only, not bots; public rooms too). */
   | { kind: 'jumpscare'; target: number; style: JumpscareStyle };
 
 /** The jumpscares mega?dev can send. */

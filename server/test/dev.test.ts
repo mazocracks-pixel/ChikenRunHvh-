@@ -169,8 +169,55 @@ describe('developer modifiers in a room', () => {
     assert.equal(parseDevAction({ kind: 'jumpscare', target: t.pid, style: 'chicken' })?.kind, 'jumpscare');
     assert.equal(parseDevAction({ kind: 'jumpscare', target: t.pid, style: '<img>' }), null);
     room.info.private = false;
-    assert.equal(runDevAction(room, dev, { kind: 'jumpscare', target: dev.pid, style: 'chicken' }).ok, false, 'public room');
+    assert.equal(runDevAction(room, dev, { kind: 'refill', target: t.pid }).ok, false, 'other actions stay private-only');
+    const scared: unknown[] = [];
+    const other = addPlayer(room, 'Other');
+    Object.defineProperty(other, 'socket', { value: { emit: (event: string, e: unknown) => scared.push([event, e]), leave: () => {} } });
+    assert.equal(runDevAction(room, dev, { kind: 'jumpscare', target: other.pid, style: 'chicken' }).ok, true, 'jumpscares work in public rooms');
+    assert.deepEqual(scared, [['jumpscare', { style: 'chicken' }]]);
     room.close();
+  });
+
+  it('jumpscare over the socket: passkey needed, public rooms yes, HvH no', async () => {
+    const server = await startGameServer({ port: 0, dbPath: ':memory:', authPerMinute: 1000, guestsPerHour: 100_000, devPasskey: '2010', devInPublicRooms: true });
+    try {
+      const base = `http://localhost:${server.port}`;
+      const join = async () => {
+        const { token } = (await (await fetch(`${base}/api/auth/guest`, { method: 'POST', headers: { 'x-session-transport': 'token' } })).json()) as { token: string };
+        const c: Client = connect(base, { transports: ['websocket'], auth: { token }, reconnection: false });
+        await new Promise<void>((resolve, reject) => { c.once('connect', () => resolve()); c.once('connect_error', reject); });
+        return c;
+      };
+      const dev = await join();
+      const victim = await join();
+      try {
+        let got = 0;
+        victim.on('jumpscare', () => got++);
+        const room = await dev.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'farm', private: false, bots: 0 });
+        assert.ok(room.ok);
+        if (!room.ok) return;
+        const joined = await victim.timeout(3000).emitWithAck('joinRoom', { code: room.room.code });
+        assert.ok(joined.ok);
+        if (!joined.ok) return;
+        const scare = () => dev.timeout(3000).emitWithAck('devAction', { kind: 'jumpscare', target: joined.selfPid, style: 'ghost' });
+        assert.equal((await scare()).ok, false, 'needs the passkey');
+        assert.deepEqual(await dev.timeout(3000).emitWithAck('devAuth', '2010'), { ok: true });
+        assert.equal((await scare()).ok, true, 'public room');
+        await new Promise((r) => setTimeout(r, 100));
+        assert.equal(got, 1);
+        assert.equal((await dev.timeout(3000).emitWithAck('devAction', { kind: 'refill', target: joined.selfPid })).ok, false, 'admin actions stay private-only');
+        // HvH panels need no passkey, but they never unlock pranks on other players.
+        const hvh = await victim.timeout(3000).emitWithAck('createRoom', { mode: 'hvh', map: 'farm', private: false, bots: 0 });
+        assert.ok(hvh.ok);
+        if (!hvh.ok) return;
+        assert.equal((await victim.timeout(3000).emitWithAck('devAction', { kind: 'jumpscare', target: hvh.selfPid, style: 'ghost' })).ok, false, 'HvH');
+      } finally {
+        dev.disconnect();
+        victim.disconnect();
+      }
+    } finally {
+      await server.close();
+    }
   });
 });
 

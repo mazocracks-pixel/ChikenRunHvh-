@@ -287,10 +287,10 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
     if (!room || !player) return ack({ ok: false, error: 'Join a match first.' });
     if (room.mode.id === 'hvh') return ack({ ok: false, error: 'HvH keeps equal stats; player administration is unavailable.' });
     if (MODES[room.info.mode].ranked) return ack({ ok: false, error: 'Developer tools are off in ranked matches.' });
-    if (!room.info.private) return ack({ ok: false, error: 'Player administration only works in private test rooms.' });
-    if (!allowed) return ack({ ok: false, error: 'Developer tools only work in private rooms on this server.' });
     const action = parseDevAction(raw);
     if (!action) return ack({ ok: false, error: 'Invalid request.' });
+    if (!room.info.private && action.kind !== 'jumpscare') return ack({ ok: false, error: 'Player administration only works in private test rooms.' });
+    if (!allowed) return ack({ ok: false, error: 'Developer tools only work in private rooms on this server.' });
     ack(runDevAction(room, player, action));
   });
 
