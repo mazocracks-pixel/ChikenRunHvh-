@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { io as connect, type Socket } from 'socket.io-client';
-import { DEFAULT_MODS, PLAYER, PROJECTILES, ROCKET_SPAM_INTERVAL_MS, SIM_DT, WALLBANG, WEAPONS, sanitizeMods, type ClientToServerEvents, type DevStatus, type JoinResponse, type ServerToClientEvents } from '@game/shared';
+import { DEFAULT_MODS, PLAYER, parseDevAction, PROJECTILES, ROCKET_SPAM_INTERVAL_MS, SIM_DT, WALLBANG, WEAPONS, sanitizeMods, type ClientToServerEvents, type DevStatus, type JoinResponse, type ServerToClientEvents } from '@game/shared';
 import { startGameServer, type RunningServer } from '../src/app';
 import { runDevAction } from '../src/dev/devActions';
 import { DevAccess } from '../src/dev/DevAccess';
@@ -151,6 +151,25 @@ describe('developer modifiers in a room', () => {
     assert.equal(runDevAction(room, dev, { kind: 'respawn', target: t.pid }).ok, true);
     assert.equal(t.alive, true);
     assert.equal(runDevAction(room, dev, { kind: 'respawn', target: 999 }).ok, false);
+    room.close();
+  });
+
+  it('jumpscare: only people (not bots), once per cooldown, private rooms only', () => {
+    const { room } = makeRoom();
+    room.info.private = true;
+    const dev = addPlayer(room, 'Dev');
+    const t = addPlayer(room, 'Target');
+    assert.equal(runDevAction(room, dev, { kind: 'jumpscare', target: t.pid, style: 'chicken' }).ok, false, 'no socket: a bot');
+    const sent: unknown[] = [];
+    Object.defineProperty(t, 'socket', { value: { emit: (event: string, e: unknown) => sent.push([event, e]), leave: () => {} } });
+    assert.equal(runDevAction(room, dev, { kind: 'jumpscare', target: t.pid, style: 'ghost' }).ok, true);
+    assert.deepEqual(sent, [['jumpscare', { style: 'ghost' }]]);
+    assert.equal(runDevAction(room, dev, { kind: 'jumpscare', target: t.pid, style: 'glitch' }).ok, false, 'cooldown');
+    assert.equal(sent.length, 1);
+    assert.equal(parseDevAction({ kind: 'jumpscare', target: t.pid, style: 'chicken' })?.kind, 'jumpscare');
+    assert.equal(parseDevAction({ kind: 'jumpscare', target: t.pid, style: '<img>' }), null);
+    room.info.private = false;
+    assert.equal(runDevAction(room, dev, { kind: 'jumpscare', target: dev.pid, style: 'chicken' }).ok, false, 'public room');
     room.close();
   });
 });

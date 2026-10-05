@@ -1,6 +1,6 @@
 import type { RoundState } from './bomb';
 import type { FriendsState, PartyInvite, PartyState, SocialResult } from './social';
-import type { DevAction, DevMods, DevResult, DevStatus } from './dev';
+import type { DevAction, DevMods, DevResult, DevStatus, JumpscareStyle } from './dev';
 import type { HvhLoadout } from './hvh';
 import type { Appearance } from './items';
 import type { MapId, Team } from './maps/types';
@@ -559,6 +559,8 @@ export interface ServerToClientEvents {
   smoke: (e: SmokeEvent) => void;
   /** A flashbang blinded you. */
   flashed: (e: FlashedEvent) => void;
+  /** A developer jumpscared you (mega?dev prank). */
+  jumpscare: (e: { style: JumpscareStyle }) => void;
   loot: (e: LootState) => void;
   pickup: (e: PickupEvent) => void;
   drop: (d: DropState) => void;

@@ -77,6 +77,7 @@ import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
 import type { Hud, ScoreLine } from '../ui/Hud';
+import { showJumpscare } from '../ui/Jumpscare';
 import type { AudioEngine } from './Audio';
 import { Blocks } from './Blocks';
 import { BombView, type BombMode } from './BombView';
@@ -1119,6 +1120,10 @@ export class GameSession {
     this.on('explode', (e) => this.onExplode(e));
     this.on('smoke', (e) => this.onSmoke(e));
     this.on('flashed', (e) => this.onFlashed(e));
+    this.on('jumpscare', (e) => {
+      showJumpscare(e.style);
+      this.ctx.audio.play(e.style === 'glitch' ? 'static' : 'scream', undefined, 1.6);
+    });
     this.on('loot', (e) => this.onLoot(e));
     this.on('pickup', (e) => this.onPickup(e));
     this.on('drop', (d) => this.loot.addDrop(d));

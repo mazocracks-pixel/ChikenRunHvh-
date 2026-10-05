@@ -1,4 +1,4 @@
-import { PLAYER, TEAM_NAMES, WEAPONS, WEAPON_IDS, type DevAction, type WeaponId } from '@game/shared';
+import { JUMPSCARE_STYLES, PLAYER, TEAM_NAMES, WEAPONS, WEAPON_IDS, type DevAction, type JumpscareStyle, type WeaponId } from '@game/shared';
 import { h } from '../../../ui/dom';
 import type { Dev } from '../Dev';
 
@@ -28,6 +28,9 @@ export function playersPanel(dev: Dev): HTMLElement & { refresh: () => void } {
   const armorValue = h('span', { class: 'dev-unit' }, '50');
   armor.addEventListener('input', () => (armorValue.textContent = armor.value));
   const weapon = h('select', { class: 'dev-select', 'aria-label': 'Weapon' }, ...WEAPON_IDS.map((id) => h('option', { value: id }, WEAPONS[id].name)));
+
+  const SCARE_NAMES: Record<JumpscareStyle, string> = { chicken: 'Demon chicken', ghost: 'Ghost', glitch: 'Glitch' };
+  const scare = h('select', { class: 'dev-select', 'aria-label': 'Jumpscare' }, ...JUMPSCARE_STYLES.map((id) => h('option', { value: id }, SCARE_NAMES[id])));
 
   const rows = (): Row[] => {
     const s = dev.runtime.currentSession;
@@ -103,6 +106,13 @@ export function playersPanel(dev: Dev): HTMLElement & { refresh: () => void } {
       btn('Give weapon', act((pid) => ({ kind: 'giveWeapon', target: pid, weapon: weapon.value as WeaponId }), (r) => `Gave ${r.name} the ${WEAPONS[weapon.value as WeaponId].name}`), 'primary'),
       btn('Remove weapon', act((pid) => ({ kind: 'removeWeapon', target: pid, weapon: weapon.value as WeaponId }), (r) => `Took the ${WEAPONS[weapon.value as WeaponId].name} from ${r.name}`)),
       btn('Refill ammo', act((pid) => ({ kind: 'refill', target: pid }), (r) => `Refilled ${r.name}`)),
+    ),
+    h('div', { class: 'dev-sub' }, 'Prank'),
+    h(
+      'div',
+      { class: 'dev-btns' },
+      scare,
+      btn('Jumpscare', act((pid) => ({ kind: 'jumpscare', target: pid, style: scare.value as JumpscareStyle }), (r) => `Jumpscared ${r.name} 👻`), 'danger'),
     ),
   );
 

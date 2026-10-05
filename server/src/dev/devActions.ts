@@ -1,4 +1,4 @@
-import { DEV_MAX_LOADOUT, PLAYER, WEAPONS, clamp, createMoveState, type DevAction, type DevResult } from '@game/shared';
+import { DEV_MAX_LOADOUT, JUMPSCARE, PLAYER, WEAPONS, clamp, createMoveState, type DevAction, type DevResult } from '@game/shared';
 import type { GameRoom } from '../rooms/GameRoom';
 import type { ServerPlayer } from '../rooms/ServerPlayer';
 
@@ -6,6 +6,9 @@ import type { ServerPlayer } from '../rooms/ServerPlayer';
  * Carries out a developer action on a player in `room`. The caller has already checked that
  * `actor` has developer access and that the room allows it; this validates the target and values.
  */
+/** When each player was last jumpscared (so nobody gets spammed). */
+const lastScared = new WeakMap<ServerPlayer, number>();
+
 export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAction): DevResult {
   // Check at the mutation boundary as well as the socket API: no internal caller can
   // accidentally grant an HvH player immunity, resources, freezes or teleports.
@@ -86,6 +89,14 @@ export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAct
       target.weaponSlot = slot >= 0 ? slot : 0;
       target.reloadUntil = 0;
       room.announcePlayer(target);
+      return ok;
+    }
+    case 'jumpscare': {
+      if (!target.socket) return fail("Bots can't be scared.");
+      const last = lastScared.get(target);
+      if (last !== undefined && now - last < JUMPSCARE.cooldownMs) return fail(`Give ${target.info.name} a few seconds to recover.`);
+      lastScared.set(target, now);
+      target.socket.emit('jumpscare', { style: action.style });
       return ok;
     }
     case 'refill':

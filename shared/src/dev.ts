@@ -136,7 +136,15 @@ export type DevAction =
   | { kind: 'armor'; target: number; value: number }
   | { kind: 'giveWeapon'; target: number; weapon: WeaponId }
   | { kind: 'removeWeapon'; target: number; weapon: WeaponId }
-  | { kind: 'refill'; target: number };
+  | { kind: 'refill'; target: number }
+  /** A prank: a scary face and a scream on that player's screen (people only, not bots). */
+  | { kind: 'jumpscare'; target: number; style: JumpscareStyle };
+
+/** The jumpscares mega?dev can send. */
+export const JUMPSCARE_STYLES = ['chicken', 'ghost', 'glitch'] as const;
+export type JumpscareStyle = (typeof JUMPSCARE_STYLES)[number];
+/** How long one lasts on screen, and how soon the same player can be scared again. */
+export const JUMPSCARE = { ms: 1600, cooldownMs: 5000 } as const;
 
 export interface DevResult {
   ok: boolean;
@@ -161,7 +169,7 @@ export interface DevStatus {
 /** Loadouts can grow beyond the normal four slots in developer testing, up to this. */
 export const DEV_MAX_LOADOUT = 8;
 
-const ACTION_KINDS = ['teleportToPlayer', 'bringPlayer', 'teleport', 'freeze', 'respawn', 'health', 'armor', 'giveWeapon', 'removeWeapon', 'refill'] as const;
+const ACTION_KINDS = ['teleportToPlayer', 'bringPlayer', 'teleport', 'freeze', 'respawn', 'health', 'armor', 'giveWeapon', 'removeWeapon', 'refill', 'jumpscare'] as const;
 
 /** Validates the shape of an untrusted DevAction (the server still checks targets and permissions). */
 export function parseDevAction(raw: unknown): DevAction | null {
@@ -180,6 +188,8 @@ export function parseDevAction(raw: unknown): DevAction | null {
       return target !== null && num(r.amount) ? { kind, target, amount: clamp(r.amount as number, -1000, 1000) } : null;
     case 'armor':
       return target !== null && num(r.value) ? { kind, target, value: r.value as number } : null;
+    case 'jumpscare':
+      return target !== null && JUMPSCARE_STYLES.includes(r.style as JumpscareStyle) ? { kind, target, style: r.style as JumpscareStyle } : null;
     case 'giveWeapon':
     case 'removeWeapon':
       return target !== null && isWeaponId(r.weapon) ? { kind, target, weapon: r.weapon } : null;

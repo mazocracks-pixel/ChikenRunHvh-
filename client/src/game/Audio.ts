@@ -32,7 +32,9 @@ export type SoundName =
   | 'defuseTick'
   | 'bombPlanted'
   | 'defused'
-  | 'bigBoom';
+  | 'bigBoom'
+  | 'scream'
+  | 'static';
 
 const VOLUME_KEY = 'chikengun:volume';
 /** Beyond this distance a sound is silent. */
@@ -483,6 +485,21 @@ export class AudioEngine {
         // Ears ringing after a flash.
         this.tone(ctx, out, t, { dur: 2.8, type: 'sine', freq: 3150, to: 2900, gain: 0.09 });
         this.tone(ctx, out, t, { dur: 2.2, type: 'sine', freq: 4400, to: 4200, gain: 0.035 });
+        break;
+      case 'scream':
+        // Jumpscare: a hit, then a screeching, wobbling chicken scream.
+        this.tone(ctx, out, t, { dur: 0.5, type: 'sine', freq: 90, to: 30, gain: 1.5 });
+        this.burst(ctx, out, t, { dur: 0.15, type: 'highpass', freq: 1800, gain: 1.2 });
+        this.squawk(ctx, out, t, { delay: 0, freq: 700, peak: 1500, end: 1100, dur: 0.7, gain: 0.7 });
+        this.squawk(ctx, out, t, { delay: 0.02, freq: 960, peak: 1900, end: 1300, dur: 0.7, gain: 0.5 });
+        this.squawk(ctx, out, t, { delay: 0.55, freq: 1300, peak: 1700, end: 600, dur: 0.9, gain: 0.6 });
+        this.burst(ctx, out, t, { dur: 1.3, type: 'bandpass', freq: 2600, to: 1400, q: 2, gain: 0.9 });
+        break;
+      case 'static':
+        // Jumpscare: TV static and a deep wrong hum.
+        this.burst(ctx, out, t, { dur: 1.5, type: 'highpass', freq: 900, gain: 1.1 });
+        this.tone(ctx, out, t, { dur: 1.5, type: 'square', freq: 55, to: 40, gain: 0.35 });
+        this.squawk(ctx, out, t, { delay: 0.1, freq: 400, peak: 2200, end: 300, dur: 1.2, gain: 0.55 });
         break;
       case 'engine':
         this.tone(ctx, out, t, { dur: 0.12, type: 'sawtooth', freq: 70, to: 80, gain: 0.12 });
