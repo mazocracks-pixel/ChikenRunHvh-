@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { io as connect, type Socket } from 'socket.io-client';
-import { DEFAULT_MODS, HVH, PLAYER, SIM_DT, WEAPONS, defaultHvhLoadout, sanitizeMods, unpackPlayer, type ClientToServerEvents, type DevAction, type DevStatus, type JoinResponse, type ServerToClientEvents } from '@game/shared';
+import { DEFAULT_MODS, PLAYER, SIM_DT, WEAPONS, defaultHvhLoadout, sanitizeMods, unpackPlayer, type ClientToServerEvents, type DevAction, type DevStatus, type JoinResponse, type ServerToClientEvents } from '@game/shared';
 import { startGameServer } from '../src/app';
 import { runDevAction } from '../src/dev/devActions';
-import { addPlayer, makeRoom, place } from './helpers';
+import { addPlayer, makeRoom, place, stepRoom } from './helpers';
 type Client=Socket<ServerToClientEvents,ClientToServerEvents>;
 it('HvH setup stages a human outside combat and spawns only once after a valid choice',async t=>{
   const server=await startGameServer({port:0,dbPath:':memory:',publicHvhPanel:false,guestsPerHour:1000});t.after(()=>server.close());
@@ -28,9 +28,9 @@ it('HvH setup stages a human outside combat and spawns only once after a valid c
   assert.equal(p.alive,false);
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','manual')).ok,true);
   assert.equal(p.hvhPreparing,false);assert.equal(p.alive,true);assert.equal(p.hvhEnabled,false);
-  p.hp=40;p.mags.set(p.weapon,5);const charge=p.exploit.readyAt;
+  p.hp=40;p.mags.set(p.weapon,5);p.resource.recoveryUntil=room.hvhTick+64;const charge=p.resource.ticks;
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','manual')).ok,true);
-  assert.equal(p.hp,40);assert.equal(p.mag,5);assert.equal(p.exploit.readyAt,charge,'repeat choices cannot refill health, ammo or charge');
+  assert.equal(p.hp,40);assert.equal(p.mag,5);assert.equal(p.resource.ticks,charge,'repeat choices cannot refill health, ammo or charge');
   await c.timeout(3000).emitWithAck('createRoom',{mode:'ffa',map:'farm',private:true,bots:0});
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','manual')).ok,false);
 });
@@ -48,36 +48,35 @@ it('HvH rejects every administration action and clears forged movement, ammo, im
   assert.deepEqual({x:b.state.x,y:b.state.y,z:b.state.z,hp:b.hp,armor:b.armor,loadout:b.info.loadout},baseline);
   a.mods=sanitizeMods({speed:5,noclip:true,damage:20,infiniteAmmo:true,noRocketDamage:true,instantReload:true});a.frozen=true;
   room.handleInput(a,{seq:1,forward:1,right:0,jump:false,yaw:0,pitch:0});
-  assert.equal(a.mods,null);assert.equal(a.frozen,false);assert.ok(Math.abs(a.state.z-(20-PLAYER.speed*SIM_DT))<0.001);
+  assert.equal(a.mods,null);assert.equal(a.frozen,false);stepRoom(room);assert.ok(a.state.z < 20 && a.state.z > 20 - PLAYER.speed * SIM_DT,'server applies normal acceleration on its tick');
   a.mods=sanitizeMods({damage:20});b.mods=sanitizeMods({noRocketDamage:true});
   room.damage(b,a,10,false,'rocket',{x:0,y:0,z:0},performance.now());assert.equal(b.hp,90);assert.equal(a.mods,null);assert.equal(b.mods,null);
   a.mods=sanitizeMods({infiniteAmmo:true,fireRate:10,spread:0,magazine:10});a.mags.set(a.weapon,999);
   room.handleFire(a,{shot:1,weapon:a.weapon,dx:1,dy:0,dz:0,t:performance.now(),aiming:false});
-  assert.equal(a.mag,WEAPONS[a.weapon].magazine-1);assert.equal(a.mods,null);
+  stepRoom(room);assert.equal(a.mag,WEAPONS[a.weapon].magazine-1);assert.equal(a.mods,null);
 });
-it('server Double Tap accepts exactly two timed shots with normal ammo, then enforces the original cooldown',t=>{
-  const {room}=makeRoom('hvh','flat');t.after(()=>room.close());const a=addPlayer(room,'A');
-  a.info.loadout=['sniper'];a.weaponSlot=0;a.mags.set('sniper',5);a.hvhEnabled=true;a.hvh.exploit='doubleTap';a.exploit.readyAt=0;
-  const fire=(shot:number)=>room.handleFire(a,{shot,weapon:'sniper',dx:1,dy:0,dz:0,t:performance.now(),aiming:false});
-  fire(1);assert.equal(a.mag,4);const spent=a.exploit.readyAt;
-  a.lastFireAt=performance.now()-100;fire(2);assert.equal(a.lastShotSeq,1,'cannot fire second before 260 ms');
-  a.lastFireAt=performance.now()-270;fire(2);assert.equal(a.lastShotSeq,2);assert.equal(a.mag,3);
-  a.lastFireAt=performance.now()-270;fire(3);assert.equal(a.lastShotSeq,2,'third needs original sniper cooldown');
-  assert.equal(a.exploit.readyAt,spent);assert.ok(spent>performance.now()+7000);
-  a.hvh.exploit='hideShots';fire(3);assert.equal(a.lastShotSeq,2,'changing exploit cannot bypass timer');
-  a.reloadUntil=performance.now()+100; a.lastFireAt=-Infinity;fire(3);assert.equal(a.lastShotSeq,2,'reloading still blocks shots');
+it('server Double Tap consumes stored time for two normal bullets and cannot repeat during recovery',t=>{
+  const {room,events}=makeRoom('hvh','flat');t.after(()=>room.close());const a=addPlayer(room,'A');
+  a.info.loadout=['rifle'];a.weaponSlot=0;a.mags.set('rifle',30);a.hvhEnabled=true;a.hvh.exploit='doubleTap';a.resource.ticks=32;
+  let now=performance.now();
+  const fire=(shot:number)=>room.handleFire(a,{shot,weapon:'rifle',dx:1,dy:0,dz:0,t:now,aiming:false});
+  fire(1);assert.equal(a.mag,30,'packet reception does not simulate a shot');stepRoom(room,now);
+  assert.equal(a.mag,28);assert.equal(a.resource.ticks,0);assert.equal((events.find(e=>e.event==='shot')!.args[0] as {burst:number}).burst,2);
+  now+=SIM_DT*1000;fire(2);stepRoom(room,now);assert.equal(a.lastShotSeq,1,'shifted weapon timer still blocks early requests');
+  for(let i=0;i<8;i++){now+=SIM_DT*1000;stepRoom(room,now);}
+  fire(3);stepRoom(room,now);assert.equal(a.lastShotSeq,3);assert.equal(a.mag,27,'recovery uses normal single-shot fire');
+  a.reloadUntil=now+100;fire(4);stepRoom(room,now);assert.equal(a.lastShotSeq,3);
 });
-it('real and fake poses replicate separately; Hide Shots delays reveal without changing hitboxes or damage',t=>{
+it('HvH snapshots hide body yaw and Hide Shots spends the same command resource',t=>{
   const {room}=makeRoom('hvh','flat');t.after(()=>room.close());const a=addPlayer(room,'A');
-  a.hvhEnabled=true;a.hvh={antiAim:{enabled:true,mode:'backward',desync:58,jitter:0,spinSpeed:180},exploit:'hideShots'};a.exploit.readyAt=0;
-  room.handleInput(a,{seq:1,forward:0,right:0,jump:false,yaw:0,pitch:0});
+  a.hvhEnabled=true;a.hvh=defaultHvhLoadout();a.hvh.antiAim={enabled:true,mode:'backward',desync:58,jitter:0,spinSpeed:180};a.hvh.exploit='hideShots';a.resource.ticks=32;
+  let now=performance.now();room.handleInput(a,{seq:1,forward:0,right:0,jump:false,yaw:0,pitch:0});
+  for(let i=0;i<12;i++){now+=SIM_DT*1000;stepRoom(room,now);}
   assert.notEqual(a.yaw,a.fakeYaw);assert.equal(a.lookYaw,0);
-  room.handleFire(a,{shot:1,weapon:a.weapon,dx:0,dy:0,dz:-1,t:performance.now(),aiming:false});
-  assert.ok(a.concealUntil>performance.now());assert.notEqual(a.yaw,a.fakeYaw);
-  room.updateHvhPose(a,a.concealUntil+1);assert.equal(a.yaw,0);assert.equal(a.fakeYaw,0,'reveal starts after hide window');
-  room.updateHvhPose(a,a.revealUntil+1);assert.notEqual(a.yaw,a.fakeYaw);
-  assert.ok(Math.abs(a.revealUntil-a.concealUntil-HVH.revealMs)<1e-6,'reveal window'); // timestamps are floats
-  const state=a.toState();assert.equal(state.yaw,a.yaw);assert.equal(state.fakeYaw,a.fakeYaw);
+  const state=unpackPlayer(room.snapshot(now,99).p[0]!);assert.equal(state.yaw,Math.round(a.animation.eyeYaw*1000)/1000);
+  assert.notEqual(state.yaw,Math.round(a.yaw*1000)/1000,'ground truth never enters an enemy packet');
+  room.handleFire(a,{shot:1,weapon:a.weapon,dx:0,dy:0,dz:-1,t:now,aiming:false});stepRoom(room,now);
+  assert.ok(a.concealUntil>now);assert.equal(a.resource.ticks,18);assert.notEqual(a.yaw,a.fakeYaw);
 });
 it('public panel grants only HvH capabilities and never administrative privilege',async t=>{
   const server=await startGameServer({port:0,dbPath:':memory:',publicHvhPanel:true,guestsPerHour:1000});t.after(()=>server.close());

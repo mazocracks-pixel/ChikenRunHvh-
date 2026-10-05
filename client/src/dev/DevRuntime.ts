@@ -7,18 +7,30 @@ import type { Dev } from './Dev';
 import { HVH_PANELS } from './panels';
 import { DevDebug3D } from './DevDebug3D';
 import { DevOverlay } from './DevOverlay';
-import { boundedTurn, estimateShot, peekSteering, shotGate, type ShotTarget } from './tactics';
+import { estimateShot, peekSteering, shotGate, type ShotTarget } from './tactics';
 import type { DevConfig } from './config';
 import { skeetEffectiveConfig, skeetProfile } from './skeet/model';
-import { SkeetResolver, type ResolverDecision } from './skeet/resolver';
 import { skeetPointOffsets, skeetSafeRay } from './skeet/points';
+import { ResolverSystem, scanRage, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
+  autoStopInput, planAutoStop, predictEnemyPeek, type AutoStopPlan, type PeekForecast, type ObservableRecord, type ShotCandidate, type ShotIntent } from '@game/shared';
 
 const DEG = Math.PI / 180;
-export interface Candidate { pid: number; r: RemotePlayer; point: THREE.Vector3; angle: number; distance: number; hp: number; visible: boolean; part: 'head' | 'body'; target: ShotTarget; offset?: Vec3; resolver?: ResolverDecision }
+export interface Candidate { pid: number; r: RemotePlayer; point: THREE.Vector3; angle: number; distance: number; hp: number; visible: boolean; part: 'head' | 'body'; target: ShotTarget; offset?: Vec3 }
 const xrayMaterial = () => new THREE.MeshBasicMaterial({ depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false });
 
 /** Bounded assists plus explicit, server-governed HvH abilities. */
 export class DevRuntime implements DevHooks {
+  readonly coreResolver = new ResolverSystem();
+  readonly extensions = new HvhExtensionHost();
+  private coreTarget: ShotCandidate | null = null;
+  private coreReady = false;
+  private coreScanAt = -Infinity;
+  private coreShot: ShotIntent | undefined;
+  private coreScoped = false;
+  private peekForecast: PeekForecast | null = null;
+  private peekForecastAt = -Infinity;
+  private autoStopShotAt = -Infinity;
+  private autoStopText = 'Inactive';
   readonly overlay: DevOverlay;
   private session: GameSession | null = null;
   private debug3d: DevDebug3D | null = null;
@@ -46,9 +58,7 @@ export class DevRuntime implements DevHooks {
   private infoKey = '';
   private lastInfoAt = 0;
   private readonly logs: string[] = [];
-  readonly resolver = new SkeetResolver();
   private readonly playerRules = new Map<number, { ignore: boolean; body: boolean }>();
-  private readonly pendingShots = new Map<number, { pid: number; at: number }>();
   private policySource: DevConfig | undefined;
   private policyWeapon = '';
   private policyValue: DevConfig | undefined;
@@ -64,10 +74,14 @@ export class DevRuntime implements DevHooks {
     (document.getElementById('hud-layer') ?? document.body).append(this.binds, this.watermark);
   }
   get currentSession(): GameSession | null { return this.session; }
-  get focusPid(): number { return this.pid; }
+  get focusPid(): number { return this.coreTarget?.target ?? this.pid; }
   get peekState(): string { return this.returning ? 'Returning' : this.peekAnchor ? 'Anchor set' : 'Inactive'; }
+  get autoStopState(): string { return this.autoStopText; }
   get shotLog(): readonly string[] { return this.logs; }
-  get resolverInfo(): string { const d = this.target?.resolver; return d ? `${d.state} · ${d.confidence}% confidence · ${d.misses} recent misses` : 'Awaiting a target'; }
+  get resolverInfo(): string {
+    if (this.coreTarget) { const r = this.coreResolver.resolve(this.coreTarget.record); return `${r.state} · ${r.pattern} · ${this.coreTarget.source} · ${Math.round(r.confidence * 100)}% confidence · ${Math.round(this.coreTarget.safety * 100)}% safety`; }
+    return 'Awaiting a target';
+  }
   playerRule(pid: number): { ignore: boolean; body: boolean } { return this.playerRules.get(pid) ?? { ignore: false, body: false }; }
   setPlayerRule(pid: number, key: 'ignore' | 'body', value: boolean): void { this.playerRules.set(pid, { ...this.playerRule(pid), [key]: value }); this.lastScanAt = -Infinity; this.ready = false; }
   panelChanged(): void { this.policySource = undefined; this.reset(); }
@@ -79,9 +93,10 @@ export class DevRuntime implements DevHooks {
     }
     return this.policyValue!;
   }
-  private get active(): boolean { return this.dev.active && this.session !== null; }
+  private get active(): boolean { return this.dev.active && this.session?.mode.id === 'hvh'; }
+  private get rageTiming(): boolean { return this.policy.rage.aim.enabled; }
   private get playing(): boolean { return this.active && this.dev.input.active && !this.dev.menuOpen && this.session!.local.alive && !this.session!.local.car; }
-  attach(session: GameSession): void { this.session = session; this.debug3d = new DevDebug3D(session); this.reset(); this.dev.sessionStarted(); }
+  attach(session: GameSession): void { this.session = session; this.debug3d = new DevDebug3D(session, this.coreResolver, () => this.coreTarget); this.reset(); this.dev.sessionStarted(); }
   detach(session: GameSession): void {
     if (this.session !== session) return;
     this.debug3d?.dispose(); this.debug3d = null; this.session = null;
@@ -92,7 +107,9 @@ export class DevRuntime implements DevHooks {
     this.pid = 0; this.ready = false; this.acquiredAt = this.switchingUntil = 0;
     this.peekAnchor = null; this.returning = this.peekHeld = false;
     this.logs.length = 0; this.info.hidden = true;
-    this.resolver.clear(); this.playerRules.clear(); this.pendingShots.clear();
+    this.playerRules.clear();
+    this.coreResolver.clear(); this.coreTarget = null; this.coreReady = this.coreScoped = false; this.coreScanAt = -Infinity; this.coreShot = undefined;
+    this.peekForecast = null; this.peekForecastAt = this.autoStopShotAt = -Infinity; this.autoStopText = 'Inactive';
     this.binds.hidden = this.watermark.hidden = true; this.dev.input.assistedAds = false;
     this.diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' };
   }
@@ -101,26 +118,19 @@ export class DevRuntime implements DevHooks {
     // HvH keeps baseline stats. Outside it, the private classic panel owns prediction.
     if (this.session.mode.id === 'hvh') this.session.local.mods = this.session.weapons.mods = null;
     this.session.weapons.hvh = this.session.mode.id === 'hvh' && this.dev.status.profile === 'hvh' ? this.dev.status.hvh ?? defaultHvhLoadout() : defaultHvhLoadout();
+    this.session.weapons.tactical = this.session.mode.id === 'hvh';
   }
-  beforeFrame(session: GameSession, dt: number, now: number): void {
+  beforeFrame(session: GameSession, _dt: number, now: number): void {
     session.weapons.forceAutomatic = false;
     this.dev.input.assistedAds = false;
     const c = this.policy;
     this.dev.hud.showCrosshair = !this.active || c.misc.crosshair;
     this.dev.hud.showHitmarker = !this.active || c.misc.hitmarker;
     this.dev.hud.showDamageIndicators = !this.active || c.misc.damageIndicator;
+    if (session.mode.id === 'hvh') { this.beforeHvh(session, now); return; }
     if (!this.playing) {
       this.target = null; this.pid = 0; this.ready = false; this.lastScanAt = -Infinity;
       this.peekAnchor = null; this.returning = false; this.diagnostics.state = 'Paused'; return;
-    }
-    if (this.dev.panelId === 'skeet') {
-      for (const [pid, remote] of session.remotes.players) {
-        const state = remote.latest;
-        if (!state?.alive || session.serverNow() - remote.latestAt > 500) continue;
-        this.resolver.observe(pid, { t: remote.latestAt, yaw: state.yaw, fakeYaw: state.fakeYaw ?? state.yaw,
-          speed: state.horizontalSpeed, crouching: state.crouching, onGround: state.onGround, x: state.x, z: state.z }, c.skeet.resolver);
-      }
-      for (const [seq, shot] of this.pendingShots) if (session.serverNow() - shot.at > 2000) this.pendingShots.delete(seq);
     }
     const a = c.rage.aim, trigger = c.legit.trigger;
     if (!a.enabled && (!trigger.enabled || !this.keyHeld(trigger.key))) {
@@ -133,7 +143,7 @@ export class DevRuntime implements DevHooks {
     }
     const forceBody = this.keyHeld(c.hvh.aim.bodyKey, false);
     const part = forceBody || c.hvh.aim.bodyAim === 'prefer' ? 'body' : a.enabled ? a.hitbox : 'nearest';
-    const fov = (a.enabled ? a.fov : trigger.fov) * DEG;
+    const fov = (a.enabled ? a.fov / 2 : trigger.fov) * DEG;
     if (now - this.lastScanAt >= 100) {
       this.lastScanAt = now;
       const list = this.candidates(session, part, true).filter(t => t.visible && t.angle <= fov);
@@ -150,7 +160,7 @@ export class DevRuntime implements DevHooks {
         }
       }
       if (target && target.pid !== this.pid) {
-        this.switchingUntil = this.pid ? now + c.hvh.aim.switchDelay : now;
+        this.switchingUntil = !this.rageTiming && this.pid ? now + c.hvh.aim.switchDelay : now;
         this.pid = target.pid; this.acquiredAt = now; this.nextEstimateAt = 0; this.ready = false;
       }
       this.target = target ?? null;
@@ -164,35 +174,31 @@ export class DevRuntime implements DevHooks {
     }
     this.target = live;
     this.dev.input.assistedAds = this.dev.panelId === 'skeet' && a.enabled && session.weapons.def.scope && live.distance > 12 && skeetProfile(c, session.weapons.def).autoScope;
-    if (a.enabled && now >= this.switchingUntil && now - this.acquiredAt >= c.hvh.aim.reaction) {
-      const eye = session.camera.position, p = live.point;
-      const wantYaw = Math.atan2(-(p.x-eye.x), -(p.z-eye.z));
-      const wantPitch = Math.atan2(p.y-eye.y, Math.hypot(p.x-eye.x,p.z-eye.z));
-      const smooth = this.dev.panelId === 'skeet' && c.skeet.aimStyle === 'legit' ? 1 - Math.exp(-Math.max(0, dt) * 60 / c.skeet.smoothing) : 1;
-      const turn = boundedTurn(this.dev.input.yaw, wantYaw, c.hvh.aim.turnRate, dt);
-      this.dev.input.yaw = wrapAngle(this.dev.input.yaw + wrapAngle(turn - this.dev.input.yaw) * smooth);
-      const step = c.hvh.aim.turnRate * DEG * Math.max(0, Math.min(0.05, dt));
-      this.dev.input.pitch = Math.max(-1.25, Math.min(1.1, this.dev.input.pitch + Math.max(-step, Math.min(step, wantPitch-this.dev.input.pitch)) * smooth));
-    }
   }
 
   /** Called after movement, remote interpolation and the camera have updated for this frame. */
   wantsFire(now = performance.now()): boolean {
     const session = this.session, c = this.policy, a = c.rage.aim, trigger = c.legit.trigger;
+    if (session?.mode.id === 'hvh') {
+      const enabled = (a.enabled && a.autoTarget) || (trigger.enabled && this.keyHeld(trigger.key));
+      if (!this.playing || !enabled || !this.coreTarget || !this.coreReady || this.coreTarget.scope) return false;
+      if (session.serverNow() - this.coreTarget.record.t > 300 || session.remotes.players.get(this.coreTarget.target)?.latest?.alive === false) return false;
+      const w = session.weapons;
+      return w.shotState(now) === 'Ready' && !w.reloading;
+    }
     if (!this.playing || !session || !this.target) return false;
-    const legit = this.dev.panelId === 'skeet' && c.skeet.aimStyle === 'legit';
     const auto = a.enabled && a.autoTarget;
-    const assisting = auto || ((!a.enabled || legit) && trigger.enabled && this.keyHeld(trigger.key));
+    const assisting = auto || (!a.enabled && trigger.enabled && this.keyHeld(trigger.key));
     if (!assisting) { this.ready = false; this.diagnostics.state = 'Aim only'; return false; }
     const part = this.keyHeld(c.hvh.aim.bodyKey, false) ? 'body' : this.target.part;
     const target = this.candidates(session, part, true, this.pid)[0];
-    if (!target?.visible || target.angle > (auto ? a.fov : trigger.fov)*DEG) {
+    if (!target?.visible || target.angle > (auto ? a.fov / 2 : trigger.fov)*DEG) {
       this.ready = false; this.diagnostics.state = 'Waiting for sight'; return false;
     }
     const w = session.weapons.def;
     if (w.projectile || w.melee) { this.ready = false; this.diagnostics.state = 'Manual weapon'; return false; }
-    const reaction = auto ? c.hvh.aim.reaction : Math.max(a.enabled ? c.hvh.aim.reaction : 0, trigger.delay);
-    if (now < this.switchingUntil || now-this.acquiredAt < Math.max(100, reaction)) {
+    const reaction = this.rageTiming ? 0 : auto ? c.hvh.aim.reaction : Math.max(a.enabled ? c.hvh.aim.reaction : 0, trigger.delay);
+    if (!this.rageTiming && (now < this.switchingUntil || now-this.acquiredAt < Math.max(100, reaction))) {
       this.ready = false; this.diagnostics.state = now < this.switchingUntil ? 'Switching target' : 'Acquiring target'; return false;
     }
     const weaponState = session.weapons.shotState(now);
@@ -203,9 +209,9 @@ export class DevRuntime implements DevHooks {
     }
     if (now < this.nextEstimateAt) return false;
     this.nextEstimateAt = now + 50; this.evaluations++;
-    const eye = session.eye(), direction = session.aimDirection(eye);
+    const eye = session.eye(), direction = a.enabled ? normalize({ x: target.point.x - eye.x, y: target.point.y - eye.y, z: target.point.z - eye.z }) : session.aimDirection(eye);
     const safe = this.dev.panelId === 'skeet' && skeetProfile(c, w).safePoints;
-    const uncertainty = target.resolver?.uncertainty ?? 0;
+    const uncertainty = 0;
     const autowall = c.hvh.aim.autowall && session.mode.wallbang;
     const estimate = estimateShot(w, eye, direction, target.target, session.horizontalSpeed(), !session.local.onGround, this.dev.input.aiming,
       undefined, undefined, (ray, range) => {
@@ -221,37 +227,45 @@ export class DevRuntime implements DevHooks {
   }
   onShot(session: GameSession, assisted = false): void {
     if (!this.active) return;
+    this.autoStopShotAt = performance.now();
     if (this.peekAnchor && this.peekHeld) { this.returning = true; this.peekReturnAt = performance.now(); }
     const d = this.diagnostics;
-    if (this.dev.panelId === 'skeet' && assisted && this.pid) this.pendingShots.set(session.weapons.shotSeq, { pid: this.pid, at: session.serverNow() });
+    if (session.mode.id === 'hvh' && assisted && this.coreTarget) {
+      const c = this.coreTarget;
+      this.coreShot = { target: c.target, recordT: c.record.t, source: c.source, yaw: c.yaw, safety: c.safety };
+      this.extensions.shot(this.coreShot);
+      this.logs.unshift(`#${session.weapons.shotSeq} ${c.source} · ${c.group} · ${Math.round(c.safety * 100)}% safe · ${Math.round(c.chance * 100)}% chance`);
+      this.logs.length = Math.min(this.logs.length, 5); this.coreScanAt = -Infinity; return;
+    }
     const text = `${session.weapons.def.name} → ${d.target} · ~${d.damage} HP / ${d.chance}%`;
     this.logs.unshift(text); if (this.logs.length > 5) this.logs.pop();
   }
   onServerShot(session: GameSession, shot: ShotEvent): void {
-    if (this.dev.panelId !== 'skeet' || shot.pid !== session.selfPid || shot.shot === undefined) return;
-    const pending = this.pendingShots.get(shot.shot);
-    if (!pending) return;
-    this.pendingShots.delete(shot.shot);
-    const hit = shot.hits.some(value => value > 0);
-    this.resolver.acceptedShot(pending.pid, hit, session.serverNow());
-    this.logs.unshift(`Server ${hit ? 'hit confirmed' : 'miss confirmed'} · ${session.weapons.def.name}`);
-    this.logs.length = Math.min(this.logs.length, 5);
+    if (session.mode.id === 'hvh' && shot.pid === session.selfPid && shot.audit) {
+      const a = shot.audit;
+      this.extensions.result(a);
+      this.coreResolver.feedback(a.target, a.source, a.reason, session.serverNow(), a.headshot === true);
+      this.logs.unshift(`#${shot.shot} ${a.reason} · ${shot.burst === 2 ? 'DT burst · ' : ''}${Math.round(a.damage)} damage`);
+      this.logs.length = Math.min(this.logs.length, 5); this.coreScanAt = -Infinity; return;
+    }
   }
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame {
-    if (!this.playing) return frame;
+    if (session.mode.id !== 'hvh' || !this.playing) return frame;
     const c = this.policy, s = session.local.state;
-    const out = { ...frame, invert: this.keyHeld(c.hvh.invertKey, false) };
+    const out = this.extensions.command({ ...frame, invert: this.keyHeld(c.hvh.invertKey, false) });
+    const core = c.hvh.core ?? defaultHvhCore();
+    if (session.mode.id === 'hvh' && core.fakeDuck && core.fakeLag > 1) out.crouch = frame.seq % (core.fakeLag + 1) < (core.fakeLag + 1) / 2;
     const now = performance.now();
     const moving = frame.forward !== 0 || frame.right !== 0;
     if (c.legit.move.jumpAssist) {
       if (frame.jump && !this.lastJump && !s.onGround) this.jumpBufferUntil = now + 160;
-      if (s.onGround && now < this.jumpBufferUntil) { out.jump = true; this.jumpBufferUntil = 0; }
+      if (s.onGround && now < this.jumpBufferUntil) { out.jump = out.autoHop = true; this.jumpBufferUntil = 0; }
     }
     this.lastJump = frame.jump;
-    if (s.onGround && ((c.legit.move.bhop && moving) || c.misc.autoJump)) out.jump = true;
-    if (c.legit.move.autoStrafe && !s.onGround && out.right === 0) {
-      const turn = wrapAngle(out.yaw-this.lastYaw); if (Math.abs(turn)>0.002) out.right = turn < 0 ? 1 : -1;
-    }
+    if (c.legit.move.bhop && frame.jump) out.autoHop = true;
+    if (c.misc.autoJump && moving) out.jump = out.autoHop = true;
+    out.subtickStrafe = c.hvh.movement.subtickStrafe && !s.onGround;
+    if (c.legit.move.autoStrafe && !s.onGround && !out.subtickStrafe) Object.assign(out, airStrafeInput(out,s,wrapAngle(out.yaw-this.lastYaw),SIM_DT,PLAYER.speed*moveSpeedFor(session.weapons.weapon)));
     this.lastYaw = frame.yaw;
     const held = c.hvh.movement.peekAssist && this.keyHeld(c.hvh.movement.peekKey, false);
     if (held && !this.peekHeld && s.onGround) this.peekAnchor = { x:s.x, y:s.y, z:s.z };
@@ -270,11 +284,113 @@ export class DevRuntime implements DevHooks {
         else { out.forward=steering.forward; out.right=steering.right; return out; }
       }
     }
-    if (c.hvh.movement.autoStop && c.rage.aim.enabled && (c.rage.aim.autoTarget || this.dev.input.firing) && this.pid && !this.peekAnchor && s.onGround && !frame.jump) out.forward=out.right=0;
-    else if (c.hvh.movement.slowWalk && this.keyHeld(c.hvh.movement.slowKey,false) && s.onGround) { out.forward*=0.45; out.right*=0.45; }
-    return out;
+    const stop = this.autoStopPlan(session,out,now);
+    const action = stop.kind === 'slowwalk' ? 'Slow walking' : stop.kind === 'counter' ? 'Counter-strafing' : 'Inactive';
+    this.autoStopText = action + (stop.reason === 'predicted-peek' ? ` · predicted peek ~${Math.round(this.peekForecast?.etaMs ?? 0)} ms`
+      : stop.reason === 'between-shots' ? ' · between shots' : '');
+    return autoStopInput(out,s,stop);
   }
-  aimOverride(): Vec3 | null { return null; }
+  private autoStopPlan(session: GameSession, frame: Pick<InputFrame,'jump'>, now: number): AutoStopPlan {
+    const c = this.policy, phase = session.weapons.shotState(now), target = this.coreTarget;
+    const validEnemy = (pid: number) => { const remote=session.remotes.players.get(pid); return !!remote?.latest?.alive && !remote.latest.shielded
+      && !remote.latest.vehicle && !session.isFriendly(remote.info) && !this.playerRule(pid).ignore; };
+    const forecast = this.peekForecast && now-this.peekForecastAt<=120 && session.serverNow()-this.peekForecast.observedAt<=200
+      && this.peekForecast.etaMs<=c.hvh.movement.autoStopPredictMs
+      && validEnemy(this.peekForecast.target) ? this.peekForecast : null;
+    const recentShot = c.hvh.movement.autoStopBetweenShots && phase === 'Cooldown' && now-this.autoStopShotAt<session.weapons.fireInterval+300;
+    return planAutoStop(c.hvh.movement,{assistedHvh:this.playing && session.mode.id==='hvh' && !session.weapons.def.melee && !session.weapons.def.projectile,
+      grounded:session.local.onGround,jumping:frame.jump,occupied:!!this.peekAnchor || !!session.local.car,
+      engaged:c.rage.aim.enabled && (c.rage.aim.autoTarget || this.dev.input.firing || c.hvh.movement.autoStopPredict || recentShot),weaponState:phase,
+      target:!!target && session.serverNow()-target.record.t<=300 && validEnemy(target.target),stopSpeed:target?.stopSpeed,forecast});
+  }
+  aimOverride(): Vec3 | null {
+    const session = this.session;
+    if (!session || !this.playing || !this.policy.rage.aim.enabled || session.weapons.def.melee || session.weapons.def.projectile) return null;
+    if (session.mode.id === 'hvh') {
+      const target = this.coreTarget;
+      return this.coreReady && target && session.serverNow() - target.record.t <= 300 && session.remotes.players.get(target.target)?.latest?.alive
+        ? target.direction : null;
+    }
+    const target = this.target, eye = session.eye();
+    return target?.r.alive && target.visible ? normalize({ x: target.point.x - eye.x, y: target.point.y - eye.y, z: target.point.z - eye.z }) : null;
+  }
+  shotIntent(): ShotIntent | undefined { return this.coreShot; }
+
+  private beforeHvh(session: GameSession, now: number): void {
+    const c = this.policy;
+    if (!this.playing) { this.coreTarget = null; this.coreReady = false; this.coreShot = undefined; this.peekForecast = null; this.autoStopText='Inactive'; this.pid = 0; this.diagnostics.state = 'Paused'; return; }
+    const serverNow = session.serverNow(), records: ObservableRecord[] = [];
+    for (const [pid, remote] of session.remotes.players) {
+      const s = remote.latest;
+      if (!s?.alive || s.shielded || s.vehicle || session.isFriendly(remote.info) || this.playerRule(pid).ignore) continue;
+      const t = s.simulationTime || remote.latestAt;
+      const record: ObservableRecord = { pid, tick: Math.round(t / (1000 / 64)), t,
+        origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
+        eyeYaw: s.yaw, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
+        grounded: s.onGround, turnWeight: s.turnWeight ?? 0, hp: s.hp, armor: s.armor, alive: s.alive,
+        fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
+      this.coreResolver.observe(record, this.dev.panelId === 'skeet' ? c.skeet.resolver : { history: 16, memoryMs: 1000 });
+      this.extensions.observe(record);
+      records.push(...this.coreResolver.records(pid, serverNow));
+    }
+    const a = c.rage.aim;
+    if (c.hvh.movement.autoStop && c.hvh.movement.autoStopPredict && a.enabled && !session.weapons.def.melee && !session.weapons.def.projectile) {
+      if (now-this.peekForecastAt>=100) {
+        this.peekForecastAt=now;
+        const yaw=this.dev.input.yaw,pitch=this.dev.input.pitch;
+        this.peekForecast=predictEnemyPeek({now:serverNow,eye:session.eye(),view:{x:-Math.sin(yaw)*Math.cos(pitch),y:Math.sin(pitch),z:-Math.cos(yaw)*Math.cos(pitch)},
+          fov:a.fov,range:session.weapons.def.range,horizonMs:c.hvh.movement.autoStopPredictMs,records,world:session.collision});
+      }
+    } else { this.peekForecast=null; this.peekForecastAt=-Infinity; }
+    const trigger = c.legit.trigger, triggering = trigger.enabled && this.keyHeld(trigger.key);
+    if (!a.enabled && !triggering) { this.coreTarget = null; this.coreReady = false; this.pid = 0; return; }
+    if (now - this.coreScanAt >= 100) {
+      this.coreScanAt = now; this.evaluations++;
+      const profile = skeetProfile(c, session.weapons.def), skeet = this.dev.panelId === 'skeet';
+      const eye = session.eye(), yaw = this.dev.input.yaw, pitch = this.dev.input.pitch;
+      const visible = records.filter(r => {
+        const dx = r.origin.x - eye.x, dz = r.origin.z - eye.z, dy = r.origin.y + 0.8 - eye.y;
+        const angle = Math.acos(Math.max(-1, Math.min(1, (dx * -Math.sin(yaw) * Math.cos(pitch) + dz * -Math.cos(yaw) * Math.cos(pitch) + dy * Math.sin(pitch)) / Math.hypot(dx, dy, dz))));
+        return angle <= (a.enabled ? a.fov / 2 : trigger.fov) * DEG;
+      });
+      const next = scanRage({ now: serverNow, eye, w: session.weapons.def, speed: session.horizontalSpeed(), airborne: !session.local.onGround,
+        heat: session.weapons.heat, playerRules: this.playerRules,
+        scoreCandidate: candidate => this.extensions.score(candidate),
+        allowScope: !skeet || profile.autoScope,
+        stopSpeed: c.hvh.movement.autoStopSlowWalk ? PLAYER.speed*moveSpeedFor(session.weapons.weapon)*PLAYER.slowWalkSpeed : 0,
+        viewDirection: { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) },
+        forceDirection: !a.enabled && triggering ? { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) } : undefined,
+        ads: this.dev.input.aiming || this.coreScoped, world: session.collision, records: visible, resolver: this.coreResolver, currentTarget: this.coreTarget?.target,
+        isSoft: c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined,
+        settings: { ...DEFAULT_RAGE, resolver: c.hvh.feedback.resolver && (!skeet || c.skeet.resolver.mode === 'adaptive'),
+          resolverPolicy: c.hvh.resolverPolicy, preferBodyBelow: skeet ? c.skeet.resolver.preferBodyBelow / 100 : 0.2,
+          bodyAfterMisses: skeet ? c.skeet.resolver.missedShots : 0,
+          minDamage: this.keyHeld(c.hvh.aim.overrideKey, false) ? c.hvh.aim.damageOverride : c.hvh.aim.minDamage,
+          hitchance: (session.local.onGround ? c.hvh.aim.hitchance : c.hvh.aim.airHitchance) / 100,
+          forceSafe: skeet ? profile.safePoints : c.hvh.aim.forceSafe, preferSafe: c.hvh.aim.preferSafe,
+          hpRelative: this.keyHeld(c.hvh.aim.overrideKey, false) || c.hvh.aim.hpRelative < 0 ? undefined : c.hvh.aim.hpRelative,
+          damageWeight: c.hvh.aim.damageWeight, safetyWeight: c.hvh.aim.safetyWeight, accuracyWeight: c.hvh.aim.accuracyWeight, confidenceWeight: c.hvh.aim.confidenceWeight,
+          groups: a.hitbox === 'body' ? ['stomach', 'chest', 'pelvis'] : a.hitbox === 'head' ? ['head', 'stomach', 'chest'] : ['head', 'chest', 'stomach', 'pelvis', 'arm', 'leg'],
+          priority: a.priority, burstReady: c.hvh.exploit === 'doubleTap' && (session.local.server.hvhCharge ?? 0) >= 1 && session.weapons.def.fireInterval <= 500,
+          body: this.keyHeld(c.hvh.aim.bodyKey, false) ? 'force' : c.hvh.aim.bodyAim,
+          pointScale: skeet ? profile.multipoint ? profile.pointScale / 100 : 0 : c.hvh.aim.multipoint ? c.hvh.aim.pointScale / 100 : 0, maxRecords: c.hvh.aim.maxRecords } });
+      if (next && next.target !== this.coreTarget?.target) { this.acquiredAt = now; this.switchingUntil = !this.rageTiming && this.coreTarget ? now + c.hvh.aim.switchDelay : now; }
+      this.coreTarget = next; this.pid = next?.target ?? 0;
+    }
+    const target = this.coreTarget;
+    if (!target) { this.coreReady = false; this.coreScoped = false; this.diagnostics = { target: 'No valid candidate', damage: 0, chance: 0, state: this.peekForecast ? 'Preparing for predicted peek' : 'Scanning' }; return; }
+    const bodyRule = this.playerRule(target.target).body;
+    if (bodyRule && target.group === 'head') { this.coreReady = false; this.coreScanAt = -Infinity; return; }
+    this.coreScoped = session.weapons.def.scope && (this.coreScoped || target.scope);
+    this.dev.input.assistedAds = this.coreScoped;
+    const stable = this.rageTiming || (now >= this.switchingUntil && now - this.acquiredAt >= Math.max(c.hvh.aim.reaction, triggering ? trigger.delay : 0));
+    const stop = this.autoStopPlan(session,{jump:this.dev.input.isDown('Space')},now);
+    const stopLimit = stop.kind === 'slowwalk' ? PLAYER.speed*moveSpeedFor(session.weapons.weapon)*PLAYER.slowWalkSpeed+0.1 : 0.5;
+    this.coreReady = stable && !target.scope && !target.stop && (stop.kind === 'off' || session.horizontalSpeed() <= stopLimit);
+    // Both manual and automatic assisted shots use shot angles; the view stays under player control.
+    this.diagnostics = { target: session.remotes.players.get(target.target)?.info.name ?? 'Opponent', damage: Math.round(target.damage),
+      chance: Math.round(target.chance * 100), state: target.scope ? 'Scoping' : !stable ? 'Acquiring target' : this.coreReady ? 'Ready' : stop.kind==='slowwalk' ? 'Slow walking for accuracy' : 'Waiting for accuracy' };
+  }
   recoilScale(): number { return 1; }
   blocksShooting(): boolean { return false; }
   controlCamera(): boolean { return false; }
@@ -286,6 +402,7 @@ export class DevRuntime implements DevHooks {
     return { yaw: s.local.server.fakeYaw ?? pose.fake, pitch: s.local.server.fakePitch ?? this.dev.input.pitch };
   }
   afterFrame(session: GameSession): void {
+    if (this.playing && session.mode.id === 'hvh') this.extensions.render();
     const skeet = this.active && this.dev.panelId === 'skeet';
     this.binds.hidden = !skeet || !this.dev.config.skeet.indicators.binds;
     this.watermark.hidden = !skeet || !this.dev.config.skeet.indicators.watermark;
@@ -298,11 +415,12 @@ export class DevRuntime implements DevHooks {
     if (!this.watermark.hidden) this.watermark.textContent = `skeet · chicken hvh · ${Math.round(this.dev.fps())} fps · ${this.dev.ping() ?? '—'} ms`;
     const c=this.dev.config.hvh, d=this.diagnostics;
     const charge=Math.round((session.local.server.hvhCharge??0)*100);
-    const lines=[c.feedback.targetInfo ? `${d.target} · ~${d.damage} HP · ${d.chance}%\n${d.state} · ${this.peekState}\n${c.exploit === 'off' ? 'EXPLOIT OFF' : c.exploit === 'doubleTap' ? 'DOUBLE TAP' : 'HIDE SHOTS'} · ${charge}% charge` : '', skeet && this.dev.config.skeet.indicators.resolver ? this.resolverInfo : '', c.feedback.shotLog ? this.logs.slice(0,3).join('\n') : ''].filter(Boolean);
+    const stopText = this.policy.hvh.movement.autoStop ? `\n${this.autoStopText}` : '';
+    const lines=[c.feedback.targetInfo ? `${d.target} · ~${d.damage} HP · ${d.chance}%\n${d.state} · ${this.peekState}${stopText}\n${c.exploit === 'off' ? 'EXPLOIT OFF' : c.exploit === 'doubleTap' ? 'DOUBLE TAP' : 'HIDE SHOTS'} · ${charge}% charge` : '', skeet && this.dev.config.skeet.indicators.resolver ? this.resolverInfo : '', c.feedback.shotLog ? this.logs.slice(0,3).join('\n') : ''].filter(Boolean);
     if (!this.binds.hidden) {
       const h = this.dev.config.hvh, active = (key: string) => this.keyHeld(key, false) ? 'active' : 'hold';
       this.binds.textContent = ['keybinds', `body aim · ${active(h.aim.bodyKey)}`, `damage override · ${active(h.aim.overrideKey)}`,
-        `slow walk · ${h.movement.slowWalk ? active(h.movement.slowKey) : 'off'}`, `auto peek · ${h.movement.peekAssist ? this.peekState : 'off'}`, `invert · ${active(h.invertKey)}`].join('\n');
+        `slow walk · ${this.dev.input.isDown('ShiftLeft') || this.dev.input.isDown('ShiftRight') ? 'active' : 'hold Shift'}`, `auto peek · ${h.movement.peekAssist ? this.peekState : 'off'}`, `invert · ${active(h.invertKey)}`].join('\n');
     }
     const key=lines.join('\n');
     if(key!==this.infoKey){this.infoKey=key;this.info.textContent=key;}
@@ -323,12 +441,11 @@ export class DevRuntime implements DevHooks {
       if(skeet && this.playerRule(pid).ignore) continue;
       if(!r.alive || r.latest?.alive === false || session.serverNow()-r.latestAt>500 || session.isFriendly(r.info) || r.latest?.shielded || r.latest?.vehicle) continue;
       const k=r.latest?.crouching?CROUCH.scale:1;
-      const decision = skeet ? this.resolver.resolve(pid, r.yaw, r.fakeYaw, session.serverNow(), config.skeet.resolver) : undefined;
-      const heading=decision?.yaw ?? HVH_PANELS[this.dev.panelId].resolveYaw(r,this.dev.config);
+      const heading=HVH_PANELS[this.dev.panelId].resolveYaw(r,this.dev.config);
       const head=new THREE.Vector3(r.position.x-Math.sin(heading)*HITBOX.headForward*k,r.position.y+HITBOX.headHeight*k,r.position.z-Math.cos(heading)*HITBOX.headForward*k);
       const body=new THREE.Vector3(r.position.x,r.position.y+HITBOX.bodyHeight*0.55*k,r.position.z);
       const angleTo=(point:THREE.Vector3)=>forward.angleTo(point.clone().sub(session.camera.position));
-      const preferBody = skeet && (decision?.body || this.playerRule(pid).body);
+      const preferBody = skeet && this.playerRule(pid).body;
       const center=preferBody ? body : part==='head'?head:part==='nearest'&&angleTo(head)<angleTo(body)?head:body;
       const targetPart = center === head ? 'head' : 'body';
       const tracked = onlyPid !== undefined && this.target?.pid === pid && this.target.part === targetPart ? this.target.offset : undefined;
@@ -346,7 +463,7 @@ export class DevRuntime implements DevHooks {
       }
       const distance=point.distanceTo(new THREE.Vector3(eye.x,eye.y,eye.z));
       if(distance<0.01)continue;
-      out.push({pid,r,point,part:targetPart,offset,resolver:decision,angle:angleTo(point),distance,hp:r.latest?.hp??100,visible,target:{x:r.position.x,y:r.position.y,z:r.position.z,yaw:heading,scale:k,hp:r.latest?.hp??100,armor:r.latest?.armor??0}});
+      out.push({pid,r,point,part:targetPart,offset,angle:angleTo(point),distance,hp:r.latest?.hp??100,visible,target:{x:r.position.x,y:r.position.y,z:r.position.z,yaw:heading,scale:k,hp:r.latest?.hp??100,armor:r.latest?.armor??0}});
     }
     return out;
   }

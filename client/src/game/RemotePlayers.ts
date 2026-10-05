@@ -33,7 +33,7 @@ export class RemotePlayer {
    */
   culled = false;
 
-  constructor(info: PlayerInfo, friendly: boolean, private readonly hvh = false) {
+  constructor(info: PlayerInfo, friendly: boolean, _hvh = false) {
     this.info = info;
     this.chicken = new Chicken(info.appearance, info.team);
     this.tag = new NameTag(info.name, friendly || info.team === 0 ? 0xffffff : TEAM_COLORS[info.team], info.dev);
@@ -122,7 +122,7 @@ export class RemotePlayer {
     this.fakeYaw = fakeYaw;
     this.chicken.setAim(b && renderTime > a.t ? lerp(a.s.fakePitch ?? a.s.pitch, b.s.fakePitch ?? b.s.pitch, (renderTime-a.t)/(b.t-a.t)) : s.fakePitch ?? s.pitch);
     if (this.alive) root.rotation.y = fakeYaw;
-    this.realHeading.visible = this.hvh && this.alive && Math.abs(fakeYaw-this.yaw)>0.05;
+    this.realHeading.visible = false;
     const heading = this.yaw-fakeYaw;
     this.realHeading.setDirection(new THREE.Vector3(-Math.sin(heading),0,-Math.cos(heading)));
     // Kill events or snapshots can mark a player dead; only a spawn event (teleport) revives them.

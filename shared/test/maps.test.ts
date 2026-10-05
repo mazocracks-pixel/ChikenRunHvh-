@@ -91,7 +91,10 @@ describe('Factory catwalks', () => {
     for (const [x0, dir, z] of [[-24, 1, -26], [24, -1, 26]] as const) {
       const s = createMoveState(x0 - dir * 2, 0, z);
       const yaw = dir === 1 ? -Math.PI / 2 : Math.PI / 2;
-      for (let i = 0; i < 60 * 4; i++) stepPlayer(s, { seq: i, forward: 1, right: 0, jump: true, yaw, pitch: 0 }, SIM_DT, world);
+      for (let i = 0; i < 64 * 12; i++) {
+        stepPlayer(s, { seq: i, forward: 1, right: 0, jump: s.onGround && s.y < 3.8, yaw, pitch: 0 }, SIM_DT, world, null, 0.1, 1, true);
+        if (s.onGround && s.y >= 3.8) break;
+      }
       assert.ok(s.y > 3.6, `on the catwalk (y ${s.y.toFixed(2)}, x ${s.x.toFixed(1)})`);
     }
   });

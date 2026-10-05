@@ -65,7 +65,7 @@ const DEFS: ModeDef[] = [
   {
     id: 'hvh', name: 'HvH', description: 'Red vs Blue, 5 vs 5, and everyone sees enemies through walls. First to 40 kills.',
     teams: true, maxPlayers: 10, scoreLimit: 40, timeLimitMs: 6 * 60_000, respawnMs: 3000, minPlayers: 2,
-    maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, teamKills: true, wallhack: true, wallbang: true,
+    maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: false, teamKills: true, wallhack: true, wallbang: true,
   },
   {
     id: 'bomb', name: 'ChikenBomb', description: 'chikenT plant the bomb, chikenCT defuse it. 5 vs 5 rounds with money and a buy menu. First to 6 rounds.',

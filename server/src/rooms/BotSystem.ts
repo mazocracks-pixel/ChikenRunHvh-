@@ -1,5 +1,6 @@
 import {
   ITEMS,
+  PLAYER,
   eyeHeightOf,
   SIM_DT,
   WEAPONS,
@@ -18,6 +19,7 @@ import {
   type Vec3,
   type Team,
 } from '@game/shared';
+import { DEFAULT_RAGE, scanRage, unpackPlayer, softBoxTest, defaultSkeetAntiAim, hvhWeapon, type ObservableRecord, type ShotCandidate } from '@game/shared';
 import type { BotGoal, GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
@@ -37,6 +39,10 @@ const PERCEIVE_MS = 200;
 const SMOKE_BLOCK_RADIUS = 3.6;
 
 interface Brain {
+  hvhCandidate?: ShotCandidate | null;
+  hvhNextScan?: number;
+  hvhReturnUntil?: number;
+  hvhAnchor?: Vec3;
   p: ServerPlayer;
   seq: number;
   shot: number;
@@ -92,6 +98,13 @@ export class BotSystem {
     const res = this.room.join(null, { userId: null, name: `🤖 ${name}`, appearance: randomAppearance(), loadout: ['rifle', 'shotgun', 'pistol'], bot: true, rank: 1 + Math.floor(Math.random() * 6) });
     if (!res.ok) return false;
     const p = this.room.players.get(res.selfPid)!;
+    if (this.room.mode.id === 'hvh') {
+      p.hvhEnabled = true; p.hvhPanel = p.pid % 2 ? 'skeet' : 'lab';
+      p.hvh.antiAim.enabled = true; p.hvh.antiAim.desync = p.pid % 3 === 0 ? 22 : 58;
+      p.hvh.exploit = p.pid % 3 === 0 ? 'hideShots' : 'doubleTap';
+      p.hvh.skeet = defaultSkeetAntiAim(); p.hvh.skeet.freestanding = true;
+      p.hvh.skeet.desyncMode = p.pid % 3 === 1 ? 'alternate' : 'static';
+    }
     const now = performance.now();
     this.brains.set(p.pid, {
       p,
@@ -203,6 +216,7 @@ export class BotSystem {
       b.target = null;
       return;
     }
+    if (this.room.mode.id === 'hvh') { this.thinkHvh(b, now); return; }
 
     if (now >= b.nextPerceive) {
       b.nextPerceive = now + PERCEIVE_MS;
@@ -240,12 +254,12 @@ export class BotSystem {
 
       const tx = dx / (flat || 1);
       const tz = dz / (flat || 1);
-      // With a melee weapon: charge in (bunny hopping for speed) instead of keeping distance.
+      // With a melee weapon: build running momentum, then hop while closing the gap.
       const melee = WEAPONS[p.weapon].melee !== undefined;
       if (flat > (melee ? MELEE_CLOSE : PREFERRED_MAX)) {
         moveX += tx;
         moveZ += tz;
-        if (melee && flat > MELEE_HOP_FROM) jump = true;
+        if (melee && flat > MELEE_HOP_FROM && (!p.state.onGround || p.state.horizontalSpeed >= PLAYER.speed * 0.85)) jump = true;
       } else if (!melee && flat < PREFERRED_MIN) {
         moveX -= tx;
         moveZ -= tz;
@@ -325,12 +339,62 @@ export class BotSystem {
       seq: ++b.seq,
       forward: clamp(moveX * fx + moveZ * fz, -1, 1),
       right: clamp(moveX * -fz + moveZ * fx, -1, 1),
-      jump,
+      jump: jump && (!p.state.onGround || !p.state.jumpHeld),
       yaw: wrapAngle(lookYaw),
       pitch: clamp(lookPitch, -1.2, 1.2),
       use: goal?.use === true,
     };
     this.room.handleInput(p, frame);
+  }
+
+  /** HvH bots consume the same public snapshot API as human panels, never enemy server objects. */
+  private thinkHvh(b: Brain, now: number): void {
+    const p = b.p, eye = this.eye(p);
+    const records: ObservableRecord[] = [];
+    for (const packed of this.room.snapshot(now, p.pid).p) {
+      const s = unpackPlayer(packed);
+      if (s.pid === p.pid || !s.alive || s.shielded || s.vehicle || this.room.players.get(s.pid)?.info.team === p.info.team) continue;
+      const r: ObservableRecord = { pid: s.pid, tick: Math.round((s.simulationTime || now) / (1000 / 64)), t: s.simulationTime || now,
+        origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
+        eyeYaw: s.yaw, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
+        grounded: s.onGround, turnWeight: s.turnWeight ?? 0, alive: s.alive, hp: s.hp, armor: s.armor,
+        fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
+      p.resolver.observe(r); records.push(...p.resolver.records(s.pid, now));
+    }
+    if (now >= (b.hvhNextScan ?? 0)) {
+      b.hvhNextScan = now + 150;
+      b.hvhCandidate = scanRage({ now, eye, w: hvhWeapon(WEAPONS[p.weapon]), heat: p.weaponHeat, speed: p.state.horizontalSpeed, airborne: !p.state.onGround, ads: p.aiming,
+        world: this.room.world, records, resolver: p.resolver, currentTarget: b.hvhCandidate?.target, isSoft: softBoxTest(this.room.map),
+        settings: { ...DEFAULT_RAGE, minDamage: 10, maxRecords: 2, forceSafe: p.pid % 3 === 0, body: p.pid % 3 === 0 ? 'prefer' : 'lethal',
+          safetyWeight: p.pid % 3 === 1 ? 4 : 25, damageWeight: p.pid % 3 === 1 ? 1.6 : 1 } });
+    }
+    const c = b.hvhCandidate && records.some(r => r.pid === b.hvhCandidate!.target) && now - b.hvhCandidate.record.t <= 300 ? b.hvhCandidate : null;
+    let x = 0, z = 0;
+    if (!b.hvhAnchor) b.hvhAnchor = { x: p.state.x, y: p.state.y, z: p.state.z };
+    if (now < (b.hvhReturnUntil ?? 0)) {
+      x = b.hvhAnchor.x - p.state.x; z = b.hvhAnchor.z - p.state.z;
+    } else if (!c) {
+      const target = records[0];
+      if (target) { x = target.origin.x - p.state.x; z = target.origin.z - p.state.z; }
+      else {
+        if (!b.waypoint || Math.hypot(b.waypoint.x - p.state.x, b.waypoint.z - p.state.z) < 2) this.newWaypoint(b);
+        const next = this.nextStep(b, b.waypoint!, now); x = next.x - p.state.x; z = next.z - p.state.z;
+      }
+    } else if (c.stop || p.state.horizontalSpeed > 0.5) {
+      x = -(p.state.walkVx ?? 0); z = -(p.state.walkVz ?? 0);
+    }
+    const length = Math.hypot(x, z); if (length > 0.1) { x /= length; z /= length; } else x = z = 0;
+    const yaw = c ? Math.atan2(-c.direction.x, -c.direction.z) : p.lookYaw;
+    const frame: InputFrame = { seq: ++b.seq, forward: -Math.sin(yaw) * x - Math.cos(yaw) * z,
+      right: Math.cos(yaw) * x - Math.sin(yaw) * z, jump: false, yaw, pitch: c ? Math.asin(c.direction.y) : 0 };
+    this.room.handleInput(p, frame);
+    if (p.mag <= 0) { this.room.handleReload(p); return; }
+    if (c?.scope) p.aiming = true;
+    if (c && !c.stop && now - c.record.t <= 300 && p.state.horizontalSpeed < 0.5 && !p.reloadUntil && now >= (b.hvhReturnUntil ?? 0)) {
+      this.room.handleFire(p, { shot: ++b.shot, command: frame.seq, weapon: p.weapon, dx: c.direction.x, dy: c.direction.y, dz: c.direction.z,
+        t: c.record.t, aiming: p.aiming, intent: { target: c.target, source: c.source, recordT: c.record.t, yaw: c.yaw } });
+      b.hvhReturnUntil = now + 400; b.hvhNextScan = 0;
+    }
   }
 
 /** The next spot to walk to on the way to `goal`, following the map's waypoints around walls. */

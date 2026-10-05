@@ -1,0 +1,117 @@
+import { clamp, normalize, type Vec3 } from '../math';
+import { makeRay } from '../raycast';
+import type { CollisionWorld } from '../collision';
+import type { WeaponDef } from '../weapons';
+import type { ObservableRecord } from './animation';
+import { afterArmor, hvhHitchance, hvhHitDamage, traceHvhCover } from './ballistics';
+import { buildHvhMatrix, matrixPoints, pointSafety, rayHvhMatrix, type HvhHitgroup, type HvhMatrix } from './geometry';
+import { recordValidity, type HypothesisSource, type ResolverSystem, type ShotReason } from './resolver';
+export interface RageSettings {
+  resolverPolicy?: import('./resolver').ResolverPolicy;
+  preferBodyBelow?: number;
+  bodyAfterMisses?: number;
+  groups?: HvhHitgroup[];
+  priority?: 'crosshair' | 'distance' | 'health';
+  burstReady?: boolean;
+  resolver: boolean; forceSafe: boolean; preferSafe: boolean; body: 'off' | 'prefer' | 'force' | 'lethal';
+  minDamage: number; hpRelative?: number; hitchance: number; pointScale: number; maxRecords: number;
+  damageWeight: number; safetyWeight: number; accuracyWeight: number; confidenceWeight: number;
+}
+export const DEFAULT_RAGE: RageSettings = { resolver: true, forceSafe: false, preferSafe: true, body: 'off',
+  minDamage: 20, hitchance: 0.55, pointScale: 0.65, maxRecords: 3, damageWeight: 1, safetyWeight: 20, accuracyWeight: 15, confidenceWeight: 15 };
+export interface ShotCandidate {
+  target: number; record: ObservableRecord; source: HypothesisSource; yaw: number; point: Vec3; group: HvhHitgroup;
+  direction: Vec3; damage: number; chance: number; safety: number; confidence: number; score: number; lethal: boolean; scope: boolean; stop?: boolean; stopSpeed?: number;
+}
+export interface RageScan {
+  heat?: number;
+  viewDirection?: Vec3;
+  forceDirection?: Vec3;
+  allowScope?: boolean;
+  /** Preferred auto-stop speed; stationary remains the fallback when walking cannot meet accuracy. */
+  stopSpeed?: number;
+  scoreCandidate?: (candidate: ShotCandidate) => number;
+  playerRules?: ReadonlyMap<number, { ignore: boolean; body: boolean }>;
+  now: number; eye: Vec3; w: WeaponDef; speed: number; airborne: boolean; ads: boolean; world: CollisionWorld;
+  records: readonly ObservableRecord[]; resolver: ResolverSystem; settings: RageSettings; isSoft?: (id: number) => boolean; currentTarget?: number;
+}
+/** Cheap geometry gates precede spread samples. Bound expensive work independently of display Hz. */
+export function scanRage(input: RageScan): ShotCandidate | null {
+  if (input.w.projectile || input.w.melee) return null;
+  const { settings: s } = input, cheap: ShotCandidate[] = [];
+  const counts = new Map<number, number>();
+  for (const record of input.records) {
+    const rule = input.playerRules?.get(record.pid); if (rule?.ignore) continue;
+    if (recordValidity(record, input.now) !== 'VALID') continue;
+    const count = counts.get(record.pid) ?? 0; if (count >= s.maxRecords) continue; counts.set(record.pid, count + 1);
+    const r = input.resolver.resolve(record, s.resolver, undefined, s.resolverPolicy);
+    const plausible = s.resolver ? r : input.resolver.resolve(record, true, undefined, s.resolverPolicy);
+    const hypotheses = r.hypotheses.slice(0, 3), all = plausible.hypotheses.filter(h => h.probability >= 0.04 || ['LEFT', 'CENTER', 'RIGHT'].includes(h.source)).map(h => buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3));
+    for (const h of hypotheses) {
+      const matrix = buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3);
+      const body = rule?.body || s.body === 'force' || r.confidence < (s.preferBodyBelow ?? 0)
+        || ((s.bodyAfterMisses ?? 0) > 0 && r.misses >= s.bodyAfterMisses!);
+      const groups: HvhHitgroup[] = body ? ['stomach', 'chest', 'pelvis'] : s.groups ?? ['head', 'stomach', 'chest'];
+      const pointScale = s.pointScale <= 0 ? 0 : clamp(s.pointScale * (0.5 + r.confidence * 0.5) / (1 + input.speed * 0.06), 0.15, 0.85);
+      for (const { point, group } of matrixPoints(matrix, groups, pointScale)) {
+        const direction = input.forceDirection ?? normalize({ x: point.x - input.eye.x, y: point.y - input.eye.y, z: point.z - input.eye.z });
+        const ray = makeRay(input.eye, direction), cover = traceHvhCover(ray, input.world, input.w.range, input.isSoft);
+        const hit = rayHvhMatrix(ray, matrix, cover.wallDistance); if (!hit) continue;
+        const damage = afterArmor(hvhHitDamage(input.w, hit, cover), record.armor);
+        if (damage < (s.hpRelative === undefined ? Math.min(record.hp, s.minDamage) : record.hp + s.hpRelative)) continue;
+        const rayPoint = input.forceDirection ? { x: input.eye.x + direction.x * 100, y: input.eye.y + direction.y * 100, z: input.eye.z + direction.z * 100 } : point;
+        const safety = pointSafety(input.eye, rayPoint, all, [group]);
+        if (s.forceSafe && safety < 1) continue;
+        const lethal = damage * (s.burstReady ? 2 : 1) >= record.hp;
+        const confidence = group === 'head' ? h.probability : Math.max(h.probability, safety);
+        const score = damage * confidence * s.damageWeight + safety * (s.preferSafe ? s.safetyWeight : 0)
+          + r.confidence * s.confidenceWeight + (lethal ? 80 * safety : 0) - (input.now - record.t) * 0.035
+          + (s.body === 'prefer' && group !== 'head' ? 12 : 0) + (s.body === 'lethal' && lethal && group !== 'head' ? 35 : 0)
+          + (record.pid === input.currentTarget ? 8 : 0) - (record.defensive ? 18 : 0)
+          - (s.priority === 'health' ? record.hp * 0.12 : s.priority === 'distance' ? Math.hypot(point.x - input.eye.x, point.z - input.eye.z) * 0.5
+            : input.viewDirection ? (1 - direction.x * input.viewDirection.x - direction.y * input.viewDirection.y - direction.z * input.viewDirection.z) * 15 : 0);
+        cheap.push({ target: record.pid, record, source: h.source, yaw: h.yaw, point, group, direction,
+          damage, safety, chance: 0, confidence: r.confidence, score, lethal, scope: false });
+      }
+    }
+  }
+  cheap.sort((a, b) => b.score - a.score);
+  if (input.scoreCandidate) { cheap.slice(0, 16).forEach(c => c.score += input.scoreCandidate!(c)); cheap.sort((a, b) => b.score - a.score); }
+  let best: ShotCandidate | null = null;
+  for (const c of cheap.slice(0, 6)) {
+    const matrix = buildHvhMatrix(c.record.origin, c.yaw, 1 - c.record.crouch * 0.3);
+    let estimate = hvhHitchance(input.w, input.eye, c.direction, matrix, input.speed, input.airborne, input.ads, input.world, input.isSoft, 32, input.heat);
+    if (estimate.chance < s.hitchance && input.w.scope && !input.ads && input.allowScope !== false) {
+      const scoped = hvhHitchance(input.w, input.eye, c.direction, matrix, input.speed, input.airborne, true, input.world, input.isSoft, 32, input.heat);
+      if (scoped.chance >= s.hitchance) { estimate = scoped; c.scope = true; }
+    }
+    if (estimate.chance < s.hitchance && input.speed > 0.5 && !input.airborne) {
+      const preferred = clamp(input.stopSpeed ?? 0,0,input.speed);
+      for (const speed of preferred>0 ? [preferred,0] : [0]) {
+        const stopped = hvhHitchance(input.w, input.eye, c.direction, matrix, speed, false, input.ads || c.scope, input.world, input.isSoft, 32, input.heat);
+        if (stopped.chance >= s.hitchance) { estimate = stopped; c.stop = true; c.stopSpeed = speed; break; }
+      }
+    }
+    if (estimate.chance < s.hitchance) continue;
+    c.chance = estimate.chance; c.damage = afterArmor(estimate.damage, c.record.armor);
+    c.score += c.chance * s.accuracyWeight;
+    if (!best || c.score > best.score) best = c;
+  }
+  return best;
+}
+export interface ShotIntent { target: number; recordT: number; source: HypothesisSource; yaw: number; safety?: number }
+export interface ShotAudit { target: number; source: HypothesisSource; reason: ShotReason; recordT: number; damage: number; headshot?: boolean }
+/** Post-shot audit owns ground truth. It returns only a classification, never hidden orientation. */
+export function auditShot(intent: ShotIntent, eye: Vec3, direction: Vec3, actualDirections: readonly Vec3[],
+  authoritative: HvhMatrix | null, recordValid: boolean, world: CollisionWorld, w: WeaponDef, isSoft?: (id: number) => boolean): ShotReason {
+  if (!recordValid) return 'RECORD_INVALID'; if (!authoritative) return 'TARGET_DIED';
+  const predicted = buildHvhMatrix(authoritative.origin, intent.yaw, authoritative.scale);
+  const straight = makeRay(eye, direction), cover = traceHvhCover(straight, world, w.range, isSoft);
+  const predictedHit = rayHvhMatrix(straight, predicted, w.range), trueHit = rayHvhMatrix(straight, authoritative, w.range);
+  if (predictedHit && cover.wallDistance < predictedHit.t) return 'OCCLUSION';
+  const actualHit = actualDirections.some(dir => { const ray = makeRay(eye, dir); const obstacle = traceHvhCover(ray, world, w.range, isSoft); return !!rayHvhMatrix(ray, authoritative, obstacle.wallDistance); });
+  if (actualHit) return 'HIT';
+  if (predictedHit && !trueHit) return 'RESOLVER';
+  if (trueHit) return 'SPREAD';
+  return 'PREDICTION';
+}

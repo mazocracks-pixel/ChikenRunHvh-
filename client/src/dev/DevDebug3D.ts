@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CROUCH, HITBOX } from '@game/shared';
 import type { GameSession } from '../game/GameSession';
 import type { DevConfig } from './config';
+import { ResolverSystem, type ShotCandidate } from '@game/shared';
+import { HvhDebug } from './HvhDebug';
 
 const BOX_EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
 const HEAD_GEOMETRY = new THREE.WireframeGeometry(new THREE.SphereGeometry(HITBOX.headRadius, 10, 6));
@@ -31,11 +33,13 @@ export class DevDebug3D {
   private readonly glowMaterials = new Map<string, THREE.MeshBasicMaterial>();
   private collision: THREE.LineSegments | null = null;
   private collisionBuiltAt = -Infinity;
+  private readonly hvh: HvhDebug | null;
 
-  constructor(session: GameSession) {
+  constructor(session: GameSession, resolver?: ResolverSystem, focus: () => ShotCandidate | null = () => null) {
     this.session = session;
     this.root.renderOrder = 999;
     session.camera.parent?.add(this.root);
+    this.hvh = session.mode.id === 'hvh' && resolver ? new HvhDebug(session, resolver, focus) : null;
   }
 
   update(config: DevConfig | null): void {
@@ -43,7 +47,8 @@ export class DevDebug3D {
     const esp = config?.visuals.esp;
     const hitboxes = !!world?.hitboxes;
     const glow = !!(esp?.enabled && esp.glow);
-    this.updatePlayers(hitboxes, glow, config);
+    this.hvh?.update(hitboxes);
+    this.updatePlayers(hitboxes && !this.hvh, glow, config);
     this.updateCollision(!!world?.collision);
   }
 
@@ -136,6 +141,7 @@ export class DevDebug3D {
   }
 
   dispose(): void {
+    this.hvh?.dispose();
     this.root.removeFromParent();
     this.collision?.geometry.dispose();
     this.hitboxMaterial.dispose();

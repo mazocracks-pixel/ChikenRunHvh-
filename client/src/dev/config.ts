@@ -1,4 +1,4 @@
-import { DEFAULT_MODS, MOD_LIMITS, WEAPON_IDS, defaultHvhLoadout, type HvhLoadout, type DevMods, type WeaponId } from '@game/shared';
+import { DEFAULT_MODS, MOD_LIMITS, WEAPON_IDS, defaultHvhCore, defaultHvhLoadout, type HvhLoadout, type DevMods, type WeaponId } from '@game/shared';
 import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
 import { SKEET_GROUPS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
@@ -11,8 +11,13 @@ import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
 export interface DevConfig {
   skeet: SkeetConfig;
   hvh: HvhLoadout & {
-    aim: { minDamage: number; hitchance: number; bodyAim: 'off' | 'prefer' | 'lethal'; autowall: boolean; reaction: number; switchDelay: number; turnRate: number; damageOverride: number; overrideKey: string; bodyKey: string };
-    movement: { autoStop: boolean; slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string };
+    resolverPolicy: 'adaptive' | 'animation' | 'cycle';
+    aim: { minDamage: number; hitchance: number; airHitchance: number; hpRelative: number; maxRecords: number;
+      damageWeight: number; safetyWeight: number; accuracyWeight: number; confidenceWeight: number;
+      forceSafe: boolean; preferSafe: boolean; multipoint: boolean; pointScale: number;
+      bodyAim: 'off' | 'prefer' | 'lethal'; autowall: boolean; reaction: number; switchDelay: number; turnRate: number; damageOverride: number; overrideKey: string; bodyKey: string };
+    movement: { autoStop: boolean; autoStopSlowWalk: boolean; autoStopBetweenShots: boolean; autoStopPredict: boolean; autoStopPredictMs: number;
+      slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string; subtickStrafe: boolean };
     feedback: { shotLog: boolean; targetInfo: boolean; resolver: boolean };
     invertKey: string;
   };
@@ -103,8 +108,12 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
     skeet: defaultSkeetConfig(),
     hvh: {
       ...defaultHvhLoadout(),
-      aim: { minDamage: 20, hitchance: 60, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
-      movement: { autoStop: false, slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyZ' },
+      resolverPolicy: panel === 'skeet' ? 'adaptive' : 'animation',
+      aim: { minDamage: 20, hitchance: 60, airHitchance: 70, hpRelative: -1, maxRecords: 2, damageWeight: 1, safetyWeight: 20,
+        forceSafe: false, preferSafe: true, multipoint: true, pointScale: 65,
+        accuracyWeight: 15, confidenceWeight: 15, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
+      movement: { autoStop: false, autoStopSlowWalk: false, autoStopBetweenShots: true, autoStopPredict: false, autoStopPredictMs: 200,
+        slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyZ', subtickStrafe: false },
       feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK',
     },
     legit: {
@@ -114,7 +123,7 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
       wall: { enabled: false, enemies: true, teammates: true, enemyColor: '#ff4d5e', teamColor: '#4dd2ff', opacity: 0.55 },
     },
     rage: {
-      aim: { enabled: false, lock: true, silent: false, instantSwitch: false, priority: 'crosshair', hitbox: 'head', fov: 35, autoTarget: false },
+      aim: { enabled: false, lock: true, silent: true, instantSwitch: false, priority: 'crosshair', hitbox: 'head', fov: 360, autoTarget: false },
       weapon: { noRecoil: false, noSpread: false, infiniteAmmo: false, instantReload: false, rapidFire: false, automatic: false, infiniteMag: false, noRocketCooldown: false, noRocketDamage: false },
       move: { speed: 1, jump: 1, fly: false, noclip: false, infiniteStamina: false, lowGravity: false },
       antiAim: { spin: false, speed: 720, direction: 'right', pitch: 'normal' },
@@ -148,14 +157,29 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
 
 /** Numeric ranges (also used by the menu's sliders). */
 export const RANGES: Record<string, { min: number; max: number; step: number }> = {
+  'hvh.movement.autoStopPredictMs': { min: 50, max: 300, step: 10 },
   'hvh.aim.minDamage': { min: 1, max: 100, step: 1 },
   'hvh.aim.hitchance': { min: 0, max: 100, step: 1 },
+  'hvh.aim.airHitchance': { min: 0, max: 100, step: 1 },
+  'hvh.aim.pointScale': { min: 0, max: 85, step: 1 },
+  'hvh.aim.hpRelative': { min: -1, max: 50, step: 1 },
+  'hvh.aim.maxRecords': { min: 1, max: 6, step: 1 },
+  'hvh.aim.damageWeight': { min: 0.1, max: 3, step: 0.1 },
+  'hvh.aim.safetyWeight': { min: 0, max: 60, step: 1 },
+  'hvh.aim.accuracyWeight': { min: 0, max: 60, step: 1 },
+  'hvh.aim.confidenceWeight': { min: 0, max: 60, step: 1 },
   'hvh.aim.reaction': { min: 100, max: 350, step: 10 },
   'hvh.aim.switchDelay': { min: 100, max: 500, step: 10 },
   'hvh.aim.turnRate': { min: 90, max: 540, step: 10 },
   'hvh.aim.damageOverride': { min: 1, max: 100, step: 1 },
   'hvh.antiAim.desync': { min: 0, max: 58, step: 1 },
+  'hvh.core.fakeLag': { min: 0, max: 12, step: 1 },
+  'skeet.fakeLag.limit': { min: 1, max: 12, step: 1 },
+  'hvh.core.latencyMs': { min: 0, max: 150, step: 5 },
+  'hvh.core.jitterMs': { min: 0, max: 50, step: 5 },
+  'hvh.core.packetLoss': { min: 0, max: 0.1, step: 0.01 },
   'hvh.antiAim.jitter': { min: 0, max: 45, step: 1 },
+  'hvh.antiAim.jitterInterval': { min: 1, max: 600, step: 1 },
   'hvh.antiAim.spinSpeed': { min: 90, max: 540, step: 10 },
   'legit.aim.fov': { min: 1, max: 30, step: 0.5 },
   'legit.aim.smooth': { min: 1, max: 20, step: 0.5 },
@@ -164,7 +188,7 @@ export const RANGES: Record<string, { min: number; max: number; step: number }> 
   'legit.trigger.delay': { min: 100, max: 500, step: 10 },
   'legit.trigger.fov': { min: 0.25, max: 10, step: 0.25 },
   'legit.wall.opacity': { min: 0.1, max: 1, step: 0.05 },
-  'rage.aim.fov': { min: 1, max: 60, step: 1 },
+  'rage.aim.fov': { min: 1, max: 360, step: 1 },
   'rage.antiAim.speed': { min: 60, max: 3600, step: 30 },
   'rage.move.speed': { ...MOD_LIMITS.speed, step: 0.05 },
   'rage.move.jump': { ...MOD_LIMITS.jump, step: 0.05 },
@@ -187,14 +211,18 @@ export const RANGES: Record<string, { min: number; max: number; step: number }> 
 
 /** Allowed values of the dropdowns. */
 export const CHOICES: Record<string, readonly string[]> = {
+  'skeet.fakeLag.mode': ['static','velocity','random','adaptive','peek'],
   'skeet.aimStyle': ['rage', 'legit'],
-  'skeet.resolver.mode': ['adaptive', 'real', 'visual'],
-  'skeet.antiAim.jitterMode': ['center', 'offset', 'random'],
+  'skeet.resolver.mode': ['adaptive', 'center'],
+  'skeet.antiAim.jitterMode': ['center', 'offset', 'random', 'threeway'],
   'skeet.antiAim.desyncMode': ['static', 'alternate', 'sway'],
   'skeet.antiAim.visualPitch': ['look', 'down', 'up', 'zero'],
   'hvh.aim.bodyAim': ['off', 'prefer', 'lethal'],
+  'hvh.resolverPolicy': ['adaptive', 'animation', 'cycle'],
   'hvh.antiAim.mode': ['backward', 'left', 'right', 'spin'],
   'hvh.exploit': ['off', 'doubleTap', 'hideShots'],
+  'hvh.core.era': ['legacy', 'desync', 'tickbase', 'defensive'],
+  'hvh.core.fakeLagMode': ['static', 'velocity', 'random', 'adaptive', 'peek'],
   'legit.aim.target': ['head', 'body', 'nearest'],
   'rage.aim.priority': ['health', 'distance', 'crosshair'],
   'rage.aim.hitbox': ['head', 'body'],
@@ -210,7 +238,7 @@ Object.assign(RANGES, {
   'skeet.resolver.memoryMs': { min: 300, max: 1200, step: 50 },
   'skeet.resolver.preferBodyBelow': { min: 0, max: 100, step: 1 },
   'skeet.resolver.missedShots': { min: 0, max: 4, step: 1 },
-  'skeet.antiAim.interval': { min: 150, max: 600, step: 10 },
+  'skeet.antiAim.interval': { min: 1, max: 600, step: 1 },
 });
 for (const id of SKEET_GROUPS) {
   for (const [key, min, max] of [['minDamage', 1, 100], ['hitchance', 0, 100], ['pointScale', 0, 75]] as const)
@@ -250,7 +278,7 @@ export function sanitizeConfig(raw: unknown): DevConfig {
     const s = src as Record<string, unknown>;
     for (const [key, d] of Object.entries(def)) {
       const path = prefix ? `${prefix}.${key}` : key;
-      const v = s[key];
+      const v = path === 'skeet.resolver.mode' && (s[key] === 'real' || s[key] === 'visual') ? 'center' : s[key];
       if (d && typeof d === 'object') walk(d as Record<string, unknown>, v, path);
       else if (typeof d === 'boolean' && typeof v === 'boolean') def[key] = v;
       else if (typeof d === 'number' && typeof v === 'number' && Number.isFinite(v)) {
@@ -269,6 +297,12 @@ export function sanitizeConfig(raw: unknown): DevConfig {
     }
   };
   walk(out as unknown as Record<string, unknown>, raw, '');
+  out.skeet.fakeLag.limit = Math.round(out.skeet.fakeLag.limit);
+  const previous = raw as { skeet?: { fakeLag?: unknown }; hvh?: { core?: { fakeLag?: unknown } } } | null;
+  const core = out.hvh.core ?? defaultHvhCore();
+  if (previous?.skeet && previous.skeet.fakeLag === undefined && typeof previous.hvh?.core?.fakeLag === 'number' && core.fakeLag > 0) {
+    out.skeet.fakeLag = {enabled:true,limit:core.fakeLag,mode:core.fakeLagMode,breakOnShot:core.fakeLagBreakOnShot};
+  }
   out.skeet.antiAim = sanitizeSkeetAntiAim(out.skeet.antiAim);
   const fresh = defaultConfig();
   // Old exports remain readable, but retired powers never survive migration.
@@ -276,7 +310,9 @@ export function sanitizeConfig(raw: unknown): DevConfig {
   out.rage.move = fresh.rage.move;
   out.rage.antiAim = fresh.rage.antiAim;
   out.weapons = { ...fresh.weapons, selected: out.weapons.selected };
-  out.rage.aim.silent = out.rage.aim.instantSwitch = false;
+  out.rage.aim.silent = true;
+  out.rage.aim.instantSwitch = false;
+  out.skeet.aimStyle = 'rage';
   out.legit.aim.enabled = false;
   out.legit.aim.teamCheck = out.legit.aim.visCheck = out.legit.trigger.visCheck = true;
   out.misc.freeCam = out.misc.spectator = false;

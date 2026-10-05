@@ -5,7 +5,7 @@ const deg = Math.PI / 180;
 it('Skeet sanitizes malformed imports without extending the shared ability caps', () => {
   const safe = sanitizeSkeetAntiAim({ interval: -1, jitterMode: 'evil', desyncMode: null, visualPitch: 'up',
     states: { standing: { mode: 'spin', yawOffset: -999, desync: 999, jitter: 999 }, airborne: { mode: 'evil', desync: NaN }, moving: null } });
-  assert.equal(safe.interval, 150); assert.equal(safe.jitterMode, 'center'); assert.equal(safe.visualPitch, 'up');
+  assert.equal(safe.interval, 1); assert.equal(safe.jitterMode, 'center'); assert.equal(safe.visualPitch, 'up');
   assert.deepEqual(safe.states.standing, { mode: 'spin', yawOffset: -180, desync: 58, jitter: 45 });
   assert.deepEqual(safe.states.airborne, defaultSkeetAntiAim().states.airborne);
   assert.deepEqual(sanitizeSkeetAntiAim(null), defaultSkeetAntiAim());
@@ -13,11 +13,11 @@ it('Skeet sanitizes malformed imports without extending the shared ability caps'
   assert.equal(defaultHvhLoadout().skeet, undefined, 'existing Lab loadouts stay independent');
 });
 it('movement states have explicit precedence and use independent stance settings', () => {
-  assert.equal(hvhStance({}), 'standing'); assert.equal(hvhStance({ speed: 1 }), 'moving');
+  assert.equal(hvhStance({}), 'standing'); assert.equal(hvhStance({ speed: 1 }), 'slowwalking');
   assert.equal(hvhStance({ speed: 5, crouching: true }), 'crouching');
-  assert.equal(hvhStance({ speed: 5, crouching: true, onGround: false }), 'airborne');
+  assert.equal(hvhStance({ speed: 5, crouching: true, onGround: false }), 'aircrouch');
   const l = defaultHvhLoadout(); l.antiAim.enabled = true; l.skeet = defaultSkeetAntiAim(); l.skeet.desyncMode = 'static';
-  const contexts = [{}, { speed: 1 }, { crouching: true }, { onGround: false }];
+  const contexts = [{}, { speed: 5 }, { speed: 1 }, { crouching: true }, { onGround: false }, { onGround: false, crouching: true }];
   for (const [i, state] of HVH_STANCES.entries()) {
     const p = hvhPose(0, l, 0, false, false, contexts[i]);
     assert.ok(Math.abs(wrapAngle(p.fake - p.real) / deg - l.skeet.states[state].desync) < 1e-8);
@@ -44,7 +44,8 @@ it('target base and cover side use server evidence, while disabling the builder 
   const l = defaultHvhLoadout(); l.antiAim.enabled = true; l.skeet = defaultSkeetAntiAim();
   l.skeet.atTargets = l.skeet.freestanding = true; l.skeet.states.standing.jitter = 0;
   const p = hvhPose(0, l, 1000, false, false, { targetYaw: 0.5, coverSide: 1 });
-  assert.ok(Math.abs(wrapAngle(p.real - (0.5 + Math.PI + Math.PI / 2))) < 1e-8);
+  assert.ok(Math.abs(wrapAngle(p.real - (0.5 + Math.PI))) < 1e-8);
+  assert.ok(wrapAngle(p.fake - p.real) > 0, 'freestanding chooses a body side rather than rotating the entire stance');
   l.skeet.enabled = false;
   assert.deepEqual(hvhPose(0, l, 1000, false, false), hvhPose(0, { ...l, skeet: undefined }, 1000, false, false));
 });

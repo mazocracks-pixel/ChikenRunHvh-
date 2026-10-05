@@ -28,6 +28,8 @@ import {
   pelletDirections,
   pointOnRay,
   rayChicken,
+  rayHvhChicken, CommandChoker, NetworkSimulator, buildCommand, defaultHvhCore, fakeLagTicks,
+  hvhSpread,
   raycastPenetrating,
   raycastWorld,
   softBoxTest,
@@ -125,6 +127,7 @@ export interface SessionContext {
 export interface DevHooks {
   onShot?(session: GameSession, assisted?: boolean): void;
   onServerShot?(session: GameSession, shot: ShotEvent): void;
+  shotIntent?(): import('@game/shared').ShotIntent | undefined;
   attach(session: GameSession): void;
   detach(session: GameSession): void;
   /** Start of every frame (aim assist, triggers). */
@@ -154,6 +157,9 @@ const HVH_XRAY = new THREE.MeshBasicMaterial({ color: 0xff3b4e, opacity: 0.6, de
 
 /** Everything that exists only while in a room. Created on join, disposed on leave. */
 export class GameSession {
+  private readonly commandChoker = new CommandChoker();
+  private commandNetwork: NetworkSimulator<readonly InputFrame[]> | null = null;
+  private networkKey = '';
   readonly room: RoomInfo;
   readonly selfPid: number;
   readonly mode: ModeDef;
@@ -241,6 +247,7 @@ export class GameSession {
     this.isSoft = softBoxTest(ctx.world.map, (id) => this.blocks?.kindOf(id));
     this.wallbangBoxes = this.mode.wallbang ? WALLBANG.maxBoxes : 0;
     this.local = new LocalPlayer(ctx.scene, meInfo, me);
+    this.local.tactical = this.mode.id === 'hvh';
     this.remotes = new RemotePlayers(ctx.scene, this.mode.id === 'hvh');
     this.rig = new CameraRig(ctx.camera, this.collision);
     this.projectiles = new ClientProjectiles(ctx.scene, this.collision, this.effects);
@@ -249,6 +256,7 @@ export class GameSession {
     for (const d of join.drops) this.loot.addDrop(d, false);
     this.loot.onBreak = (at) => ctx.audio.play('boxBreak', at);
     this.weapons = new WeaponController(meInfo.loadout);
+    this.weapons.tactical = this.mode.id === 'hvh';
     this.viewmodel = new ViewModel(ctx.overlay);
     this.bombView = this.mode.bomb ? new BombView(ctx.scene) : null;
     this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root, meInfo.appearance) : null;
@@ -317,11 +325,22 @@ export class GameSession {
       if (!this.local.alive) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
+      if (this.mode.id !== 'hvh') frame = { ...frame, autoHop: false, subtickStrafe: false };
       if (this.bombHolds(frame)) frame = { ...frame, forward: 0, right: 0, jump: false, crouch: true };
       this.lastMovementInput = { forward: frame.forward, right: frame.right };
       this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon));
-      net.socket.emit('input', frame);
+      if (this.mode.id === 'hvh') {
+        const core = this.weapons.hvh.core ?? defaultHvhCore();
+        const key = `${core.latencyMs}/${core.jitterMs}/${core.packetLoss}`;
+        if (key !== this.networkKey) { this.networkKey = key; this.commandNetwork = new NetworkSimulator({ latencyMs: core.latencyMs, jitterMs: core.jitterMs, loss: core.packetLoss }, this.selfPid); }
+        const speed = this.horizontalSpeed();
+        const shooting = input.firing || dev?.wantsFire(now) === true;
+        const choke = fakeLagTicks(core,frame.seq,speed,shooting);
+        const batch = this.commandChoker.push(buildCommand(frame), choke, !input.active || (core.fakeLagBreakOnShot && shooting));
+        if (batch.length) this.commandNetwork!.send(batch, now);
+      } else net.socket.emit('input', frame);
     }
+    if (this.mode.id === 'hvh') for (const batch of this.commandNetwork?.receive(now) ?? []) for (const frame of batch) net.socket.emit('input', frame);
 
     const state = this.local.state;
     if (this.local.alive) {
@@ -627,7 +646,7 @@ export class GameSession {
     for (const [pid, r] of this.remotes.players) {
       // Drivers count too: they sit in their seat (see sitAt), head above the car.
       if (!r.alive || r.culled || r.latest?.alive === false || this.isFriendly(r.info)) continue;
-      const hit = rayChicken(ray, r.position.x, r.position.y, r.position.z, r.yaw, best.t, r.latest?.crouching ? CROUCH.scale : 1);
+      const hit = (this.mode.id === 'hvh' ? rayHvhChicken : rayChicken)(ray, r.position.x, r.position.y, r.position.z, r.yaw, best.t, r.latest?.crouching ? CROUCH.scale : 1);
       if (hit) best = { t: hit.t, pid, headshot: hit.headshot, world: false, normal, soft };
     }
     const box = this.loot.raycast(ray, best.t);
@@ -649,18 +668,22 @@ export class GameSession {
   }
 
   private fire(aiming: boolean, assisted = false): void {
-    this.ctx.dev?.onShot?.(this, assisted);
     const { net, audio, input } = this.ctx;
     const w = this.weapons.def;
     const eye = this.eye();
-    const aim = this.ctx.dev?.aimOverride(this, eye) ?? this.aimDirection(eye);
+    const silentAim = this.ctx.dev?.aimOverride(this, eye) ?? null;
+    assisted ||= this.mode.id === 'hvh' && silentAim !== null;
+    this.ctx.dev?.onShot?.(this, assisted);
+    const aim = silentAim ?? this.aimDirection(eye);
     net.socket.emit('fire', {
       shot: this.weapons.shotSeq,
       weapon: w.id,
       dx: aim.x,
       dy: aim.y,
       dz: aim.z,
-      t: this.serverNow() - INTERP_DELAY_MS,
+      t: (assisted ? this.ctx.dev?.shotIntent?.()?.recordT : undefined) ?? this.serverNow() - INTERP_DELAY_MS,
+      command: this.nextSeq - 1,
+      intent: assisted ? this.ctx.dev?.shotIntent?.() : undefined,
       aiming,
     });
     if (w.melee) {
@@ -680,8 +703,11 @@ export class GameSession {
     this.effects.shell({ x: muzzlePos.x - aim.x * 0.3, y: muzzlePos.y - aim.y * 0.3, z: muzzlePos.z - aim.z * 0.3 }, input.yaw);
 
     // Draw our own tracers immediately, with the same pellet pattern the server will use.
-    const spread = spreadFor(w, this.horizontalSpeed(), !this.local.onGround, aiming) * (this.weapons.mods?.spread ?? 1);
-    for (const d of pelletDirections(w, aim, spread, shotSeed(this.selfPid, this.weapons.shotSeq))) {
+    const spread = (this.mode.id === 'hvh' ? hvhSpread(w, this.horizontalSpeed(), !this.local.onGround, aiming, Math.max(0, this.weapons.heat - this.weapons.lastShotBurst * 0.25))
+      : spreadFor(w, this.horizontalSpeed(), !this.local.onGround, aiming)) * (this.weapons.mods?.spread ?? 1);
+    const directions = pelletDirections(w, aim, spread, shotSeed(this.selfPid, this.weapons.shotSeq));
+    if (this.mode.id === 'hvh' && this.weapons.lastShotBurst === 2) directions.push(...pelletDirections(w, aim, spread, shotSeed(this.selfPid, this.weapons.shotSeq) ^ 0x51ed270b));
+    for (const d of directions) {
       const ray = makeRay(eye, d);
       const hit = this.raycastScene(ray, w.range, true);
       const end = pointOnRay(ray, hit.t);
@@ -1200,6 +1226,7 @@ export class GameSession {
   }
 
   private onShot(e: ShotEvent): void {
+    if (e.pid === this.selfPid) this.weapons.confirmShot(e, performance.now(), this.serverNow());
     this.ctx.dev?.onServerShot?.(this, e);
     if (e.pid === this.selfPid) return;
     const remote = this.remotes.get(e.pid);

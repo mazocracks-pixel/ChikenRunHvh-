@@ -7,6 +7,7 @@ import {
   MODES,
   PLAYER,
   SIM_DT,
+  SIM_RATE,
   SNAPSHOT_RATE,
   WEAPONS,
   WEAPON_SWITCH_MS,
@@ -78,6 +79,9 @@ import {
   levelFor,
   rankedPoints,
   carAimSpeed,
+  stepAnimation, defaultHvhCore, fakeLagTicks, rayHvhChicken, buildHvhMatrix, traceHvhCover,
+  hvhHitDamage, auditShot, type ShotAudit,
+  hvhWeapon, hvhSpread, unpackPlayer, hvhStance,
   KILL_FLAGS,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
@@ -187,6 +191,8 @@ export class GameRoom {
   private lastTick = performance.now();
   private accumulator = 0;
   private closed = false;
+  hvhTick = 0;
+  private readonly publicStates = new Map<number, { until: number; shot: number; state: import('@game/shared').PlayerState }>();
 
   constructor(io: GameServer, options: RoomOptions, hooks: RoomHooks = {}) {
     this.io = io;
@@ -220,7 +226,7 @@ export class GameRoom {
       winnerPid: 0,
       mvpPid: 0,
     };
-    this.tickTimer = setInterval(() => this.tick(), 1000 / 60);
+    this.tickTimer = setInterval(() => this.tick(), 1000 / SIM_RATE);
     this.snapshotTimer = setInterval(() => this.broadcastSnapshot(), 1000 / SNAPSHOT_RATE);
   }
 
@@ -273,28 +279,36 @@ export class GameRoom {
 
   updateHvhPose(p: ServerPlayer, now: number): void {
     if (this.mode.id !== 'hvh') return;
-    if (!p.hvhEnabled) { p.yaw = p.fakeYaw = p.lookYaw; p.fakePitch = p.pitch; return; }
+    if (!p.hvhEnabled) { p.yaw = p.fakeYaw = p.lookYaw; p.animation.eyeYaw = p.animation.bodyYaw = p.animation.lowerBodyYaw = p.lookYaw; p.fakePitch = p.pitch; return; }
     const settings = p.hvh.skeet;
     if (settings?.enabled && (settings.atTargets || settings.freestanding) && now - p.hvhCoverAt >= 100) {
       p.hvhCoverAt = now; p.hvhCoverSide = 0; p.hvhTargetYaw = undefined;
-      let nearest: ServerPlayer | undefined, distance = 80;
-      for (const enemy of this.players.values()) {
-        if (enemy === p || !enemy.alive || enemy.vehicle || this.areTeammates(p, enemy)) continue;
-        const d = Math.hypot(enemy.state.x - p.state.x, enemy.state.z - p.state.z);
+      let nearest: import('@game/shared').PlayerState | undefined, distance = 80;
+      for (const packed of this.snapshot(now, p.pid).p) {
+        const enemy = unpackPlayer(packed);
+        if (enemy.pid === p.pid || !enemy.alive || enemy.vehicle || this.areTeammates(p, this.players.get(enemy.pid)!)) continue;
+        const d = Math.hypot(enemy.x - p.state.x, enemy.z - p.state.z);
         if (d < distance) { nearest = enemy; distance = d; }
       }
       if (nearest && distance > 0.1) {
-        p.hvhTargetYaw = Math.atan2(-(nearest.state.x - p.state.x), -(nearest.state.z - p.state.z));
+        p.hvhTargetYaw = Math.atan2(-(nearest.x - p.state.x), -(nearest.z - p.state.z));
         if (settings.freestanding) {
-          const from = { x: nearest.state.x, y: nearest.state.y + eyeHeightOf(nearest.state), z: nearest.state.z };
-          const blocked = (side: number) => {
-            const x = p.state.x + Math.cos(p.hvhTargetYaw!) * 0.38 * side, z = p.state.z - Math.sin(p.hvhTargetYaw!) * 0.38 * side;
-            const dy = p.state.y + eyeHeightOf(p.state) - from.y;
-            const range = Math.hypot(x - from.x, dy, z - from.z);
-            return !!raycastWorld(makeRay(from, { x: (x - from.x) / range, y: dy / range, z: (z - from.z) / range }), this.world, range - 0.1);
+          const from = { x: nearest.x, y: nearest.y + eyeHeightOf(nearest), z: nearest.z };
+          const pose = hvhPose(p.lookYaw, p.hvh, now, false, false, { targetYaw: p.hvhTargetYaw });
+          const requested = settings.states[hvhStance({ speed: p.state.horizontalSpeed, crouching: p.state.crouching, onGround: p.state.onGround })].desync * Math.PI / 180;
+          const risk = (side: number) => {
+            const matrix = buildHvhMatrix(p.state, pose.real + requested * side, bodyScale(p.state));
+            let total = 0;
+            for (const box of matrix.boxes.filter(b => b.group === 'head' || b.group === 'chest')) {
+              const dx = box.center.x - from.x, dy = box.center.y - from.y, dz = box.center.z - from.z, range = Math.hypot(dx, dy, dz);
+              const ray = makeRay(from, { x: dx / range, y: dy / range, z: dz / range });
+              const cover = traceHvhCover(ray, this.world, range, this.isSoft), hit = rayHvhChicken(ray, p.state.x, p.state.y, p.state.z, matrix.yaw, cover.wallDistance, matrix.scale);
+              if (hit) total += hvhHitDamage(hvhWeapon(WEAPONS[nearest!.weapon]), hit, cover) * (box.group === 'head' ? 2 : 1);
+            }
+            return total;
           };
-          const left = blocked(-1), right = blocked(1);
-          p.hvhCoverSide = left === right ? 0 : left ? -1 : 1;
+          const left = risk(-1), right = risk(1);
+          p.hvhCoverSide = Math.abs(left - right) < 0.1 ? 0 : left < right ? -1 : 1;
         }
       }
     }
@@ -302,8 +316,8 @@ export class GameRoom {
     const pose = hvhPose(p.lookYaw, p.hvh, now, p.lastInput?.invert === true, revealed,
       { speed: p.state.horizontalSpeed, onGround: p.state.onGround, crouching: p.state.crouching,
         targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide, seed: p.pid });
-    p.yaw = pose.real;
-    p.fakeYaw = pose.fake;
+    p.animation.eyeYaw = pose.real;
+    p.fakeYaw = pose.real;
     p.fakePitch = !settings?.enabled || !p.hvh.antiAim.enabled || revealed || settings.visualPitch === 'look' ? p.pitch
       : settings.visualPitch === 'down' ? -0.65 : settings.visualPitch === 'up' ? 0.65 : 0;
   }
@@ -337,6 +351,7 @@ export class GameRoom {
       ...(profile.dev ? { dev: true } : {}),
     };
     const player = new ServerPlayer(info, socket, profile.userId);
+    player.hvhMode = this.mode.id === 'hvh';
     player.melee = melee;
     const now = performance.now();
     if (this.mode.id === 'hvh' && socket) player.hvhPreparing = true;
@@ -419,6 +434,7 @@ export class GameRoom {
     this.vehicles?.eject(player);
     this.onPlayerLeave(player);
     this.players.delete(player.pid);
+    this.publicStates.delete(player.pid);
     this.bots.forget(player.pid);
     this.antiCheat?.forget(player);
     this.io.to(this.channel).emit('playerLeft', player.pid);
@@ -436,6 +452,7 @@ export class GameRoom {
     this.io.to(this.channel).emit('roomClosed', reason);
     for (const p of this.players.values()) void p.socket?.leave(this.channel);
     this.players.clear();
+    this.publicStates.clear();
     this.bySocket.clear();
   }
 
@@ -480,9 +497,20 @@ export class GameRoom {
   handleInput(p: ServerPlayer, raw: unknown): void {
     this.enforceHvhRules(p);
     let frame = parseInput(raw);
-    if (!frame || frame.seq <= p.lastSeq) return;
+    if (!frame || p.removedForCheating || frame.seq <= p.lastSeq) return;
     if (!p.takeInputToken(performance.now())) return; // over budget: the client's reconciliation corrects it
+    const assisted = this.mode.id === 'hvh' && p.hvhEnabled && !p.hvhPreparing;
+    frame.autoHop = assisted && frame.autoHop === true;
+    frame.subtickStrafe = assisted && frame.subtickStrafe === true;
+    // Ranked shot validation remembers accepted view commands immediately; movement still waits for its tick.
+    if (p.commands.enqueue(frame)) this.antiCheat?.onInput(p, frame.yaw, frame.pitch);
+  }
 
+  private applyInput(p: ServerPlayer, frame: Readonly<InputFrame>): void {
+    if (p.removedForCheating) return;
+    if ((frame.autoHop || frame.subtickStrafe) && (this.mode.id !== 'hvh' || !p.hvhEnabled || p.hvhPreparing)) {
+      frame = { ...frame, autoHop: false, subtickStrafe: false };
+    }
     p.lastSeq = frame.seq;
     p.useHeld = frame.use === true;
     // Planting / defusing (bomb modes): held still, crouched, whatever keys are down.
@@ -490,7 +518,6 @@ export class GameRoom {
     p.yaw = frame.yaw;
     p.lookYaw = frame.yaw;
     p.pitch = frame.pitch;
-    this.antiCheat?.onInput(p, frame.yaw, frame.pitch);
     p.lastInput = frame;
     this.updateHvhPose(p, performance.now());
     // Dead chickens don't move, but we still acknowledge the input so the client can drop it.
@@ -499,39 +526,64 @@ export class GameRoom {
       this.vehicles.drive(p, frame);
       return;
     }
-    stepPlayer(p.state, frame, SIM_DT, this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon));
+    stepPlayer(p.state, frame, SIM_DT, this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
   }
 
   handleFire(p: ServerPlayer, raw: unknown): void {
     this.enforceHvhRules(p);
     const req = parseFire(raw);
     if (!req || !p.alive || p.removedForCheating || this.match.phase === 'ended' || this.actionsBlocked()) return;
-    if (req.shot <= p.lastShotSeq || req.weapon !== p.weapon) return;
-    const w = WEAPONS[req.weapon];
+    if (this.mode.id === 'hvh') {
+      if (p.fireQueue.length < 4 && req.shot > p.lastShotSeq && !p.fireQueue.some(r => r.shot === req.shot)) p.fireQueue.push(Object.freeze({ ...req, intent: req.intent ? Object.freeze({ ...req.intent }) : undefined }));
+      return;
+    }
+    this.executeFire(p, req, performance.now());
+  }
+
+  private executeFire(p: ServerPlayer, req: FireRequest, now: number): void {
+    if (!p.alive || p.removedForCheating || this.match.phase === 'ended' || this.actionsBlocked()) return;
+    if (req.shot <= p.lastShotSeq) return;
+    if (req.weapon !== p.weapon) { this.rejectHvhShot(p, req, 'SERVER_REJECTED'); return; }
+    const w = this.mode.id === 'hvh' ? hvhWeapon(WEAPONS[req.weapon]) : WEAPONS[req.weapon];
     // From the car: guns and launchers, but no knifing out of the driver's seat.
     if (p.vehicle && w.melee) return;
-    const now = performance.now();
     const mods = p.mods;
-    if (now < p.switchReadyAt || p.reloadUntil > 0 || p.mag <= 0) return;
-    const interval = this.mode.id === 'hvh' && p.hvhEnabled ? p.exploit.interval(w, p.hvh.exploit, now) : fireIntervalFor(w, mods);
-    const burst = this.mode.id === 'hvh' && p.hvhEnabled && p.hvh.exploit === 'doubleTap' && p.exploit.burst && now <= p.exploit.burstUntil;
+    if (now < p.switchReadyAt || p.reloadUntil > 0 || p.mag <= 0) { this.rejectHvhShot(p, req, 'SERVER_REJECTED'); return; }
+    const tactical = this.mode.id === 'hvh';
+    if (tactical && (req.t < now - MAX_REWIND_MS || req.t > now + 16)) {
+      this.rejectHvhShot(p, req, 'RECORD_INVALID'); return;
+    }
+    const core = p.hvh.core ?? defaultHvhCore();
+    const mode = p.hvhEnabled && (core.era === 'tickbase' || core.era === 'defensive') && !w.projectile && !w.melee && !w.burst
+      && (p.hvh.exploit !== 'doubleTap' || p.mag >= 2) ? p.hvh.exploit : 'off';
+    const permission = tactical && !w.burst ? p.resource.fire(w.fireInterval, mode, this.hvhTick) : { shots: 1, hidden: false };
+    if (!permission.shots) { this.rejectHvhShot(p, req, 'SERVER_REJECTED'); return; }
+    const shotCount = Math.min(permission.shots, p.mag);
+    const interval = fireIntervalFor(w, mods);
     // Fire rate (and burst timing), with a little slack for network jitter.
     const timing = { lastFireAt: p.lastFireAt, burstStart: p.burstStart, burstShots: p.burstShots };
-    if (!takeShot(w, interval, timing, now, (burst ? 1 : FIRE_RATE_TOLERANCE))) return;
+    if ((!tactical || w.burst) && !takeShot(w, interval, timing, now, tactical ? 1 : FIRE_RATE_TOLERANCE)) {
+      this.rejectHvhShot(p, req, 'SERVER_REJECTED'); return;
+    }
     p.burstStart = timing.burstStart;
     p.burstShots = timing.burstShots;
 
     p.lastShotSeq = req.shot;
     p.lastFireAt = now;
-    if (shotUsesAmmo(w, mods)) p.mags.set(req.weapon, p.mag - 1);
+    if (shotUsesAmmo(w, mods)) p.mags.set(req.weapon, p.mag - shotCount);
     p.shieldUntil = 0;
     p.aiming = req.aiming;
     if (this.mode.id === 'hvh' && p.hvhEnabled) {
-      const hidden = p.exploit.fired(w, p.hvh.exploit, now);
+      const hidden = permission.hidden;
       p.concealUntil = hidden ? now + HVH.hideMs : 0;
       p.revealUntil = now + HVH.revealMs + (hidden ? HVH.hideMs : 0);
-      this.updateHvhPose(p, now);
+      if (!hidden) {
+        p.animation.eyeYaw = Math.atan2(-req.dx, -req.dz);
+        p.animation.bodyYaw = p.animation.eyeYaw;
+        p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw;
+      }
     }
+    p.lastFiredTick = this.hvhTick;
 
     const eye = this.eyeOf(p);
     const len = Math.hypot(req.dx, req.dy, req.dz);
@@ -552,9 +604,12 @@ export class GameRoom {
 
     // A moving car shakes your aim like walking does.
     const seat = this.vehicles?.seatOf(p);
-    const spread = spreadFor(w, seat ? carAimSpeed(seat.speed) : p.state.horizontalSpeed, !p.state.onGround, req.aiming) * (mods?.spread ?? 1);
+    const spread = (tactical ? hvhSpread(w, p.state.horizontalSpeed, !p.state.onGround, req.aiming, p.weaponHeat)
+      : spreadFor(w, seat ? carAimSpeed(seat.speed) : p.state.horizontalSpeed, !p.state.onGround, req.aiming)) * (mods?.spread ?? 1);
+    if (tactical) p.weaponHeat = Math.min(3, p.weaponHeat + 0.25 * shotCount);
     const dirs = pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot));
-    const targets = this.targetsAt(p, rewindTo);
+    if (shotCount === 2) dirs.push(...pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot) ^ 0x51ed270b));
+    const targets = this.targetsAt(p, rewindTo, now);
 
     const ends: number[] = [];
     const hits: number[] = [];
@@ -565,14 +620,15 @@ export class GameRoom {
       const ray = makeRay(eye, d);
       // Wallbang: crates, hay and wood don't stop bullets, they just weaken them.
       const { soft, wall } = raycastPenetrating(ray, this.world, w.range, this.isSoft, this.mode.wallbang ? WALLBANG.maxBoxes : 0);
-      let maxT = wall ? wall.t : w.range;
+      const cover = tactical ? traceHvhCover(ray, this.world, w.range, this.mode.wallbang ? this.isSoft : undefined) : null;
+      let maxT = cover ? cover.wallDistance : wall ? wall.t : w.range;
       let kind = 0;
       let victim: ServerPlayer | null = null;
       let victimAt: MeleeTarget<ServerPlayer> | null = null;
       let headshot = false;
 
       for (const t of targets) {
-        const hit = rayChicken(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale);
+        const hit = (tactical ? rayHvhChicken : rayChicken)(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale);
         if (hit) {
           maxT = hit.t;
           victim = t.key;
@@ -600,10 +656,11 @@ export class GameRoom {
       if (victim && victimAt && w.pellets === 1) this.antiCheat?.onHit(p, eye, aim, victimAt, headshot);
       if (victim) {
         const entry = damageByVictim.get(victim) ?? { amount: 0, headshot: false, flags: shotFlags };
-        // Through a crate / hay / wood on the way, or through a smoke cloud.
         if (soft.some((s) => s.t < maxT)) entry.flags |= KILL_FLAGS.wallbang;
         if (this.throughSmoke(eye, pointOnRay(ray, maxT), now)) entry.flags |= KILL_FLAGS.smoke;
-        entry.amount += damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * wallbangScale(soft, maxT);
+        const trueHit = tactical ? rayHvhChicken(ray, targets.find(t => t.key === victim)!.x, targets.find(t => t.key === victim)!.y,
+          targets.find(t => t.key === victim)!.z, targets.find(t => t.key === victim)!.yaw, maxT + 0.001, targets.find(t => t.key === victim)!.scale) : null;
+        entry.amount += trueHit && cover ? hvhHitDamage(w, trueHit, cover) : damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * wallbangScale(soft, maxT);
         entry.headshot ||= headshot;
         damageByVictim.set(victim, entry);
       }
@@ -612,7 +669,23 @@ export class GameRoom {
       hits.push(kind);
     }
 
-    this.io.to(this.channel).emit('shot', {
+    const target = req.intent ? targets.find(t => t.key.pid === req.intent!.target) : undefined;
+    let audit: ShotAudit | undefined;
+    if (tactical && req.intent) {
+      const intendedPlayer = this.players.get(req.intent.target);
+      const valid = Math.abs(req.t - req.intent.recordT) < 1 && now - req.t <= MAX_REWIND_MS
+        && (!intendedPlayer?.alive || !!target);
+      let reason = auditShot(req.intent, eye, aim, dirs, target ? buildHvhMatrix(target, target.yaw, target.scale) : null,
+        valid, this.world, w, this.mode.wallbang ? this.isSoft : undefined);
+      const rawDamage = target ? damageByVictim.get(target.key)?.amount ?? 0 : 0;
+      const damage = target && now >= target.key.shieldUntil
+        ? Math.min(target.key.hp, rawDamage - Math.min(target.key.armor, rawDamage * PLAYER.armorAbsorb)) : 0;
+      if (reason === 'HIT' && rawDamage === 0) reason = 'OCCLUSION';
+      else if (reason === 'HIT' && damage === 0) reason = 'SERVER_REJECTED';
+      audit = { target: req.intent.target, source: req.intent.source, recordT: req.intent.recordT, reason, damage,
+        headshot: !!target && damageByVictim.get(target.key)?.headshot === true };
+    }
+    const event: import('@game/shared').ShotEvent = {
       shot: req.shot,
       pid: p.pid,
       weapon: req.weapon,
@@ -621,7 +694,29 @@ export class GameRoom {
       oz: round(eye.z, 2),
       ends,
       hits,
-    });
+      burst: shotCount,
+    };
+    if (p.socket && tactical) {
+      p.socket.to(this.channel).emit('shot', event);
+      p.socket.emit('shot', { ...event, audit, mag: p.mag, charge: p.resource.charge,
+        readyAt: now + Math.max(0, p.resource.nextAttackTick - p.resource.playerTick) * SIM_DT * 1000 });
+    } else this.io.to(this.channel).emit('shot', event);
+    if (audit) p.resolver.feedback(audit.target, audit.source, audit.reason, now, audit.headshot === true);
+    if (tactical) for (const enemy of this.players.values()) {
+      if (enemy === p || !enemy.alive || !enemy.hvhEnabled || this.areTeammates(p, enemy)) continue;
+      const hx = enemy.state.x - Math.sin(enemy.yaw) * 0.34, hy = enemy.state.y + 1.27 * bodyScale(enemy.state), hz = enemy.state.z - Math.cos(enemy.yaw) * 0.34;
+      const threatened = dirs.some((d, i) => {
+        const along = (hx - eye.x) * d.x + (hy - eye.y) * d.y + (hz - eye.z) * d.z;
+        const near = Math.hypot(hx - eye.x - along * d.x, hy - eye.y - along * d.y, hz - eye.z - along * d.z);
+        const endDistance = Math.hypot(ends[i * 3]! - eye.x, ends[i * 3 + 1]! - eye.y, ends[i * 3 + 2]! - eye.z);
+        return along > 0 && along <= endDistance + 0.3 && near < 0.7;
+      });
+      if (threatened && this.hvhTick - enemy.lastThreatTick >= 12) {
+        enemy.lastThreatTick = this.hvhTick;
+        if (enemy.hvh.core?.antiBruteforce) enemy.antiBruteSide *= -1;
+        if (enemy.hvh.core?.defensive && enemy.hvh.core.era === 'defensive' && enemy.resource.defend(this.hvhTick)) enemy.concealUntil = now + 125;
+      }
+    }
     for (const [victim, { amount, headshot, flags }] of damageByVictim) this.damage(victim, p, amount, headshot, req.weapon, eye, now, flags);
   }
 
@@ -642,6 +737,13 @@ export class GameRoom {
     return false;
   }
 
+  private rejectHvhShot(p: ServerPlayer, req: FireRequest, reason: import('@game/shared').ShotReason): void {
+    if (this.mode.id === 'hvh') p.socket?.emit('shot', { pid: p.pid, shot: req.shot, weapon: req.weapon, ox: p.state.x, oy: p.state.y, oz: p.state.z,
+      ends: [], hits: [], mag: p.mag, charge: p.resource.charge,
+      readyAt: p.simulationTime + Math.max(0, p.resource.nextAttackTick - p.resource.playerTick) * SIM_DT * 1000,
+      audit: req.intent ? { target: req.intent.target, source: req.intent.source, reason, recordT: req.intent.recordT, damage: 0 } : undefined });
+  }
+
   /** Where `p` shoots and throws from: their eyes, or the driver's seat in a car. */
   eyeOf(p: ServerPlayer): Vec3 {
     const seat = this.vehicles?.seatOf(p);
@@ -653,11 +755,12 @@ export class GameRoom {
    * Every enemy `p` could hit, where they were at `rewindTo` (lag compensation). Drivers sit
    * in their seat: the car's body takes the bullets that hit it, but a head above it can be shot.
    */
-  private targetsAt(p: ServerPlayer, rewindTo: number): MeleeTarget<ServerPlayer>[] {
+  private targetsAt(p: ServerPlayer, rewindTo: number, now = performance.now()): MeleeTarget<ServerPlayer>[] {
     const targets: MeleeTarget<ServerPlayer>[] = [];
     for (const t of this.players.values()) {
       if (t === p || !t.alive || this.areTeammates(p, t)) continue;
-      const past = t.history.at(rewindTo);
+      const past = this.mode.id === 'hvh' ? t.history.atValid(rewindTo, now) : t.history.at(rewindTo);
+      if (this.mode.id === 'hvh' && !past) continue;
       if (past && !past.alive) continue;
       const seat = this.vehicles?.seatOf(t);
       if (seat) {
@@ -674,7 +777,7 @@ export class GameRoom {
 
   /** A melee swing: hits the chicken in front (see meleeHit), or smashes a loot box in reach. */
   private swing(p: ServerPlayer, w: WeaponDef, eye: Vec3, aim: Vec3, rewindTo: number, now: number): void {
-    const hit = meleeHit(eye, aim, w, this.targetsAt(p, rewindTo), this.world);
+    const hit = meleeHit(eye, aim, w, this.targetsAt(p, rewindTo, now), this.world);
     if (!hit) {
       const box = this.loot.raycast(makeRay(eye, aim), w.range);
       if (box) this.loot.smash(box.id, now);
@@ -871,6 +974,7 @@ export class GameRoom {
 
   protected spawn(p: ServerPlayer, now: number, announce: boolean): void {
     this.enforceHvhRules(p);
+    this.publicStates.delete(p.pid);
     const point = this.pickSpawn(p);
     p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
@@ -1112,7 +1216,7 @@ export class GameRoom {
     this.lastTick = now;
     let steps = 0;
     while (this.accumulator >= SIM_DT * 1000 && steps < 4) {
-      this.fixedUpdate(now);
+      this.fixedUpdate(now - this.accumulator + SIM_DT * 1000);
       this.accumulator -= SIM_DT * 1000;
       steps++;
     }
@@ -1121,15 +1225,39 @@ export class GameRoom {
   }
 
   protected fixedUpdate(now: number): void {
+    this.hvhTick++;
     for (const p of this.players.values()) {
       this.enforceHvhRules(p);
+      const command = p.commands.next();
+      if (command) this.applyInput(p, command);
+      // Missing commands cannot invent presses or run assistance without new input.
+      else if (p.alive && !p.frozen && !p.vehicle && p.lastInput) stepPlayer(p.state,
+        { ...p.lastInput, forward: 0, right: 0, jump: p.state.jumpHeld, autoHop: false, subtickStrafe: false }, SIM_DT,
+        this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
+      p.simulationTime = now;
+      if (this.mode.id === 'hvh') {
+        p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);
+        p.resource.step(this.hvhTick, p.fireQueue.length > 0 || now - p.lastFireAt < 250, (p.hvh.core?.fakeLag ?? 0) > 0);
+      } else p.resource.playerTick++;
       this.updateHvhPose(p, now);
-      p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state) });
+      if (this.mode.id === 'hvh') {
+        const pose = hvhPose(p.lookYaw, p.hvh, now, (p.lastInput?.invert === true) !== (p.antiBruteSide < 0), !p.hvhEnabled || !p.alive || (now >= p.concealUntil && now < p.revealUntil),
+          { speed: p.state.horizontalSpeed, onGround: p.state.onGround, crouching: p.state.crouching, seed: p.pid, targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide });
+        stepAnimation(p.animation, { eyeYaw: pose.real, desiredDelta: wrapAngle(pose.fake - pose.real), speed: p.state.horizontalSpeed,
+          crouch: p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), grounded: p.state.onGround, active: p.hvhEnabled && p.hvh.antiAim.enabled, weaponSpeed: moveSpeedFor(p.weapon) }, this.hvhTick);
+        p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw; p.simulationTime = now;
+      }
+      p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state),
+        tick: this.hvhTick, eyeYaw: p.animation.eyeYaw, matrix: this.mode.id === 'hvh' ? buildHvhMatrix(p.state, p.yaw, bodyScale(p.state)) : undefined });
       if (p.reloadUntil > 0 && now >= p.reloadUntil) {
         p.reloadUntil = 0;
         p.mags.set(p.weapon, p.magazineSize(p.weapon));
       }
       if (!p.hvhPreparing && !p.alive && now >= p.respawnAt && this.match.phase !== 'ended') this.spawn(p, now, true);
+    }
+    if (this.mode.id === 'hvh') for (const p of this.players.values()) {
+      const req = p.fireQueue[0];
+      if (req && (req.command === undefined || req.command <= p.lastSeq || now - req.t > MAX_REWIND_MS)) { p.fireQueue.shift(); this.executeFire(p, req, now); }
     }
     this.maintainBots(now);
     this.bots.update(now);
@@ -1170,22 +1298,33 @@ export class GameRoom {
   /** What `viewer` is told: in ranked rooms, only the enemies they could see (fog of war). */
   snapshotFor(viewer: ServerPlayer, now = performance.now()): WorldSnapshot {
     const ac = this.antiCheat;
-    if (!ac) return this.snapshot(now);
+    if (!ac) return this.snapshot(now, viewer.pid);
     const players = [...this.players.values()].filter((t) => t === viewer || this.areTeammates(viewer, t) || ac.visible(viewer, t, now));
     return { t: now, p: players.map((p) => packPlayer(p.toState())), v: this.vehicles?.packed() ?? [] };
   }
 
-  snapshot(now = performance.now()): WorldSnapshot {
-    return { t: now, p: [...this.players.values()].map((p) => packPlayer(p.toState())), v: this.vehicles?.packed() ?? [] };
+  snapshot(now = performance.now(), viewer = 0): WorldSnapshot {
+    return { t: now, p: [...this.players.values()].map((p) => {
+      if (this.mode.id !== 'hvh' || p.pid === viewer) return packPlayer(p.toState());
+      const core = p.hvh.core ?? defaultHvhCore();
+      const choke = p.hvhEnabled ? fakeLagTicks(core,p.lastSeq,p.state.horizontalSpeed) : 0;
+      const cached = this.publicStates.get(p.pid);
+      if (choke > 0 && cached && now < cached.until && cached.state.alive === p.alive
+        && (!(core.fakeLagBreakOnShot || core.fakeLagMode === 'peek') || cached.shot === p.lastShotSeq)) return packPlayer(cached.state);
+      const state = p.toState();
+      if (core.era === 'legacy' && p.hvhEnabled) state.yaw = state.fakeYaw = wrapAngle(state.yaw + Math.PI / 2);
+      this.publicStates.set(p.pid, { state, shot: p.lastShotSeq, until: now + ((choke + 1) * SIM_DT * 1000) });
+      return packPlayer(state);
+    }), v: this.vehicles?.packed() ?? [] };
   }
 
   private broadcastSnapshot(): void {
     if (this.players.size === 0) return;
-    if (!this.antiCheat) {
+    if (!this.antiCheat && this.mode.id !== 'hvh') {
       this.io.to(this.channel).volatile.emit('snapshot', this.snapshot());
       return;
     }
-    // Fog of war: everyone gets their own snapshot.
+    // Ranked fog of war and HvH owner acknowledgements each need a viewer-specific snapshot.
     const now = performance.now();
     for (const viewer of this.players.values()) viewer.socket?.volatile.emit('snapshot', this.snapshotFor(viewer, now));
   }
@@ -1205,9 +1344,12 @@ function parseInput(raw: unknown): InputFrame | null {
     forward: clamp(forward, -1, 1),
     right: clamp(right, -1, 1),
     jump,
+    autoHop: raw.autoHop === true,
+    subtickStrafe: raw.subtickStrafe === true,
     yaw: wrapAngle(yaw),
     pitch: isFiniteNumber(pitch) ? clamp(pitch, -1.5, 1.5) : 0,
     crouch: raw.crouch === true,
+    slowWalk: raw.slowWalk === true,
     use: raw.use === true,
     invert: raw.invert === true,
     boost: raw.boost === true,
@@ -1221,7 +1363,11 @@ function parseFire(raw: unknown): FireRequest | null {
   if (!isFiniteNumber(dx) || !isFiniteNumber(dy) || !isFiniteNumber(dz) || !isFiniteNumber(t)) return null;
   const len = Math.hypot(dx, dy, dz);
   if (len < 0.5 || len > 1.5) return null;
-  return { shot: shot as number, weapon, dx, dy, dz, t, aiming: aiming === true };
+  const intentRaw = isRecord(raw.intent) ? raw.intent : null;
+  const intent = intentRaw && Number.isSafeInteger(intentRaw.target) && isFiniteNumber(intentRaw.recordT) && isFiniteNumber(intentRaw.yaw)
+    && ['CENTER','LEFT','RIGHT','LEFT_LOW','RIGHT_LOW','LAST_MOVING','BODY_UPDATE'].includes(String(intentRaw.source))
+    ? { target: intentRaw.target as number, recordT: intentRaw.recordT, yaw: wrapAngle(intentRaw.yaw), source: intentRaw.source as import('@game/shared').HypothesisSource } : undefined;
+  return { shot: shot as number, weapon, dx, dy, dz, t, aiming: aiming === true, command: Number.isSafeInteger(raw.command) ? raw.command as number : undefined, intent };
 }
 
 function parseThrow(raw: unknown): ThrowRequest | null {

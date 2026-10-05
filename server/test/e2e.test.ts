@@ -13,6 +13,7 @@ import {
   type JoinSuccess,
   type ServerToClientEvents,
   type WorldSnapshot,
+  type MoveState,
 } from '@game/shared';
 import { startGameServer, type RunningServer } from '../src/app';
 import type { Profile } from '../src/db/Database';
@@ -117,7 +118,7 @@ describe('multiplayer over sockets', () => {
     await assert.rejects(client('garbage'), /unauthorized/);
   });
 
-  it('puts quick-play players in the same room and keeps prediction in sync', async () => {
+  it('puts quick-play players in the same room and keeps prediction in sync with command and idle ticks', async t => {
     const [ga, gb] = [await guest(), await guest()];
     const a = await client(ga.token);
     const b = await client(gb.token);
@@ -143,16 +144,29 @@ describe('multiplayer over sockets', () => {
     const me = unpackPlayer(ra.snapshot.p.find((p) => p[0] === ra.selfPid)!);
     const world = createCollisionWorld(MAPS[ra.room.map]);
     const predicted = { ...me };
+    // Account for authoritative idle ticks between packets, rather than assuming packet arrival is a physics step.
+    const room=server.rooms.roomOf(a.id!)!,player=room.playerFor(a.id!)!;
+    const timing=room as unknown as {fixedUpdate(now:number):void},original=timing.fixedUpdate;
+    const inputs=new Map<number,InputFrame>(),samples=new Map<number,MoveState>();
+    let previousAck=player.lastSeq,last:InputFrame={seq:0,forward:0,right:0,jump:false,yaw:me.yaw,pitch:0};
+    timing.fixedUpdate=function(now:number){
+      original.call(room,now);
+      if(player.lastSeq!==previousAck){last=inputs.get(player.lastSeq)!;previousAck=player.lastSeq;stepPlayer(predicted,last,SIM_DT,world);}
+      else stepPlayer(predicted,{...last,forward:0,right:0,jump:predicted.jumpHeld},SIM_DT,world);
+      samples.set(now,{...predicted});
+    };
+    t.after(()=>{timing.fixedUpdate=original;});
     for (let seq = 1; seq <= 60; seq++) {
       const frame: InputFrame = { seq, forward: 1, right: 0.3, jump: seq % 25 === 0, yaw: me.yaw, pitch: 0 };
-      stepPlayer(predicted, frame, SIM_DT, world);
+      inputs.set(seq,frame);
       a.emit('input', frame);
       await sleep(1000 / 60);
     }
     await sleep(250);
     const latest = unpackPlayer(snaps.at(-1)!.p.find((p) => p[0] === ra.selfPid)!);
     assert.equal(latest.ack, 60);
-    const err = Math.hypot(latest.x - predicted.x, latest.y - predicted.y, latest.z - predicted.z);
+    const expected=samples.get(latest.simulationTime!)!;assert.ok(expected,'snapshot retains its authoritative simulation time');
+    const err = Math.hypot(latest.x - expected.x, latest.y - expected.y, latest.z - expected.z);
     assert.ok(err < 0.01, `prediction error ${err}`);
 
     const heard: ChatMessage[] = [];

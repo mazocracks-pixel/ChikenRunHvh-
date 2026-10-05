@@ -1,6 +1,10 @@
-import { lerp, lerpAngle } from '@game/shared';
+import { lerp, lerpAngle, MAX_REWIND_MS, type HvhMatrix } from '@game/shared';
 
 export interface HistorySample {
+  tick?: number;
+  matrix?: HvhMatrix;
+  eyeYaw?: number;
+  broken?: boolean;
   t: number;
   x: number;
   y: number;
@@ -24,12 +28,21 @@ export class History {
   }
 
   push(sample: HistorySample): void {
+    const last = this.samples.at(-1);
+    if (last && Math.hypot(last.x - sample.x, last.y - sample.y, last.z - sample.z) > 8) sample = { ...sample, broken: true };
     this.samples.push(sample);
     if (this.samples.length > this.capacity) this.samples.shift();
   }
 
   clear(): void {
     this.samples.length = 0;
+  }
+  /** Never clamp an invalid historical command into an unrelated valid life or teleport. */
+  atValid(t: number, now: number): HistorySample | null {
+    const first = this.samples[0], last = this.samples.at(-1);
+    if (!first || !last || t < first.t || t > now + 16 || now - t > MAX_REWIND_MS) return null;
+    const sample = this.at(t);
+    return sample?.alive && !sample.broken ? sample : null;
   }
 
   /** Interpolated state at time `t`, clamped to the recorded range. */
@@ -58,6 +71,7 @@ export class History {
       yaw: lerpAngle(a.yaw, b.yaw, k),
       alive: a.alive && b.alive,
       scale: lerp(a.scale, b.scale, k),
+      broken: a.broken || b.broken,
     };
   }
 }

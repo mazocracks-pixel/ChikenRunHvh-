@@ -33,6 +33,7 @@ const MAX_PENDING = 120;
  *  - and when a snapshot arrives, rewind to the server's state and replay those inputs.
  */
 export class LocalPlayer {
+  tactical = false;
   /** Smoothed position to render and point the camera at. */
   readonly position = new THREE.Vector3();
   readonly chicken: Chicken;
@@ -84,7 +85,7 @@ export class LocalPlayer {
     // A developer froze us: the server ignores our inputs, so don't predict any movement.
     if (this.server.frozen) { this.state.horizontalSpeed = 0; return; }
     if (this.car) this.drive(frame, world);
-    else stepPlayer(this.state, frame, SIM_DT, world, this.mods, hopMax, speed);
+    else stepPlayer(this.state, frame, SIM_DT, world, this.mods, hopMax, speed, this.tactical);
   }
 
   /** While driving, inputs steer the car and the chicken rides along. */

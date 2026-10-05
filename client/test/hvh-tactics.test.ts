@@ -12,7 +12,8 @@ it('hitchance samples actual aim, spread, and armor instead of guaranteeing a hi
   assert.equal(still.chance,100);assert.ok(moving.chance<still.chance);assert.equal(miss.chance,0);assert.ok(armored.damage<still.damage);
 });
 it('shot decisions require reaction, damage and accuracy while allowing lethal shots',()=>{
-  assert.equal(shotGate({damage:40,chance:100},20,60,100,99,0),'Acquiring target');
+  assert.equal(shotGate({damage:40,chance:100},20,60,100,0,0),'Ready');
+  assert.equal(shotGate({damage:40,chance:100},20,60,100,99,120),'Acquiring target');
   assert.equal(shotGate({damage:10,chance:100},20,60,100,200,120),'Waiting for damage');
   assert.equal(shotGate({damage:40,chance:30},20,60,100,200,120),'Waiting for accuracy');
   assert.equal(shotGate({damage:10,chance:100},20,60,8,200,120),'Ready');

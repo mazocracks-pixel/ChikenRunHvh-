@@ -26,6 +26,11 @@ export function makeRoom(mode: ModeId = 'ffa', map: MapId = 'farm', hooks: RoomH
   return { room, events };
 }
 
+/** Advance one authoritative tick explicitly, without wall-clock sleeps. */
+export function stepRoom(room: GameRoom, now = performance.now()): void {
+  (room as unknown as { fixedUpdate(t: number): void }).fixedUpdate(now);
+}
+
 export function profile(name: string, userId: number | null = null): PlayerProfile {
   return { userId, name, appearance: { ...DEFAULT_APPEARANCE }, loadout: [...DEFAULT_LOADOUT] };
 }
@@ -39,9 +44,10 @@ export function addPlayer(room: GameRoom, name: string, userId: number | null = 
   return player;
 }
 
-export function place(p: { state: { x: number; y: number; z: number; onGround: boolean } }, x: number, z: number, y = 0): void {
+export function place(p: { state: { x: number; y: number; z: number; onGround: boolean }; hvhMode?: boolean; history?: import('../src/rooms/History').History; yaw?: number }, x: number, z: number, y = 0): void {
   p.state.x = x;
   p.state.y = y;
   p.state.z = z;
   p.state.onGround = y === 0;
+  if (p.hvhMode && p.history) { p.history.clear(); p.history.push({ t: performance.now(), x, y, z, yaw: p.yaw ?? 0, alive: true, scale: 1 }); }
 }

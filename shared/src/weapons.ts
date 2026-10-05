@@ -139,7 +139,7 @@ const DEFS: WeaponDef[] = [
     range: 130, falloffStart: 45, minDamageScale: 0.7, zoom: 1.45, scope: false, recoil: 0.011,
     price: 2500, sound: 'rifle', model: { length: 0.72, color: 0xe0b23a, accent: 0xa8801e },
   },
-  // Melee: hold to keep swinging, no ammo. With one out, bunny hops build more speed (HOP.meleeMax).
+  // Melee: hold to keep swinging, no ammo. Movement obeys the same takeoff ceiling as guns.
   {
     id: 'knife', name: 'Knife', damage: 35, headshotMultiplier: 1.5, fireInterval: 420, automatic: true,
     magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
@@ -298,7 +298,7 @@ export function isMelee(id: WeaponId): boolean {
   return WEAPONS[id].melee !== undefined;
 }
 
-/** How much speed bunny hops can build while holding this weapon (melee: more). */
+/** Shared takeoff speed ceiling; holding a melee weapon grants no extra hop bonus. */
 export function hopMaxFor(id: WeaponId): number {
   return isMelee(id) ? HOP.meleeMax : HOP.max;
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CROUCH, HITBOX, PLAYER, SIM_DT, makeRay, normalize, raycastWorld, wrapAngle, type InputFrame, type Vec3 } from '@game/shared';
+import { CROUCH, HITBOX, PLAYER, SIM_DT, airStrafeInput, moveSpeedFor, makeRay, normalize, raycastWorld, wrapAngle, type InputFrame, type Vec3 } from '@game/shared';
 import { baseFov } from '../../game/CameraRig';
 import type { DevHooks, GameSession } from '../../game/GameSession';
 import type { RemotePlayer } from '../../game/RemotePlayers';
@@ -159,7 +159,7 @@ export class DevRuntime implements DevHooks {
   }
 
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame {
-    if (!this.active) return frame;
+    if (session.mode.id !== 'hvh' || !this.active) return frame;
     const c = this.dev.config;
     const s = session.local.state;
 
@@ -178,18 +178,18 @@ export class DevRuntime implements DevHooks {
       if (frame.jump && !this.lastJump && !s.onGround) this.jumpBufferUntil = now + JUMP_BUFFER_MS;
       if (s.onGround && now < this.jumpBufferUntil) {
         out.jump = true;
+        out.autoHop = true;
         this.jumpBufferUntil = 0;
       }
     }
     this.lastJump = frame.jump;
 
-    if (s.onGround && ((c.legit.move.bhop && moving) || c.misc.autoJump)) out.jump = true;
+    if (c.legit.move.bhop && frame.jump) out.autoHop = true;
+    if (c.misc.autoJump && moving) out.jump = out.autoHop = true;
     if (c.legit.move.assist && s.onGround && out.forward > 0 && this.obstacleAhead(session, out)) out.jump = true;
 
     if (c.legit.move.autoStrafe && !s.onGround && out.right === 0) {
-      // Strafe the way the mouse is turning (turning right = strafe right).
-      const turn = wrapAngle(out.yaw - this.lastYaw);
-      if (Math.abs(turn) > 0.002) out.right = turn < 0 ? 1 : -1;
+      Object.assign(out,airStrafeInput(out,s,wrapAngle(out.yaw-this.lastYaw),SIM_DT,PLAYER.speed*moveSpeedFor(session.weapons.weapon)));
     }
     this.lastYaw = frame.yaw;
     return this.antiAim(out);

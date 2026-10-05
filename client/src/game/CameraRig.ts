@@ -29,7 +29,7 @@ export function zoomLookScale(zoom: number): number {
 export type CameraMode = 'third' | 'first';
 
 const CAMERA_KEY = 'chikengun:camera';
-let preferredMode: CameraMode = storage.get(CAMERA_KEY) === 'first' ? 'first' : 'third';
+let preferredMode: CameraMode = storage.get(CAMERA_KEY) === 'third' ? 'third' : 'first';
 
 /** The player's chosen view, remembered between matches and visits. */
 export function getCameraMode(): CameraMode {

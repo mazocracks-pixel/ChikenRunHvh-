@@ -119,7 +119,7 @@ export class MainMenu {
         button('⚙️ Settings', actions.settings, 'secondary'),
       ),
       this.status,
-      h('footer', { class: 'controls-help' }, 'WASD move · Space jump (hold to bunny hop) · Space again in the air: glide / jetpack · Mouse aim · Click shoot · Right-click zoom · R reload · 1-4 guns · 5 melee (faster bunny hops) · F inspect · Ctrl/C crouch · G egg · Q smoke · V first/third person · Tab scores · Y chat · U team chat'),
+      h('footer', { class: 'controls-help' }, 'WASD move · Shift slow walk (better moving accuracy) · Space jump (time each hop, or hold with the bhop helper) · A/D + mouse turn: air strafe · Air glide / jetpack outside HvH · Mouse aim · Click shoot · Right-click zoom · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat'),
       h('footer', { class: 'legal-links' }, h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy')),
     );
     container.append(this.root);

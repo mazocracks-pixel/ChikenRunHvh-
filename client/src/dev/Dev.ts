@@ -81,10 +81,8 @@ export class Dev {
   }
 
   get active(): boolean {
-    // HvH panels are for HvH matches only (mega?dev, on L, covers every other mode).
-    if (!this.inHvh) return false;
-    if (this.panelId === 'skeet' && this.status.profile !== 'hvh') return false;
-    return this.status.granted && this.status.allowedHere && (this.runtime.currentSession?.mode.id !== 'hvh' || HVH_PANELS[this.panelId].assisted);
+    return this.inHvh && this.status.profile === 'hvh'
+      && this.status.granted && this.status.allowedHere && HVH_PANELS[this.panelId].assisted;
   }
 
   get menuOpen(): boolean {
@@ -212,7 +210,7 @@ export class Dev {
     const version = this.sessionVersion;
     this.socket
       .timeout(REQUEST_TIMEOUT_MS)
-      .emitWithAck('devHvh', HVH_PANELS[this.panelId].loadout(this.config))
+      .emitWithAck('devHvh', this.runtime.extensions.antiAim(HVH_PANELS[this.panelId].loadout(this.config)))
       .then((s) => { if (version === this.sessionVersion) this.setStatus(s); })
       .catch(() => undefined);
   }
@@ -258,7 +256,7 @@ export class Dev {
     this.input.releaseLock();
     this.ctx.onMenuChange();
     const status = await this.refreshStatus();
-    if (!status.granted && !status.publicHvh) {
+    if (!status.granted && !(status.publicHvh && this.runtime.currentSession?.mode.id === 'hvh')) {
       const unlocked = await showPasskeyPrompt((key) => this.unlock(key), this.config.settings);
       if (!unlocked) {
         this.prompting = false;

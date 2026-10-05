@@ -1,4 +1,4 @@
-import { defaultSkeetAntiAim, type SkeetAntiAim, type WeaponDef } from '@game/shared';
+import { defaultHvhCore, defaultSkeetAntiAim, type HvhCoreSettings, type SkeetAntiAim, type WeaponDef } from '@game/shared';
 import type { DevConfig } from '../config';
 
 export const SKEET_GROUPS = ['general', 'pistols', 'rifles', 'snipers', 'shotguns', 'smgs', 'heavy'] as const;
@@ -18,8 +18,9 @@ export interface SkeetConfig {
   aimStyle: 'rage' | 'legit';
   smoothing: number;
   profiles: Record<SkeetGroup, WeaponProfile>;
-  resolver: { mode: 'adaptive' | 'real' | 'visual'; history: number; memoryMs: number; preferBodyBelow: number; missedShots: number };
+  resolver: { mode: 'adaptive' | 'center'; history: number; memoryMs: number; preferBodyBelow: number; missedShots: number };
   antiAim: SkeetAntiAim;
+  fakeLag: { enabled: boolean; limit: number; mode: HvhCoreSettings['fakeLagMode']; breakOnShot: boolean };
   indicators: { resolver: boolean; binds: boolean; watermark: boolean };
   cosmetics: { enabled: boolean; tint: string };
 }
@@ -32,6 +33,7 @@ export function defaultSkeetConfig(): SkeetConfig {
   Object.assign(profiles.smgs, { minDamage: 12, hitchance: 55 });
   return { aimStyle: 'rage', smoothing: 8, profiles, resolver: { mode: 'adaptive', history: 8, memoryMs: 700,
     preferBodyBelow: 60, missedShots: 2 }, antiAim: defaultSkeetAntiAim(),
+    fakeLag: { enabled: false, limit: 6, mode: 'static', breakOnShot: true },
     indicators: { resolver: true, binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' } };
 }
 export function skeetWeaponGroup(w: WeaponDef): SkeetGroup {
@@ -50,6 +52,11 @@ export function skeetProfile(c: DevConfig, w: WeaponDef): WeaponProfile {
 /** Keep the shared runtime, while each panel supplies its own decisions and weapon policy. */
 export function skeetEffectiveConfig(c: DevConfig, w: WeaponDef): DevConfig {
   const profile = skeetProfile(c, w);
-  return { ...c, hvh: { ...c.hvh, aim: { ...c.hvh.aim, minDamage: profile.minDamage,
+  return { ...c, hvh: { ...c.hvh, core: skeetFakeLagCore(c), aim: { ...c.hvh.aim, minDamage: profile.minDamage,
     hitchance: profile.hitchance, bodyAim: profile.bodyAim }, movement: { ...c.hvh.movement, autoStop: profile.autoStop } } };
+}
+
+export function skeetFakeLagCore(c: DevConfig): HvhCoreSettings {
+  const lag = c.skeet.fakeLag;
+  return {...defaultHvhCore(),...c.hvh.core, fakeLag: lag.enabled ? lag.limit : 0, fakeLagMode: lag.mode, fakeLagBreakOnShot: lag.breakOnShot};
 }

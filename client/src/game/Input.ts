@@ -67,8 +67,9 @@ const RIGHT = ['KeyD', 'ArrowRight'];
  * the game in full screen with Keyboard Lock (see fullscreen.ts).
  */
 const CROUCH = ['ControlLeft', 'ControlRight', 'KeyC'];
+const SLOW_WALK = ['ShiftLeft', 'ShiftRight'];
 /** Keys whose default browser action (scrolling, focus change) we suppress while playing. */
-const GAME_KEYS = new Set([...FORWARD, ...BACK, ...LEFT, ...RIGHT, ...CROUCH, 'Space', 'Tab']);
+const GAME_KEYS = new Set([...FORWARD, ...BACK, ...LEFT, ...RIGHT, ...CROUCH, ...SLOW_WALK, 'Space', 'Tab']);
 
 /**
  * Keyboard + pointer-locked mouse, plus a touch mode fed by the on-screen controls.
@@ -191,9 +192,10 @@ export class Input {
       right: active ? clamp(axis(RIGHT, LEFT) + this.touchAxes.right, -1, 1) : 0,
       jump: active && (this.keys.has('Space') || this.touchButtons.jump),
       crouch: active && (this.anyDown(CROUCH) || this.touchButtons.crouch),
+      slowWalk: active && this.anyDown(SLOW_WALK),
       use: active && (this.keys.has('KeyE') || this.touchButtons.use),
       // Nitro while driving (on a touch screen: the crouch button).
-      boost: active && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchButtons.crouch),
+      boost: active && (this.anyDown(SLOW_WALK) || this.touchButtons.crouch),
       yaw: this.yaw,
       pitch: this.pitch,
     };
