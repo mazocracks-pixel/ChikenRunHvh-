@@ -134,7 +134,7 @@ export class ProjectileSystem {
     for (const target of this.room.players.values()) {
       if (!target.alive || target.vehicle) continue;
       if (target.pid === p.ownerPid && now - p.bornAt < OWNER_GRACE_MS) continue;
-      const hit = rayChicken(ray, target.state.x, target.state.y, target.state.z, target.yaw, len + p.def.radius, bodyScale(target.state));
+      const hit = rayChicken(ray, target.state.x, target.state.y, target.state.z, target.yaw, len + p.def.radius, bodyScale(target.state), target.hvhMode ? target.fakePitch : target.pitch);
       if (hit && hit.t < best) {
         best = hit.t;
         struck = { target, headshot: hit.headshot };

@@ -43,7 +43,7 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
         toggle('Enable anti-aim', 'hvh.antiAim.enabled'), toggle('Use state builder', 'skeet.antiAim.enabled', 'Uses a separate policy for each movement state'),
         toggle('At targets', 'skeet.antiAim.atTargets'), toggle('Freestanding', 'skeet.antiAim.freestanding', 'Tests incoming damage at alternative head and body matrices'),
         select('Jitter pattern', 'skeet.antiAim.jitterMode'), slider('Jitter interval', 'skeet.antiAim.interval', 'ms', '1–600 ms; phase sampled at 64 simulation ticks per second'),
-        select('Desync pattern', 'skeet.antiAim.desyncMode'), select('Visual pitch', 'skeet.antiAim.visualPitch', 'Cosmetic head tilt; shooting and hitboxes use real pitch'),
+        select('Desync pattern', 'skeet.antiAim.desyncMode'), select('Pitch', 'skeet.antiAim.visualPitch', 'Physical head pose. Down tucks the head behind the torso when facing away; camera and silent shots stay independent'),
         slider('Spin speed', 'hvh.antiAim.spinSpeed', '°/s'), key('Invert desync', 'hvh.invertKey'),
         info('Current state', () => { const s = dev.runtime.currentSession?.local; return s ? hvhStance({ speed: s.server.horizontalSpeed, crouching: s.server.crouching, onGround: s.server.onGround }) : 'Standing'; }),
       ] },

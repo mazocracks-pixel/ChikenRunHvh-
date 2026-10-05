@@ -219,6 +219,7 @@ export const CHOICES: Record<string, readonly string[]> = {
   'skeet.antiAim.visualPitch': ['look', 'down', 'up', 'zero'],
   'hvh.aim.bodyAim': ['off', 'prefer', 'lethal'],
   'hvh.resolverPolicy': ['adaptive', 'animation', 'cycle'],
+  'hvh.antiAim.pitch': ['look', 'down', 'up', 'zero'],
   'hvh.antiAim.mode': ['backward', 'left', 'right', 'spin'],
   'hvh.exploit': ['off', 'doubleTap', 'hideShots'],
   'hvh.core.era': ['legacy', 'desync', 'tickbase', 'defensive'],

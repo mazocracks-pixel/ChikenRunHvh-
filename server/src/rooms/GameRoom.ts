@@ -19,6 +19,8 @@ import {
   fireIntervalFor,
   hopMaxFor,
   hvhPose,
+  hvhPitch,
+  chickenHeadCenter,
   defaultHvhLoadout,
   HVH,
   moveSpeedFor,
@@ -297,12 +299,12 @@ export class GameRoom {
           const pose = hvhPose(p.lookYaw, p.hvh, now, false, false, { targetYaw: p.hvhTargetYaw });
           const requested = settings.states[hvhStance({ speed: p.state.horizontalSpeed, crouching: p.state.crouching, onGround: p.state.onGround })].desync * Math.PI / 180;
           const risk = (side: number) => {
-            const matrix = buildHvhMatrix(p.state, pose.real + requested * side, bodyScale(p.state));
+            const matrix = buildHvhMatrix(p.state, pose.real + requested * side, bodyScale(p.state), hvhPitch(p.pitch, p.hvh));
             let total = 0;
             for (const box of matrix.boxes.filter(b => b.group === 'head' || b.group === 'chest')) {
               const dx = box.center.x - from.x, dy = box.center.y - from.y, dz = box.center.z - from.z, range = Math.hypot(dx, dy, dz);
               const ray = makeRay(from, { x: dx / range, y: dy / range, z: dz / range });
-              const cover = traceHvhCover(ray, this.world, range, this.isSoft), hit = rayHvhChicken(ray, p.state.x, p.state.y, p.state.z, matrix.yaw, cover.wallDistance, matrix.scale);
+              const cover = traceHvhCover(ray, this.world, range, this.isSoft), hit = rayHvhChicken(ray, p.state.x, p.state.y, p.state.z, matrix.yaw, cover.wallDistance, matrix.scale, matrix.pitch);
               if (hit) total += hvhHitDamage(hvhWeapon(WEAPONS[nearest!.weapon]), hit, cover) * (box.group === 'head' ? 2 : 1);
             }
             return total;
@@ -318,8 +320,7 @@ export class GameRoom {
         targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide, seed: p.pid });
     p.animation.eyeYaw = pose.real;
     p.fakeYaw = pose.real;
-    p.fakePitch = !settings?.enabled || !p.hvh.antiAim.enabled || revealed || settings.visualPitch === 'look' ? p.pitch
-      : settings.visualPitch === 'down' ? -0.65 : settings.visualPitch === 'up' ? 0.65 : 0;
+    p.fakePitch = hvhPitch(p.pitch, p.hvh, revealed);
   }
 
   // ---------------------------------------------------------------------------
@@ -581,6 +582,7 @@ export class GameRoom {
         p.animation.eyeYaw = Math.atan2(-req.dx, -req.dz);
         p.animation.bodyYaw = p.animation.eyeYaw;
         p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw;
+        p.fakePitch = Math.asin(clamp(req.dy / Math.hypot(req.dx, req.dy, req.dz), -1, 1));
       }
     }
     p.lastFiredTick = this.hvhTick;
@@ -628,7 +630,7 @@ export class GameRoom {
       let headshot = false;
 
       for (const t of targets) {
-        const hit = (tactical ? rayHvhChicken : rayChicken)(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale);
+        const hit = (tactical ? rayHvhChicken : rayChicken)(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale, t.pitch);
         if (hit) {
           maxT = hit.t;
           victim = t.key;
@@ -658,8 +660,8 @@ export class GameRoom {
         const entry = damageByVictim.get(victim) ?? { amount: 0, headshot: false, flags: shotFlags };
         if (soft.some((s) => s.t < maxT)) entry.flags |= KILL_FLAGS.wallbang;
         if (this.throughSmoke(eye, pointOnRay(ray, maxT), now)) entry.flags |= KILL_FLAGS.smoke;
-        const trueHit = tactical ? rayHvhChicken(ray, targets.find(t => t.key === victim)!.x, targets.find(t => t.key === victim)!.y,
-          targets.find(t => t.key === victim)!.z, targets.find(t => t.key === victim)!.yaw, maxT + 0.001, targets.find(t => t.key === victim)!.scale) : null;
+        const trueHit = tactical && victimAt ? rayHvhChicken(ray, victimAt.x, victimAt.y,
+          victimAt.z, victimAt.yaw, maxT + 0.001, victimAt.scale, victimAt.pitch) : null;
         entry.amount += trueHit && cover ? hvhHitDamage(w, trueHit, cover) : damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * wallbangScale(soft, maxT);
         entry.headshot ||= headshot;
         damageByVictim.set(victim, entry);
@@ -675,7 +677,7 @@ export class GameRoom {
       const intendedPlayer = this.players.get(req.intent.target);
       const valid = Math.abs(req.t - req.intent.recordT) < 1 && now - req.t <= MAX_REWIND_MS
         && (!intendedPlayer?.alive || !!target);
-      let reason = auditShot(req.intent, eye, aim, dirs, target ? buildHvhMatrix(target, target.yaw, target.scale) : null,
+      let reason = auditShot(req.intent, eye, aim, dirs, target ? buildHvhMatrix(target, target.yaw, target.scale, target.pitch) : null,
         valid, this.world, w, this.mode.wallbang ? this.isSoft : undefined);
       const rawDamage = target ? damageByVictim.get(target.key)?.amount ?? 0 : 0;
       const damage = target && now >= target.key.shieldUntil
@@ -704,7 +706,7 @@ export class GameRoom {
     if (audit) p.resolver.feedback(audit.target, audit.source, audit.reason, now, audit.headshot === true);
     if (tactical) for (const enemy of this.players.values()) {
       if (enemy === p || !enemy.alive || !enemy.hvhEnabled || this.areTeammates(p, enemy)) continue;
-      const hx = enemy.state.x - Math.sin(enemy.yaw) * 0.34, hy = enemy.state.y + 1.27 * bodyScale(enemy.state), hz = enemy.state.z - Math.cos(enemy.yaw) * 0.34;
+      const { x: hx, y: hy, z: hz } = chickenHeadCenter(enemy.state, enemy.yaw, bodyScale(enemy.state), enemy.fakePitch);
       const threatened = dirs.some((d, i) => {
         const along = (hx - eye.x) * d.x + (hy - eye.y) * d.y + (hz - eye.z) * d.z;
         const near = Math.hypot(hx - eye.x - along * d.x, hy - eye.y - along * d.y, hz - eye.z - along * d.z);
@@ -767,10 +769,11 @@ export class GameRoom {
         // The car's offset from where it was then (the seat moves with it).
         const dx = (past?.x ?? t.state.x) - t.state.x;
         const dz = (past?.z ?? t.state.z) - t.state.z;
-        targets.push({ key: t, x: seat.x + dx, y: seat.y, z: seat.z + dz, yaw: past?.yaw ?? t.yaw, scale: 1 });
+        targets.push({ key: t, x: seat.x + dx, y: seat.y, z: seat.z + dz, yaw: past?.yaw ?? t.yaw, scale: 1, pitch: past?.pitch ?? t.pitch });
         continue;
       }
-      targets.push({ key: t, x: past?.x ?? t.state.x, y: past?.y ?? t.state.y, z: past?.z ?? t.state.z, yaw: past?.yaw ?? t.yaw, scale: past?.scale ?? bodyScale(t.state) });
+      targets.push({ key: t, x: past?.x ?? t.state.x, y: past?.y ?? t.state.y, z: past?.z ?? t.state.z, yaw: past?.yaw ?? t.yaw,
+        scale: past?.scale ?? bodyScale(t.state), pitch: past?.pitch ?? (this.mode.id === 'hvh' ? t.fakePitch : t.pitch) });
     }
     return targets;
   }
@@ -1252,7 +1255,8 @@ export class GameRoom {
         p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw; p.simulationTime = now;
       }
       p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state),
-        tick: this.hvhTick, eyeYaw: p.animation.eyeYaw, matrix: this.mode.id === 'hvh' ? buildHvhMatrix(p.state, p.yaw, bodyScale(p.state)) : undefined });
+        pitch: this.mode.id === 'hvh' ? p.fakePitch : p.pitch, tick: this.hvhTick, eyeYaw: p.animation.eyeYaw,
+        matrix: this.mode.id === 'hvh' ? buildHvhMatrix(p.state, p.yaw, bodyScale(p.state), p.fakePitch) : undefined });
       if (p.reloadUntil > 0 && now >= p.reloadUntil) {
         p.reloadUntil = 0;
         p.mags.set(p.weapon, p.magazineSize(p.weapon));

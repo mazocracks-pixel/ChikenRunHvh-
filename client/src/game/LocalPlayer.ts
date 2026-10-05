@@ -164,7 +164,7 @@ export class LocalPlayer {
     c.setDead(!this.alive);
     c.setAim(pitch);
     c.setJetpack(this.state.fuel > 0, this.state.jetting);
-    c.setCrouch(this.state.crouching && !seat);
+    c.setCrouch(this.state.crouching && !seat,seat ? 0 : this.state.crouchAmount);
     this.eyeScale = damp(this.eyeScale, this.state.crouching && !seat ? CROUCH.scale : 1, 14, dt);
     c.animate(dt, this.alive && !seat ? this.speed : 0, this.state.onGround);
   }

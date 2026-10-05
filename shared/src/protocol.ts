@@ -44,7 +44,7 @@ export interface PlayerState extends MoveState {
   hvhDefensive?: boolean;
   weaponHeat?: number;
   fakeYaw?: number;
-  /** Cosmetic head pose only; the true pitch and hitboxes stay unchanged. */
+  /** Physical head pitch (anti-aim in HvH, look pitch elsewhere), shared with hit detection. */
   fakePitch?: number;
   hvhCharge?: number;
   hvhBurst?: boolean;

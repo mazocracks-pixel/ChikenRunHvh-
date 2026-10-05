@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { CROUCH, HITBOX } from '@game/shared';
+import { bodyScale, buildHvhMatrix } from '@game/shared';
 import type { GameSession } from '../game/GameSession';
 import type { DevConfig } from './config';
 import { ResolverSystem, type ShotCandidate } from '@game/shared';
 import { HvhDebug } from './HvhDebug';
 
 const BOX_EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
-const HEAD_GEOMETRY = new THREE.WireframeGeometry(new THREE.SphereGeometry(HITBOX.headRadius, 10, 6));
+const SPHERE_GEOMETRY = new THREE.WireframeGeometry(new THREE.SphereGeometry(1, 10, 6));
 const GLOW_GEOMETRY = new THREE.SphereGeometry(1, 16, 12);
 /** Collision boxes are rebuilt this often (Sandbox blocks come and go). */
 const COLLISION_REFRESH_MS = 1000;
@@ -14,8 +14,7 @@ const COLLISION_REFRESH_MS = 1000;
 const overlayLine = (color: string) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.9 });
 
 interface PlayerDebug {
-  body: THREE.LineSegments;
-  head: THREE.LineSegments;
+  boxes: THREE.LineSegments[];
   glow: THREE.Mesh;
 }
 
@@ -55,33 +54,32 @@ export class DevDebug3D {
   private updatePlayers(hitboxes: boolean, glow: boolean, config: DevConfig | null): void {
     const s = this.session;
     const seen = new Set<number>();
-    const entries: [number, THREE.Vector3, number, boolean, string, number][] = [];
+    const entries: [number, THREE.Vector3, number, boolean, string, number, number][] = [];
     if (hitboxes || glow) {
-      if (s.local.alive) entries.push([s.selfPid, s.local.position, s.mode.id === 'hvh' ? s.local.server.yaw : s.local.chicken.root.rotation.y, false, '#ffffff', s.local.state.crouching ? CROUCH.scale : 1]);
+      if (s.local.alive) entries.push([s.selfPid, s.local.position, s.mode.id === 'hvh' ? s.local.server.yaw : s.local.chicken.root.rotation.y, false, '#ffffff', bodyScale(s.local.state), s.local.server.fakePitch ?? s.local.server.pitch]);
       for (const [pid, r] of s.remotes.players) {
         if (!r.alive) continue;
         const c = config!.visuals.colors;
-        entries.push([pid, r.position, r.yaw, true, r.info.bot ? c.npc : s.isFriendly(r.info) ? c.friendly : c.enemy, r.latest?.crouching ? CROUCH.scale : 1]);
+        entries.push([pid, r.position, r.yaw, true, r.info.bot ? c.npc : s.isFriendly(r.info) ? c.friendly : c.enemy, r.scale, r.pitch]);
       }
     }
-    for (const [pid, pos, yaw, remote, color, k] of entries) {
+    for (const [pid, pos, yaw, remote, color, k, pitch] of entries) {
       seen.add(pid);
+      const matrix=buildHvhMatrix(pos,yaw,k,pitch);
       let d = this.players.get(pid);
       if (!d) {
         d = {
-          body: new THREE.LineSegments(BOX_EDGES, this.hitboxMaterial),
-          head: new THREE.LineSegments(HEAD_GEOMETRY, this.headMaterial),
+          boxes: matrix.boxes.map(b=>new THREE.LineSegments(b.half ? BOX_EDGES : SPHERE_GEOMETRY,b.group==='head'?this.headMaterial:this.hitboxMaterial)),
           glow: new THREE.Mesh(GLOW_GEOMETRY),
         };
-        for (const o of [d.body, d.head, d.glow]) o.renderOrder = 999;
-        this.root.add(d.body, d.head, d.glow);
+        for (const o of [...d.boxes, d.glow]) o.renderOrder = 999;
+        this.root.add(...d.boxes, d.glow);
         this.players.set(pid, d);
       }
-      d.body.visible = d.head.visible = hitboxes;
-      d.body.position.set(pos.x, pos.y + (HITBOX.bodyHeight * k) / 2, pos.z);
-      d.body.scale.set(HITBOX.bodyRadius * 2 * k, HITBOX.bodyHeight * k, HITBOX.bodyRadius * 2 * k);
-      d.head.position.set(pos.x - Math.sin(yaw) * HITBOX.headForward * k, pos.y + HITBOX.headHeight * k, pos.z - Math.cos(yaw) * HITBOX.headForward * k);
-      d.head.scale.setScalar(k);
+      matrix.boxes.forEach((box,i)=>{
+        const line=d!.boxes[i]!;line.visible=hitboxes;line.position.copy(box.center);line.rotation.y=box.yaw;
+        if(box.half)line.scale.set(box.half.x*2,box.half.y*2,box.half.z*2);else line.scale.setScalar(box.radius);
+      });
       d.glow.visible = glow && remote;
       if (d.glow.visible) {
         d.glow.material = this.glowMaterial(color, config!.visuals.colors.opacity);
@@ -91,7 +89,7 @@ export class DevDebug3D {
     }
     for (const [pid, d] of this.players) {
       if (seen.has(pid)) continue;
-      this.root.remove(d.body, d.head, d.glow);
+      this.root.remove(...d.boxes, d.glow);
       this.players.delete(pid);
     }
   }

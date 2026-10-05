@@ -226,7 +226,9 @@ It adds seven weapon profiles, geometric safe points, historical shot selection,
 auto-scope. Its resolver ranks hidden-body hypotheses from public animation observations and
 classified shot outcomes. Six anti-aim states include slow walking and crouched flight. The server
 constrains actual body matrices by velocity, crouch, ground state and turn rate, and computes
-target-facing/freestanding cover. Visual pitch changes only the rendered chicken. Every panel and
+target-facing/freestanding cover. Pitch moves the physical head and its rendered pose together;
+Down tucks it behind the torso when facing away, while preserving the camera and silent aim.
+Every panel and
 bot uses the same HvH weapon, movement and shared-charge rules.
 
 Skins tint your local first-person weapon. Players offers per-match targeting overrides. Configs

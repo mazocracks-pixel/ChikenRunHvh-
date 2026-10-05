@@ -18,10 +18,16 @@ body yaw, rendered yaw and resolver hypotheses are separate values.
 Body animation has a bounded turn rate, lower-body update timer and maximum eye/body delta.
 The standing maximum is 58 degrees, reduced by velocity, crouching and flight. Hit volumes form
 a transformed chicken skeleton: head, torso, pelvis, arms and legs. Changing body yaw changes
-actual head and limb locations. Cosmetic head pitch does not change these hit volumes.
+actual head and limb locations. All modes use the same 0.25 m head and segmented body volumes.
+Physical pitch rotates the head around its neck and modestly tucks it on downward angles; renderer,
+rewound hit detection, resolver matrices, projectiles and aim-lock detection share this pose.
+Down anti-aim pitch is bounded to -1.15 radians. It exposes less head from the rear while remaining
+hittable from the front and sides. The nearest torso blocks a hidden head's headshot bonus.
+Head bones stay stable through decorative walking bob, and crouch presentation uses the same
+interpolated scale as hit detection rather than a separate shrinking animation.
 
 Remote packets expose position/velocity, eye yaw, lower-body updates, crouch amount, ground
-state, quantized turn weight, health, armor and simulation time. Body yaw, enemy anti-aim settings,
+state, physical head pitch, quantized turn weight, health, armor and simulation time. Body yaw, enemy anti-aim settings,
 inverter, exact bones and resolver state remain private. Observable copies use an explicit field
 allow-list, including in controller hooks. Ground truth is used by server collision and post-shot
 classification, not by client or bot target selection.
@@ -32,12 +38,19 @@ The resolver keeps bounded public observations and ranks LEFT, CENTER, RIGHT, lo
 last-moving and lower-body-update hypotheses. Its feedback decays; confirmed resolver misses
 change orientation weights, informative head hits reinforce them, and body hits clear misses
 without proving a side. Spread, obstruction, invalid history, death and weapon rejection do not
-teach orientation errors. Policies differ in feedback strength or confirmed-miss cycling.
+teach orientation errors. Public moving body updates and recent stationary updates receive stronger
+weight. Duplicate angles are merged, and reading old history cannot repeatedly decay new feedback.
+Policies differ in feedback strength or confirmed-miss cycling. Both panels fall back to body hits
+when orientation is uncertain or repeated misses confirm a poor guess.
 
 Every hypothesis builds a complete skeleton. Safe-point checks intersect several reconstructed
 matrices, including LEFT/CENTER/RIGHT even with resolver disabled or high confidence. Multipoint
 scale shrinks with speed and uncertainty. Target/record/hitgroup candidates pass cheap cover,
-damage and overlap gates before at most six candidates receive 32 seeded spread trials. Scans
+damage and overlap gates before at most eight candidates receive 32 seeded spread trials. The shortlist
+reserves body fallback points. Accuracy averages over orientation hypotheses rather than assuming
+the selected head guess is correct. Combined scope/stop plans are allowed. Automatic fire rechecks
+actual position, speed, spread and minimum damage immediately before firing. Silent shot directions
+are rebuilt from the current shooter eye to the selected historical point. Scans
 run at bounded intervals, independent of display refresh rate. Scoring combines damage,
 geometric safety, accuracy, confidence, lethality, age and target persistence. Settings include
 flat or HP-relative minimum damage, air hitchance, force/prefer-safe and weapon profiles.
@@ -65,6 +78,8 @@ HvH auto stop supports slow walking, independent between-shot timing and short e
 extrapolation before likely peeks. Forecasts only control grounded input; shots still use real
 records and actual-speed hitchance. Reloads, jumps and auto-peek return retain control. See
 [the auto-stop options](auto-stop.md) for prediction bounds and accuracy fallback.
+When a shot needs a full stop, that requirement survives the next stationary scan; slow-walk
+auto stop cannot restart movement and repeatedly spoil the shot before firing.
 Hops preserve velocity rather than granting a speed bonus. Both panels' helpers use ordinary
 movement inputs and the same shared takeoff ceiling as Manual players. Subtick strafe is an
 explicit assisted-HvH exception: eight air-direction optimizations share one fixed tick and
@@ -72,6 +87,10 @@ build velocity more efficiently. It grants no extra elapsed time or altered grav
 server input boundary and physics all gate it to HvH. See [its reference](hvh-movement-exploits.md).
 
 ## Anti-aim, packet behavior and shared resource
+
+Practice bots use the same 20 Hz public observations as clients, moderate 22–45 degree desync,
+limited jitter and standard unshifted shots. They do not automatically wallbang through hidden
+soft cover. Their resolver, damage, spread, ammunition and shot queue follow player rules.
 
 Six stance policies cover standing, moving, slow walking, crouching, airborne and crouched
 airborne. Target-facing and freestanding use public opponent locations. Freestanding compares

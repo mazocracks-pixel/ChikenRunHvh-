@@ -3,13 +3,22 @@ import { describe, it } from 'node:test';
 import { MATCH, MODES, SIM_DT } from '@game/shared';
 import { createRoom } from '../src/rooms/modes';
 import type { GameRoom } from '../src/rooms/GameRoom';
-import { addPlayer, fakeIo } from './helpers';
+import { addPlayer, fakeIo, stepRoom } from './helpers';
 
 describe('Squad Up (real players only)', () => {
-  it('has no bots, waits for 4 people, and keeps going if one leaves', () => {
+  it('cancels its countdown if the fourth player leaves before the match starts', t => {
+    const {io}=fakeIo();
+    const room=createRoom(io,{id:'countdown',code:'SQD02',name:'Countdown',mode:'squad',map:'farm',private:false},{}) as GameRoom;
+    t.after(()=>room.close());clearInterval((room as unknown as {tickTimer:NodeJS.Timeout}).tickTimer);
+    const players=['A','B','C','D'].map(name=>addPlayer(room,name)),now=performance.now();
+    stepRoom(room,now);assert.equal(room.phase,'countdown');
+    room.players.delete(players[3]!.pid);stepRoom(room,now+SIM_DT*1000);assert.equal(room.phase,'waiting');
+  });
+  it('has no bots, waits for 4 people, and keeps going if one leaves', t => {
     const { io } = fakeIo();
     // Asking for bots and quick-play filling changes nothing: this mode never has any.
     const room = createRoom(io, { id: 's', code: 'SQUAD', name: 'Squad', mode: 'squad', map: 'farm', private: false, bots: 6, fillBots: true }, {}) as GameRoom;
+    t.after(() => room.close());
     clearInterval((room as unknown as { tickTimer: NodeJS.Timeout }).tickTimer);
     assert.equal(MODES.squad.minPlayers, 4);
     let now = performance.now();
@@ -37,6 +46,5 @@ describe('Squad Up (real players only)', () => {
     (room as unknown as { players: Map<number, unknown> }).players.delete(players[3]!.pid);
     step(500);
     assert.equal((room as unknown as { match: { phase: string } }).match.phase, 'playing', 'the match goes on with 3');
-    room.close();
   });
 });

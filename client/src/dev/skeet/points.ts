@@ -11,5 +11,5 @@ export function skeetPointOffsets(part: 'head' | 'body', scale: number, amount: 
 export function skeetSafeRay(eye: Vec3, direction: Vec3, target: ShotTarget, uncertainty: number, range: number): boolean {
   const ray = makeRay(eye, normalize(direction));
   const radians = clamp(uncertainty, 0, 25) * Math.PI / 180;
-  return [-radians, 0, radians].every(offset => !!rayChicken(ray, target.x, target.y, target.z, target.yaw + offset, range, target.scale));
+  return [-radians, 0, radians].every(offset => !!rayChicken(ray, target.x, target.y, target.z, target.yaw + offset, range, target.scale, target.pitch));
 }

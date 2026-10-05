@@ -3,6 +3,7 @@ import {
   PLAYER,
   eyeHeightOf,
   SIM_DT,
+  SNAPSHOT_RATE,
   WEAPONS,
   buildNavGraph,
   chestPoint,
@@ -10,6 +11,7 @@ import {
   directionFromAngles,
   findPath,
   makeRay,
+  normalize,
   raycastWorld,
   wrapAngle,
   type Appearance,
@@ -19,7 +21,7 @@ import {
   type Vec3,
   type Team,
 } from '@game/shared';
-import { DEFAULT_RAGE, scanRage, unpackPlayer, softBoxTest, defaultSkeetAntiAim, hvhWeapon, type ObservableRecord, type ShotCandidate } from '@game/shared';
+import { DEFAULT_RAGE, scanRage, unpackPlayer, defaultSkeetAntiAim, hvhWeapon, type ObservableRecord, type ShotCandidate } from '@game/shared';
 import type { BotGoal, GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
@@ -43,6 +45,8 @@ interface Brain {
   hvhNextScan?: number;
   hvhReturnUntil?: number;
   hvhAnchor?: Vec3;
+  hvhNextObserve?: number;
+  hvhObserved?: number[];
   p: ServerPlayer;
   seq: number;
   shot: number;
@@ -100,10 +104,13 @@ export class BotSystem {
     const p = this.room.players.get(res.selfPid)!;
     if (this.room.mode.id === 'hvh') {
       p.hvhEnabled = true; p.hvhPanel = p.pid % 2 ? 'skeet' : 'lab';
-      p.hvh.antiAim.enabled = true; p.hvh.antiAim.desync = p.pid % 3 === 0 ? 22 : 58;
-      p.hvh.exploit = p.pid % 3 === 0 ? 'hideShots' : 'doubleTap';
+      p.hvh.antiAim.enabled = true; p.hvh.antiAim.desync = [22, 35, 45][p.pid % 3]!;
+      p.hvh.exploit = 'off';
       p.hvh.skeet = defaultSkeetAntiAim(); p.hvh.skeet.freestanding = true;
       p.hvh.skeet.desyncMode = p.pid % 3 === 1 ? 'alternate' : 'static';
+      for (const state of Object.values(p.hvh.skeet.states)) {
+        state.desync = Math.min(state.desync, p.hvh.antiAim.desync); state.jitter = Math.min(state.jitter, 12);
+      }
     }
     const now = performance.now();
     this.brains.set(p.pid, {
@@ -350,23 +357,25 @@ export class BotSystem {
   /** HvH bots consume the same public snapshot API as human panels, never enemy server objects. */
   private thinkHvh(b: Brain, now: number): void {
     const p = b.p, eye = this.eye(p);
-    const records: ObservableRecord[] = [];
-    for (const packed of this.room.snapshot(now, p.pid).p) {
-      const s = unpackPlayer(packed);
-      if (s.pid === p.pid || !s.alive || s.shielded || s.vehicle || this.room.players.get(s.pid)?.info.team === p.info.team) continue;
-      const r: ObservableRecord = { pid: s.pid, tick: Math.round((s.simulationTime || now) / (1000 / 64)), t: s.simulationTime || now,
-        origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
-        eyeYaw: s.yaw, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
-        grounded: s.onGround, turnWeight: s.turnWeight ?? 0, alive: s.alive, hp: s.hp, armor: s.armor,
-        fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
-      p.resolver.observe(r); records.push(...p.resolver.records(s.pid, now));
+    if (now >= (b.hvhNextObserve ?? 0)) {
+      b.hvhNextObserve = now + 1000 / SNAPSHOT_RATE; b.hvhObserved = [];
+      for (const packed of this.room.snapshot(now, p.pid).p) {
+        const s = unpackPlayer(packed);
+        if (s.pid === p.pid || !s.alive || s.shielded || s.vehicle || this.room.areTeammates(p, this.room.players.get(s.pid)!)) continue;
+        const r: ObservableRecord = { pid: s.pid, tick: Math.round((s.simulationTime || now) / (1000 / 64)), t: s.simulationTime || now,
+          origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
+          eyeYaw: s.yaw, pitch: s.fakePitch ?? s.pitch, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
+          grounded: s.onGround, turnWeight: s.turnWeight ?? 0, alive: s.alive, hp: s.hp, armor: s.armor,
+          fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
+        p.resolver.observe(r); b.hvhObserved.push(s.pid);
+      }
     }
+    const records = (b.hvhObserved ?? []).flatMap(pid => p.resolver.records(pid, now));
     if (now >= (b.hvhNextScan ?? 0)) {
       b.hvhNextScan = now + 150;
       b.hvhCandidate = scanRage({ now, eye, w: hvhWeapon(WEAPONS[p.weapon]), heat: p.weaponHeat, speed: p.state.horizontalSpeed, airborne: !p.state.onGround, ads: p.aiming,
-        world: this.room.world, records, resolver: p.resolver, currentTarget: b.hvhCandidate?.target, isSoft: softBoxTest(this.room.map),
-        settings: { ...DEFAULT_RAGE, minDamage: 10, maxRecords: 2, forceSafe: p.pid % 3 === 0, body: p.pid % 3 === 0 ? 'prefer' : 'lethal',
-          safetyWeight: p.pid % 3 === 1 ? 4 : 25, damageWeight: p.pid % 3 === 1 ? 1.6 : 1 } });
+        world: this.room.world, records, resolver: p.resolver, currentTarget: b.hvhCandidate?.target,
+        settings: { ...DEFAULT_RAGE, hitchance: 0.6, maxRecords: 2, preferBodyBelow: 0.5, bodyAfterMisses: 2, body: 'lethal' } });
     }
     const c = b.hvhCandidate && records.some(r => r.pid === b.hvhCandidate!.target) && now - b.hvhCandidate.record.t <= 300 ? b.hvhCandidate : null;
     let x = 0, z = 0;
@@ -390,8 +399,10 @@ export class BotSystem {
     this.room.handleInput(p, frame);
     if (p.mag <= 0) { this.room.handleReload(p); return; }
     if (c?.scope) p.aiming = true;
-    if (c && !c.stop && now - c.record.t <= 300 && p.state.horizontalSpeed < 0.5 && !p.reloadUntil && now >= (b.hvhReturnUntil ?? 0)) {
-      this.room.handleFire(p, { shot: ++b.shot, command: frame.seq, weapon: p.weapon, dx: c.direction.x, dy: c.direction.y, dz: c.direction.z,
+    if (c && !c.stop && !c.scope && now - c.record.t <= 300 && p.state.horizontalSpeed < 0.5 && !p.reloadUntil
+      && now >= (b.hvhReturnUntil ?? 0) && now >= p.switchReadyAt && p.resource.playerTick >= p.resource.nextAttackTick) {
+      const direction = normalize({ x: c.point.x - eye.x, y: c.point.y - eye.y, z: c.point.z - eye.z });
+      this.room.handleFire(p, { shot: ++b.shot, command: frame.seq, weapon: p.weapon, dx: direction.x, dy: direction.y, dz: direction.z,
         t: c.record.t, aiming: p.aiming, intent: { target: c.target, source: c.source, recordT: c.record.t, yaw: c.yaw } });
       b.hvhReturnUntil = now + 400; b.hvhNextScan = 0;
     }

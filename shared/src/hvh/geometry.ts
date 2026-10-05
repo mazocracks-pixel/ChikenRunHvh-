@@ -1,19 +1,20 @@
 import { makeRay, rayAabb, raySphere, type Ray } from '../raycast';
 import { normalize, type Vec3 } from '../math';
+import { CHICKEN_POSE, chickenHeadCenter } from '../chickenPose';
 export type HvhHitgroup = 'head' | 'chest' | 'stomach' | 'pelvis' | 'arm' | 'leg';
 export interface HvhHitbox { group: HvhHitgroup; center: Vec3; radius: number; half?: Vec3; yaw: number }
-export interface HvhMatrix { origin: Vec3; yaw: number; scale: number; boxes: HvhHitbox[] }
+export interface HvhMatrix { origin: Vec3; yaw: number; scale: number; pitch?: number; boxes: HvhHitbox[] }
 export interface HvhHit { t: number; headshot: boolean; group: HvhHitgroup }
-export const HVH_HEAD = { forward: 0.34, height: 1.27, radius: 0.20 } as const;
+export const HVH_HEAD = { forward: CHICKEN_POSE.headForward, height: CHICKEN_POSE.headHeight, radius: CHICKEN_POSE.headRadius } as const;
 /** Every hypothesis rebuilds the whole skeleton, including oriented torso and limb volumes. */
-export function buildHvhMatrix(origin: Vec3, yaw: number, scale = 1): HvhMatrix {
+export function buildHvhMatrix(origin: Vec3, yaw: number, scale = 1, pitch = 0): HvhMatrix {
   const local = (x: number, y: number, z: number): Vec3 => ({ x: origin.x + (x * Math.cos(yaw) + z * Math.sin(yaw)) * scale,
     y: origin.y + y * scale, z: origin.z + (-x * Math.sin(yaw) + z * Math.cos(yaw)) * scale });
   const sphere = (group: HvhHitgroup, x: number, y: number, z: number, radius: number): HvhHitbox => ({ group, center: local(x, y, z), radius: radius * scale, yaw });
   const box = (group: HvhHitgroup, y: number, x: number, h: number, z: number): HvhHitbox => ({ group, center: local(0, y, 0), radius: 0,
     half: { x: x * scale, y: h * scale, z: z * scale }, yaw });
-  return { origin: { ...origin }, yaw, scale, boxes: [sphere('head', 0, HVH_HEAD.height, -HVH_HEAD.forward, HVH_HEAD.radius),
-    box('chest', 0.91, 0.34, 0.20, 0.27), box('stomach', 0.61, 0.35, 0.14, 0.28), box('pelvis', 0.36, 0.31, 0.13, 0.25),
+  return { origin: { ...origin }, yaw, scale, pitch, boxes: [{ group: 'head', center: chickenHeadCenter(origin, yaw, scale, pitch), radius: HVH_HEAD.radius * scale, yaw },
+    box('chest', 0.91, 0.34, 0.20, 0.34), box('stomach', 0.61, 0.35, 0.14, 0.36), box('pelvis', 0.36, 0.31, 0.13, 0.28),
     sphere('arm', -0.38, 0.78, 0, 0.13), sphere('arm', 0.38, 0.78, 0, 0.13), sphere('leg', -0.16, 0.16, 0, 0.13), sphere('leg', 0.16, 0.16, 0, 0.13)] };
 }
 export function rayHvhMatrix(ray: Ray, matrix: HvhMatrix, range: number, groups?: readonly HvhHitgroup[]): HvhHit | null {
@@ -32,13 +33,14 @@ export function rayHvhMatrix(ray: Ray, matrix: HvhMatrix, range: number, groups?
   }
   return hit;
 }
-export function rayHvhChicken(ray: Ray, x: number, y: number, z: number, yaw: number, range: number, scale = 1): HvhHit | null {
-  return rayHvhMatrix(ray, buildHvhMatrix({ x, y, z }, yaw, scale), range);
+export function rayHvhChicken(ray: Ray, x: number, y: number, z: number, yaw: number, range: number, scale = 1, pitch = 0): HvhHit | null {
+  return rayHvhMatrix(ray, buildHvhMatrix({ x, y, z }, yaw, scale, pitch), range);
 }
 export function pointSafety(eye: Vec3, point: Vec3, matrices: readonly HvhMatrix[], groups?: readonly HvhHitgroup[]): number {
   if (!matrices.length) return 0;
   const ray = makeRay(eye, normalize({ x: point.x - eye.x, y: point.y - eye.y, z: point.z - eye.z }));
-  return matrices.filter(m => rayHvhMatrix(ray, m, 1000, groups)).length / matrices.length;
+  // A torso in front of a tucked head is a body hit, even when aiming at a head point.
+  return matrices.filter(m => { const hit = rayHvhMatrix(ray, m, 1000); return hit && (!groups || groups.includes(hit.group)); }).length / matrices.length;
 }
 export function matrixPoints(matrix: HvhMatrix, groups: readonly HvhHitgroup[], scale = 0.65): { point: Vec3; group: HvhHitgroup }[] {
   const points: { point: Vec3; group: HvhHitgroup }[] = [];

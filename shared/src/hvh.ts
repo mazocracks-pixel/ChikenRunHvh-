@@ -1,4 +1,5 @@
 import { clamp, wrapAngle } from './math';
+import { CHICKEN_POSE } from './chickenPose';
 
 export const HVH_PANEL_IDS = ['lab', 'skeet', 'manual'] as const;
 export type HvhPanelId = typeof HVH_PANEL_IDS[number];
@@ -67,7 +68,7 @@ export function sanitizeSkeetAntiAim(raw: unknown): SkeetAntiAim {
 
 export interface HvhLoadout {
   core?: HvhCoreSettings;
-  antiAim: { enabled: boolean; mode: 'backward' | 'left' | 'right' | 'spin'; desync: number; jitter: number; jitterInterval?: number; spinSpeed: number };
+  antiAim: { enabled: boolean; mode: 'backward' | 'left' | 'right' | 'spin'; desync: number; jitter: number; jitterInterval?: number; spinSpeed: number; pitch?: SkeetAntiAim['visualPitch'] };
   exploit: 'off' | 'doubleTap' | 'hideShots';
   skeet?: SkeetAntiAim;
 }
@@ -84,7 +85,7 @@ export function defaultHvhCore(): HvhCoreSettings {
 }
 export const HVH = { maxDesync: 58, maxJitter: 45, revealMs: 300, hideMs: 150 } as const;
 export function defaultHvhLoadout(): HvhLoadout {
-  return { core: defaultHvhCore(), antiAim: { enabled: false, mode: 'backward', desync: 40, jitter: 20, jitterInterval: 180, spinSpeed: 180 }, exploit: 'off' };
+  return { core: defaultHvhCore(), antiAim: { enabled: false, mode: 'backward', desync: 40, jitter: 20, jitterInterval: 180, spinSpeed: 180, pitch: 'look' }, exploit: 'off' };
 }
 /** Public game mechanics. These never become developer stat multipliers. */
 export function sanitizeHvhLoadout(raw: unknown): HvhLoadout {
@@ -106,12 +107,20 @@ export function sanitizeHvhLoadout(raw: unknown): HvhLoadout {
     const a = r.antiAim as Record<string, unknown>;
     out.antiAim.enabled = a.enabled === true;
     if (['backward', 'left', 'right', 'spin'].includes(String(a.mode))) out.antiAim.mode = a.mode as HvhLoadout['antiAim']['mode'];
+    if (['look', 'down', 'up', 'zero'].includes(String(a.pitch))) out.antiAim.pitch = a.pitch as SkeetAntiAim['visualPitch'];
     for (const [key, min, max] of [['desync', 0, HVH.maxDesync], ['jitter', 0, HVH.maxJitter], ['jitterInterval', 1, 600], ['spinSpeed', 90, 540]] as const) {
       const v = a[key];
       if (typeof v === 'number' && Number.isFinite(v)) out.antiAim[key] = clamp(v, min, max);
     }
   }
   return out;
+}
+/** A physical head pose. Shot direction and the player's camera remain independent. */
+export function hvhPitch(lookPitch: number, loadout: HvhLoadout, revealed = false): number {
+  const mode = loadout.skeet?.enabled ? loadout.skeet.visualPitch : loadout.antiAim.pitch;
+  const pitch = !loadout.antiAim.enabled || revealed || !mode || mode === 'look' ? lookPitch
+    : mode === 'down' ? -1.15 : mode === 'up' ? 0.85 : 0;
+  return clamp(Number.isFinite(pitch) ? pitch : 0, -CHICKEN_POSE.pitchLimit, CHICKEN_POSE.pitchLimit);
 }
 /** Requested eye/body angles. Authoritative animation constrains the body before combat; only eyes are public. */
 export function hvhPose(lookYaw: number, loadout: HvhLoadout, now: number, inverted: boolean, revealed: boolean, context: HvhPoseContext = {}): { real: number; fake: number } {

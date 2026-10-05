@@ -35,6 +35,7 @@ export class ResolverSystem {
     t.misses = reason === 'HIT' ? 0 : t.misses + 1;
   }
   private decay(t: Track, now: number): void {
+    if (now <= t.feedbackAt) return;
     const factor = Math.exp(-Math.max(0, now - t.feedbackAt) / 2500);
     for (const [key, value] of t.evidence) t.evidence.set(key, value * factor);
     t.feedbackAt = now;
@@ -48,20 +49,29 @@ export class ResolverSystem {
     const pattern = flips > 3 ? 'JITTER' : changes.every(v => Math.abs(v) < 0.03) ? 'STATIC' : 'TRANSITION';
     const make = (source: HypothesisSource, yaw: number, prior: number) => ({ source, yaw: wrapAngle(record.eyeYaw + clamp(wrapAngle(yaw - record.eyeYaw), -delta, delta)), probability: prior + (t?.evidence.get(source) ?? 0) * (policy === 'animation' ? 0.25 : 1) });
     if (!enabled || side !== undefined) return { hypotheses: [{ source: side === -1 ? 'LEFT' : side === 1 ? 'RIGHT' : 'CENTER', yaw: wrapAngle(record.eyeYaw + (side ?? 0) * delta), probability: 1 }], confidence: enabled ? 0.55 : 0.25, state, pattern, misses: t?.misses ?? 0 };
+    // Body-yaw updates are a public animation cue. Moving records refresh it every tick.
+    const history = (t?.records ?? []).filter(r => r.t <= record.t);
+    const differentBody = [...history].reverse().find(r => Math.abs(wrapAngle(r.lowerBodyYaw - record.lowerBodyYaw)) > 0.025);
+    const updated = differentBody && record.t - differentBody.t <= 180;
+    const movingBody = record.grounded && record.speed > 0.3;
     const h = [make('LEFT', record.eyeYaw - delta, 0), make('RIGHT', record.eyeYaw + delta, 0), make('CENTER', record.eyeYaw, -0.65),
-      make('LEFT_LOW', record.eyeYaw - delta * 0.4, -0.8), make('RIGHT_LOW', record.eyeYaw + delta * 0.4, -0.8)];
+      make('LEFT_LOW', record.eyeYaw - delta * 0.65, -0.4), make('RIGHT_LOW', record.eyeYaw + delta * 0.65, -0.4)];
     if (t?.lastMoving !== undefined && state === 'STANDING') h.push(make('LAST_MOVING', t.lastMoving, 0.2));
-    h.push(make('BODY_UPDATE', record.lowerBodyYaw, state === 'MOVING' ? 1.4 : -0.2));
+    h.push(make('BODY_UPDATE', record.lowerBodyYaw, movingBody ? 4.5 : updated && record.grounded ? 2.4 : -0.65));
     if (policy === 'cycle') {
       const order: HypothesisSource[] = ['LEFT', 'RIGHT', 'CENTER'], chosen = order[(t?.misses ?? 0) % 3]!;
       h.forEach(v => v.probability = v.source === chosen ? 1.4 : -0.2);
     }
-    const max = Math.max(...h.map(v => v.probability));
-    const sum = h.reduce((n, v) => n + Math.exp(v.probability - max), 0);
-    h.forEach(v => v.probability = Math.exp(v.probability - max) / sum);
-    h.sort((a, b) => b.probability - a.probability);
-    const agreement = h.filter(v => Math.abs(wrapAngle(v.yaw - h[0]!.yaw)) < 0.15).reduce((sum, v) => sum + v.probability, 0);
-    return { hypotheses: h, confidence: clamp(agreement * (record.defensive ? 0.6 : 1) * (record.grounded ? 1 : 0.8), 0, 1), state, pattern, misses: t?.misses ?? 0 };
+    // Duplicate guesses must not inflate certainty or crowd out other orientations in the scanner.
+    const unique: ResolverHypothesis[] = [];
+    for (const v of h.sort((a, b) => b.probability - a.probability)) {
+      if (!unique.some(u => Math.abs(wrapAngle(u.yaw - v.yaw)) < 0.06)) unique.push(v);
+    }
+    const max = Math.max(...unique.map(v => v.probability));
+    const sum = unique.reduce((n, v) => n + Math.exp(v.probability - max), 0);
+    unique.forEach(v => v.probability = Math.exp(v.probability - max) / sum);
+    const agreement = unique.filter(v => Math.abs(wrapAngle(v.yaw - unique[0]!.yaw)) < 0.15).reduce((sum, v) => sum + v.probability, 0);
+    return { hypotheses: unique, confidence: clamp(agreement * (record.defensive ? 0.6 : 1) * (record.grounded ? 1 : 0.8), 0, 1), state, pattern, misses: t?.misses ?? 0 };
   }
 }
 export function recordValidity(r: ObservableRecord, now: number): 'VALID' | 'TOO_OLD' | 'TARGET_DIED' | 'FUTURE' {

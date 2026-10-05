@@ -21,9 +21,9 @@ export class HvhDebug {
       if (!remote.alive) continue;
       const record = this.resolver.records(pid, this.session.serverNow())[0]; if (!record) continue;
       const resolution = this.resolver.resolve(record);
-      const matrices = resolution.hypotheses.slice(0, 3).map(h => buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3));
+      const matrices = resolution.hypotheses.slice(0, 3).map(h => buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3, record.pitch));
       const target = this.focus();
-      if (target?.target === pid) matrices.push(buildHvhMatrix(target.record.origin, target.yaw, 1 - target.record.crouch * 0.3));
+      if (target?.target === pid) matrices.push(buildHvhMatrix(target.record.origin, target.yaw, 1 - target.record.crouch * 0.3, target.record.pitch));
       matrices.forEach((matrix, index) => matrix.boxes.forEach((box, b) => {
         const key = `${pid}/${index}/${b}`; seen.add(key);
         let line = this.lines.get(key);
