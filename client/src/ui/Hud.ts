@@ -348,14 +348,16 @@ export class Hud {
   }
 
   chat(msg: ChatMessage, self: boolean): void {
-    const line = msg.pid === 0 ? h('div', { class: 'line system' }, msg.text) : h('div', { class: 'line' }, nameEl(msg.name, msg.team, self, msg.dev), ': ', msg.text);
+    const line = msg.pid === 0 ? h('div', { class: 'line system' }, msg.text) : h('div', { class: 'line' }, ...(msg.teamOnly ? [h('span', { class: 'chat-team' }, '[TEAM] ')] : []), nameEl(msg.name, msg.team, self, msg.dev), ': ', msg.text);
     this.chatLog.append(line);
     while (this.chatLog.children.length > 8) this.chatLog.firstElementChild?.remove();
     setTimeout(() => line.classList.add('old'), CHAT_VISIBLE_MS);
   }
 
-  setChatOpen(open: boolean): void {
+  setChatOpen(open: boolean, teamOnly = false): void {
     this.chatInput.hidden = !open;
+    this.chatInput.classList.toggle('team', teamOnly);
+    this.chatInput.placeholder = teamOnly ? 'Team chat… (Enter to send, Esc to cancel)' : 'Say something… (Enter to send, Esc to cancel)';
     this.chatLog.classList.toggle('open', open);
     if (open) {
       this.chatInput.value = '';

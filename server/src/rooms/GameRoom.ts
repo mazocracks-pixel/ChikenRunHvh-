@@ -738,10 +738,16 @@ export class GameRoom {
   handleBuild(_p: ServerPlayer, _raw: unknown): void {}
   handleUnbuild(_p: ServerPlayer, _raw: unknown): void {}
 
-  handleChat(p: ServerPlayer, raw: unknown): void {
+  handleChat(p: ServerPlayer, raw: unknown, teamOnly = false): void {
     const text = sanitizeText(raw, CHAT_MAX_LENGTH);
     if (!text || !p.chatLimiter.take()) return;
-    this.io.to(this.channel).emit('chat', { pid: p.pid, name: p.info.name, text, team: p.info.team, ...(p.info.dev ? { dev: true } : {}) });
+    const message = { pid: p.pid, name: p.info.name, text, team: p.info.team, ...(p.info.dev ? { dev: true } : {}) };
+    // Team chat: only the sender's team hears it (modes without teams: everyone).
+    if (teamOnly && p.info.team > 0) {
+      for (const q of this.players.values()) if (q.info.team === p.info.team) q.socket?.emit('chat', { ...message, teamOnly: true });
+      return;
+    }
+    this.io.to(this.channel).emit('chat', message);
   }
 
   /** Throws start half a metre in front of the eye, unless a wall is right there. */

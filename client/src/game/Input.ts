@@ -27,6 +27,7 @@ export type Action =
   | 'prevWeapon'
   | 'camera'
   | 'chat'
+  | 'teamChat'
   | 'use'
   | 'build'
   | 'nextBlock'
@@ -47,7 +48,8 @@ const KEY_ACTIONS: Record<string, Action> = {
   Digit8: 'slot8',
   Digit9: 'slot9',
   KeyV: 'camera',
-  KeyT: 'chat',
+  KeyY: 'chat',
+  KeyU: 'teamChat',
   Enter: 'chat',
   KeyE: 'use',
   KeyB: 'build',
@@ -235,7 +237,7 @@ export class Input {
   }
 
   pushAction(action: Action): void {
-    if (this.active || action === 'chat') this.queue.push(action);
+    if (this.active || action === 'chat' || action === 'teamChat') this.queue.push(action);
   }
 
   // ---- DOM events ----

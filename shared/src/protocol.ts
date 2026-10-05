@@ -462,6 +462,8 @@ export interface ChatMessage {
   team: Team;
   /** Sent by a developer account. */
   dev?: boolean;
+  /** Team chat: only sent to the sender's team. */
+  teamOnly?: boolean;
 }
 
 export interface MatchRewardEvent {
@@ -511,7 +513,8 @@ export interface ClientToServerEvents {
   switchWeapon: (slot: number) => void;
   throw: (req: ThrowRequest) => void;
   aim: (aiming: boolean) => void;
-  chat: (text: string) => void;
+  /** `teamOnly`: only your team hears it (in modes without teams it goes to everyone). */
+  chat: (text: string, teamOnly?: boolean) => void;
   useVehicle: () => void;
   /** ChikenBomb buy menu. */
   buy: (itemId: string, ack: (res: BuyResult) => void) => void;

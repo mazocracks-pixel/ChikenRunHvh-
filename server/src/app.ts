@@ -209,7 +209,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
   socket.on('switchWeapon', inRoom((room, player, slot: unknown) => room.handleSwitch(player, slot)));
   socket.on('throw', inRoom((room, player, req: unknown) => room.handleThrow(player, req)));
   socket.on('aim', inRoom((room, player, aiming: unknown) => room.handleAim(player, aiming)));
-  socket.on('chat', inRoom((room, player, text: unknown) => room.handleChat(player, text)));
+  socket.on('chat', inRoom((room, player, text: unknown, teamOnly?: unknown) => room.handleChat(player, text, teamOnly === true)));
   socket.on('useVehicle', inRoom((room, player) => room.handleUseVehicle(player)));
   socket.on('buy', (itemId, ack) => {
     if (typeof ack !== 'function') return;

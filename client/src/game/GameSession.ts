@@ -201,6 +201,8 @@ export class GameSession {
   private hasClock = false;
   private aimingSent = false;
   private chatOpen = false;
+  /** The open chat box sends to the team only (U), not everyone (Y). */
+  private chatTeamOnly = false;
   private hudTimer = 0;
   private lastJetFx = 0;
   private wasOnGround = true;
@@ -544,7 +546,10 @@ export class GameSession {
         this.ctx.hud.toast(this.rig.toggle() === 'first' ? (this.local.car ? 'First-person view (V) once you get out' : 'First-person view (V)') : 'Third-person view (V)');
         break;
       case 'chat':
-        this.openChat();
+        this.openChat(false);
+        break;
+      case 'teamChat':
+        this.openChat(true);
         break;
       case 'use':
         net.socket.emit('useVehicle');
@@ -1070,7 +1075,7 @@ export class GameSession {
       e.stopPropagation();
       if (e.key === 'Enter') {
         const text = input.value.trim();
-        if (text) this.ctx.net.socket.emit('chat', text);
+        if (text) this.ctx.net.socket.emit('chat', text, this.chatTeamOnly);
         this.closeChat();
       } else if (e.key === 'Escape') {
         this.closeChat();
@@ -1078,11 +1083,13 @@ export class GameSession {
     };
   }
 
-  private openChat(): void {
+  private openChat(teamOnly: boolean): void {
     if (this.chatOpen) return;
     this.chatOpen = true;
+    // Only modes with teams have team chat; elsewhere U is the same as Y.
+    this.chatTeamOnly = teamOnly && (this.infos.get(this.selfPid)?.team ?? 0) > 0;
     this.ctx.input.enabled = false;
-    this.ctx.hud.setChatOpen(true);
+    this.ctx.hud.setChatOpen(true, this.chatTeamOnly);
   }
 
   private closeChat(): void {

@@ -3175,3 +3175,11 @@ code {
     animation: js-fade var(--js-ms) linear forwards;
   }
 }
+
+.chat-team {
+  color: #6fd36f;
+  font-weight: 700;
+}
+.chat-input.team {
+  border-color: #6fd36f;
+}
