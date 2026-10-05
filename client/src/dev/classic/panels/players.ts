@@ -29,7 +29,7 @@ export function playersPanel(dev: Dev): HTMLElement & { refresh: () => void } {
   armor.addEventListener('input', () => (armorValue.textContent = armor.value));
   const weapon = h('select', { class: 'dev-select', 'aria-label': 'Weapon' }, ...WEAPON_IDS.map((id) => h('option', { value: id }, WEAPONS[id].name)));
 
-  const SCARE_NAMES: Record<JumpscareStyle, string> = { chicken: 'Demon chicken', ghost: 'Ghost', glitch: 'Glitch', flash: 'White flash' };
+  const SCARE_NAMES: Record<JumpscareStyle, string> = { chicken: 'Demon chicken', ghost: 'Ghost', glitch: 'Glitch', flash: 'White flash', funnyChiken: 'funnyChiken' };
   const scare = h('select', { class: 'dev-select', 'aria-label': 'Jumpscare' }, h('option', { value: 'random' }, 'Random'), ...JUMPSCARE_STYLES.map((id) => h('option', { value: id }, SCARE_NAMES[id])));
   const scareStyle = (): JumpscareStyle => (scare.value === 'random' ? JUMPSCARE_STYLES[Math.floor(Math.random() * JUMPSCARE_STYLES.length)]! : (scare.value as JumpscareStyle));
 

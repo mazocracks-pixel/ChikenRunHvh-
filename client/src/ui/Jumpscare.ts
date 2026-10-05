@@ -59,6 +59,44 @@ const GHOST = `
   <ellipse class="js-mouth" cx="200" cy="320" rx="40" ry="70" fill="#030405"/>
 </svg>`;
 
+/**
+ * funnyChiken: a chicken with a chalk-white face, messy black hair, wide staring eyes ringed in
+ * black and a huge red grin carved from cheek to cheek. It tilts its head and giggles.
+ */
+const FUNNY = `
+<svg viewBox="0 85 400 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <radialGradient id="js-pale" cx="48%" cy="42%" r="60%">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.65" stop-color="#e9edf2"/><stop offset="1" stop-color="#9aa3ae"/>
+    </radialGradient>
+    <radialGradient id="js-ring" cx="50%" cy="50%" r="50%">
+      <stop offset="0.35" stop-color="#000"/><stop offset="0.7" stop-color="#1a1418" stop-opacity="0.85"/><stop offset="1" stop-color="#3a2a33" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="js-cheek" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#b03048" stop-opacity="0.35"/><stop offset="1" stop-color="#b03048" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M200 8 C90 4 28 80 30 190 C32 300 40 400 70 470 L120 470 C96 330 100 250 112 190 C130 120 160 96 200 92 C240 96 270 120 288 190 C300 250 304 330 280 470 L330 470 C360 400 368 300 370 190 C372 80 310 4 200 8 Z" fill="#0b0a0d"/>
+  <g class="js-tilt">
+    <ellipse cx="200" cy="230" rx="140" ry="175" fill="url(#js-pale)"/>
+    <path d="M62 170 C70 60 140 36 200 40 C260 36 330 60 338 170 C305 120 272 116 252 136 C238 104 214 100 200 122 C186 100 160 104 146 136 C126 116 94 120 62 170 Z" fill="#0b0a0d"/>
+    <path d="M168 48 C160 20 186 16 190 40 C194 14 222 14 220 40 C230 16 256 24 244 52 Z" fill="#b3121a"/>
+    <circle cx="138" cy="200" r="50" fill="url(#js-ring)"/><circle cx="262" cy="200" r="50" fill="url(#js-ring)"/>
+    <circle cx="138" cy="200" r="23" fill="#fbfbfb"/><circle cx="262" cy="200" r="23" fill="#fbfbfb"/>
+    <circle class="js-pupil" cx="138" cy="200" r="6" fill="#050505"/><circle class="js-pupil" cx="262" cy="200" r="6" fill="#050505"/>
+    <ellipse cx="96" cy="270" rx="34" ry="22" fill="url(#js-cheek)"/><ellipse cx="304" cy="270" rx="34" ry="22" fill="url(#js-cheek)"/>
+    <path d="M188 248 L200 238 L212 248 L200 258 Z" fill="#e0901e"/>
+    <g class="js-grin">
+      <path d="M108 300 C92 282 76 258 64 232 M292 300 C308 282 324 258 336 232" stroke="#8a0a18" stroke-width="7" stroke-linecap="round" fill="none"/>
+      <path d="M106 300 C150 322 250 322 294 300 C288 362 252 398 200 400 C148 398 112 362 106 300 Z" fill="#4a000c" stroke="#a3122a" stroke-width="9" stroke-linejoin="round"/>
+      <path d="M118 308 C160 328 240 328 282 308 L276 326 C240 344 160 344 124 326 Z" fill="#f4eee0"/>
+      <path d="M150 330 L150 342 M175 334 L175 346 M200 335 L200 347 M225 334 L225 346 M250 330 L250 342" stroke="#b9ad96" stroke-width="2"/>
+      <ellipse cx="200" cy="376" rx="52" ry="18" fill="#c0384a"/>
+      <path d="M132 360 Q128 384 134 396 M268 360 Q274 380 268 392" stroke="#7a0010" stroke-width="5" stroke-linecap="round" fill="none"/>
+    </g>
+  </g>
+</svg>`;
+
 interface Plan {
   /** How long it stays on screen. */
   ms: number;
@@ -75,6 +113,7 @@ const PLANS: Record<JumpscareStyle, Plan> = {
   ghost: { ms: 2300, sounds: [['scareHit', 0, 1.4], ['wail', 0, 1.6], ['heartbeat', 1450, 1.3]], blood: true, shake: 600 },
   glitch: { ms: 2100, sounds: [['scareHit', 0, 1.2], ['static', 0, 1.6], ['heartbeat', 1350, 1.3]], blood: false, shake: 900 },
   flash: { ms: 2600, sounds: [['flashbang', 0, 1.4], ['ring', 0, 1]], blood: false, shake: 250 },
+  funnyChiken: { ms: 2500, sounds: [['scareHit', 0, 1.4], ['giggle', 80, 1.6], ['heartbeat', 1600, 1.3]], blood: true, shake: 650 },
 };
 
 let noise: string | null = null;
@@ -173,7 +212,7 @@ export function showJumpscare(style: JumpscareStyle, audio: AudioEngine): void {
 
   if (style !== 'flash') {
     if (style === 'glitch') el.style.setProperty('--js-noise', `url(${noiseTile()})`);
-    const face = layer('jumpscare-face', style === 'ghost' ? GHOST : CHICKEN);
+    const face = layer('jumpscare-face', style === 'ghost' ? GHOST : style === 'funnyChiken' ? FUNNY : CHICKEN);
     el.append(face);
     if (style === 'glitch') {
       // Two offset copies tinted red and cyan: the picture tearing apart.

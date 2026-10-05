@@ -38,7 +38,8 @@ export type SoundName =
   | 'scareHit'
   | 'glassCrack'
   | 'wail'
-  | 'heartbeat';
+  | 'heartbeat'
+  | 'giggle';
 
 const VOLUME_KEY = 'chikengun:volume';
 /** Beyond this distance a sound is silent. */
@@ -518,6 +519,15 @@ export class AudioEngine {
         this.tone(ctx, out, t, { dur: 1.6, type: 'triangle', freq: 1480, to: 420, gain: 0.35 });
         this.squawk(ctx, out, t, { delay: 0, freq: 900, peak: 1600, end: 400, dur: 1.4, gain: 0.45 });
         this.burst(ctx, out, t, { dur: 1.7, type: 'bandpass', freq: 1800, to: 500, q: 3, gain: 0.8 });
+        break;
+      case 'giggle':
+        // funnyChiken: a creepy rising-and-falling "hee hee hee" giggle, then a long breathy laugh.
+        for (let i = 0; i < 7; i++) {
+          const f = 980 + (i % 2) * 160 - i * 40;
+          this.squawk(ctx, out, t, { delay: i * 0.13, freq: f, peak: f * 1.35, end: f * 0.8, dur: 0.11, gain: 0.55 });
+        }
+        this.squawk(ctx, out, t, { delay: 0.95, freq: 900, peak: 1400, end: 380, dur: 0.75, gain: 0.5 });
+        this.burst(ctx, out, t, { dur: 0.8, type: 'bandpass', freq: 1600, to: 600, q: 2, gain: 0.5, delay: 0.95 });
         break;
       case 'heartbeat':
         // Lub-dub, twice.
