@@ -70,27 +70,31 @@ export class RoomManager {
 
   /** The busiest public room of this mode that still has space, or a brand new one. */
   /** The busiest open public room for a mode (and map, if one is asked for), or a new one. */
-  quickPlay(mode: ModeId, map?: MapId, partySize = 1): GameRoom | null {
+  quickPlay(mode: ModeId, map?: MapId, partySize = 1, withoutBots = false): GameRoom | null {
+    // Modes that never have bots (ranked, Squad Up) are always "without bots".
+    const noBots = withoutBots || MODES[mode].noBots === true || MODES[mode].ranked === true;
     let best: GameRoom | null = null;
     for (const room of this.rooms.values()) {
       if (room.info.private || room.info.mode !== mode || room.isFull || (map && room.info.map !== map)) continue;
+      // "With bots" and "Without bots" players are kept in separate rooms.
+      if ((room.info.noBots === true) !== noBots) continue;
       // A party only goes where all of them fit (on one team).
       if (partySize > 1 && room.teamForParty(partySize) === null) continue;
       if (!best || room.humanCount > best.humanCount) best = room;
     }
     if (best) return best;
     const maps = MODES[mode].maps;
-    return this.create(mode, map ?? maps[Math.floor(Math.random() * maps.length)]!, false, undefined, 0, true);
+    return this.create(mode, map ?? maps[Math.floor(Math.random() * maps.length)]!, false, undefined, 0, !noBots, noBots);
   }
 
-  create(mode: ModeId, map: MapId, isPrivate: boolean, hostName?: string, bots = 0, fillBots = false): GameRoom | null {
+  create(mode: ModeId, map: MapId, isPrivate: boolean, hostName?: string, bots = 0, fillBots = false, noBots = false): GameRoom | null {
     if (this.rooms.size >= MAX_ROOMS) return null;
     let id = randomString(8);
     while (this.rooms.has(id)) id = randomString(8);
     let code = randomRoomCode();
     while (this.byCode(code)) code = randomRoomCode();
     const name = isPrivate && hostName ? `${hostName}'s room` : `${MODES[mode].name} #${this.publicCounter++}`;
-    const room = createRoom(this.io, { id, code, name, mode, map, private: isPrivate, bots, fillBots, antiCheat: this.antiCheat }, this.hooks);
+    const room = createRoom(this.io, { id, code, name, mode, map, private: isPrivate, bots, fillBots, noBots, antiCheat: this.antiCheat }, this.hooks);
     this.rooms.set(id, room);
     return room;
   }

@@ -172,7 +172,8 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
     const mode = isRecord(req) && isModeId(req.mode) ? req.mode : 'ffa';
     const map = isRecord(req) && isMapId(req.map) && MODES[mode].maps.includes(req.map) ? req.map : undefined;
     // With a party, the leader brings everyone (to a room with space for all of them).
-    ack(social.joinWithParty(socket, (size) => rooms.quickPlay(mode, map, size)));
+    const withoutBots = isRecord(req) && req.noBots === true;
+    ack(social.joinWithParty(socket, (size) => rooms.quickPlay(mode, map, size, withoutBots)));
   });
 
   socket.on('createRoom', (req, ack) => {

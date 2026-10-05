@@ -51,7 +51,7 @@ export class App {
     this.game = new Game(byId<HTMLCanvasElement>('game'), byId('hud-layer'));
 
     this.menu = new MainMenu(ui, {
-      quickPlay: (mode, map) => this.enter(() => this.net.quickPlay(mode, map)),
+      quickPlay: (mode, map, noBots) => this.enter(() => this.net.quickPlay(mode, map, noBots)),
       browse: () => openServerBrowser(() => this.net.listRooms(), (roomId) => this.enter(() => this.net.joinRoom({ roomId }), true)),
       createRoom: () => openCreateRoom((req: CreateRoomRequest) => this.enter(() => this.net.createRoom(req), true)),
       joinCode: () => openJoinCode((code) => this.enter(() => this.net.joinRoom({ code }), true)),
@@ -350,7 +350,7 @@ export class App {
       this.menu.setStatus('Reconnected, rejoining…');
       void this.net
         .joinRoom({ roomId: id })
-        .then((res) => (res.ok ? res : this.net.quickPlay(mode)))
+        .then((res) => (res.ok ? res : this.net.quickPlay(mode, undefined, this.menu.noBots)))
         .then((res) => (res.ok ? this.startGame(res) : this.showMenu(res.error, true)))
         .catch(() => this.showMenu('Could not rejoin.', true));
     });

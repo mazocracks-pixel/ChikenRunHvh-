@@ -267,6 +267,8 @@ export interface RoomInfo {
   map: MapId;
   maxPlayers: number;
   private: boolean;
+  /** Real players only: the match waits for enough people instead of adding bots. */
+  noBots?: boolean;
 }
 
 export interface RoomSummary {
@@ -524,7 +526,8 @@ export interface BuildRequest {
 export interface ClientToServerEvents {
   listRooms: (ack: (rooms: RoomSummary[]) => void) => void;
   /** `map` picks a map (one the mode plays on); otherwise any. */
-  quickPlay: (req: { mode: ModeId; map?: MapId }, ack: (res: JoinResponse) => void) => void;
+  /** `noBots`: join (or open) a room with no bots, which waits for real players. */
+  quickPlay: (req: { mode: ModeId; map?: MapId; noBots?: boolean }, ack: (res: JoinResponse) => void) => void;
   createRoom: (req: CreateRoomRequest, ack: (res: JoinResponse) => void) => void;
   joinRoom: (req: JoinRoomRequest, ack: (res: JoinResponse) => void) => void;
   leaveRoom: () => void;

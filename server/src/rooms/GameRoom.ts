@@ -104,6 +104,8 @@ export interface RoomOptions {
   bots?: number;
   /** Public quick-play rooms top themselves up with bots while few humans are around. */
   fillBots?: boolean;
+  /** "Without bots": no bots at all; the match waits for enough real players. */
+  noBots?: boolean;
   /** Ranked rooms: what the anti-cheat does about cheaters (default: removes them). */
   antiCheat?: AntiCheatMode;
 }
@@ -182,6 +184,8 @@ export class GameRoom {
   protected readonly isSoft: (id: number) => boolean;
   private readonly botTarget: number | null;
   private readonly fillBots: boolean;
+  /** Never any bots here (ranked, Squad Up, or a room opened "without bots"). */
+  private readonly noBots: boolean;
   private nextBotCheck = 0;
   private readonly bySocket = new Map<string, ServerPlayer>();
   private nextPid = 1;
@@ -210,6 +214,7 @@ export class GameRoom {
       map: options.map,
       maxPlayers: this.mode.maxPlayers,
       private: options.private,
+      ...(options.noBots === true || this.mode.noBots === true || this.mode.ranked === true ? { noBots: true } : {}),
     };
     this.projectiles = new ProjectileSystem(this);
     this.loot = new LootSystem(this);
@@ -217,6 +222,7 @@ export class GameRoom {
     this.bots = new BotSystem(this);
     this.botTarget = options.bots && options.bots > 0 ? Math.min(options.bots, this.mode.maxPlayers - 1) : null;
     this.fillBots = options.fillBots === true;
+    this.noBots = options.noBots === true || this.mode.noBots === true || this.mode.ranked === true;
     this.antiCheat = this.mode.ranked && options.antiCheat !== 'off' ? new AntiCheat(this, options.antiCheat ?? 'enforce') : null;
     this.match = {
       phase: this.mode.building ? 'playing' : 'waiting',
@@ -1276,8 +1282,8 @@ export class GameRoom {
     if (now < this.nextBotCheck || this.closed || this.humanCount === 0) return;
     this.nextBotCheck = now + 1000;
     let wanted = 0;
-    // Ranked and real-players-only modes: no bots at all.
-    if (this.mode.ranked || this.mode.noBots) wanted = 0;
+    // Ranked, real-players-only modes and "without bots" rooms: no bots at all.
+    if (this.noBots) wanted = 0;
     else if (this.botTarget !== null) wanted = this.botTarget;
     else if (this.fillBots && !this.mode.building) wanted = Math.max(0, (this.mode.fillBots ?? (this.mode.maxPlayers === 2 ? 2 : 4)) - this.humanCount);
     wanted = Math.min(wanted, this.mode.maxPlayers - this.humanCount);

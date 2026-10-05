@@ -38,8 +38,8 @@ export class Network {
     return this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('listRooms');
   }
 
-  quickPlay(mode: ModeId, map?: MapId): Promise<JoinResponse> {
-    return this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('quickPlay', map ? { mode, map } : { mode });
+  quickPlay(mode: ModeId, map?: MapId, noBots = false): Promise<JoinResponse> {
+    return this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('quickPlay', { mode, ...(map ? { map } : {}), ...(noBots ? { noBots: true } : {}) });
   }
 
   createRoom(req: CreateRoomRequest): Promise<JoinResponse> {

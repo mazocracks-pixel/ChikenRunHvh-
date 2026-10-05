@@ -3,7 +3,8 @@ import { clear, h, storage } from './dom';
 
 export interface MenuActions {
   /** `map` undefined: any map. */
-  quickPlay(mode: ModeId, map?: MapId): void;
+  /** `noBots`: the "Without bots" choice (wait for real players). */
+  quickPlay(mode: ModeId, map?: MapId, noBots?: boolean): void;
   browse(): void;
   createRoom(): void;
   joinCode(): void;
@@ -27,6 +28,7 @@ const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
 
 const TAB_KEY = 'chikengun:menu-tab';
+const BOTS_KEY = 'chikengun:menu-no-bots';
 const mapKey = (mode: ModeId) => `chikengun:map:${mode}`;
 
 /** "5 vs 5", "1 vs 1", "Free for all · 12"… */
@@ -55,6 +57,14 @@ export class MainMenu {
   private readonly playButtons: HTMLButtonElement[] = [];
   private readonly friendsBadge = h('span', { class: 'badge', hidden: true });
   private readonly partyStrip = h('div', { class: 'party-strip', hidden: true });
+  /** The lobby choice: play with bots (default) or wait for real players. */
+  private withoutBots = storage.get(BOTS_KEY) === '1';
+  private readonly botsNote = h('p', { class: 'bots-note' });
+  private readonly botsButtons = new Map<boolean, HTMLButtonElement>();
+
+  get noBots(): boolean {
+    return this.withoutBots;
+  }
 
   constructor(container: HTMLElement, actions: MenuActions) {
     const button = (label: string, onClick: () => void, cls = '') => {
@@ -84,7 +94,7 @@ export class MainMenu {
         h('h3', null, m.name),
         h('p', null, m.description),
         m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, `🗺️ ${MAPS[m.maps[0]!].name}`),
-        this.playButton(button('Play', () => actions.quickPlay(id, isMapId(picker.value) ? picker.value : undefined), 'play')),
+        this.playButton(button('Play', () => actions.quickPlay(id, isMapId(picker.value) ? picker.value : undefined, this.withoutBots), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
       card.style.order = String(CATEGORIES.find((c) => c.modes.includes(id))?.modes.indexOf(id) ?? 0);
@@ -105,6 +115,12 @@ export class MainMenu {
         h('div', { class: 'profile-chip' }, this.rank, h('span', { class: 'who' }, this.name, this.record, this.xpBar), this.coins, this.accountBtn),
       ),
       this.partyStrip,
+      h(
+        'div',
+        { class: 'bots-choice' },
+        h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, '🤖 With bots'), this.botsOption(true, '👤 Without bots')),
+        this.botsNote,
+      ),
       this.tabs,
       modes,
       h(
@@ -123,11 +139,34 @@ export class MainMenu {
       h('footer', { class: 'legal-links' }, h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy')),
     );
     container.append(this.root);
+    this.refreshBots();
     const saved = storage.get(TAB_KEY);
     this.showTab(CATEGORIES.some((c) => c.id === saved) ? saved! : CATEGORIES[0]!.id);
   }
 
-private playButton(b: HTMLButtonElement): HTMLButtonElement {
+  private botsOption(withoutBots: boolean, label: string): HTMLButtonElement {
+    const b = h('button', { type: 'button', class: 'bots-opt', role: 'radio', onclick: () => this.setBots(withoutBots) }, label);
+    this.botsButtons.set(withoutBots, b);
+    return b;
+  }
+
+  private setBots(withoutBots: boolean): void {
+    this.withoutBots = withoutBots;
+    storage.set(BOTS_KEY, withoutBots ? '1' : '0');
+    this.refreshBots();
+  }
+
+  private refreshBots(): void {
+    for (const [value, b] of this.botsButtons) {
+      b.classList.toggle('active', value === this.withoutBots);
+      b.setAttribute('aria-checked', String(value === this.withoutBots));
+    }
+    this.botsNote.textContent = this.withoutBots
+      ? 'Real players only: the match starts when enough people join (2 for most modes, 4 for Squad Up and FaceChiken).'
+      : 'Bots fill the empty spots, so a match starts right away.';
+  }
+
+  private playButton(b: HTMLButtonElement): HTMLButtonElement {
     this.playButtons.push(b);
     return b;
   }

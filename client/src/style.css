@@ -3183,3 +3183,42 @@ code {
 .chat-input.team {
   border-color: #6fd36f;
 }
+
+/* ---------------------------------------------------------------- lobby: with / without bots */
+.bots-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0 auto 12px;
+  max-width: 560px;
+}
+.bots-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(16, 20, 28, 0.75);
+  border: 1px solid var(--panel-border);
+}
+.bots-opt {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 18px;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bots-opt.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.bots-note {
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: rgba(16, 20, 28, 0.78);
+  font-size: 0.8rem;
+  color: var(--text);
+  text-align: center;
+}
