@@ -647,6 +647,18 @@ export interface Profile {
   developer: boolean;
 }
 
+/** One finished match in a player's history (Account > Last 10 matches). */
+export interface MatchHistoryRow {
+  mode: ModeId;
+  kills: number;
+  deaths: number;
+  /** Kills that were headshots. */
+  headshots: number;
+  won: boolean;
+  /** When the match ended (ms since 1970). */
+  at: number;
+}
+
 export interface LeaderboardRow {
   name: string;
   kills: number;

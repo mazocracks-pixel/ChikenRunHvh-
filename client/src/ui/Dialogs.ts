@@ -100,6 +100,52 @@ export function openJoinCode(join: (code: string) => void): void {
 }
 
 /** Register to keep progress, log in on another device, or log out. */
+/** "2h ago", "3d ago" for the match history. */
+function ago(at: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / 1440)}d ago`;
+}
+
+/** Account > Last 10 matches: result, mode, K/D and headshot share of the kills. */
+function historyBox(api: Api): HTMLElement {
+  const box = h('div', { class: 'history' }, h('h3', null, 'Last 10 matches'), h('p', { class: 'muted' }, 'Loading…'));
+  api
+    .history()
+    .then((rows) => {
+      clear(box);
+      box.append(h('h3', null, 'Last 10 matches'));
+      if (rows.length === 0) {
+        box.append(h('p', { class: 'muted' }, 'No matches yet. Finish one and it shows up here.'));
+        return;
+      }
+      const table = h('div', { class: 'history-table', role: 'table' });
+      table.append(h('div', { class: 'history-row head', role: 'row' }, h('span', null, ''), h('span', null, 'Mode'), h('span', null, 'K / D'), h('span', null, 'HS %'), h('span', null, 'When')));
+      for (const r of rows) {
+        const hs = r.kills > 0 ? `${Math.round((r.headshots / r.kills) * 100)}%` : '–';
+        table.append(
+          h(
+            'div',
+            { class: `history-row ${r.won ? 'won' : 'lost'}`, role: 'row' },
+            h('b', null, r.won ? 'WIN' : 'LOSS'),
+            h('span', null, MODES[r.mode]?.name ?? r.mode),
+            h('span', null, `${r.kills} / ${r.deaths}`),
+            h('span', null, hs),
+            h('span', { class: 'muted' }, ago(r.at)),
+          ),
+        );
+      }
+      box.append(table);
+    })
+    .catch(() => {
+      clear(box);
+      box.append(h('h3', null, 'Last 10 matches'), h('p', { class: 'muted' }, 'Could not load your matches.'));
+    });
+  return box;
+}
+
 export function openAccount(api: Api, onChanged: () => void): void {
   const content = h('div');
   const modal = openModal('Account', content);
@@ -122,6 +168,7 @@ export function openAccount(api: Api, onChanged: () => void): void {
       content.append(
         h('p', null, 'Signed in as ', h('b', null, p.username)),
         stats,
+        historyBox(api),
         h(
           'button',
           {
@@ -159,7 +206,7 @@ export function openAccount(api: Api, onChanged: () => void): void {
       );
       return;
     }
-    content.append(h('p', { class: 'muted' }, 'You are playing as a guest. Register to keep your coins and items, and to log in on other devices.'), stats);
+    content.append(h('p', { class: 'muted' }, 'You are playing as a guest. Register to keep your coins and items, and to log in on other devices.'), stats, historyBox(api));
     content.append(credentialsForm('Register (keeps your progress)', 'Register', (u, pw) => api.register(u, pw)));
     content.append(credentialsForm('Already have an account?', 'Log in', (u, pw) => api.login(u, pw)));
     content.append(deleteForm(false));

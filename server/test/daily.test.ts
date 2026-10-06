@@ -56,3 +56,27 @@ describe('daily challenges', () => {
     }
   });
 });
+
+describe('match history', () => {
+  it('keeps the newest matches with kills, deaths and headshots, newest first', () => {
+    const db = new GameDatabase(':memory:');
+    try {
+      const me = db.createUser('History', 0);
+      const other = db.createUser('Other', 0);
+      for (let i = 1; i <= 35; i++) db.recordMatch([{ userId: me, kills: i, headshots: i % 2 ? 1 : 0, deaths: 2, won: i % 3 === 0, coins: 0, xp: 0 }], i % 2 ? 'ffa' : 'tdm', T0 + i * 1000);
+      db.recordMatch([{ userId: other, kills: 4, deaths: 1, won: true, coins: 0, xp: 0 }], 'duel', T0);
+      const last = db.matchHistory(me, 10);
+      assert.equal(last.length, 10);
+      assert.deepEqual(last[0], { mode: 'ffa', kills: 35, deaths: 2, headshots: 1, won: false, at: T0 + 35_000 });
+      assert.equal(last[1]!.kills, 34);
+      assert.equal(last[9]!.kills, 26);
+      assert.equal(db.matchHistory(me, 100).length, 30, 'only the newest 30 are kept');
+      assert.equal(db.matchHistory(other, 10).length, 1, 'each player has their own');
+      // Headshots can never exceed kills.
+      db.recordMatch([{ userId: me, kills: 2, headshots: 9, deaths: 0, won: false, coins: 0, xp: 0 }], 'ffa', T0 + 99_000);
+      assert.equal(db.matchHistory(me, 1)[0]!.headshots, 2);
+    } finally {
+      db.close();
+    }
+  });
+});

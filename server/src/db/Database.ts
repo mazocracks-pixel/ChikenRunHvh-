@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { dailyChallenges, dayKey, msUntilNextDay, type DailyStatus } from '@game/shared';
+import { dailyChallenges, dayKey, msUntilNextDay, type DailyStatus, type MatchHistoryRow } from '@game/shared';
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_LOADOUT,
@@ -23,6 +23,8 @@ export type { LeaderboardRow, Profile };
 export interface MatchRecord {
   userId: number;
   kills: number;
+  /** Kills that were headshots. */
+  headshots?: number;
   deaths: number;
   won: boolean;
   coins: number;
@@ -59,6 +61,9 @@ interface UserRow {
 export type BuyResult = 'ok' | 'owned' | 'insufficient' | 'missing';
 
 /** Each entry upgrades the schema by one version (tracked in PRAGMA user_version). Only append. */
+/** Matches kept per player for the history page. */
+const HISTORY_KEEP = 30;
+
 const MIGRATIONS = [
   `CREATE TABLE users (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,6 +155,18 @@ const MIGRATIONS = [
      rewarded INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (user_id, day)
    );`,
+  // v10: the last matches of each player (the Account page shows ten).
+  `CREATE TABLE match_history (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     mode TEXT NOT NULL,
+     kills INTEGER NOT NULL,
+     deaths INTEGER NOT NULL,
+     headshots INTEGER NOT NULL,
+     won INTEGER NOT NULL,
+     created_at INTEGER NOT NULL
+   );
+   CREATE INDEX match_history_user ON match_history(user_id, id);`,
 ];
 
 export type FriendLink = 'none' | 'sent' | 'received' | 'friends';
@@ -434,6 +451,7 @@ export class GameDatabase {
         const xp = r.xp === 0 ? row.xp : applyRankPoints(row.xp, r.xp);
         const levelCoins = Math.max(0, levelFor(xp) - levelFor(row.xp)) * RANKED.levelCoins;
         const dailyCoins = this.addDailyProgress(r.userId, r.kills, r.won ? 1 : 0, now);
+        this.addHistory(r, mode, now);
         const coins = row.coins + r.coins + levelCoins + dailyCoins;
         update.run(coins, xp, r.kills, r.deaths, r.won ? 1 : 0, r.userId);
         if (mode) perMode.run(r.userId, mode, r.kills, r.deaths, r.won ? 1 : 0);
@@ -461,6 +479,18 @@ export class GameDatabase {
     });
     if (rewarded !== row.rewarded) this.db.prepare('UPDATE daily_progress SET rewarded = ? WHERE user_id = ? AND day = ?').run(rewarded, userId, day);
     return coins;
+  }
+
+  /** Remembers a finished match for the Account page (the newest 30 per player). */
+  private addHistory(r: MatchRecord, mode: ModeId | null, now: number): void {
+    this.db.prepare('INSERT INTO match_history (user_id, mode, kills, deaths, headshots, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(r.userId, mode ?? 'ffa', r.kills, r.deaths, Math.min(r.headshots ?? 0, r.kills), r.won ? 1 : 0, now);
+    this.db.prepare('DELETE FROM match_history WHERE user_id = ? AND id NOT IN (SELECT id FROM match_history WHERE user_id = ? ORDER BY id DESC LIMIT ?)').run(r.userId, r.userId, HISTORY_KEEP);
+  }
+
+  /** A player's latest finished matches, newest first. */
+  matchHistory(userId: number, limit = 10): MatchHistoryRow[] {
+    const rows = this.db.prepare('SELECT mode, kills, deaths, headshots, won, created_at FROM match_history WHERE user_id = ? ORDER BY id DESC LIMIT ?').all(userId, limit) as { mode: ModeId; kills: number; deaths: number; headshots: number; won: number; created_at: number }[];
+    return rows.map((r) => ({ mode: r.mode, kills: r.kills, deaths: r.deaths, headshots: r.headshots, won: r.won === 1, at: r.created_at }));
   }
 
   /** Today's challenges and how far along this player is. */

@@ -85,6 +85,8 @@ export class ServerPlayer {
   eggs = 0;
   smokes = 0;
   flashes = 0;
+  /** Kills this match that were headshots (for the match history). */
+  headshotKills = 0;
   /** Flashbanged until then (performance.now ms): bots can't see, kills count as "blind". */
   blindUntil = 0;
   lastThrowSeq = 0;

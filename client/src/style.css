@@ -3310,3 +3310,36 @@ code {
 .daily-row.done .daily-bar i {
   background: var(--good);
 }
+
+/* ---------------------------------------------------------------- account: match history */
+.history h3 {
+  margin: 14px 0 6px;
+}
+.history-table {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.85rem;
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 64px 52px 64px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.history-row.head {
+  background: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.history-row.won b {
+  color: var(--good);
+}
+.history-row.lost b {
+  color: var(--danger);
+}

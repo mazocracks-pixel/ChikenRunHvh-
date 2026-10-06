@@ -1,4 +1,4 @@
-import type { Appearance, DailyStatus, LeaderboardRow, ModeId, Profile, WeaponId } from '@game/shared';
+import type { Appearance, DailyStatus, LeaderboardRow, MatchHistoryRow, ModeId, Profile, WeaponId } from '@game/shared';
 import { storage } from '../ui/dom';
 
 /** Where older versions kept the session token. Moved into an HttpOnly cookie on first load. */
@@ -83,6 +83,10 @@ export class Api {
 
   async refresh(): Promise<Profile> {
     return this.setProfile((await this.request<{ profile: Profile }>('GET', '/api/me')).profile);
+  }
+
+  async history(): Promise<MatchHistoryRow[]> {
+    return (await this.request<{ matches: MatchHistoryRow[] }>('GET', '/api/history')).matches;
   }
 
   async daily(): Promise<DailyStatus> {

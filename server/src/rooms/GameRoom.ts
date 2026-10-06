@@ -139,6 +139,8 @@ export interface MatchResult {
   userId: number;
   pid: number;
   kills: number;
+  /** Kills that were headshots. */
+  headshots?: number;
   deaths: number;
   won: boolean;
   coins: number;
@@ -933,6 +935,7 @@ export class GameRoom {
       victim.info.deaths++;
       if (attacker && attacker !== victim) {
         attacker.info.kills++;
+        if (headshot) attacker.headshotKills++;
         attacker.info.score += KILL_SCORE + (headshot ? HEADSHOT_BONUS : 0);
         if (this.mode.teams && this.mode.teamKills && attacker.info.team !== 0) this.match.teamScores[attacker.info.team - 1]++;
       } else {
@@ -1113,6 +1116,7 @@ export class GameRoom {
     }
     for (const p of this.players.values()) {
       p.info.kills = 0;
+      p.headshotKills = 0;
       p.info.deaths = 0;
       p.info.score = 0;
       this.spawn(p, now, true);
@@ -1187,7 +1191,7 @@ export class GameRoom {
       if (p.userId === null) continue;
       const won = this.mode.teams ? p.info.team === this.match.winnerTeam && p.info.team !== 0 : p.pid === this.match.winnerPid;
       const coins = Math.min(COINS.max, COINS.perMatch + COINS.perKill * p.info.kills + (won ? COINS.win : 0));
-      results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won, coins, xp: this.mode.ranked ? rankedPoints(p.info.kills, won) : 0 });
+      results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, headshots: p.headshotKills, deaths: p.info.deaths, won, coins, xp: this.mode.ranked ? rankedPoints(p.info.kills, won) : 0 });
     }
     if (results.length === 0 || !this.hooks.onMatchEnd) return;
     const totals = this.hooks.onMatchEnd(this, results);
@@ -1211,7 +1215,7 @@ export class GameRoom {
    */
   protected recordLeaver(p: ServerPlayer): void {
     if (!this.mode.ranked || p.userId === null || !this.hooks.onMatchEnd) return;
-    this.hooks.onMatchEnd(this, [{ userId: p.userId, pid: p.pid, kills: p.info.kills, deaths: p.info.deaths, won: false, coins: 0, xp: RANKED.leave }]);
+    this.hooks.onMatchEnd(this, [{ userId: p.userId, pid: p.pid, kills: p.info.kills, headshots: p.headshotKills, deaths: p.info.deaths, won: false, coins: 0, xp: RANKED.leave }]);
   }
 
   emitScores(): void {
