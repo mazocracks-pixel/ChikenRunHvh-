@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { MAPS, makeRay, raycastWorld, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
+import { LOBBY_LAP, MAPS, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
 import type { Network } from '../net/Network';
 import { watchSettings, type Quality } from '../settings';
 import { Hud } from '../ui/Hud';
@@ -25,15 +25,13 @@ const DEFAULT_LOOK_KEY = JSON.stringify(defaultLook());
 
 /** The title screen: your chicken runs laps on this map (the Courtyard: no game mode uses it). */
 const SHOWCASE_MAP: MapId = 'lobby';
-/** The lap: the biggest radius that fits (metres), and running speed in m/s. */
-const SHOWCASE_RADIUS = 6.5;
+/** The chicken's running speed (m/s), and how far ahead of it the camera runs (looking back at it). */
 const SHOWCASE_SPEED = 6.5;
-/** The camera is this close to the chicken (it rides inside the lap), at this height. */
-const SHOWCASE_DISTANCE = 3;
+const SHOWCASE_LEAD = 3.2;
 const SHOWCASE_HEIGHT = 0.85;
-/** How far the chicken turns from facing the camera towards the way it runs (radians). */
+/** How far the chicken is turned from looking straight at the camera (radians), for a three-quarter view. */
 const SHOWCASE_TURN = 0.35;
-/** The chicken runs on the right of the screen (negative: left; 0 = centre, 1 = the edge). */
+/** The chicken is on the right of the screen (negative: left; 0 = centre, 1 = the edge). */
 const SHOWCASE_SHIFT = -0.52;
 
 interface QualityPreset {
@@ -102,11 +100,8 @@ export class Game {
   private showcaseAppearance: Appearance | null = null;
   private showcase: {
     chicken: Chicken;
-    /** The middle of the lap, its radius, and how far round the chicken is (radians). */
-    x: number;
-    z: number;
-    radius: number;
-    lap: number;
+    /** How far round the oval the chicken is (radians), and a running clock. */
+    phi: number;
     clock: number;
   } | null = null;
   private fpsFrames = 0;
@@ -226,28 +221,6 @@ export class Game {
     this.showcase = null;
   }
 
-  /** The roomiest spot on the map: the middle of a lap, and how big a lap fits round it. */
-  private lapCentre(): { x: number; z: number; radius: number } {
-    const half = this.world.map.halfSize;
-    let best = { room: 0, dist: Infinity, x: 0, z: 0 };
-    for (let x = -half + 4; x <= half - 4; x += 3) {
-      for (let z = -half + 4; z <= half - 4; z += 3) {
-        // Room = how far you can go before a wall, a box or the edge of the map.
-        let room = Math.min(SHOWCASE_RADIUS + 2, half - Math.abs(x), half - Math.abs(z));
-        for (let i = 0; i < 16 && room >= best.room; i++) {
-          const a = (i / 16) * Math.PI * 2;
-          const hit = raycastWorld(makeRay(new THREE.Vector3(x, 0.5, z), new THREE.Vector3(Math.sin(a), 0, Math.cos(a))), this.world.collision, SHOWCASE_RADIUS + 2);
-          if (hit) room = Math.min(room, hit.t);
-        }
-        // The roomiest wins; among equals, the one nearest the middle of the map.
-        const dist = Math.hypot(x, z);
-        if (room > best.room + 1e-6 || (Math.abs(room - best.room) <= 1e-6 && dist < best.dist)) best = { room, dist, x, z };
-      }
-    }
-    // The lap keeps a little clear of the walls.
-    return { x: best.x, z: best.z, radius: Math.max(3, Math.min(SHOWCASE_RADIUS, best.room - 1.3)) };
-  }
-
   private updateShowcase(dt: number): void {
     if (!this.showcase) {
       const chicken = new Chicken(this.showcaseLook(this.showcaseAppearance));
@@ -255,32 +228,36 @@ export class Game {
       chicken.headBob = true;
       this.scene.add(chicken.root);
       this.useMap(SHOWCASE_MAP);
-      this.showcase = { chicken, ...this.lapCentre(), lap: 0, clock: 0 };
+      this.showcase = { chicken, phi: 0, clock: 0 };
     }
     const s = this.showcase;
     s.clock += dt;
-    // (Round the other way: it runs towards the right.)
-    s.lap -= (SHOWCASE_SPEED / s.radius) * dt;
 
-    // The chicken runs round a big circle, turned towards the camera (a little towards where it runs).
-    const sin = Math.sin(s.lap);
-    const cos = Math.cos(s.lap);
-    s.chicken.root.position.set(s.x + sin * s.radius, 0, s.z + cos * s.radius);
+    // The chicken runs a big oval round the house. (Metres per radian changes round the oval,
+    // so the speed stays the same on the long sides and the ends.)
+    const { x, z, a, b } = LOBBY_LAP;
+    const onOval = (phi: number) => ({ x: x + a * Math.cos(phi), z: z + b * Math.sin(phi) });
+    const metresPerRadian = (phi: number) => Math.hypot(a * Math.sin(phi), b * Math.cos(phi));
+    s.phi += (SHOWCASE_SPEED / metresPerRadian(s.phi)) * dt;
+    const at = onOval(s.phi);
+    s.chicken.root.position.set(at.x, 0, at.z);
     s.chicken.animate(dt, SHOWCASE_SPEED, true);
 
-    // The camera rides inside the lap, always SHOWCASE_DISTANCE in front of the chicken and looking
-    // out at it. Camera and target slide sideways together, so the chicken stays on the right.
+    // The camera runs ahead of it on the same oval, looking back, so the chicken runs towards the
+    // camera. Camera and target slide sideways together, so the chicken stays on the right.
+    const lead = onOval(s.phi + SHOWCASE_LEAD / metresPerRadian(s.phi));
+    const fx = at.x - lead.x;
+    const fz = at.z - lead.z;
+    const flat = Math.hypot(fx, fz) || 1;
     this.syncFov();
-    const halfWidth = SHOWCASE_DISTANCE * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
+    const halfWidth = SHOWCASE_LEAD * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
     const slide = this.camera.aspect > 1.1 ? halfWidth * SHOWCASE_SHIFT : 0;
-    const inner = s.radius - SHOWCASE_DISTANCE;
-    const rx = -cos * slide;
-    const rz = sin * slide;
-    this.camera.position.set(s.x + sin * inner + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 5) * 0.015, s.z + cos * inner + rz);
-    // Face the camera (a little towards where it runs).
-    const at = s.chicken.root.position;
+    const rx = (-fz / flat) * slide;
+    const rz = (fx / flat) * slide;
+    this.camera.position.set(lead.x + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 5) * 0.015, lead.z + rz);
+    this.camera.lookAt(at.x + rx, 0.55, at.z + rz);
+    // Face the camera, a little to one side.
     s.chicken.root.rotation.y = Math.atan2(at.x - this.camera.position.x, at.z - this.camera.position.z) + SHOWCASE_TURN;
-    this.camera.lookAt(s.chicken.root.position.x + rx, 0.55, s.chicken.root.position.z + rz);
   }
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */

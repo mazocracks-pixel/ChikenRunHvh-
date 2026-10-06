@@ -64,11 +64,11 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 - Account page shows **Last 10 matches** with K/D, headshot % and how long ago. New `match_history` table.
 
 ### 10. Title screen background
-- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) **runs laps on its own map, the Courtyard** (a sandy yard with a sandstone house, pergola, hedges, palms and crates; no game mode uses it, so it is for the title screen only), in a loop, **facing the camera**. The lap is a big circle (up to 6.5 m radius, sized to the free space) and the camera rides inside it, always looking at the chicken, so the background sweeps past.
-- The chicken stays on the right of the screen, runs the other way round the lap, and its head thrusts and sways on every step (title screen only: in matches the drawn head has to stay on the hitbox). The lap spot is the roomiest place on the map, kept away from walls and the map edge.
+- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) **runs a big oval round the house on its own map, the Courtyard**: a sandy yard with a sandstone house in the middle, a pergola, hedges, palms and crates. No game mode uses that map, so it is for the title screen only.
+- The camera runs ahead of the chicken on the same oval and looks back, so the chicken runs toward the camera and faces it (a little turned to one side). The chicken is on the right of the screen; its head thrusts and sways on every step (title screen only: in matches the drawn head has to stay on the hitbox).
+- The oval is `LOBBY_LAP` in [shared/src/maps/lobby.ts](../shared/src/maps/lobby.ts); a test checks it stays clear of every box. Change the numbers there to make the loop bigger.
 - A small 🎬 button (bottom right) hides the menu so you can look at the whole scene.
 - Code: [client/src/game/Game.ts](../client/src/game/Game.ts) (showcase), [client/src/ui/MainMenu.ts](../client/src/ui/MainMenu.ts) (the button). It stops when a match or the shop opens.
-- Earlier version (cycled through five maps) was replaced on 6 Oct, because the idea was a running chicken in a loop on one map.
 
 ### 11. Zombie Apocalypse
 - A co-op mode (up to 4 survivors) on the new **Graveyard** night map, with a merchant hut in the middle. Menu: Fun tab, 🧟.

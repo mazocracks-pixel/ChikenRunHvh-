@@ -11,6 +11,7 @@ import { TOWN } from './town';
 import { boxToAabb, type MapDef, type MapId } from './types';
 
 export * from './types';
+export { LOBBY_LAP } from './lobby';
 
 export const MAPS: Record<MapId, MapDef> = { farm: FARM, town: TOWN, sandstown: SANDSTOWN, harbor: HARBOR, frostbite: FROSTBITE, factory: FACTORY, flat: FLAT, night: NIGHT, lobby: LOBBY };
 export const MAP_IDS = Object.keys(MAPS) as MapId[];

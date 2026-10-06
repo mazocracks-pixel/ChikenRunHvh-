@@ -2,10 +2,14 @@ import { block, crate, type MapBox, type MapDef } from './types';
 import { hut } from './night';
 
 /**
- * Courtyard: the title screen's own map (no game mode uses it, so nobody can pick it). A wide
- * sandy yard with a sandstone house, a wooden pergola, green hedges and a few palms round the
- * edge, so the chicken running its lap in the middle has something nice behind it.
+ * Courtyard: the title screen's own map (no game mode uses it, so nobody can pick it). A sandstone
+ * house in the middle of a wide sandy yard, a wooden pergola, green hedges, a few palms and
+ * crates. The chicken on the title screen runs a big oval round the house (LOBBY_LAP), so the
+ * house, pergola, palms and hedges all pass behind it.
  */
+
+/** The title screen's running track: an oval round the house (centre and half-widths, in metres). */
+export const LOBBY_LAP = { x: 0, z: 0, a: 12, b: 10 } as const;
 
 const HEDGE = 0x3f8f3f;
 const hedge = (x: number, z: number, w: number, d: number): MapBox => ({ kind: 'metal', x, z, w, h: 2.2, d, color: HEDGE });
@@ -24,38 +28,37 @@ function pergola(cx: number, cz: number): MapBox[] {
 }
 
 const BOXES: MapBox[] = [
-  // The house on the west side, its door facing the yard.
-  ...hut(-17, -3, 11, 8, 4.4, ['e'], 'sandstone'),
+  // The house in the middle, with a door in the north and south walls.
+  ...hut(0, 0, 12, 9, 4.4, ['n', 's'], 'sandstone'),
   // A long sandstone wall behind everything on the north side.
-  block('sandstone', 0, -23, 36, 3.2, 0.8),
-  ...pergola(15, 9),
+  block('sandstone', 0, -28, 44, 3.2, 0.8),
+  ...pergola(19, 15),
   // Green hedges along the east and south edges.
-  hedge(23.5, 0, 1.4, 34),
-  hedge(0, 23.5, 34, 1.4),
-  ...palm(11, -14),
-  ...palm(-7, 16),
-  ...palm(19, -8),
-  crate(-9, 5),
-  crate(-9, 6.2),
-  crate(-7.8, 5),
+  hedge(30, 0, 1.4, 50),
+  hedge(0, 30, 50, 1.4),
+  ...palm(-20, 14),
+  ...palm(22, -14),
+  ...palm(-22, -12),
+  // A few crates beside the house (inside the running track).
+  crate(7, -2.5),
+  crate(7, -1.3),
+  crate(7, -1.9, 1.2, 1.2),
 ];
-
-const HALF = 26;
 
 export const LOBBY: MapDef = {
   id: 'lobby',
   name: 'Courtyard',
-  halfSize: HALF,
+  halfSize: 34,
   ground: 'sand',
   boxes: BOXES,
   // Never used by a mode, but a map needs somewhere to stand.
   spawns: [
-    { x: 0, z: 8 },
-    { x: 5, z: 6 },
-    { x: -5, z: 6 },
-    { x: 0, z: -8 },
-    { x: 5, z: -6 },
-    { x: -5, z: -6 },
+    { x: 0, z: 16 },
+    { x: 6, z: 15 },
+    { x: -6, z: 15 },
+    { x: 0, z: -16 },
+    { x: 6, z: -15 },
+    { x: -6, z: -15 },
   ],
   loot: [],
   vehicles: [],
