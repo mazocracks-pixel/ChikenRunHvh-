@@ -202,6 +202,8 @@ export class GameSession {
   /** Zombie Apocalypse: the wave panel, shop and game-over screen. */
   private readonly zombieHud: ZombieHud | null;
   private zombieOver = false;
+  /** Which zoom of a double scope is on (1 or 2). */
+  private scopeLevel: 1 | 2 = 1;
   private readonly bombView: BombView | null;
   private hasKit = false;
   private nextBeep = 0;
@@ -407,7 +409,9 @@ export class GameSession {
     const def = this.weapons.def;
     const aiming = input.aiming && input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading;
     const scoped = aiming && def.scope;
-    const zoom = aiming ? def.zoom : 1;
+    // A double scope (the sniper): scrolling while scoped switches between its two zoom levels.
+    if (!scoped) this.scopeLevel = 1;
+    const zoom = aiming ? (this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom) : 1;
     input.zoomScale = zoom > 1 ? zoomLookScale(zoom) * getSettings().zoomSensitivity : 1;
     if (dev?.controlCamera(this, dt)) {
       this.local.chicken.setBodyVisible(true);
@@ -597,10 +601,10 @@ export class GameSession {
         break;
       }
       case 'nextWeapon':
-        this.switchWeapon(() => this.weapons.cycle(1, now));
+        if (!this.scrollScope()) this.switchWeapon(() => this.weapons.cycle(1, now));
         break;
       case 'prevWeapon':
-        this.switchWeapon(() => this.weapons.cycle(-1, now));
+        if (!this.scrollScope()) this.switchWeapon(() => this.weapons.cycle(-1, now));
         break;
       case 'egg':
       case 'smoke':
@@ -843,7 +847,18 @@ export class GameSession {
     return r && r.alive ? { position: r.chicken.root.position, yaw: r.chicken.root.rotation.y } : null;
   }
 
+  /** The scroll wheel while looking through a double scope changes the zoom instead of the weapon. */
+  private scrollScope(): boolean {
+    const def = this.weapons.def;
+    if (!def.zoom2 || !def.scope || !this.ctx.input.aiming || !this.local.alive) return false;
+    this.scopeLevel = this.scopeLevel === 1 ? 2 : 1;
+    this.ctx.audio.play('click');
+    return true;
+  }
+
   private hintText(): string | null {
+    const double = this.weapons.def.zoom2;
+    if (double && this.local.alive && this.ctx.input.aiming && this.weapons.def.scope) return `Scope ${this.scopeLevel === 2 ? double : this.weapons.def.zoom}× · Scroll for ${this.scopeLevel === 2 ? this.weapons.def.zoom : double}×`;
     if (!this.local.alive) return this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup' ? 'You’re back when the next round starts' : null;
     const bomb = this.bombHint();
     if (bomb) return bomb;

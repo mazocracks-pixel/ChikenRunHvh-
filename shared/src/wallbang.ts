@@ -7,8 +7,8 @@ import { raycastWorld, type Ray, type RayHit } from './raycast';
 /** Bullets go through boxes: crates, hay and wood. Stone, brick, metal and concrete stop them. */
 export const WALLBANG = {
   kinds: ['crate', 'hay', 'wood'] as readonly (BoxKind | BlockKind)[],
-  /** Damage kept after passing through each box. */
-  damageScale: 0.65,
+  /** Damage kept after passing through each box (it was 0.65; 25% less than that). */
+  damageScale: 0.4875,
   /** At most this many boxes per bullet. */
   maxBoxes: 2,
 } as const;

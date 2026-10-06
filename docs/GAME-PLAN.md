@@ -18,6 +18,7 @@ part 4 how bunny hop works, part 5 what to do next._
 | 9 | ImGui-style cheat menu for mega?dev (look only; security stays on the server) | Not started |
 | 10 | Title screen background: your chicken posing in front of our maps | Done |
 | 11 | Zombie Apocalypse mode (waves, bosses, shop, 10-second builds, night map) | Done |
+| 12 | Sniper double scope (scroll 4× / 8×) and 25% less wallbang damage | Done |
 
 Earlier in the same stretch (also done): Squad Up mode, With bots / Without bots lobby choice,
 Y and U chat, jumpscares and funnyChiken, unlimited flashbangs in Rage, dark brown mega?dev,
@@ -80,6 +81,10 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 - **Dying:** no respawn mid-wave; you come back at the start of the next wave. When all survivors are down: game over with the wave reached and kills, and a Restart button.
 - **Cheats:** only mega?dev (L) works here. The HvH panels only open in HvH.
 - **All numbers in one place:** [shared/src/zombies.ts](../shared/src/zombies.ts) (the ZOMBIE object). Server: [server/src/rooms/ZombieRoom.ts](../server/src/rooms/ZombieRoom.ts) and [server/src/rooms/zombies/ZombieBrain.ts](../server/src/rooms/zombies/ZombieBrain.ts). Map: [shared/src/maps/night.ts](../shared/src/maps/night.ts). Screen: [client/src/ui/ZombieHud.ts](../client/src/ui/ZombieHud.ts).
+
+### 12. Sniper double scope and weaker wallbang
+- **Double scope:** right-click scopes the sniper at 4× as before; while scoped, **scroll the mouse wheel** to switch to 8× and back. The hint line shows the current zoom. Unscoped, the wheel still switches weapons. The 8× level is `zoom2` on the sniper in [shared/src/weapons.ts](../shared/src/weapons.ts) (the Scout keeps its single scope).
+- **Wallbang:** a bullet through a box now keeps 0.4875 of its damage (it was 0.65, so 25% less than before; two boxes compound). One number: `WALLBANG.damageScale` in [shared/src/wallbang.ts](../shared/src/wallbang.ts).
 
 ### Notes on safety and checks
 - Every step has tests; the full suite was 355 passing tests at the end of this stretch, and the build passes.
