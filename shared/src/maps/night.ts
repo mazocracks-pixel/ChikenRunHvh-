@@ -12,7 +12,7 @@ const DOOR_WIDTH = 1.8;
 const DOOR_HEIGHT = 2.3;
 
 /** A hollow building: four walls with a doorway in each listed side, and a roof. */
-function hut(cx: number, cz: number, w: number, d: number, h: number, doors: Side[], kind: BoxKind): MapBox[] {
+export function hut(cx: number, cz: number, w: number, d: number, h: number, doors: Side[], kind: BoxKind): MapBox[] {
   const out: MapBox[] = [];
   const wall = (side: Side) => {
     const alongX = side === 'n' || side === 's';

@@ -1,6 +1,6 @@
 import type { Aabb } from '../collision';
 
-export type MapId = 'farm' | 'town' | 'flat' | 'sandstown' | 'harbor' | 'frostbite' | 'factory' | 'night';
+export type MapId = 'farm' | 'town' | 'flat' | 'sandstown' | 'harbor' | 'frostbite' | 'factory' | 'night' | 'lobby';
 
 export type BoxKind = 'crate' | 'hay' | 'stone' | 'brick' | 'wood' | 'roof' | 'concrete' | 'car' | 'metal' | 'sandstone';
 

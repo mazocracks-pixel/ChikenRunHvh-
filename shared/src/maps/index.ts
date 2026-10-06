@@ -4,6 +4,7 @@ import { FARM } from './farm';
 import { FLAT } from './flat';
 import { FROSTBITE } from './frostbite';
 import { HARBOR } from './harbor';
+import { LOBBY } from './lobby';
 import { NIGHT } from './night';
 import { SANDSTOWN } from './sandstown';
 import { TOWN } from './town';
@@ -11,7 +12,7 @@ import { boxToAabb, type MapDef, type MapId } from './types';
 
 export * from './types';
 
-export const MAPS: Record<MapId, MapDef> = { farm: FARM, town: TOWN, sandstown: SANDSTOWN, harbor: HARBOR, frostbite: FROSTBITE, factory: FACTORY, flat: FLAT, night: NIGHT };
+export const MAPS: Record<MapId, MapDef> = { farm: FARM, town: TOWN, sandstown: SANDSTOWN, harbor: HARBOR, frostbite: FROSTBITE, factory: FACTORY, flat: FLAT, night: NIGHT, lobby: LOBBY };
 export const MAP_IDS = Object.keys(MAPS) as MapId[];
 
 export function isMapId(value: unknown): value is MapId {

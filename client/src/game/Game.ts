@@ -23,8 +23,8 @@ const MAX_FRAME_DT = 0.25;
 const PREVIEW_SPOT = new THREE.Vector3(0, 0, 18);
 const DEFAULT_LOOK_KEY = JSON.stringify(defaultLook());
 
-/** The title screen: your chicken runs laps on this map (Sandstown, like the poster). */
-const SHOWCASE_MAP: MapId = 'sandstown';
+/** The title screen: your chicken runs laps on this map (the Courtyard: no game mode uses it). */
+const SHOWCASE_MAP: MapId = 'lobby';
 /** The lap: the biggest radius that fits (metres), and running speed in m/s. */
 const SHOWCASE_RADIUS = 6.5;
 const SHOWCASE_SPEED = 6.5;
@@ -229,16 +229,19 @@ export class Game {
   /** The roomiest spot on the map: the middle of a lap, and how big a lap fits round it. */
   private lapCentre(): { x: number; z: number; radius: number } {
     const half = this.world.map.halfSize;
-    let best = { room: 0, x: 0, z: 0 };
+    let best = { room: 0, dist: Infinity, x: 0, z: 0 };
     for (let x = -half + 4; x <= half - 4; x += 3) {
       for (let z = -half + 4; z <= half - 4; z += 3) {
-        let room = SHOWCASE_RADIUS + 2;
-        for (let i = 0; i < 16 && room > best.room; i++) {
+        // Room = how far you can go before a wall, a box or the edge of the map.
+        let room = Math.min(SHOWCASE_RADIUS + 2, half - Math.abs(x), half - Math.abs(z));
+        for (let i = 0; i < 16 && room >= best.room; i++) {
           const a = (i / 16) * Math.PI * 2;
           const hit = raycastWorld(makeRay(new THREE.Vector3(x, 0.5, z), new THREE.Vector3(Math.sin(a), 0, Math.cos(a))), this.world.collision, SHOWCASE_RADIUS + 2);
           if (hit) room = Math.min(room, hit.t);
         }
-        if (room > best.room) best = { room, x, z };
+        // The roomiest wins; among equals, the one nearest the middle of the map.
+        const dist = Math.hypot(x, z);
+        if (room > best.room + 1e-6 || (Math.abs(room - best.room) <= 1e-6 && dist < best.dist)) best = { room, dist, x, z };
       }
     }
     // The lap keeps a little clear of the walls.
