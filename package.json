@@ -16,6 +16,7 @@
     "developer": "npm run developer -w server --",
     "benchmark:hvh": "tsx server/src/tools/runHvhBenchmark.ts",
     "anticheat": "npm run anticheat -w server --",
+    "reports": "npm run reports -w server --",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "tsx --test \"shared/test/**/*.test.ts\" \"server/test/**/*.test.ts\" \"client/test/**/*.test.ts\""
   },

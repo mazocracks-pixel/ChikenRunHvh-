@@ -126,6 +126,17 @@ const MIGRATIONS = [
      PRIMARY KEY (user_id, friend_id)
    );
    CREATE INDEX friends_incoming ON friends(friend_id, status);`,
+  // v8: player reports (read by the owner from the command line: npm run reports).
+  `CREATE TABLE reports (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     reported_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     reported_name TEXT NOT NULL,
+     reason TEXT NOT NULL,
+     mode TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   );
+   CREATE INDEX reports_target ON reports(reported_id, created_at);`,
 ];
 
 export type FriendLink = 'none' | 'sent' | 'received' | 'friends';
@@ -148,6 +159,17 @@ export interface Strike {
   name: string;
   reason: string;
   details: string;
+  createdAt: number;
+}
+
+export interface Report {
+  id: number;
+  reportedId: number;
+  reportedName: string;
+  reportedUsername: string | null;
+  reason: string;
+  mode: string;
+  reporterName: string;
   createdAt: number;
 }
 
@@ -471,6 +493,27 @@ export class GameDatabase {
       .prepare("SELECT SUM(status = 'accepted') AS friends, SUM(status = 'pending') AS pending FROM friends WHERE user_id = ?")
       .get(userId) as { friends: number | null; pending: number | null };
     return { friends: row.friends ?? 0, pending: row.pending ?? 0 };
+  }
+
+  /** A player reported someone. */
+  addReport(reporterId: number, reportedId: number, reportedName: string, reason: string, mode: string, now = Date.now()): void {
+    this.db.prepare('INSERT INTO reports (reporter_id, reported_id, reported_name, reason, mode, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(reporterId, reportedId, reportedName.slice(0, 40), reason.slice(0, 20), mode.slice(0, 20), now);
+  }
+
+  /** Whether this reporter already reported that player since `since` (so nobody can be spammed). */
+  hasRecentReport(reporterId: number, reportedId: number, since: number): boolean {
+    return this.db.prepare('SELECT 1 FROM reports WHERE reporter_id = ? AND reported_id = ? AND created_at >= ? LIMIT 1').get(reporterId, reportedId, since) !== undefined;
+  }
+
+  /** Reports, newest first (everyone, or one reported account). */
+  reports(reportedId: number | null = null, limit = 50): Report[] {
+    const base = 'SELECT r.id, r.reported_id, r.reported_name, r.reason, r.mode, r.created_at, ru.name AS reporter_name, u.username AS reported_username FROM reports r JOIN users ru ON ru.id = r.reporter_id JOIN users u ON u.id = r.reported_id';
+    const rows = (
+      reportedId === null
+        ? this.db.prepare(`${base} ORDER BY r.created_at DESC LIMIT ?`).all(limit)
+        : this.db.prepare(`${base} WHERE r.reported_id = ? ORDER BY r.created_at DESC LIMIT ?`).all(reportedId, limit)
+    ) as { id: number; reported_id: number; reported_name: string; reason: string; mode: string; created_at: number; reporter_name: string; reported_username: string | null }[];
+    return rows.map((r) => ({ id: r.id, reportedId: r.reported_id, reportedName: r.reported_name, reportedUsername: r.reported_username, reason: r.reason, mode: r.mode, reporterName: r.reporter_name, createdAt: r.created_at }));
   }
 
   /** The anti-cheat caught this account in FaceChiken. */

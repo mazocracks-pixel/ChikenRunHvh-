@@ -7,7 +7,7 @@ import { exitPlayFullscreen } from '../fullscreen';
 import { Game } from '../game/Game';
 import { Api } from '../net/Api';
 import { Network } from '../net/Network';
-import { openAccount, openCreateRoom, openJoinCode, openLeaderboard, openServerBrowser, openSettings } from '../ui/Dialogs';
+import { openAccount, openCreateRoom, openJoinCode, openLeaderboard, openServerBrowser, openSettings, openReportDialog } from '../ui/Dialogs';
 import { byId, h } from '../ui/dom';
 import { HvhSetup } from '../ui/HvhSetup';
 import { MainMenu } from '../ui/MainMenu';
@@ -133,6 +133,7 @@ export class App {
         h('h2', null, 'Paused'),
         resume,
         this.hvhPanelsButton,
+        h('button', { type: 'button', class: 'secondary', onclick: () => this.openReport() }, 'Report a player'),
         h('button', { type: 'button', class: 'secondary', onclick: () => openSettings(this.game.audio) }, 'Settings'),
         h('button', { type: 'button', class: 'secondary', onclick: () => this.leave() }, 'Leave match'),
       ),
@@ -247,6 +248,13 @@ export class App {
     this.pauseButton.hidden = !inGame || !this.isTouch || paused || overlay || Boolean(this.hvhSetup);
     this.touch?.setVisible(inGame && !paused && !overlay && !this.hvhSetup);
     this.cookieNotice.setVisible(this.screen === 'menu' || this.screen === 'shop');
+  }
+
+  /** Pause menu > Report a player: the other people in this match (not bots). */
+  private openReport(): void {
+    const session = this.game.activeSession;
+    const players = session ? [...session.infos.values()].filter((i) => !i.bot && i.pid !== session.selfPid).map((i) => ({ pid: i.pid, name: i.name })) : [];
+    openReportDialog(players, (pid, reason) => this.net.report(pid, reason));
   }
 
   // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { MAPS, MODES, MODE_IDS, rankOf, type CreateRoomRequest, type LeaderboardRow, type MapId, type ModeId, type Profile, type RoomSummary } from '@game/shared';
+import { MAPS, MODES, MODE_IDS, REPORT_REASONS, rankOf, type CreateRoomRequest, type LeaderboardRow, type MapId, type ModeId, type Profile, type ReportReason, type RoomSummary } from '@game/shared';
 import { BINDS, getKeybinds, keyLabel, resetKeybinds, setKeybind, watchKeybinds, type BindId } from '../keybinds';
 import { MODE_ICONS } from './MainMenu';
 import type { AudioEngine } from '../game/Audio';
@@ -439,6 +439,34 @@ function keysTab(): HTMLElement {
   }).observe(document.body, { childList: true, subtree: true });
   draw();
   return root;
+}
+
+const REPORT_LABELS: Record<ReportReason, string> = { cheating: 'Cheating / hacking', abuse: 'Abusive chat or name', griefing: 'Griefing (blocking, team damage)', other: 'Something else' };
+
+/** Pause menu > Report a player: pick who and why; `send` reports them (the server saves it). */
+export function openReportDialog(players: { pid: number; name: string }[], send: (pid: number, reason: ReportReason) => Promise<{ ok: boolean; error?: string }>): void {
+  if (players.length === 0) {
+    openModal('Report a player', h('p', { class: 'muted' }, 'There is nobody else in this match to report.'));
+    return;
+  }
+  const who = h('select', { 'aria-label': 'Player' }, ...players.map((p) => h('option', { value: String(p.pid) }, p.name)));
+  const why = h('select', { 'aria-label': 'Reason' }, ...REPORT_REASONS.map((r) => h('option', { value: r }, REPORT_LABELS[r])));
+  const status = h('p', { class: 'status', role: 'status', 'aria-live': 'polite' });
+  const submit = h('button', { type: 'button', class: 'play' }, 'Send report');
+  submit.addEventListener('click', () => {
+    submit.disabled = true;
+    status.textContent = 'Sending…';
+    send(Number(who.value), why.value as ReportReason)
+      .then((res) => {
+        status.textContent = res.ok ? 'Thanks, the report was saved.' : (res.error ?? 'Could not send the report.');
+        if (!res.ok) submit.disabled = false;
+      })
+      .catch(() => {
+        status.textContent = 'Could not send the report.';
+        submit.disabled = false;
+      });
+  });
+  openModal('Report a player', h('div', { class: 'form' }, h('label', null, 'Player', who), h('label', null, 'Reason', why), submit, status));
 }
 
 function controlsTab(rerender: () => void): HTMLElement {

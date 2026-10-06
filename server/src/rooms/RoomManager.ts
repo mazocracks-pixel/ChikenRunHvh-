@@ -1,4 +1,5 @@
 import { MODES, levelFor, type JoinResponse, type MapId, type ModeId, type RoomSummary, type Team } from '@game/shared';
+import { REPORT_REASONS } from '@game/shared';
 import type { GameDatabase } from '../db/Database';
 import type { GameServer, GameSocket } from '../types';
 import { randomRoomCode, randomString } from '../util';
@@ -9,6 +10,9 @@ import { createRoom } from './modes';
 export const MAX_ROOMS = 200;
 
 /** Creates, finds and cleans up rooms, and remembers which room each socket is in. */
+/** The same person can report the same player once in this long. */
+const REPORT_COOLDOWN_MS = 10 * 60_000;
+
 export class RoomManager {
   private readonly io: GameServer;
   private readonly db: GameDatabase;
@@ -100,6 +104,22 @@ export class RoomManager {
   }
 
   /** Moves a socket into a room (leaving any previous one) using its account profile. */
+  /** A player reports someone in their room: saved for the owner (npm run reports) and logged. */
+  report(socket: GameSocket, pid: unknown, reason: unknown): { ok: boolean; error?: string } {
+    const room = this.roomOf(socket.id);
+    const me = room?.playerFor(socket.id);
+    if (!room || !me || me.userId === null) return { ok: false, error: 'Join a match first.' };
+    if (!Number.isSafeInteger(pid) || !(REPORT_REASONS as readonly unknown[]).includes(reason)) return { ok: false, error: 'Invalid report.' };
+    const target = room.players.get(pid as number);
+    if (!target || target.info.bot || target.userId === null) return { ok: false, error: 'That player is no longer here.' };
+    if (target === me) return { ok: false, error: 'You can’t report yourself.' };
+    const now = Date.now();
+    if (this.db.hasRecentReport(me.userId, target.userId, now - REPORT_COOLDOWN_MS)) return { ok: true };
+    this.db.addReport(me.userId, target.userId, target.info.name, reason as string, room.mode.id, now);
+    console.log(`[report] ${me.info.name} reported ${target.info.name} (${reason as string}) in ${room.info.id} (${room.mode.id})`);
+    return { ok: true };
+  }
+
   /** Why this account can't play this mode (ranked rules), or null. */
   blockedFrom(userId: number, mode: ModeId): string | null {
     if (!MODES[mode].ranked) return null;

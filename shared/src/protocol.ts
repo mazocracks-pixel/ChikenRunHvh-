@@ -478,6 +478,10 @@ export interface ScoresEvent {
   teamScores: [number, number];
 }
 
+/** Why a player can be reported (the owner reads the reports on the server). */
+export const REPORT_REASONS = ['cheating', 'abuse', 'griefing', 'other'] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
 export interface ChatMessage {
   /** 0 for system messages. */
   pid: number;
@@ -540,6 +544,8 @@ export interface ClientToServerEvents {
   aim: (aiming: boolean) => void;
   /** `teamOnly`: only your team hears it (in modes without teams it goes to everyone). */
   chat: (text: string, teamOnly?: boolean) => void;
+  /** Report someone in your room. Saved on the server; one report per player per 10 minutes. */
+  report: (req: { pid: number; reason: ReportReason }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   useVehicle: () => void;
   /** ChikenBomb buy menu. */
   buy: (itemId: string, ack: (res: BuyResult) => void) => void;

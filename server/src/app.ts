@@ -211,6 +211,12 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
   socket.on('throw', inRoom((room, player, req: unknown) => room.handleThrow(player, req)));
   socket.on('aim', inRoom((room, player, aiming: unknown) => room.handleAim(player, aiming)));
   socket.on('chat', inRoom((room, player, text: unknown, teamOnly?: unknown) => room.handleChat(player, text, teamOnly === true)));
+  const reportLimiter = new TokenBucket(5, 0.05);
+  socket.on('report', (req, ack) => {
+    if (typeof ack !== 'function') return;
+    if (!reportLimiter.take()) return ack({ ok: false, error: 'Slow down a little.' });
+    ack(isRecord(req) ? rooms.report(socket, req.pid, req.reason) : { ok: false, error: 'Invalid report.' });
+  });
   socket.on('useVehicle', inRoom((room, player) => room.handleUseVehicle(player)));
   socket.on('buy', (itemId, ack) => {
     if (typeof ack !== 'function') return;

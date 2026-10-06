@@ -100,7 +100,7 @@ describe('saved progress', () => {
       db.close();
       const raw = new DatabaseSync(path);
       // Back to schema v4 (before the reset, the anti-cheat and friends tables), with some XP.
-      raw.exec('DROP INDEX friends_incoming; DROP TABLE friends; DROP INDEX ac_strikes_user; DROP TABLE ac_strikes; UPDATE users SET xp = 900; PRAGMA user_version = 4;');
+      raw.exec('DROP INDEX reports_target; DROP TABLE reports; DROP INDEX friends_incoming; DROP TABLE friends; DROP INDEX ac_strikes_user; DROP TABLE ac_strikes; UPDATE users SET xp = 900; PRAGMA user_version = 4;');
       raw.close();
       db = new GameDatabase(path);
       assert.equal(db.profile(id)!.xp, 0);
