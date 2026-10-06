@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { nativeOn } from '../dev/skeet/visualValues';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -263,7 +264,7 @@ export class Game {
     this.sky.update(this.camera, dt);
     this.world.update(dt);
     this.world.updateShadows(this.session ? this.focusAhead() : null);
-    if (this.composer) this.composer.render(dt);
+    if (this.composer && !nativeOn(this.session?.hvhVisuals??null,'Visuals.Effects.disablePostProcessing')) this.composer.render(dt);
     else {
       this.renderer.render(this.scene, this.camera);
       this.renderOverlay();

@@ -159,6 +159,7 @@ export interface ViewModelFrame {
  * walk bob, landing dip, recoil kick, reload, weapon switch and a muzzle flash on the barrel.
  */
 export class ViewModel {
+  suppressRecoil = false;
   /** Follows the camera every frame. Lives in the overlay scene. */
   private readonly root = new THREE.Group();
   /** Animated offset in front of the camera. */
@@ -167,6 +168,8 @@ export class ViewModel {
   private gunId: WeaponId | null = null;
   private readonly guns = new Map<WeaponId, GunModel>();
   private tint: string | null = null;
+  private tintStyle = 0;
+  private tintAlpha = 1;
   private readonly tintClones = new Map<THREE.Material, THREE.Material>();
   private readonly tintSources = new Map<THREE.Material, THREE.Material>();
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -218,8 +221,8 @@ export class ViewModel {
       return;
     }
     const feel = (this.gunId && RECOIL[this.gunId]) || DEFAULT_RECOIL;
-    this.kick = Math.min(1.35, this.kick + 1);
-    this.roll = (Math.random() - 0.5) * feel.roll;
+    this.kick = this.suppressRecoil ? 0 : Math.min(1.35, this.kick + 1);
+    this.roll = this.suppressRecoil ? 0 : (Math.random() - 0.5) * feel.roll;
     this.flashLife = feel.flashLife;
     this.flash.rotation.z = Math.random() * Math.PI;
     this.flash.scale.setScalar(feel.flash * (0.85 + Math.random() * 0.3) * (this.reducedMotion.matches ? 0.7 : 1));
@@ -273,6 +276,7 @@ export class ViewModel {
 
     this.ads = damp(this.ads, f.aiming ? 1 : 0, 14, dt);
     this.kick = damp(this.kick, 0, feel.recovery, dt);
+    if(this.suppressRecoil)this.kick=this.roll=0;
     this.roll = damp(this.roll, 0, 10, dt);
     this.raise = Math.min(1, this.raise + dt * 3.5);
     const raise = 1 - (1 - this.raise) ** 3;
@@ -345,9 +349,9 @@ export class ViewModel {
   }
 
   /** Local finishes clone materials; shared gun models and other players are never recolored. */
-  setTint(color: string | null): void {
-    if (this.tint === color) return;
-    this.tint = color;
+  setTint(color: string | null, style = 0, alpha = 1): void {
+    if (this.tint === color && this.tintStyle === style && this.tintAlpha === alpha) return;
+    this.tint = color; this.tintStyle=style; this.tintAlpha=alpha;
     for (const gun of this.guns.values()) this.tintGun(gun);
   }
   private tintGun(gun: GunModel): void {
@@ -360,6 +364,10 @@ export class ViewModel {
         let clone = this.tintClones.get(source) as THREE.MeshStandardMaterial | undefined;
         if (!clone) { clone = source.clone(); this.tintClones.set(source, clone); this.tintSources.set(clone, source); }
         clone.color.copy(source.color).multiply(tint);
+        clone.roughness=this.tintStyle===3?.15:source.roughness;clone.metalness=this.tintStyle===3?1:source.metalness;
+        clone.emissive.copy(this.tintStyle===1||this.tintStyle===4 ? tint : source.emissive);
+        clone.emissiveIntensity=this.tintStyle===1||this.tintStyle===4 ? 1 : source.emissiveIntensity;
+        clone.wireframe=this.tintStyle===5;clone.opacity=this.tintAlpha;clone.transparent=this.tintAlpha<1||this.tintStyle===4;clone.depthWrite=!clone.transparent;clone.blending=this.tintStyle===4?THREE.AdditiveBlending:THREE.NormalBlending;clone.needsUpdate=true;
         return clone;
       };
       node.material = Array.isArray(node.material) ? node.material.map(paint) : paint(node.material);

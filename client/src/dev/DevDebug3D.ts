@@ -4,6 +4,8 @@ import type { GameSession } from '../game/GameSession';
 import type { DevConfig } from './config';
 import { ResolverSystem, type ShotCandidate } from '@game/shared';
 import { HvhDebug } from './HvhDebug';
+import { Chicken } from '../game/models/Chicken';
+import { nativeOn, nativeColor, nativeValue } from './skeet/visualValues';
 
 const BOX_EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
 const SPHERE_GEOMETRY = new THREE.WireframeGeometry(new THREE.SphereGeometry(1, 10, 6));
@@ -33,6 +35,8 @@ export class DevDebug3D {
   private collision: THREE.LineSegments | null = null;
   private collisionBuiltAt = -Infinity;
   private readonly hvh: HvhDebug | null;
+  private ghost: Chicken | null = null;
+  private readonly ghostMaterial = new THREE.MeshBasicMaterial({transparent:true,opacity:.25,depthWrite:false});
 
   constructor(session: GameSession, resolver?: ResolverSystem, focus: () => ShotCandidate | null = () => null) {
     this.session = session;
@@ -45,7 +49,14 @@ export class DevDebug3D {
     const world = config?.visuals.world;
     const esp = config?.visuals.esp;
     const hitboxes = !!world?.hitboxes;
-    const glow = !!(esp?.enabled && esp.glow);
+    const glow = this.session.hvhVisuals ? nativeOn(this.session.hvhVisuals,'Visuals.Players.glow') : !!(esp?.enabled && esp.glow);
+    const n=this.session.hvhVisuals;
+    if(nativeOn(n,'Visuals.ColoredModels.localFakeShadow') && this.session.local.alive && !this.session.firstPerson){
+      if(!this.ghost){this.ghost=new Chicken(this.session.self.appearance,this.session.self.team);this.root.add(this.ghost.root);this.ghost.root.userData.fakeShadow=true;this.ghost.setChams(this.ghostMaterial);}
+      this.ghostMaterial.color.set(nativeColor(n!,'Color.ColoredModels.localFakeShadow'));this.ghostMaterial.opacity=.3*nativeValue(n,'Color.ColoredModels.localFakeShadow_3',1);
+      this.ghost.root.visible=true;this.ghost.root.position.copy(this.session.local.position);this.ghost.root.rotation.y=this.session.local.server.fakeYaw??this.session.local.server.yaw;
+      this.ghost.setAim(this.session.local.server.fakePitch??this.session.local.server.pitch);this.ghost.setCrouch(this.session.local.state.crouching);
+    } else if(this.ghost)this.ghost.root.visible=false;
     this.hvh?.update(hitboxes);
     this.updatePlayers(hitboxes && !this.hvh, glow, config);
     this.updateCollision(!!world?.collision);
@@ -59,8 +70,10 @@ export class DevDebug3D {
       if (s.local.alive) entries.push([s.selfPid, s.local.position, s.mode.id === 'hvh' ? s.local.server.yaw : s.local.chicken.root.rotation.y, false, '#ffffff', bodyScale(s.local.state), s.local.server.fakePitch ?? s.local.server.pitch]);
       for (const [pid, r] of s.remotes.players) {
         if (!r.alive) continue;
+        const n=s.hvhVisuals;
+        if(n && s.isFriendly(r.info) && !nativeOn(n,'Visuals.Players.teammates'))continue;
         const c = config!.visuals.colors;
-        entries.push([pid, r.position, r.yaw, true, r.info.bot ? c.npc : s.isFriendly(r.info) ? c.friendly : c.enemy, r.scale, r.pitch]);
+        entries.push([pid, r.position, r.yaw, true, n ? nativeColor(n,'Color.Players.glow') : r.info.bot ? c.npc : s.isFriendly(r.info) ? c.friendly : c.enemy, r.scale, r.pitch]);
       }
     }
     for (const [pid, pos, yaw, remote, color, k, pitch] of entries) {
@@ -82,7 +95,7 @@ export class DevDebug3D {
       });
       d.glow.visible = glow && remote;
       if (d.glow.visible) {
-        d.glow.material = this.glowMaterial(color, config!.visuals.colors.opacity);
+        d.glow.material = this.glowMaterial(color, s.hvhVisuals ? nativeValue(s.hvhVisuals,'Color.Players.glow_3',1) : config!.visuals.colors.opacity);
         d.glow.position.set(pos.x, pos.y + 0.85, pos.z);
         d.glow.scale.set(0.62, 0.95, 0.72);
       }
@@ -96,11 +109,13 @@ export class DevDebug3D {
 
   /** Additive, see-through-walls tint in a player's ESP colour. */
   private glowMaterial(color: string, opacity: number): THREE.MeshBasicMaterial {
-    let m = this.glowMaterials.get(color);
+    const key=this.session.hvhVisuals?'native':color;
+    let m = this.glowMaterials.get(key);
     if (!m) {
       m = new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending });
-      this.glowMaterials.set(color, m);
+      this.glowMaterials.set(key, m);
     }
+    m.color.set(color);
     m.opacity = 0.35 * opacity;
     return m;
   }
@@ -139,6 +154,7 @@ export class DevDebug3D {
   }
 
   dispose(): void {
+    this.ghost?.dispose();this.ghostMaterial.dispose();
     this.hvh?.dispose();
     this.root.removeFromParent();
     this.collision?.geometry.dispose();

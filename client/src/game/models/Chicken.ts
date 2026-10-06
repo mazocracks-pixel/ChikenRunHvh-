@@ -50,12 +50,12 @@ function blobShadowMaterial(): THREE.MeshBasicMaterial {
   canvas.width = canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
   const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(0,0,0,0.5)');
-  g.addColorStop(0.6, 'rgba(0,0,0,0.25)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
+  g.addColorStop(0, 'rgba(255,255,255,0.5)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 64, 64);
-  blobMaterial = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+  blobMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
   return blobMaterial;
 }
 const blobGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -82,7 +82,7 @@ export class Chicken {
   static blobShadows = false;
 
   readonly root = new THREE.Group();
-  private readonly blob = new THREE.Mesh(blobGeometry, blobShadowMaterial());
+  private readonly blob = new THREE.Mesh(blobGeometry, blobShadowMaterial().clone());
 
   private readonly pose = new THREE.Group();
   private readonly bodyPivot = new THREE.Group();
@@ -234,8 +234,11 @@ export class Chicken {
   }
 
   private xrayMaterial: THREE.Material | null | undefined;
+  private chamsMaterial: THREE.Material | null = null;
+  private readonly originalMaterials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
 
   setAppearance(a: Appearance): void {
+    this.setChams(null);
     this.xrayMaterial = undefined;
     const skin = getItem('skin', a.skin) ?? getItem('skin', 'white')!;
     const feather = solid(skin.color ?? 0xffffff, { metal: skin.metal, roughness: skin.metal ? 0.3 : 0.8, flat: false });
@@ -491,7 +494,34 @@ export class Chicken {
     walk(this.pose, false);
   }
 
+  setChams(material: THREE.Material | null): void {
+    if (this.chamsMaterial === material) return;
+    this.chamsMaterial = material;
+    if (!material) {
+      for (const [mesh, original] of this.originalMaterials) mesh.material = original;
+      this.originalMaterials.clear();
+      return;
+    }
+    const walk = (node: THREE.Object3D) => {
+      if (node === this.gunPivot || node === this.jetpack || node.userData.xrayPart) return;
+      if (node instanceof THREE.Mesh) {
+        if (!this.originalMaterials.has(node)) this.originalMaterials.set(node, node.material);
+        node.material = material;
+      }
+      for (const child of node.children) walk(child);
+    };
+    walk(this.pose);
+  }
+
+  setShadow(color: string | null, opacity = 1): void {
+    this.blob.visible = (color !== null || Chicken.blobShadows) && this.deadTime < 0;
+    const material = this.blob.material;
+    material.color.set(color ?? '#000000');
+    material.opacity = color ? opacity : 1;
+  }
+
   dispose(): void {
+    this.blob.material.dispose();
     this.root.removeFromParent();
   }
 }

@@ -1563,3 +1563,5 @@
   letter-spacing: 0;
   color: var(--dev-muted);
 }
+.skeet-native-root { position:fixed; z-index:10000; width:660px; height:560px; left:50%; top:50%; transform:translate(-50%,-50%) scale(var(--native-scale,1)); transform-origin:center; } #skeet-native-canvas { position:static; display:block; width:660px; height:560px; outline:none; touch-action:none; } .skeet-native-status { margin-top:6px; font:11px Verdana,sans-serif; color:#aaa; text-align:center; }
+.skeet-native-root, #skeet-native-canvas { pointer-events:auto; }

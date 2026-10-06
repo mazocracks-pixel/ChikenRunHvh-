@@ -33,3 +33,4 @@ export * from './rng';
 export * from './vehicles';
 export * from './wallbang';
 export * from './weapons';
+export * from './hvh/shotTiming';

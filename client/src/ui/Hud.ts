@@ -128,6 +128,13 @@ export class Hud {
   showHitmarker = true;
   showDamageIndicators = true;
   showCrosshair = true;
+  showScope = true;
+  private flashEnabled = true;
+  get showFlash(): boolean { return this.flashEnabled; }
+  set showFlash(value: boolean) { this.flashEnabled=value;if(!value){window.clearTimeout(this.flashTimer);this.flashOverlay.hidden=true;} }
+  private persistentFeed = false;
+  get persistentKillfeed(): boolean { return this.persistentFeed; }
+  set persistentKillfeed(value: boolean) { this.persistentFeed=value;if(!value)for(const row of Array.from(this.killfeed.children)){if(performance.now()-Number((row as HTMLElement).dataset.at)>KILLFEED_MS)row.remove();} }
   private hitmarkerUntil = 0;
   private lastSlotsKey = '';
   private lastGrenades = '';
@@ -271,6 +278,7 @@ export class Hud {
 
   /** A flashbang caught you: white for about `ms`, fading back over the last part. */
   flash(ms: number): void {
+    if (!this.showFlash) return;
     const el = this.flashOverlay;
     const hold = ms * 0.5;
     const fade = ms - hold;
@@ -286,7 +294,7 @@ export class Hud {
 
   setCrosshair(visible: boolean, spreadPx: number, scoped: boolean): void {
     this.crosshair.root.hidden = !visible || scoped || !this.showCrosshair;
-    this.scope.hidden = !scoped;
+    this.scope.hidden = !scoped || !this.showScope;
     this.crosshair.setSpread(spreadPx);
   }
 
@@ -342,9 +350,10 @@ export class Hud {
     for (const [bit, tag, title] of KILL_TAGS) if (flags & bit) row.append(' ', h('span', { class: `kf-tag t${bit}`, title }, tag));
     row.append(' ', nameEl(victim.name, victim.team, victim.pid === selfPid, victim.dev));
     this.killfeed.prepend(row);
+    row.dataset.at=String(performance.now());
     while (this.killfeed.children.length > 5) this.killfeed.lastElementChild?.remove();
-    setTimeout(() => row.classList.add('fade'), KILLFEED_MS);
-    setTimeout(() => row.remove(), KILLFEED_MS + 600);
+    setTimeout(() => { if (!this.persistentKillfeed) row.classList.add('fade'); }, KILLFEED_MS);
+    setTimeout(() => { if (!this.persistentKillfeed) row.remove(); }, KILLFEED_MS + 600);
   }
 
   chat(msg: ChatMessage, self: boolean): void {

@@ -278,7 +278,7 @@ export class Dev {
     if (e.code !== this.config.settings.menuKey || e.repeat) return;
     const t = e.target as HTMLElement | null;
     // Don't steal the key from text fields or the keybind picker.
-    if (t && (isTextField(t) || t.closest('.dev-capturing'))) return;
+    if (t && (isTextField(t) || t.closest('.dev-capturing, .skeet-native-root'))) return;
     e.preventDefault();
     e.stopPropagation();
     void this.toggleMenu();

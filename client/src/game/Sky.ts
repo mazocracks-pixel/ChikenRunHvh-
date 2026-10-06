@@ -107,6 +107,7 @@ export class Sky {
   private readonly disposables: { dispose(): void }[] = [];
 
   constructor(scene: THREE.Scene) {
+    this.root.name = 'sky';
     const geometry = new THREE.SphereGeometry(DOME_RADIUS, 32, 16);
     this.dome = new THREE.Mesh(geometry, this.material);
     this.dome.frustumCulled = false;

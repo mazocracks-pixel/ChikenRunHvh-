@@ -15,7 +15,7 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      "script-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self'",

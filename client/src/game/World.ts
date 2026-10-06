@@ -46,6 +46,9 @@ export class World {
   private readonly sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
   private readonly hemi = new THREE.HemisphereLight(0xcfe8ff, 0x4f6b32, HEMI_WITH_ENV);
   private readonly scene: THREE.Scene;
+  private nativeFog: THREE.Fog | null = null;
+  private nativeSunIntensity: number | null = null;
+  private readonly nativeOpacity = new Map<THREE.MeshStandardMaterial,{opacity:number;transparent:boolean;depthWrite:boolean}>();
   /** Materials per surface, for the developer World tab (colour tints, wireframe). */
   private readonly surfaces = new Map<Surface, THREE.MeshStandardMaterial[]>();
   private envLight = true;
@@ -53,6 +56,7 @@ export class World {
   private shadowExtent = 0;
   private foliage: Foliage | null = null;
   private foliageDetail = -1;
+  private hvhNoGrass = false;
   private readonly windmillRotor = new THREE.Group();
 
   constructor(scene: THREE.Scene, map: MapDef, maxAnisotropy: number) {
@@ -93,7 +97,7 @@ export class World {
     // Grass and flowers only grow on the grassy maps.
     const grassy = this.map.ground === 'grass' || this.map.ground === 'town' || this.map.ground === 'flat';
     this.foliage = detail > 0 && grassy ? new Foliage(this.map, this.collision, detail) : null;
-    if (this.foliage) this.root.add(this.foliage.root);
+    if (this.foliage) { this.foliage.root.visible=!this.hvhNoGrass;this.root.add(this.foliage.root); }
   }
 
   setShadows(options: ShadowOptions): void {
@@ -151,14 +155,37 @@ export class World {
     }
     this.sun.color.set(look.sunColor);
     this.sun.intensity = look.sunIntensity;
+    if(this.nativeSunIntensity!==null)this.nativeSunIntensity=look.sunIntensity;
     this.ambientScale = look.ambient;
     this.setAmbient(this.envLight);
     const horizon = new THREE.Color(look.horizon);
     (this.scene.background as THREE.Color).copy(horizon);
-    const fog = this.scene.fog as THREE.Fog;
+    const fog = (this.nativeFog ?? this.scene.fog) as THREE.Fog;
     fog.color.copy(horizon);
     fog.near = FOG_NEAR * look.fog;
     fog.far = FOG_FAR * look.fog;
+  }
+
+  setHvhEffects(noFog: boolean, noGrass: boolean, walls: number, props: number, brightness: number): void {
+    this.hvhNoGrass=noGrass;
+    if(noFog && this.scene.fog instanceof THREE.Fog){this.nativeFog=this.scene.fog;this.scene.fog=null;}
+    if(!noFog && this.nativeFog){this.scene.fog=this.nativeFog;this.nativeFog=null;}
+    if(this.foliage)this.foliage.root.visible=!noGrass;
+    for(const [surface,list] of this.surfaces){
+      const amount=surface==='ground'||surface==='road'?0:surface==='crate'||surface==='hay'||surface==='trees'||surface==='fence'?props:walls;
+      for(const m of list){
+        const original=this.nativeOpacity.get(m)??{opacity:m.opacity,transparent:m.transparent,depthWrite:m.depthWrite};
+        if(amount>0)this.nativeOpacity.set(m,original);
+        const opacity=original.opacity*(1-Math.min(100,Math.max(0,amount))/100);
+        const transparent=amount>0||original.transparent;if(m.transparent!==transparent){m.transparent=transparent;m.needsUpdate=true;}
+        m.opacity=opacity;m.depthWrite=amount>0?false:original.depthWrite;
+        if(amount===0)this.nativeOpacity.delete(m);
+      }
+    }
+    this.hemi.intensity=(this.envLight?HEMI_WITH_ENV:HEMI_ALONE)*this.ambientScale*(brightness===1?0.2:brightness===2?2.5:1);
+    if(brightness && this.nativeSunIntensity===null)this.nativeSunIntensity=this.sun.intensity;
+    if(brightness)this.sun.intensity=brightness===1?0.25:4;
+    else if(this.nativeSunIntensity!==null){this.sun.intensity=this.nativeSunIntensity;this.nativeSunIntensity=null;}
   }
 
   private surface<T extends THREE.MeshStandardMaterial>(kind: Surface, m: T): T {

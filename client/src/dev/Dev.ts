@@ -6,6 +6,7 @@ import type { Hud } from '../ui/Hud';
 import { defaultConfig, getPath, loadConfigs, loadCurrent, sanitizeConfig, saveConfigs, saveCurrent, setPath, type DevConfig, type NamedConfig } from './config';
 import { HVH_PANELS } from './panels';
 import { DevMenu } from './DevMenu';
+import { NativeMenu } from './skeet/NativeMenu';
 import { DevRuntime } from './DevRuntime';
 import { showPasskeyPrompt } from './passkey';
 import './dev.css';
@@ -49,7 +50,7 @@ export class Dev {
 
   private readonly ctx: DevContext;
   private readonly socket: GameSocket;
-  private menu: DevMenu | null = null;
+  private menu: DevMenu | NativeMenu | null = null;
   private prompting = false;
   private readonly listeners = new Set<() => void>();
   private syncTimer: number | undefined;
@@ -265,7 +266,7 @@ export class Dev {
       }
     }
     this.prompting = false;
-    this.menu = new DevMenu(this, () => this.closeMenu());
+    this.menu = this.panelId === 'skeet' ? new NativeMenu(this, () => this.closeMenu()) : new DevMenu(this, () => this.closeMenu());
     this.ctx.onMenuChange();
     this.click();
   }

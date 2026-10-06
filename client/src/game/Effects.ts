@@ -27,10 +27,13 @@ interface Sprite {
   fadeIn: number;
   vy: number;
   active: boolean;
+  smoke: boolean;
 }
 
 /** Short-lived visuals: tracers, muzzle flashes, debris, feathers, explosions and smoke. */
 export class Effects {
+  hideSmoke = false;
+  showImpacts = true;
   /** Set by the graphics quality; off saves two per-pixel lights on slow devices. */
   static flashLights = true;
 
@@ -111,7 +114,7 @@ export class Effects {
       const material = new THREE.SpriteMaterial({ map: this.puff, transparent: true, depthWrite: false, opacity: 0 });
       const sprite = new THREE.Sprite(material);
       sprite.visible = false;
-      this.sprites.push({ sprite, material, life: 0, maxLife: 1, startScale: 1, endScale: 1, startOpacity: 1, fadeIn: 0, vy: 0, active: false });
+      this.sprites.push({ sprite, material, life: 0, maxLife: 1, startScale: 1, endScale: 1, startOpacity: 1, fadeIn: 0, vy: 0, active: false, smoke: false });
       this.root.add(sprite);
     }
 
@@ -166,6 +169,7 @@ export class Effects {
 
   /** Bullet hitting the level: dust, a few chips and sparks. */
   impact(at: Vec3, color = 0xcbb89b): void {
+    if(!this.showImpacts)return;
     for (let i = 0; i < 6; i++) this.particle(at, rand3(3), color, 0.05 + Math.random() * 0.04, 0.35, 12, 2);
     for (let i = 0; i < 3; i++) this.particle(at, rand3(9), SPARK, 0.025, 0.12 + Math.random() * 0.1, 10, 1);
     this.spawnSprite(at, { color: 0xffe3aa, life: 0.08, startScale: 0.12, endScale: 0.24, opacity: 0.7, additive: true, glow: 2 });
@@ -174,6 +178,7 @@ export class Effects {
 
   /** A dark mark where a bullet hit a surface with normal `n`. Old holes get reused. */
   bulletHole(at: Vec3, n: Vec3): void {
+    if(!this.showImpacts)return;
     const i = this.nextHole;
     this.nextHole = (this.nextHole + 1) % HOLE_POOL;
     this.holes.count = Math.max(this.holes.count, i + 1);
@@ -277,6 +282,7 @@ export class Effects {
         opacity: 0.92,
         vy: 0.05,
         fadeIn: 0.6,
+        smoke: true,
       });
     }
   }
@@ -345,12 +351,13 @@ export class Effects {
 
   private spawnSprite(
     at: Vec3,
-    o: { color: number; life: number; startScale: number; endScale: number; opacity: number; additive?: boolean; vy?: number; fadeIn?: number; glow?: number },
+    o: { color: number; life: number; startScale: number; endScale: number; opacity: number; additive?: boolean; vy?: number; fadeIn?: number; glow?: number; smoke?: boolean },
   ): void {
     // Reuse a free sprite, or the one closest to finishing.
     let s = this.sprites.find((x) => !x.active);
     if (!s) s = this.sprites.reduce((a, b) => (a.maxLife - a.life < b.maxLife - b.life ? a : b));
     s.active = true;
+    s.smoke = o.smoke ?? false;
     s.life = 0;
     s.maxLife = o.life;
     s.startScale = o.startScale;
@@ -372,6 +379,7 @@ export class Effects {
   }
 
   update(dt: number): void {
+    this.holes.visible=this.showImpacts;
     // Light flashes fade out quickly. (Toggling visibility rebuilds shaders, so only on change.)
     if (this.flash.visible !== Effects.flashLights) this.flash.visible = this.blast.visible = Effects.flashLights;
     this.flashLife = Math.max(0, this.flashLife - dt);
@@ -428,6 +436,7 @@ export class Effects {
 
     for (const s of this.sprites) {
       if (!s.active) continue;
+      s.sprite.visible=!(s.smoke && this.hideSmoke);
       s.life += dt;
       const t = Math.min(1, s.life / s.maxLife);
       const scale = s.startScale + (s.endScale - s.startScale) * t;
