@@ -33,8 +33,8 @@ const SHOWCASE_DISTANCE = 3;
 const SHOWCASE_HEIGHT = 0.85;
 /** How far the chicken turns from facing the camera towards the way it runs (radians). */
 const SHOWCASE_TURN = 0.35;
-/** The chicken runs on the left of the screen, where the title screen has room (0 = centre, 1 = the edge). */
-const SHOWCASE_SHIFT = 0.52;
+/** The chicken runs on the right of the screen (negative: left; 0 = centre, 1 = the edge). */
+const SHOWCASE_SHIFT = -0.52;
 
 interface QualityPreset {
   /** Upper limit for the device pixel ratio. */
@@ -255,7 +255,8 @@ export class Game {
     }
     const s = this.showcase;
     s.clock += dt;
-    s.lap += (SHOWCASE_SPEED / s.radius) * dt;
+    // (Round the other way: it runs towards the right.)
+    s.lap -= (SHOWCASE_SPEED / s.radius) * dt;
 
     // The chicken runs round a big circle, turned towards the camera (a little towards where it runs).
     const sin = Math.sin(s.lap);
@@ -264,7 +265,7 @@ export class Game {
     s.chicken.animate(dt, SHOWCASE_SPEED, true);
 
     // The camera rides inside the lap, always SHOWCASE_DISTANCE in front of the chicken and looking
-    // out at it. Camera and target slide sideways together, so the chicken stays on the left.
+    // out at it. Camera and target slide sideways together, so the chicken stays on the right.
     this.syncFov();
     const halfWidth = SHOWCASE_DISTANCE * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
     const slide = this.camera.aspect > 1.1 ? halfWidth * SHOWCASE_SHIFT : 0;
@@ -274,7 +275,7 @@ export class Game {
     this.camera.position.set(s.x + sin * inner + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 5) * 0.015, s.z + cos * inner + rz);
     // Face the camera (a little towards where it runs).
     const at = s.chicken.root.position;
-    s.chicken.root.rotation.y = Math.atan2(at.x - this.camera.position.x, at.z - this.camera.position.z) - SHOWCASE_TURN;
+    s.chicken.root.rotation.y = Math.atan2(at.x - this.camera.position.x, at.z - this.camera.position.z) + SHOWCASE_TURN;
     this.camera.lookAt(s.chicken.root.position.x + rx, 0.55, s.chicken.root.position.z + rz);
   }
 
