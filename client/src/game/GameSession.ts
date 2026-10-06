@@ -12,6 +12,7 @@ import {
   PLAYER,
   PROJECTILES,
   SIM_DT,
+  stepPlayer,
   TEAM_NAMES,
   WEAPONS,
   blockAabb,
@@ -416,7 +417,7 @@ export class GameSession {
     }
     if (canShoot && this.match.phase !== 'ended') {
       const assisted = dev?.wantsFire(now) ?? false;
-      const result = this.weapons.trigger(input.firing || assisted, now, assisted);
+      const result = this.weapons.trigger(input.firing || assisted, now, assisted, input.firePressed);
       if (result === 'fire') this.fire(aiming, assisted);
       else if (result === 'empty') {
         audio.play('empty');
@@ -442,6 +443,7 @@ export class GameSession {
     }
     this.buyMenu?.update(dt);
     dev?.afterFrame(this, dt);
+    input.endFrame();
   }
 
   /** The buy menu is open (it has the mouse). */
@@ -679,13 +681,19 @@ export class GameSession {
     return best;
   }
 
-  eye(): Vec3 {
+  eye(acknowledged = false): Vec3 {
     // Driving: your eyes are in the seat (where the server shoots from too).
     if (this.local.car) {
       const seat = seatPosition(this.local.car);
       return { x: seat.x, y: seat.y + PLAYER.eyeHeight, z: seat.z };
     }
-    const s = this.local.state;
+    const latest = this.local.server, s = acknowledged && this.mode.id === 'hvh' ? { ...latest } : this.local.state;
+    if (acknowledged && this.mode.id === 'hvh' && latest.simulationTime) {
+      const ticks = Math.min(10, Math.max(0, Math.floor((this.serverNow() - latest.simulationTime) / (SIM_DT * 1000))) + 1);
+      // ponytail: cap acknowledged coasting at 10 ticks; longer delays need delivered-input replay.
+      for (let i = 0; i < ticks; i++) stepPlayer(s, { seq: latest.ack, forward: 0, right: 0, yaw: latest.yaw, pitch: latest.pitch,
+        jump: s.jumpHeld, crouch: s.crouching }, SIM_DT, this.collision, null, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon), true);
+    }
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
   }
 

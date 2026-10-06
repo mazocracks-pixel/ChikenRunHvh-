@@ -83,7 +83,7 @@ import {
   carAimSpeed,
   stepAnimation, defaultHvhCore, fakeLagTicks, rayHvhChicken, buildHvhMatrix, traceHvhCover,
   hvhHitDamage, auditShot, type ShotAudit,
-  hvhWeapon, hvhSpread, unpackPlayer, hvhStance,
+  hvhWeapon, hvhSpread, unpackPlayer, hvhStance, HYPOTHESIS_SOURCES,
   KILL_FLAGS,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
@@ -703,7 +703,7 @@ export class GameRoom {
       p.socket.emit('shot', { ...event, audit, mag: p.mag, charge: p.resource.charge,
         readyAt: now + Math.max(0, p.resource.nextAttackTick - p.resource.playerTick) * SIM_DT * 1000 });
     } else this.io.to(this.channel).emit('shot', event);
-    if (audit) p.resolver.feedback(audit.target, audit.source, audit.reason, now, audit.headshot === true);
+    if (audit) p.resolver.feedback(audit.target, audit.source, audit.reason, now, audit.headshot === true, audit.recordT);
     if (tactical) for (const enemy of this.players.values()) {
       if (enemy === p || !enemy.alive || !enemy.hvhEnabled || this.areTeammates(p, enemy)) continue;
       const { x: hx, y: hy, z: hz } = chickenHeadCenter(enemy.state, enemy.yaw, bodyScale(enemy.state), enemy.fakePitch);
@@ -1373,7 +1373,7 @@ function parseFire(raw: unknown): FireRequest | null {
   if (len < 0.5 || len > 1.5) return null;
   const intentRaw = isRecord(raw.intent) ? raw.intent : null;
   const intent = intentRaw && Number.isSafeInteger(intentRaw.target) && isFiniteNumber(intentRaw.recordT) && isFiniteNumber(intentRaw.yaw)
-    && ['CENTER','LEFT','RIGHT','LEFT_LOW','RIGHT_LOW','LAST_MOVING','BODY_UPDATE'].includes(String(intentRaw.source))
+    && (HYPOTHESIS_SOURCES as readonly string[]).includes(String(intentRaw.source))
     ? { target: intentRaw.target as number, recordT: intentRaw.recordT, yaw: wrapAngle(intentRaw.yaw), source: intentRaw.source as import('@game/shared').HypothesisSource } : undefined;
   return { shot: shot as number, weapon, dx, dy, dz, t, aiming: aiming === true, command: Number.isSafeInteger(raw.command) ? raw.command as number : undefined, intent };
 }

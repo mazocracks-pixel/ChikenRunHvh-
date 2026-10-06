@@ -26,6 +26,14 @@ it('manual semi-auto still needs release, and assisted readiness never spends am
   assert.equal(w.switchTo(1,2300),true); assert.equal(w.shotState(2400),'Switching weapon');
   assert.equal(w.trigger(true,2400,true),null); assert.equal(w.trigger(true,2600,true),'fire');
 });
+it('a captured fresh press survives a release and re-press between frames without bypassing the fire timer', () => {
+  const w = new WeaponController(['pistol']);
+  assert.equal(w.trigger(true, 1000, false, true), 'fire');
+  assert.equal(w.trigger(true, 1001, false, true), null);
+  assert.equal(w.trigger(true, 1300, false, true), 'fire');
+  assert.equal(w.trigger(true, 1600), null);
+  assert.equal(w.mag, 10);
+});
 it('assisted bursts cancel on loss of a target; ordinary manual bursts complete', () => {
   const assisted=new WeaponController(['burst']);
   assert.equal(assisted.trigger(true,1000,true),'fire');

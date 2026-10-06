@@ -151,9 +151,11 @@ Run `npm run typecheck`, `npm test`, `npm run build` and `npm run benchmark:hvh`
 The seeded 1,000-duel headshot benchmark compares an adaptive controller against a center-only
 controller using real skeleton rays, spread, inversion and simulated packet timing. Both use
 the same weapon/resource rules and idle charge; first-action order alternates. At seed 7042 the
-adaptive controller wins 926 duels and hits 54.2% of shots, versus 74 wins and 10.8% for center-only.
-Resolver and spread misses remain. This demonstrates material improvement, not perfect balance
-across maps, weapon rosters or human players.
+adaptive controller wins 1,000 duels and hits 62.1% of shots; center-only wins none against this
+particular tucked-head pose. These stationary targets have zero velocity spread. This narrow
+diagnostic measures orientation selection, not balance across maps, weapons or human players.
+The runnable `scripts/check-hvh-duels.ts` check also exercises live bot fights, quick manual
+clicks, airborne Scout shots, latency and fake lag. See [resolver notes](resolver-notes.md).
 
 Regression tests cover information separation, wrong-side head misses, safe-point damage
 tradeoffs, movement/spread/crouch, historical validity, input batches, shared resource, panel
@@ -163,6 +165,6 @@ and phone layout. Longer multiplayer sessions and player feedback remain necessa
 
 The simulation deliberately simplifies full CSGO animation layers, networking and weapon
 tickbase. Packet practice affects input delivery and held public presentation; it is not a full
-network emulator for every message. Pitch is cosmetic; no fake hitboxes or arbitrary native
+network emulator for every message. Pitch changes the physical head pose; no fake hitboxes or arbitrary native
 SDK/Lua execution is included. A future uploaded-script feature requires its own isolation and
 resource limits. Adding such unsupported options as decorative toggles would undermine the game.

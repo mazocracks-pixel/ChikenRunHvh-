@@ -4,6 +4,8 @@ import { CHOICES, RANGES, setPath } from '../config';
 import { buildSkeetTabs } from './tabs';
 import { NATIVE_FIELDS } from './nativeFields';
 import type { Control } from '../controls';
+import { HVH_STANCES } from '@game/shared';
+import { SKEET_GROUPS, skeetWeaponGroup, type SkeetGroup } from './model';
 
 interface NativeModule {
   ccall(name: string, result: string | null, types: string[], values: unknown[]): any;
@@ -38,7 +40,11 @@ export class NativeMenu {
   private playersKey = '';
   private registerPending = false;
   private nativeValues = new Map<number,number>();
+  private profile: SkeetGroup = 'general';
+  private stance: typeof HVH_STANCES[number] = 'standing';
   constructor(private dev: Dev, private close: () => void) {
+    const weapon = dev.runtime.currentSession?.weapons.def;
+    if (weapon) this.profile = skeetWeaponGroup(weapon);
     const status = h('div', { class:'skeet-native-status', role:'status' }, 'Loading your C++ menu…');
     this.root.append(canvas, status); document.body.append(this.root);
     this.unsubscribe = dev.onChange(() => { this.sync = true; });
@@ -83,27 +89,28 @@ export class NativeMenu {
     const addButton=(group:string,label:string,run:()=>void) => {
       const c:Control={type:'buttons',label,items:[{label,run}]};call(m,'native_add',id,group,label,3,0,1,'','');this.controls.push({id:id++,c,last:0});
     };
-    for(const tab of buildSkeetTabs(this.dev)) {
-      if(tab.id==='visuals'||tab.id==='players'||tab.id==='configs')continue;
+    add('Rage Other',{type:'select',label:'Weapon profile',options:SKEET_GROUPS.map(value=>({value,label:value==='general'?'General fallback':value})),
+      bind:{get:()=>this.profile,set:v=>{this.profile=v as SkeetGroup;this.registerPending=true;}}});
+    add('Anti-aimbot angles',{type:'select',label:'Movement stance',options:HVH_STANCES.map(value=>({value,label:value})),
+      bind:{get:()=>this.stance,set:v=>{this.stance=v as typeof HVH_STANCES[number];this.registerPending=true;}}});
+    for(const tab of buildSkeetTabs(this.dev,this.profile,this.stance)) {
       for(const section of tab.sections) {
-        const group=tab.id==='rage'?(section.title==='Shot overrides'?'Rage Other':'Aimbot')
-          :tab.id==='antiaim'?(section.title==='Resolver'?'Other':section.title.toLowerCase().includes('network')?'Fake lag':'Anti-aimbot angles')
-          :tab.id==='fakelag'?'Fake lag':tab.id==='legit'?'Trigger':tab.id==='skins'?'Weapon skin':tab.id==='misc'?'Browser Misc':'Settings';
-        add(group,{type:'info',label:section.title,value:()=>''});
+        const group=tab.id==='rage'?(['Weapon profile','Resolver'].includes(section.title)?'Rage Other':'Aimbot')
+          :tab.id==='antiaim'?'Anti-aimbot angles'
+          :tab.id==='fakelag'?'Fake lag':tab.id==='misc'?'Browser Misc':'Settings';
+        if (!section.items.length) continue;
         for(const c of section.items) {
           if(c.type==='buttons')for(const b of c.items)addButton(group,b.label,b.run);
           else add(group,c);
         }
       }
     }
-    add('Weapon Selection',{type:'info',label:'Current weapon',value:()=>this.dev.runtime.currentSession?.weapons.def.name??'No match'});
     addButton('Settings','Save current config',()=>{const name='Native Skeet';const config=structuredClone(this.dev.config);const old=this.dev.configs.find(c=>c.name===name);if(old)old.config=config;else this.dev.configs.push({name,config});this.dev.saveConfigList();this.registerPending=true;this.dev.notify('Config saved.','good');});
     for(const saved of this.dev.configs)addButton('Settings',`Load ${saved.name}`,()=>this.dev.replaceConfig(structuredClone(saved.config)));
     addButton('Settings','Reset all settings',()=>this.dev.resetAll());
     for(const p of this.dev.runtime.currentSession?.infos.values()??[]) if(p.pid!==this.dev.runtime.currentSession?.selfPid) {
       for(const key of ['ignore','body'] as const)add('Players',{type:'check',label:`${key==='ignore'?'Ignore':'Body aim'} ${p.name}`,bind:{get:()=>this.dev.runtime.playerRule(p.pid)[key],set:v=>this.dev.runtime.setPlayerRule(p.pid,key,v)}});
     }
-    add('Adjustments',{type:'info',label:'Opponent overrides',value:()=> 'Ignore excludes assisted targeting. Body aim selects torso points. Both clear on leaving.'});
   }
   private read(c:Control,options:string[]=[]): number {
     if(c.type==='color')return parseInt(String(this.dev.get(c.path)).replace('#',''),16)||0;
@@ -117,6 +124,7 @@ export class NativeMenu {
     if(c.type==='buttons'){const b=c.items[0];if(n&&b&&!b.disabled?.())b.run();return;}
     if(c.type==='key'){if(n){this.awaitingKey={path:c.path,id};this.root.classList.add('dev-capturing');call(this.module!,'native_detail',id,'Press a key; Backspace clears the bind.');}return;}
     if(c.type==='toggle'||c.type==='check'){if(c.bind)c.bind.set(!!n);else this.dev.set(c.path!,!!n);}
+    if ('path' in c && c.path === 'skeet.antiAim.enabled') this.registerPending = true;
     if(c.type==='slider'){if(c.bind)c.bind.set(n);else this.dev.set(c.path!,n);}
     if(c.type==='select'){const v=options[Math.round(n)];if(v!==undefined){if(c.bind)c.bind.set(v);else this.dev.set(c.path!,v);}}
   }

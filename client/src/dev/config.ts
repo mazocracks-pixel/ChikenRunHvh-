@@ -353,11 +353,14 @@ export interface NamedConfig {
 /** Ready-made configs, added the first time the menu opens. */
 export function presetConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
   if (panel === 'skeet') {
-    const balanced = defaultConfig('skeet'); balanced.rage.aim.enabled = balanced.visuals.esp.enabled = true;
-    const scout = structuredClone(balanced); scout.rage.aim.fov = 20; scout.hvh.exploit = 'hideShots';
+    const balanced = defaultConfig('skeet'); balanced.rage.aim.enabled = balanced.rage.aim.autoTarget = balanced.visuals.esp.enabled = true;
+    balanced.hvh.antiAim.enabled = true; balanced.skeet.antiAim.freestanding = true; balanced.skeet.antiAim.visualPitch = 'down';
+    const scout = structuredClone(balanced); scout.hvh.exploit = 'hideShots';
     scout.skeet.profiles.snipers.hitchance = 85;
     const aggressive = structuredClone(balanced); aggressive.rage.aim.autoTarget = aggressive.hvh.antiAim.enabled = true;
     aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap';
+    aggressive.hvh.aim.autowall = true;
+    for (const profile of Object.values(aggressive.skeet.profiles)) { profile.safePoints = false; profile.hitchance = 55; }
     return [{ name: 'Skeet Balanced', config: balanced }, { name: 'Skeet Scout', config: scout }, { name: 'Skeet Aggressive', config: aggressive }];
   }
   const balanced = defaultConfig();

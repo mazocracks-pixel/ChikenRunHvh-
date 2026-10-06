@@ -111,6 +111,7 @@ export class Input {
   private locked = false;
   private lockedAt = 0;
   private fireHeld = false;
+  private fireTapped = false;
   private aimHeld = false;
   private touchAxes = { forward: 0, right: 0 };
   private touchButtons = { fire: false, aim: false, jump: false, crouch: false, use: false };
@@ -145,8 +146,10 @@ export class Input {
   }
 
   get firing(): boolean {
-    return this.active && (this.fireHeld || this.touchButtons.fire);
+    return this.active && (this.fireHeld || this.fireTapped || this.touchButtons.fire);
   }
+  get firePressed(): boolean { return this.active && this.fireTapped; }
+  endFrame(): void { this.fireTapped = false; }
 
   get aiming(): boolean {
     return this.active && (this.aimHeld || this.touchButtons.aim || this.assistedAds);
@@ -235,6 +238,7 @@ export class Input {
   }
 
   setTouchButton(button: 'fire' | 'aim' | 'jump' | 'crouch' | 'use', down: boolean): void {
+    if (button === 'fire' && down && !this.touchButtons.fire && this.active) this.fireTapped = true;
     this.touchButtons[button] = down;
   }
 
@@ -268,6 +272,7 @@ export class Input {
     this.keys.clear();
     this.buttons.clear();
     this.fireHeld = false;
+    this.fireTapped = false;
     this.aimHeld = false;
   };
 
@@ -281,9 +286,9 @@ export class Input {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
-    if (!this.locked) return;
+    if (!this.locked || !this.active) return;
     this.buttons.add(e.button);
-    if (e.button === 0) this.fireHeld = true;
+    if (e.button === 0) this.fireHeld = this.fireTapped = true;
     if (e.button === 2) this.aimHeld = true;
   };
 
@@ -307,6 +312,7 @@ export class Input {
       this.keys.clear();
       this.buttons.clear();
       this.fireHeld = false;
+      this.fireTapped = false;
       this.aimHeld = false;
     }
     this.onLockChange?.(this.locked);

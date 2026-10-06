@@ -29,6 +29,8 @@ export class DevRuntime implements DevHooks {
   private coreScanAt = -Infinity;
   private coreShot: ShotIntent | undefined;
   private coreScoped = false;
+  private coreScopeUntil = -Infinity;
+  private coreScopeWeapon = '';
   private peekForecast: PeekForecast | null = null;
   private peekForecastAt = -Infinity;
   private autoStopShotAt = -Infinity;
@@ -119,6 +121,7 @@ export class DevRuntime implements DevHooks {
     this.logs.length = 0; this.info.hidden = true;
     this.playerRules.clear();
     this.coreResolver.clear(); this.coreTarget = null; this.coreReady = this.coreScoped = false; this.coreScanAt = -Infinity; this.coreShot = undefined;
+    this.coreScopeUntil = -Infinity; this.coreScopeWeapon = '';
     this.peekForecast = null; this.peekForecastAt = this.autoStopShotAt = -Infinity; this.autoStopText = 'Inactive';
     this.binds.hidden = this.watermark.hidden = true; this.dev.input.assistedAds = false;
     this.diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' };
@@ -261,6 +264,7 @@ export class DevRuntime implements DevHooks {
     this.autoStopShotAt = performance.now();
     if (this.peekAnchor && this.peekHeld) { this.returning = true; this.peekReturnAt = performance.now(); }
     const d = this.diagnostics;
+    if (session.mode.id === 'hvh' && this.coreScoped) this.coreScopeUntil = performance.now() + session.weapons.fireInterval + 250;
     if (session.mode.id === 'hvh' && assisted && this.coreTarget) {
       const c = this.coreTarget;
       this.coreShot = { target: c.target, recordT: c.record.t, source: c.source, yaw: c.yaw, safety: c.safety };
@@ -276,7 +280,7 @@ export class DevRuntime implements DevHooks {
     if (session.mode.id === 'hvh' && shot.pid === session.selfPid && shot.audit) {
       const a = shot.audit;
       this.extensions.result(a);
-      this.coreResolver.feedback(a.target, a.source, a.reason, session.serverNow(), a.headshot === true);
+      this.coreResolver.feedback(a.target, a.source, a.reason, session.serverNow(), a.headshot === true, a.recordT);
       this.logs.unshift(`#${shot.shot} ${a.reason} · ${shot.burst === 2 ? 'DT burst · ' : ''}${Math.round(a.damage)} damage`);
       this.logs.length = Math.min(this.logs.length, 5); this.coreScanAt = -Infinity; return;
     }
@@ -341,8 +345,9 @@ export class DevRuntime implements DevHooks {
     if (session.mode.id === 'hvh') {
       const target = this.coreTarget;
       const remote = target && session.remotes.players.get(target.target);
+      const eye = session.eye(true);
       return this.coreReady && target && shotRecordUsable(target.record.t, session.serverNow(), this.dev.ping() ?? 0) && remote?.alive && remote.latest?.alive && !remote.latest.shielded
-        ? normalize({ x: target.point.x - session.eye().x, y: target.point.y - session.eye().y, z: target.point.z - session.eye().z }) : null;
+        ? normalize({ x: target.point.x - eye.x, y: target.point.y - eye.y, z: target.point.z - eye.z }) : null;
     }
     const target = this.target, eye = session.eye();
     return target?.r.alive && target.visible ? normalize({ x: target.point.x - eye.x, y: target.point.y - eye.y, z: target.point.z - eye.z }) : null;
@@ -351,6 +356,11 @@ export class DevRuntime implements DevHooks {
 
   private beforeHvh(session: GameSession, now: number): void {
     const c = this.policy;
+    const autoScope = this.playing && c.rage.aim.enabled && session.weapons.def.scope && (this.dev.panelId !== 'skeet' || skeetProfile(c, session.weapons.def).autoScope);
+    if (!autoScope || this.coreScopeWeapon !== session.weapons.weapon) this.coreScopeUntil = -Infinity;
+    this.coreScopeWeapon = session.weapons.weapon;
+    this.coreScoped = autoScope && now < this.coreScopeUntil;
+    this.dev.input.assistedAds = this.coreScoped;
     if (!this.playing) { this.coreTarget = null; this.coreReady = false; this.coreShot = undefined; this.peekForecast = null; this.autoStopText='Inactive'; this.pid = 0; this.diagnostics.state = 'Paused'; return; }
     const serverNow = session.serverNow(), records: ObservableRecord[] = [];
     for (const [pid, remote] of session.remotes.players) {
@@ -380,14 +390,14 @@ export class DevRuntime implements DevHooks {
     if (now - this.coreScanAt >= 100) {
       this.coreScanAt = now; this.evaluations++;
       const profile = skeetProfile(c, session.weapons.def), skeet = this.dev.panelId === 'skeet';
-      const eye = session.eye(), yaw = this.dev.input.yaw, pitch = this.dev.input.pitch;
+      const eye = session.eye(true), yaw = this.dev.input.yaw, pitch = this.dev.input.pitch;
       const visible = records.filter(r => {
         if (!shotRecordUsable(r.t, serverNow, this.dev.ping() ?? 0)) return false;
         const dx = r.origin.x - eye.x, dz = r.origin.z - eye.z, dy = r.origin.y + 0.8 - eye.y;
         const angle = Math.acos(Math.max(-1, Math.min(1, (dx * -Math.sin(yaw) * Math.cos(pitch) + dz * -Math.cos(yaw) * Math.cos(pitch) + dy * Math.sin(pitch)) / Math.hypot(dx, dy, dz))));
         return angle <= (a.enabled ? a.fov / 2 : trigger.fov) * DEG;
       });
-      const next = scanRage({ now: serverNow, eye, w: session.weapons.def, speed: session.horizontalSpeed(), airborne: !session.local.onGround,
+      const next = scanRage({ now: serverNow, eye, w: session.weapons.def, speed: Math.max(session.horizontalSpeed(), session.local.server.horizontalSpeed), airborne: !session.local.onGround,
         heat: session.weapons.heat, playerRules: this.playerRules,
         scoreCandidate: candidate => this.extensions.score(candidate),
         allowScope: !skeet || profile.autoScope,
@@ -413,10 +423,11 @@ export class DevRuntime implements DevHooks {
       this.coreTarget = next; this.pid = next?.target ?? 0;
     }
     const target = this.coreTarget;
-    if (!target) { this.coreReady = false; this.coreScoped = false; this.diagnostics = { target: 'No valid candidate', damage: 0, chance: 0, state: this.peekForecast ? 'Preparing for predicted peek' : 'Scanning' }; return; }
+    if (!target) { this.coreReady = false; this.diagnostics = { target: 'No valid candidate', damage: 0, chance: 0, state: this.peekForecast ? 'Preparing for predicted peek' : 'Scanning' }; return; }
     const bodyRule = this.playerRule(target.target).body;
     if (bodyRule && target.group === 'head') { this.coreReady = false; this.coreScanAt = -Infinity; return; }
-    this.coreScoped = session.weapons.def.scope && (this.coreScoped || target.scope);
+    if (autoScope) this.coreScopeUntil = Math.max(this.coreScopeUntil, now + 250);
+    this.coreScoped = autoScope && now < this.coreScopeUntil;
     this.dev.input.assistedAds = this.coreScoped;
     const stable = this.rageTiming || (now >= this.switchingUntil && now - this.acquiredAt >= Math.max(c.hvh.aim.reaction, triggering ? trigger.delay : 0));
     const stop = this.autoStopPlan(session,{jump:this.dev.input.isDown('Space')},now);

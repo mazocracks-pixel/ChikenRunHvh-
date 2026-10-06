@@ -50,7 +50,7 @@ export function scanRage(input: RageScan): ShotCandidate | null {
     const plausible = s.resolver ? r : input.resolver.resolve(record, true, undefined, s.resolverPolicy);
     uncertaintyByRecord.set(record, r.hypotheses.map(h => ({ probability: h.probability,
       matrix: buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3, record.pitch) })));
-    const hypotheses = r.hypotheses.slice(0, 3), all = plausible.hypotheses.filter(h => h.probability >= 0.04 || ['LEFT', 'CENTER', 'RIGHT'].includes(h.source)).map(h => buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3, record.pitch));
+    const hypotheses = r.hypotheses.slice(0, 3), all = plausible.hypotheses.filter(h => h.probability >= 0.04).map(h => buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3, record.pitch));
     for (const h of hypotheses) {
       const matrix = buildHvhMatrix(record.origin, h.yaw, 1 - record.crouch * 0.3, record.pitch);
       const body = rule?.body || s.body === 'force' || r.confidence < (s.preferBodyBelow ?? 0)

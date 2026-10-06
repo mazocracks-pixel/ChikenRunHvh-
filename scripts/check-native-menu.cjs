@@ -14,7 +14,7 @@ async function main() {
     await page.locator('#create-mode').selectOption('hvh');await page.locator('#create-bots').fill('1');
     await page.getByRole('button',{name:'Create room',exact:true}).click();
     await page.getByRole('dialog',{name:'HvH setup'}).waitFor();
-    await page.getByRole('radio',{name:/Skeet/}).check();await page.evaluate(()=>window.__app.game.world.setDetail(.05));await page.getByRole('button',{name:'Configure Skeet',exact:true}).click();
+    await page.getByRole('radio',{name:/Skeet/}).check();assert.equal(await page.getByLabel('Quick config').isVisible(),true);await page.getByLabel('Quick config').selectOption('0');assert.equal(await page.evaluate(()=>window.__app.dev.config.rage.aim.autoTarget),true);await page.evaluate(()=>window.__app.dev.set('rage.aim.enabled',false));await page.evaluate(()=>window.__app.game.world.setDetail(.05));await page.getByRole('button',{name:'Configure Skeet',exact:true}).click();
     const canvas=page.locator('#skeet-native-canvas');
     await page.waitForFunction(()=>document.querySelector('#skeet-native-canvas')?.dataset.widgets?.length>0,null,{timeout:60000});
     const position=async(x,y)=>{const r=await canvas.boundingBox();return [r.x+x*r.width/660,r.y+y*r.height/560];};
@@ -24,19 +24,28 @@ async function main() {
       await page.mouse.click(...await position(Number(w[1])+(fraction ? 159*fraction : 8),(Number(w[2])+Number(w[4]))/2));
       await page.waitForTimeout(150);
     };
-    const tab=async index=>{await page.mouse.click(...await position(40,57+index*75));await page.waitForTimeout(180);};
+    const tab=async index=>{await page.mouse.click(...await position(40,84+index*130));await page.waitForTimeout(180);};
+    const choose=async(label,index)=>{const w=await widget(label);await click(label);await page.mouse.click(...await position(Number(w[1])+20,Number(w[4])+16+index*12));await page.waitForTimeout(200);};
     const scroll=async(x,y,steps)=>{await page.mouse.move(...await position(x,y));for(let i=0;i<steps;i++){await page.mouse.wheel(0,120);await page.waitForTimeout(60);}};
     const read=async path=>page.evaluate(path=>path.split('.').reduce((o,k)=>o[k],window.__app),path);
     const screenshot=async name=>{if(output){fs.mkdirSync(output,{recursive:true});await page.screenshot({path:path.join(output,name)});}};
     await click('Aim assist');assert.equal(await read('dev.config.rage.aim.enabled'),true);
     await click('Force body aim');await page.keyboard.press('KeyL');assert.equal(await read('dev.config.hvh.aim.bodyKey'),'KeyL');assert.equal(await page.locator('.classic-dev-panel').count(),0);
     await screenshot('Skeet-native-rage.png');
+    await choose('Weapon profile',3);
+    await click('Minimum damage',.5);
+    assert.notEqual(await read('dev.config.skeet.profiles.snipers.minDamage'),45);
+    assert.equal(await read('dev.config.skeet.profiles.rifles.minDamage'),20);
     await tab(1);await click('Jitter interval',.01);
     assert.ok(await read('dev.config.skeet.antiAim.interval')<=5);
     const jitter=await widget('Jitter interval');await page.mouse.click(...await position(Number(jitter[1])+1,(Number(jitter[2])+Number(jitter[4]))/2));await page.waitForTimeout(200);
     assert.equal(await read('dev.config.skeet.antiAim.interval'),1);
-    for(const i of [2,4,5,6]){await tab(i);assert.ok((await canvas.getAttribute('data-widgets')).length>0);}
-    await tab(3);
+    await choose('Movement stance',1);
+    await click('Desync angle',.2);
+    assert.notEqual(await read('dev.config.skeet.antiAim.states.moving.desync'),25);
+    assert.equal(await read('dev.config.skeet.antiAim.states.standing.desync'),45);
+    for(const i of [2,3]){await tab(i);assert.ok((await canvas.getAttribute('data-widgets')).length>0);}
+    await tab(2);
     for(const label of ['Bounding box','Health bar','Name','Glow','Player','Remove fog','Remove grass','Remove skybox'])await click(label);
     assert.equal(await read('dev.config.skeet.native.Visuals_Players_boundingBox'),1);
     assert.equal(await read('game.activeSession.ctx.world.scene.fog'),null);
@@ -47,20 +56,20 @@ async function main() {
     assert.notEqual(await read('dev.config.skeet.native.Color_Players_boundingBox_0'),beforeColor);
     await page.keyboard.press('Escape');await page.waitForTimeout(200);assert.equal(await page.locator('.skeet-native-root').count(),1);
     await page.keyboard.press('Escape');await page.locator('.skeet-native-root').waitFor({state:'detached'});
-    await page.getByRole('button',{name:'Configure Skeet',exact:true}).click();await page.waitForTimeout(300);await tab(3);
-    await scroll(190,460,12);await click('Weapons');await scroll(190,460,5);await click('Local fake shadow');
-    await scroll(470,450,15);await click('Force third person');
+    await page.getByRole('button',{name:'Configure Skeet',exact:true}).click();await page.waitForTimeout(300);await tab(2);
+    await click('Weapons');await click('Local fake shadow');
+    await click('Force third person');
     assert.equal(await read('game.activeSession.rig.hvhThirdPerson'),true);
     await page.waitForTimeout(200);
     assert.equal(await read('dev.config.skeet.native.Visuals_ColoredModels_localFakeShadow'),1);
     await screenshot('Skeet-native-visuals.png');
-    await tab(4);await scroll(470,100,25);await click('Save current config');
+    await tab(3);await scroll(470,100,25);await click('Save current config');
     await page.waitForTimeout(250);assert.ok(await page.evaluate(()=>window.__app.dev.configs.some(c=>c.name==='Native Skeet')));
     await page.evaluate(()=>window.__app.dev.set('skeet.native.Visuals_Players_boundingBox',0));
     await scroll(470,100,25);await click('Load Native Skeet');assert.equal(await read('dev.config.skeet.native.Visuals_Players_boundingBox'),1);
     await page.setViewportSize({width:640,height:480});await page.waitForTimeout(200);
     const r=await canvas.boundingBox();assert.ok(r.x>=0 && r.y>=0 && r.x+r.width<=640 && r.y+r.height<=480);
-    await tab(3);await screenshot('Skeet-native-small.png');
+    await tab(2);await screenshot('Skeet-native-small.png');
     await page.keyboard.press('Escape');await page.locator('.skeet-native-root').waitFor({state:'detached'});
     await page.getByRole('button',{name:'Begin match',exact:true}).click();
     await page.getByRole('dialog',{name:'HvH setup'}).waitFor({state:'detached'});
@@ -81,7 +90,7 @@ async function main() {
     const ordinary=await page.evaluate(()=>{const s=window.__app.game.activeSession;return {mode:s.mode.id,native:s.hvhVisuals,thirdPerson:s.rig.hvhThirdPerson,noShake:s.rig.hvhNoShake,smoke:s.effects.hideSmoke,flash:s.ctx.hud.showFlash};});
     assert.deepEqual(ordinary,{mode:'ffa',native:null,thirdPerson:false,noShake:false,smoke:false,flash:true});
     assert.deepEqual(errors,[]);
-    const result={tabs:7,jitterMs:1,keyBinding:true,nativeColors:true,savedSettings:true,smallViewport:true,sceneEffects:true,panelReset:true,ordinaryMode:true,errors};
+    const result={tabs:4,profileSelector:true,stanceSelector:true,jitterMs:1,keyBinding:true,nativeColors:true,savedSettings:true,smallViewport:true,sceneEffects:true,panelReset:true,ordinaryMode:true,quickConfig:true,errors};
     if(output)fs.writeFileSync(path.join(output,'native-menu-qa.json'),JSON.stringify(result,null,2));
     console.log(JSON.stringify(result));
   } finally { await browser.close(); }

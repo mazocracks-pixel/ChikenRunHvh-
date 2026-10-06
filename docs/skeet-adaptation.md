@@ -1,3 +1,5 @@
+The current menu runs the supplied C++ ImGui source compiled to WebAssembly. Its compact layout has Aim, Anti-aim, Visuals and Settings; weapon profiles and movement stances are selected one at a time. [Current resolver and menu changes](resolver-notes.md) describes the latest adaptation. The historical SDK-category mapping below records the underlying features, rather than the current tab order.
+
 # Skeet panel and native HvH controllers
 
 The supplied SDK exposed nine menu categories: Rage, AA, Legit, Visuals, Misc, Skins,

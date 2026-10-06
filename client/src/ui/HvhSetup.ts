@@ -2,6 +2,7 @@ import { HVH_PANEL_IDS, type HvhPanelId } from '@game/shared';
 import type { Dev } from '../dev/Dev';
 import { HVH_PANELS } from '../dev/panels';
 import { h } from './dom';
+import { presetConfigs } from '../dev/config';
 
 /** A personal pre-match pause. The server spawns this player only after Begin succeeds. */
 export class HvhSetup {
@@ -14,8 +15,17 @@ export class HvhSetup {
   private disposed = false;
   private busy = false;
   private hasChosen = false;
+  private readonly preset = h('select', { 'aria-label': 'Quick config' });
+  private presetPanel: HvhPanelId = 'manual';
 
   constructor(dev: Dev, start: (panel: HvhPanelId) => Promise<string | null>, leave: () => void) {
+    this.preset.addEventListener('change', () => {
+      if (this.selected === 'manual' || !this.preset.value) return;
+      const chosen = presetConfigs(this.selected)[Number(this.preset.value)];
+      if (!chosen) return;
+      dev.selectPanel(this.selected); dev.replaceConfig(structuredClone(chosen.config));
+      this.status.textContent = `${chosen.name} loaded. You can adjust it before beginning.`;
+    });
     const options = HVH_PANEL_IDS.map(id => {
       const p = HVH_PANELS[id];
       const radio = h('input', { type: 'radio', name: 'hvh-panel', value: id });
@@ -29,7 +39,7 @@ export class HvhSetup {
         h('h2', null, 'Choose your HvH panel'),
         h('p', { class: 'muted' }, 'Finish setup before entering combat. The rest of the match continues.'),
         h('fieldset', { class: 'hvh-panel-options' }, h('legend', null, 'Panel'), ...options),
-        this.status, this.configure, this.begin,
+        this.status, this.preset, this.configure, this.begin,
         h('button', { type: 'button', class: 'secondary', onclick: leave }, 'Leave match')));
     this.configure.addEventListener('click', () => {
       dev.selectPanel(this.selected);
@@ -61,6 +71,12 @@ export class HvhSetup {
   }
 
   private refresh(): void {
+    this.preset.hidden = this.selected === 'manual'; this.preset.disabled = this.busy;
+    if (this.presetPanel !== this.selected) {
+      this.presetPanel = this.selected;
+      this.preset.replaceChildren(h('option', { value: '' }, 'Keep my current settings'),
+        ...(this.selected === 'manual' ? [] : presetConfigs(this.selected).map((c, i) => h('option', { value: String(i) }, c.name))));
+    }
     for (const [id, radio] of this.choices) { radio.checked = id === this.selected; radio.disabled = this.busy; }
     this.begin.disabled = this.configure.disabled = this.busy;
     this.configure.hidden = this.selected === 'manual';

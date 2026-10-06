@@ -4,6 +4,15 @@ import { SIM_DT, PLAYER, normalize, unpackPlayer, type ShotEvent } from '@game/s
 import { History } from '../src/rooms/History';
 import { GameRoom } from '../src/rooms/GameRoom';
 import { addPlayer, fakeIo, makeRoom, place, stepRoom } from './helpers';
+it('HvH bot weapon variety keeps ordinary bots and baseline combat stats intact', t => {
+  for (const mode of ['hvh', 'ffa'] as const) {
+    const { room } = makeRoom(mode, 'flat'); t.after(() => room.close());
+    for (let i = 0; i < 3; i++) assert.ok(room.bots.add());
+    const bots = [...room.players.values()];
+    assert.deepEqual(bots.map(p => p.weapon), mode === 'hvh' ? ['rifle', 'scout', 'battle'] : ['rifle', 'rifle', 'rifle']);
+    for (const bot of bots) { assert.equal(bot.hp, 100); assert.equal(bot.hvhEnabled, mode === 'hvh'); assert.equal(bot.hvh.exploit, 'off'); }
+  }
+});
 
 it('ordinary and Manual HvH players receive authoritative slow walk through validated input', t => {
   for (const mode of ['ffa','hvh'] as const) {

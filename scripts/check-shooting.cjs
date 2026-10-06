@@ -17,7 +17,7 @@ async function main() {
     const canvas = page.locator('#skeet-native-canvas');
     await page.waitForFunction(()=>document.querySelector('#skeet-native-canvas')?.dataset.widgets?.length>0);
     const r = await canvas.boundingBox();
-    await page.mouse.click(r.x+40*r.width/660,r.y+282*r.height/560);
+    await page.mouse.click(r.x+40*r.width/660,r.y+344*r.height/560);
     await page.waitForTimeout(150);
     for(let i=0;i<30&&!await widget('Override scope');i++) {
       await page.mouse.move(r.x+470*r.width/660,r.y+420*r.height/560);

@@ -21,7 +21,7 @@ import {
   type Vec3,
   type Team,
 } from '@game/shared';
-import { DEFAULT_RAGE, scanRage, unpackPlayer, defaultSkeetAntiAim, hvhWeapon, type ObservableRecord, type ShotCandidate } from '@game/shared';
+import { DEFAULT_RAGE, scanRage, unpackPlayer, defaultSkeetAntiAim, hvhWeapon, shotRecordUsable, type ObservableRecord, type ShotCandidate } from '@game/shared';
 import type { BotGoal, GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
@@ -99,7 +99,8 @@ export class BotSystem {
     let name = pick(NAMES);
     for (let i = 0; i < NAMES.length && this.usedNames.has(name); i++) name = NAMES[(NAMES.indexOf(name) + 1) % NAMES.length]!;
     this.usedNames.add(name);
-    const res = this.room.join(null, { userId: null, name: `🤖 ${name}`, appearance: randomAppearance(), loadout: ['rifle', 'shotgun', 'pistol'], bot: true, rank: 1 + Math.floor(Math.random() * 6) });
+    const loadout = this.room.mode.id === 'hvh' ? [(['rifle', 'scout', 'battle'] as const)[this.brains.size % 3]!, 'pistol' as const] : ['rifle', 'shotgun', 'pistol'] as const;
+    const res = this.room.join(null, { userId: null, name: `🤖 ${name}`, appearance: randomAppearance(), loadout: [...loadout], bot: true, rank: 1 + Math.floor(Math.random() * 6) });
     if (!res.ok) return false;
     const p = this.room.players.get(res.selfPid)!;
     if (this.room.mode.id === 'hvh') {
@@ -377,7 +378,7 @@ export class BotSystem {
         world: this.room.world, records, resolver: p.resolver, currentTarget: b.hvhCandidate?.target,
         settings: { ...DEFAULT_RAGE, hitchance: 0.6, maxRecords: 2, preferBodyBelow: 0.5, bodyAfterMisses: 2, body: 'lethal' } });
     }
-    const c = b.hvhCandidate && records.some(r => r.pid === b.hvhCandidate!.target) && now - b.hvhCandidate.record.t <= 300 ? b.hvhCandidate : null;
+    const c = b.hvhCandidate && records.some(r => r.pid === b.hvhCandidate!.target) && shotRecordUsable(b.hvhCandidate.record.t, now) ? b.hvhCandidate : null;
     let x = 0, z = 0;
     if (!b.hvhAnchor) b.hvhAnchor = { x: p.state.x, y: p.state.y, z: p.state.z };
     if (now < (b.hvhReturnUntil ?? 0)) {
@@ -389,6 +390,9 @@ export class BotSystem {
         if (!b.waypoint || Math.hypot(b.waypoint.x - p.state.x, b.waypoint.z - p.state.z) < 2) this.newWaypoint(b);
         const next = this.nextStep(b, b.waypoint!, now); x = next.x - p.state.x; z = next.z - p.state.z;
       }
+    } else if (p.resource.nextAttackTick - p.resource.playerTick > 10) {
+      if (now >= b.strafeUntil) { b.strafe = b.strafe === 1 ? -1 : 1; b.strafeUntil = now + 1200; }
+      x = c.direction.z * b.strafe; z = -c.direction.x * b.strafe;
     } else if (c.stop || p.state.horizontalSpeed > 0.5) {
       x = -(p.state.walkVx ?? 0); z = -(p.state.walkVz ?? 0);
     }
@@ -399,10 +403,10 @@ export class BotSystem {
     this.room.handleInput(p, frame);
     if (p.mag <= 0) { this.room.handleReload(p); return; }
     if (c?.scope) p.aiming = true;
-    if (c && !c.stop && !c.scope && now - c.record.t <= 300 && p.state.horizontalSpeed < 0.5 && !p.reloadUntil
+    if (c && !c.stop && !c.scope && shotRecordUsable(c.record.t, now) && p.state.horizontalSpeed < 0.5 && !p.reloadUntil
       && now >= (b.hvhReturnUntil ?? 0) && now >= p.switchReadyAt && p.resource.playerTick >= p.resource.nextAttackTick) {
       const direction = normalize({ x: c.point.x - eye.x, y: c.point.y - eye.y, z: c.point.z - eye.z });
-      this.room.handleFire(p, { shot: ++b.shot, command: frame.seq, weapon: p.weapon, dx: direction.x, dy: direction.y, dz: direction.z,
+      this.room.handleFire(p, { shot: ++b.shot, command: p.lastSeq, weapon: p.weapon, dx: direction.x, dy: direction.y, dz: direction.z,
         t: c.record.t, aiming: p.aiming, intent: { target: c.target, source: c.source, recordT: c.record.t, yaw: c.yaw } });
       b.hvhReturnUntil = now + 400; b.hvhNextScan = 0;
     }

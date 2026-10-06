@@ -121,8 +121,8 @@ export class WeaponController {
    * Decides whether the trigger produces a shot this frame (semi-auto needs a fresh press,
    * automatic weapons repeat at their fire rate). Returns 'fire', 'empty' (click) or null.
    */
-  trigger(down: boolean, now: number, assisted = false): 'fire' | 'empty' | null {
-    const fresh = down && !this.triggerWasDown;
+  trigger(down: boolean, now: number, assisted = false, pressed = false): 'fire' | 'empty' | null {
+    const fresh = down && (pressed || !this.triggerWasDown);
     this.triggerWasDown = down;
     const w = this.def;
     if (this.assistedBurst && !down && !assisted && w.burst) this.timing.burstShots = w.burst.count;
