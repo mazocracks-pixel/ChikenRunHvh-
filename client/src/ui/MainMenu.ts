@@ -18,13 +18,13 @@ export interface MenuActions {
   privacy(): void;
 }
 
-export const MODE_ICONS: Record<ModeId, string> = { squad: '👥', face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
+export const MODE_ICONS: Record<ModeId, string> = { zombie: '🧟', squad: '👥', face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
 
 /** Mode tabs. Any mode not listed lands in the last one. */
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
   { id: 'casual', label: '🐔 Casual', modes: ['ffa', 'tdm', 'squad', 'duel'] },
   { id: 'competitive', label: '🏆 Competitive', modes: ['face', 'bomb', 'hvh'] },
-  { id: 'fun', label: '🎉 Fun', modes: ['arms', 'knife', 'ctf', 'sandbox'] },
+  { id: 'fun', label: '🎉 Fun', modes: ['zombie', 'arms', 'knife', 'ctf', 'sandbox'] },
 ];
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
 
@@ -35,6 +35,7 @@ const mapKey = (mode: ModeId) => `chikengun:map:${mode}`;
 /** "5 vs 5", "1 vs 1", "Free for all · 12"… */
 function playersLine(m: ModeDef): string {
   if (m.building) return `Build together · up to ${m.maxPlayers}`;
+  if (m.zombies) return `Co-op survival · up to ${m.maxHumans ?? m.maxPlayers}`;
   if (m.ranked) return `Ranked ${m.maxPlayers / 2} vs ${m.maxPlayers / 2} · real players`;
   if (m.teams) return `${m.maxPlayers / 2} vs ${m.maxPlayers / 2}`;
   if (m.maxPlayers === 2) return '1 vs 1';
@@ -90,7 +91,7 @@ export class MainMenu {
           { class: 'mode-top' },
           h('div', { class: 'mode-icon' }, MODE_ICONS[id]),
           h('span', { class: 'mode-players' }, playersLine(m)),
-          m.building ? null : h('button', { type: 'button', class: 'mode-board', title: `${m.name} leaderboard`, 'aria-label': `${m.name} leaderboard`, onclick: () => actions.leaderboard(id) }, '🏆'),
+          m.building || m.zombies ? null : h('button', { type: 'button', class: 'mode-board', title: `${m.name} leaderboard`, 'aria-label': `${m.name} leaderboard`, onclick: () => actions.leaderboard(id) }, '🏆'),
         ),
         h('h3', null, m.name),
         h('p', null, m.description),

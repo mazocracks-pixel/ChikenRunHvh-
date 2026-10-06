@@ -36,6 +36,35 @@ export interface WorldLook {
 export const SURFACES = ['grass', 'ground', 'road', 'crate', 'hay', 'stone', 'brick', 'wood', 'roof', 'concrete', 'metal', 'sandstone', 'fence', 'trees'] as const;
 export type Surface = (typeof SURFACES)[number];
 
+/** The Graveyard (Zombie Apocalypse): a dark, foggy night. */
+export function nightLook(): WorldLook {
+  return {
+    ...defaultLook(),
+    grass: '#6a8078',
+    ground: '#6a7078',
+    road: '#5a5e66',
+    crate: '#8b8f9a',
+    hay: '#8b8f9a',
+    stone: '#9aa3b5',
+    brick: '#8b8f9a',
+    wood: '#7d7568',
+    roof: '#5b6070',
+    concrete: '#80858f',
+    metal: '#8089a0',
+    sandstone: '#8b8f9a',
+    fence: '#6b7080',
+    trees: '#4d5a58',
+    zenith: '#05070f',
+    horizon: '#141a26',
+    clouds: 0.25,
+    fog: 0.28,
+    sunColor: '#8aa0d8',
+    sunIntensity: 0.9,
+    ambient: 0.6,
+    exposure: 1.1,
+  };
+}
+
 export function defaultLook(): WorldLook {
   return {
     grass: '#ffffff',

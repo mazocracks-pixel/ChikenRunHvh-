@@ -14,13 +14,14 @@ import { baseFov } from './CameraRig';
 import { GameSession, type DevHooks } from './GameSession';
 import { Input } from './Input';
 import { Chicken } from './models/Chicken';
-import { defaultLook, type WorldLook } from './look';
+import { defaultLook, nightLook, type WorldLook } from './look';
 import { SUN_DIRECTION, Sky } from './Sky';
 import { World } from './World';
 
 /** Clamp long frames (tab switches, breakpoints) so the simulation doesn't try to catch up for seconds. */
 const MAX_FRAME_DT = 0.25;
 const PREVIEW_SPOT = new THREE.Vector3(0, 0, 18);
+const DEFAULT_LOOK_KEY = JSON.stringify(defaultLook());
 
 /** The title screen shows the player's chicken posing on these maps, one after the other. */
 const SHOWCASE_MAPS: readonly MapId[] = ['sandstown', 'harbor', 'town', 'frostbite', 'farm'];
@@ -81,7 +82,9 @@ export class Game {
   private environment: THREE.Texture;
   private environmentTarget: THREE.WebGLRenderTarget;
   private envScene: THREE.Scene;
-  private look: WorldLook = defaultLook();
+  /** What the developer World tab set (white tints = unchanged), and what the map looks like by itself. */
+  private userLook: WorldLook = defaultLook();
+  private baseLook: WorldLook = defaultLook();
   private lookKey = '';
   private skyKey = '';
   private rebakeTimer: number | undefined;
@@ -198,7 +201,10 @@ export class Game {
     this.world.dispose();
     this.world = new World(this.scene, MAPS[id], this.renderer.capabilities.getMaxAnisotropy());
     this.applyWorldQuality();
-    this.world.setLook(this.look);
+    // Some maps have their own light (the Graveyard is a night).
+    this.baseLook = id === 'night' ? nightLook() : defaultLook();
+    this.lookKey = '';
+    this.applyLook();
   }
 
   /** The chicken the title screen shows (your own, with a rifle); null for the plain fly-over. */
@@ -302,11 +308,17 @@ export class Game {
   }
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */
-  setLook(look: WorldLook): void {
+  setLook(user: WorldLook): void {
+    this.userLook = { ...user };
+    this.applyLook();
+  }
+
+  private applyLook(): void {
+    // An untouched World tab means "the map's own look".
+    const look = JSON.stringify(this.userLook) === DEFAULT_LOOK_KEY ? this.baseLook : this.userLook;
     const lookKey = JSON.stringify(look);
     if (lookKey === this.lookKey) return;
     this.lookKey = lookKey;
-    this.look = { ...look };
     this.world.setLook(look);
     this.sky.setColors(look.zenith, look.horizon);
     this.sky.setClouds(look.clouds);

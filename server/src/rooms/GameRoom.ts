@@ -69,6 +69,7 @@ import {
   type ThrowRequest,
   type MeleeTarget,
   type RoundState,
+  type ZombieJoin,
   type Vec3,
   type WeaponDef,
   type WeaponId,
@@ -252,7 +253,7 @@ export class GameRoom {
 
   /** Bots step aside for humans, so only humans count towards full. */
   get isFull(): boolean {
-    return this.humanCount >= this.mode.maxPlayers;
+    return this.humanCount >= (this.mode.maxHumans ?? this.mode.maxPlayers);
   }
 
   get phase(): MatchPhase {
@@ -373,7 +374,8 @@ export class GameRoom {
     } else {
       this.io.to(this.channel).emit('playerJoined', info);
     }
-    this.systemMessage(`${info.name} joined`);
+    // Zombies come and go by the dozen: no chat line for each.
+    if (!(this.mode.zombies && info.bot)) this.systemMessage(`${info.name} joined`);
     this.onPlayerJoin(player, now);
     this.updateMatch(now);
 
@@ -403,7 +405,7 @@ export class GameRoom {
   }
 
   /** Mode-specific state for players joining mid-match (blocks, flags, the bomb round). */
-  protected joinExtras(_player: ServerPlayer): Partial<{ blocks: BlockState[]; flags: FlagState[]; round: RoundState | null; money: number }> {
+  protected joinExtras(_player: ServerPlayer): Partial<{ blocks: BlockState[]; flags: FlagState[]; round: RoundState | null; money: number; zombie: ZombieJoin }> {
     return {};
   }
 
@@ -447,6 +449,7 @@ export class GameRoom {
     this.bots.forget(player.pid);
     this.antiCheat?.forget(player);
     this.io.to(this.channel).emit('playerLeft', player.pid);
+    if (this.mode.zombies && player.info.bot) return;
     this.systemMessage(`${player.info.name} left`);
     this.emitScores();
     this.updateMatch(performance.now());
@@ -849,6 +852,10 @@ export class GameRoom {
     const dir = { x: req.dx, y: req.dy, z: req.dz };
     this.projectiles.launch(req.kind, p, this.safeLaunchPoint(eye, dir), dir, req.seq, now);
   }
+
+  /** Zombie Apocalypse (C, and the Restart button); nothing in other modes. */
+  handleZombieBuild(_p: ServerPlayer): void {}
+  handleZombieRestart(_p: ServerPlayer): void {}
 
   /** Enter or leave the nearest vehicle (rooms with vehicles override this). */
   handleUseVehicle(p: ServerPlayer): void {

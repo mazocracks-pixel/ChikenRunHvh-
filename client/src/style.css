@@ -3362,3 +3362,226 @@ code {
 .main-menu.scene-only > *:not(.scene-toggle) {
   visibility: hidden;
 }
+
+/* ---------------------------------------------------------------- Zombie Apocalypse HUD */
+.zb-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--text);
+}
+.zb-top {
+  position: absolute;
+  top: 122px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  padding: 8px 18px;
+  text-align: center;
+  border-radius: 14px;
+  background: rgba(10, 12, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.zb-wave {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+.zb-sub {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.zb-sub:empty {
+  display: none;
+}
+.zb-timer {
+  font-size: 2.6rem;
+  font-weight: 900;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.zb-timer.urgent {
+  color: var(--danger);
+  animation: zb-pulse 0.5s ease-in-out infinite alternate;
+}
+@keyframes zb-pulse {
+  to {
+    transform: scale(1.15);
+  }
+}
+.zb-boss {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 70vw);
+  text-align: center;
+}
+.zb-boss-name {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-shadow: 0 2px 6px #000;
+}
+.zb-boss-bar {
+  height: 16px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+}
+.zb-boss-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #9c0f1a, #ff3b3b);
+  transition: width 0.2s linear;
+}
+.zb-shop-overlay,
+.zb-over {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  pointer-events: auto;
+  background: rgba(4, 6, 10, 0.6);
+}
+.zb-shop {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(26, 24, 34, 0.98), rgba(12, 12, 18, 0.98));
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  text-shadow: none;
+}
+.zb-shop header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.zb-shop h2 {
+  margin: 0;
+}
+.zb-spacer {
+  flex: 1;
+}
+.zb-shop-timer {
+  padding: 3px 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.zb-shop-money {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+.zb-shop-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  cursor: pointer;
+}
+.zb-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+.zb-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--text);
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+.zb-card:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.09);
+}
+.zb-card.poor .zb-card-price {
+  color: var(--danger);
+}
+.zb-card.blocked {
+  opacity: 0.55;
+  cursor: default;
+}
+.zb-card-icon {
+  font-size: 1.5rem;
+}
+.zb-card-name {
+  font-weight: 800;
+}
+.zb-card-text {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.zb-card-price {
+  margin-top: auto;
+  font-weight: 800;
+  color: var(--accent);
+}
+.zb-shop footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--panel-border);
+}
+.zb-shop-status {
+  font-weight: 700;
+  color: var(--good);
+}
+.zb-shop-status.bad {
+  color: var(--danger);
+}
+.zb-over-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 34px;
+  min-width: min(420px, 90vw);
+  text-align: center;
+  background: rgba(14, 12, 18, 0.96);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7);
+}
+.zb-over-card h2 {
+  margin: 0;
+  font-size: 2rem;
+  color: var(--danger);
+}
+.zb-over-stats {
+  display: flex;
+  gap: 36px;
+}
+.zb-over-stats b {
+  display: block;
+  font-size: 2.4rem;
+}
+.zb-over-stats span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}

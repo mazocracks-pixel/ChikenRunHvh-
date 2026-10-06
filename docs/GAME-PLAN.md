@@ -17,6 +17,7 @@ part 4 how bunny hop works, part 5 what to do next._
 | 8 | Killcam / spectate, practice range with bots | Not started |
 | 9 | ImGui-style cheat menu for mega?dev (look only; security stays on the server) | Not started |
 | 10 | Title screen background: your chicken posing in front of our maps | Done |
+| 11 | Zombie Apocalypse mode (waves, bosses, shop, 10-second builds, night map) | Done |
 
 Earlier in the same stretch (also done): Squad Up mode, With bots / Without bots lobby choice,
 Y and U chat, jumpscares and funnyChiken, unlimited flashbangs in Rage, dark brown mega?dev,
@@ -67,6 +68,17 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 - The chicken stands on the left, where the menu has free space; the camera is low and close and drifts slowly. A spot with room in front and a view behind is picked on each map.
 - A small 🎬 button (bottom right) hides the menu so you can look at the whole scene.
 - Code: [client/src/game/Game.ts](../client/src/game/Game.ts) (showcase), [client/src/ui/MainMenu.ts](../client/src/ui/MainMenu.ts) (the button). It stops when a match or the shop opens.
+
+### 11. Zombie Apocalypse
+- A co-op mode (up to 4 survivors) on the new **Graveyard** night map, with a merchant hut in the middle. Menu: Fun tab, 🧟.
+- **Zombies** are normal bot chickens driven by their own AI. Wave 1-2 walk straight at you; from wave 3 they follow waypoints round walls; from wave 6 some circle round to flank. They hit with claws, and chew through your builds when one blocks them.
+- **Waves:** 10 seconds of preparation before every wave, with a visible countdown. Zombies per wave, health, speed, damage and attack speed all scale per wave. Runners from wave 3, brutes from wave 5.
+- **Bosses** every 5th wave, with a horde: a health bar at the top, a ground slam (windup, then damage and knockback), and at half health it calls zombies. Big money for the kill; each boss is tougher.
+- **Money and shop (B, only between waves):** kills pay money (a quarter of it to teammates), clearing a wave pays a bonus. The shop sells first aid, full heal, armor, ammo, explosive eggs, guns (SMG to rocket launcher) and up to 5 damage upgrades for the gun in your hands.
+- **Building (C):** a 3 wide, 2 high wall in front of you. Every block shrinks, blinks and turns red in its last 2.5 seconds, and is gone after 10 seconds. Zombies can break it sooner. Crouch moves to **Ctrl** in this mode.
+- **Dying:** no respawn mid-wave; you come back at the start of the next wave. When all survivors are down: game over with the wave reached and kills, and a Restart button.
+- **Cheats:** only mega?dev (L) works here. The HvH panels only open in HvH.
+- **All numbers in one place:** [shared/src/zombies.ts](../shared/src/zombies.ts) (the ZOMBIE object). Server: [server/src/rooms/ZombieRoom.ts](../server/src/rooms/ZombieRoom.ts) and [server/src/rooms/zombies/ZombieBrain.ts](../server/src/rooms/zombies/ZombieBrain.ts). Map: [shared/src/maps/night.ts](../shared/src/maps/night.ts). Screen: [client/src/ui/ZombieHud.ts](../client/src/ui/ZombieHud.ts).
 
 ### Notes on safety and checks
 - Every step has tests; the full suite was 355 passing tests at the end of this stretch, and the build passes.

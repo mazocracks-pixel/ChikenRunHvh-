@@ -281,7 +281,7 @@ export function openAccount(api: Api, onChanged: () => void): void {
 }
 
 /** Modes with their own leaderboard (everything but Sandbox). */
-const BOARD_MODES = MODE_IDS.filter((id) => !MODES[id].building);
+const BOARD_MODES = MODE_IDS.filter((id) => !MODES[id].building && !MODES[id].zombies);
 
 /** Top chickens overall (by rank) or in one mode (by wins), one tab each. */
 /** "3h 20m" / "12m" until the daily challenges reset. */

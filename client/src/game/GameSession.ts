@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { nativeOn, nativeValue, type NativeValues } from '../dev/skeet/visualValues';
 import {
+  ZOMBIE_SHOP_BY_ID,
+  type ZombieState,
   BLOCK_ID_BASE,
   BLOCK_KINDS,
   BLOCK_SIZE,
@@ -80,6 +82,7 @@ import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
 import type { Hud, ScoreLine } from '../ui/Hud';
 import { showJumpscare } from '../ui/Jumpscare';
+import { ZombieHud } from '../ui/ZombieHud';
 import type { AudioEngine } from './Audio';
 import { Blocks } from './Blocks';
 import { BombView, type BombMode } from './BombView';
@@ -196,6 +199,9 @@ export class GameSession {
   private round: RoundState | null;
   private money: number;
   private readonly buyMenu: BuyMenu | null;
+  /** Zombie Apocalypse: the wave panel, shop and game-over screen. */
+  private readonly zombieHud: ZombieHud | null;
+  private zombieOver = false;
   private readonly bombView: BombView | null;
   private hasKit = false;
   private nextBeep = 0;
@@ -243,7 +249,7 @@ export class GameSession {
     this.collision = createCollisionWorld(ctx.world.map);
     this.effects = new Effects(ctx.scene);
     this.vehicles = new Vehicles(ctx.scene, this.effects);
-    this.blocks = this.mode.building ? new Blocks(ctx.scene, this.collision) : null;
+    this.blocks = this.mode.building || this.mode.zombies ? new Blocks(ctx.scene, this.collision) : null;
     for (const b of join.blocks) this.blocks?.add(b);
     this.flags = this.mode.id === 'ctf' ? new Flags(ctx.scene, ctx.world.map, join.flags) : null;
     this.isSoft = softBoxTest(ctx.world.map, (id) => this.blocks?.kindOf(id));
@@ -265,6 +271,22 @@ export class GameSession {
     if (this.buyMenu) {
       this.buyMenu.onBuy = (item) => this.buy(item);
       this.buyMenu.onClose = () => this.closeBuyMenu();
+    }
+    this.zombieHud = this.mode.zombies ? new ZombieHud(ctx.hud.root) : null;
+    if (this.zombieHud) {
+      ctx.input.zombieMode = true;
+      this.zombieHud.onBuy = (item) => this.zombieBuy(item.id);
+      this.zombieHud.onShopClose = () => this.closeZombieShop();
+      this.zombieHud.onRestart = () => {
+        ctx.net.socket.emit('zombieRestart');
+        void ctx.input.requestLock();
+        ctx.onOverlay();
+      };
+      if (join.zombie) {
+        this.zombieHud.setState(join.zombie.state);
+        this.zombieHud.setGear(join.zombie.gear);
+      }
+      ctx.hud.toast('🧟 Survive! B opens the shop between waves, C builds a wall that lasts 10 seconds. Ctrl crouches.', 'info');
     }
     ctx.input.yaw = me.yaw;
     ctx.input.pitch = -0.15;
@@ -437,12 +459,13 @@ export class GameSession {
       this.updateHud(now, fps, aiming, scoped);
     }
     this.buyMenu?.update(dt);
+    this.blocks?.tick(now);
     dev?.afterFrame(this, dt);
   }
 
   /** The buy menu is open (it has the mouse). */
   get buyMenuOpen(): boolean {
-    return this.buyMenu?.open ?? false;
+    return (this.buyMenu?.open ?? false) || (this.zombieHud?.shopOpen ?? false) || this.zombieOver;
   }
   setWeaponTint(color: string | null, style = 0, alpha = 1): void { this.viewmodel.setTint(color,style,alpha); }
 
@@ -513,8 +536,10 @@ export class GameSession {
       hud.setArmsLevel(level, ARMS_LADDER.length, WEAPONS[ARMS_LADDER[level]!].name, next ? WEAPONS[next].name : null);
     }
     else hud.setBombProgress(null, 0);
-    hud.setMoney(this.round ? this.money : null);
-    if (!this.local.alive && this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup') hud.setDeathWaiting('You’re back when the next round starts');
+    hud.setMoney(this.round || this.mode.zombies ? this.money : null);
+    this.updateZombieHud();
+    if (!this.local.alive && this.mode.zombies && this.match.phase === 'playing') hud.setDeathWaiting('You’re back when the next wave starts');
+    else if (!this.local.alive && this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup') hud.setDeathWaiting('You’re back when the next round starts');
     else if (!this.local.alive) hud.setDeathTimer(this.respawnAt - now);
     hud.setHint(this.hintText());
     hud.setScoreboardVisible(input.scoreboardHeld && this.match.phase !== 'ended');
@@ -594,7 +619,17 @@ export class GameSession {
       case 'use':
         net.socket.emit('useVehicle');
         break;
+      case 'zombieBuild':
+        if (this.zombieHud && this.local.alive && !this.zombieOver) {
+          net.socket.emit('zombieBuild');
+          this.ctx.audio.play('click');
+        }
+        break;
       case 'build':
+        if (this.zombieHud) {
+          this.toggleZombieShop();
+          break;
+        }
         if (this.buyMenu) {
           this.toggleBuyMenu();
           break;
@@ -813,6 +848,7 @@ export class GameSession {
     const bomb = this.bombHint();
     if (bomb) return bomb;
     if (this.local.car) return 'Driving · Shoot with the mouse · Space drift · Shift nitro · E to get out';
+    if (this.zombieHud) return this.zombieHud.shopOpen ? null : this.zombieState?.phase === 'prep' ? 'B · Shop (open now!) · C · Build a wall' : 'C · Build a wall (gone in 10 s) · Ctrl · Crouch';
     if (this.building) {
       const kind = BLOCK_KINDS[this.blockIndex]!;
       return `Build mode · ${kind[0]!.toUpperCase()}${kind.slice(1)} (X to change) · Click place · Right-click remove · B to exit`;
@@ -890,6 +926,84 @@ export class GameSession {
           : null,
       });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Zombie Apocalypse
+  // ---------------------------------------------------------------------------
+
+  private zombieState: ZombieState | null = null;
+
+  private onZombieState(s: ZombieState): void {
+    const previous = this.zombieState;
+    this.zombieState = s;
+    this.zombieHud?.setState(s);
+    if (s.phase === 'over' && previous?.phase !== 'over') {
+      this.zombieOver = true;
+      this.ctx.audio.play('death');
+      // The mouse is yours for the Restart button.
+      this.ctx.input.releaseLock();
+      this.ctx.onOverlay();
+    }
+    if (s.phase !== 'over' && this.zombieOver) {
+      this.zombieOver = false;
+      this.ctx.onOverlay();
+    }
+    if (previous && previous.phase !== 'wave' && s.phase === 'wave') {
+      this.ctx.audio.play(s.boss ? 'bigBoom' : 'countdown');
+      this.ctx.hud.announce(s.boss ? '☠️ BOSS WAVE' : `Wave ${s.wave}`, s.boss ? 'Kill it before it kills you' : 'Here they come!', 'bad');
+    }
+    if (previous && previous.phase === 'wave' && s.phase === 'prep') {
+      this.ctx.audio.play('reward');
+      this.ctx.hud.announce('Wave cleared', 'The shop is open: press B', 'good');
+    }
+  }
+
+  private updateZombieHud(): void {
+    const hud = this.zombieHud;
+    if (!hud) return;
+    const boss = this.zombieState?.boss;
+    const health = boss ? (this.remotes.get(boss.pid)?.latest?.hp ?? null) : null;
+    hud.update(this.serverNow(), { money: this.money, weapon: this.weapons.weapon, loadout: this.weapons.loadout }, health === null ? null : health / 100);
+  }
+
+  private toggleZombieShop(): void {
+    const hud = this.zombieHud!;
+    if (hud.shopOpen) return this.closeZombieShop();
+    if (!this.local.alive) return this.ctx.hud.toast('You can shop once you are back', 'bad');
+    if (this.zombieState?.phase !== 'prep') return this.ctx.hud.toast('The shop is only open between waves', 'bad');
+    hud.setShopOpen(true);
+    this.ctx.input.releaseLock();
+    this.ctx.onOverlay();
+    this.ctx.audio.play('click');
+    this.updateZombieHud();
+  }
+
+  private closeZombieShop(): void {
+    const hud = this.zombieHud;
+    if (!hud?.shopOpen) return;
+    hud.setShopOpen(false);
+    void this.ctx.input.requestLock();
+    this.ctx.onOverlay();
+  }
+
+  private zombieBuy(id: string): void {
+    this.ctx.net.socket.emit('buy', id, (res) => {
+      this.money = res.money;
+      if (!res.ok) {
+        this.zombieHud?.say(res.error ?? 'You can’t buy that.', true);
+        this.ctx.audio.play('empty');
+        return;
+      }
+      this.zombieHud?.say('Bought!');
+      this.ctx.audio.play('pickup');
+      // A new gun: take it out (the server already put it in the slot).
+      const item = ZOMBIE_SHOP_BY_ID.get(id);
+      if (item?.weapon) {
+        const slot = this.weapons.loadout.indexOf(item.weapon);
+        if (slot >= 0) this.switchWeapon(() => this.weapons.switchTo(slot, performance.now()));
+      }
+    });
   }
 
   private toggleBuyMenu(): void {
@@ -1165,6 +1279,8 @@ export class GameSession {
     this.on('playerUpdated', (info) => this.onPlayerInfo(info));
     this.on('round', (r) => this.onRound(r));
     this.on('money', (e) => (this.money = e.money));
+    this.on('zombie', (s) => this.onZombieState(s));
+    this.on('zombieGear', (g) => this.zombieHud?.setGear(g));
     this.on('playerLeft', (pid) => {
       this.infos.delete(pid);
       this.remotes.remove(pid);
@@ -1454,6 +1570,8 @@ export class GameSession {
   }
 
   private renderResults(): void {
+    // Zombie Apocalypse has its own game-over panel.
+    if (this.mode.zombies) return;
     const m = this.match;
     const key = `${m.winnerPid}|${m.winnerTeam}|${m.mvpPid}`;
     if (key === this.lastResultsKey) return;
@@ -1482,7 +1600,7 @@ export class GameSession {
   }
 
   private scoreLines(): ScoreLine[] {
-    return [...this.infos.values()].map((info) => ({ info, self: info.pid === this.selfPid }));
+    return [...this.infos.values()].filter((info) => !info.undead).map((info) => ({ info, self: info.pid === this.selfPid }));
   }
 
   private refreshScores(): void {
@@ -1502,6 +1620,8 @@ export class GameSession {
     this.viewmodel.dispose();
     this.bombView?.dispose();
     this.buyMenu?.dispose();
+    this.zombieHud?.dispose();
+    this.ctx.input.zombieMode = false;
     this.local.dispose();
     this.remotes.dispose();
     this.projectiles.dispose();

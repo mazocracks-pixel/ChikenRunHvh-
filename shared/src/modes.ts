@@ -1,7 +1,7 @@
 import type { MapId, Team } from './maps/types';
 import type { WeaponId } from './weapons';
 
-export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face' | 'squad';
+export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face' | 'squad' | 'zombie';
 
 export interface ModeDef {
   id: ModeId;
@@ -43,6 +43,10 @@ export interface ModeDef {
   spawnProtectionMs?: number;
   /** Quick play tops the room up with bots to this many players (default 4, 2 in duels). */
   fillBots?: number;
+  /** Zombie Apocalypse: waves of zombies (server-run bots), a shop, expiring builds. */
+  zombies?: boolean;
+  /** Most people in the room, when `maxPlayers` also has to fit the zombies. */
+  maxHumans?: number;
   /** Real players only: never any bots (not even in practice or quick-play rooms). */
   noBots?: boolean;
   /**
@@ -68,6 +72,11 @@ const DEFS: ModeDef[] = [
     id: 'squad', name: 'Squad Up', description: 'Team Fight with real players only, no bots. Waits until 4 people join, then starts. First team to 40 kills.',
     teams: true, maxPlayers: 10, scoreLimit: 40, timeLimitMs: 6 * 60_000, respawnMs: 3000, minPlayers: 4,
     maps: ['farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory'], building: false, vehicles: true, teamKills: true, wallbang: true, noBots: true,
+  },
+  {
+    id: 'zombie', name: 'Zombie Apocalypse', description: 'Survive wave after wave of zombies on a dark graveyard map. Kill them for money, then shop in the 10 seconds between waves. Bosses every 5 waves. C builds a wall that lasts 10 seconds.',
+    teams: true, maxPlayers: 40, maxHumans: 4, scoreLimit: 0, timeLimitMs: 0, respawnMs: 3600_000, minPlayers: 1,
+    maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Zombies'], noDrops: true, zombies: true, noBots: true, weapons: ['pistol', 'knife'], spawnProtectionMs: 0,
   },
   {
     id: 'hvh', name: 'HvH', description: 'Red vs Blue, 5 vs 5, and everyone sees enemies through walls. First to 40 kills.',

@@ -10,6 +10,7 @@ import type { InputFrame, MoveState } from './physics';
 import type { LootPhase, PickupKind } from './pickups';
 import type { ProjectileKind } from './projectiles';
 import { weaponAt, weaponIndex, type WeaponId } from './weapons';
+import type { ZombieGear, ZombieJoin, ZombieKind, ZombieState } from './zombies';
 
 // ---------------------------------------------------------------------------
 // Players
@@ -33,6 +34,8 @@ export interface PlayerInfo {
   level?: number;
   /** Account rank, 1–10 (from XP earned in matches). */
   rank?: number;
+  /** Zombie Apocalypse: this chicken is a zombie of that kind. */
+  undead?: ZombieKind;
 }
 
 /** The fast-changing state of a player, as carried in every snapshot. */
@@ -228,6 +231,8 @@ export interface BlockState {
   cy: number;
   cz: number;
   kind: BlockKind;
+  /** Zombie Apocalypse builds: milliseconds until it disappears (counted from when you receive it). */
+  ttl?: number;
 }
 
 export interface FlagState {
@@ -334,6 +339,8 @@ export type JoinResponse =
       /** ChikenBomb rooms: the round, and your money. */
       round: RoundState | null;
       money: number;
+      /** Zombie Apocalypse: the waves so far and your gun upgrades. */
+      zombie?: ZombieJoin;
     }
   | { ok: false; error: string };
 
@@ -523,6 +530,8 @@ export interface BuildRequest {
   cy: number;
   cz: number;
   kind: BlockKind;
+  /** Zombie Apocalypse builds: milliseconds until it disappears (counted from when you receive it). */
+  ttl?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +546,10 @@ export interface ClientToServerEvents {
   createRoom: (req: CreateRoomRequest, ack: (res: JoinResponse) => void) => void;
   joinRoom: (req: JoinRoomRequest, ack: (res: JoinResponse) => void) => void;
   leaveRoom: () => void;
+  /** Zombie Apocalypse: build a wall in front of you (it lasts 10 seconds). */
+  zombieBuild: () => void;
+  /** Zombie Apocalypse: play again after game over. */
+  zombieRestart: () => void;
 
   input: (frame: InputFrame) => void;
   fire: (req: FireRequest) => void;
@@ -611,6 +624,10 @@ export interface ServerToClientEvents {
   round: (e: RoundState) => void;
   /** ChikenBomb: your money. */
   money: (e: { money: number }) => void;
+  /** Zombie Apocalypse: the wave, the countdown, the boss. */
+  zombie: (s: ZombieState) => void;
+  /** Zombie Apocalypse: your gun upgrades changed. */
+  zombieGear: (g: ZombieGear) => void;
   blockPlaced: (block: BlockState) => void;
   blockRemoved: (blockId: number) => void;
   /** The server removed you from the room (e.g. kicked); go back to the lobby. */

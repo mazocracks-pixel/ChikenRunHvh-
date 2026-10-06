@@ -218,6 +218,8 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
     ack(isRecord(req) ? rooms.report(socket, req.pid, req.reason) : { ok: false, error: 'Invalid report.' });
   });
   socket.on('useVehicle', inRoom((room, player) => room.handleUseVehicle(player)));
+  socket.on('zombieBuild', inRoom((room, player) => room.handleZombieBuild(player)));
+  socket.on('zombieRestart', inRoom((room, player) => room.handleZombieRestart(player)));
   socket.on('buy', (itemId, ack) => {
     if (typeof ack !== 'function') return;
     const room = rooms.roomOf(socket.id);

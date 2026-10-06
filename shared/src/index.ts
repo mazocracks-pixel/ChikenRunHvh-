@@ -35,3 +35,4 @@ export * from './vehicles';
 export * from './wallbang';
 export * from './weapons';
 export * from './hvh/shotTiming';
+export * from './zombies';

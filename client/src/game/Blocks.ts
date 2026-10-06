@@ -3,12 +3,18 @@ import { BLOCK_ID_BASE, BLOCK_KINDS, BLOCK_SIZE, MAX_BLOCKS, blockAabb, type Blo
 import { boxTexture } from './textures';
 
 /** Sandbox blocks: one instanced mesh per material, kept in sync with the collision world. */
+/** How long before an expiring build disappears it starts to show it. */
+const FADE_MS = 2500;
+
 export class Blocks {
   private readonly root = new THREE.Group();
   private readonly meshes = new Map<BlockKind, THREE.InstancedMesh>();
   /** Per kind: which block id occupies each instance slot. */
   private readonly slots = new Map<BlockKind, number[]>();
   private readonly byId = new Map<number, BlockState>();
+  /** Zombie Apocalypse builds: when each one disappears (performance.now() ms). */
+  private readonly expiry = new Map<number, number>();
+  private readonly tint = new THREE.Color();
   private readonly world: CollisionWorld;
   private readonly matrix = new THREE.Matrix4();
   private readonly ghost: THREE.Mesh;
@@ -54,6 +60,7 @@ export class Blocks {
     const slots = this.slots.get(block.kind);
     if (!mesh || !slots) return;
     this.byId.set(block.id, block);
+    if (block.ttl !== undefined) this.expiry.set(block.id, performance.now() + block.ttl);
     const box = blockAabb(block.cx, block.cy, block.cz);
     this.world.add(BLOCK_ID_BASE + block.id, box);
     const i = slots.length;
@@ -68,6 +75,7 @@ export class Blocks {
     const block = this.byId.get(id);
     if (!block) return;
     this.byId.delete(id);
+    this.expiry.delete(id);
     this.world.remove(BLOCK_ID_BASE + id);
     const mesh = this.meshes.get(block.kind)!;
     const slots = this.slots.get(block.kind)!;
@@ -77,11 +85,40 @@ export class Blocks {
     if (i !== last) {
       mesh.getMatrixAt(last, this.matrix);
       mesh.setMatrixAt(i, this.matrix);
+      if (mesh.instanceColor) {
+        mesh.getColorAt(last, this.tint);
+        mesh.setColorAt(i, this.tint);
+        mesh.instanceColor.needsUpdate = true;
+      }
       slots[i] = slots[last]!;
     }
     slots.pop();
     mesh.count = slots.length;
     mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
+   * Builds that expire (Zombie Apocalypse): in their last 2.5 seconds they shrink, blink and
+   * turn red, so you can see how long a wall has left.
+   */
+  tick(now: number): void {
+    for (const [id, at] of this.expiry) {
+      const left = at - now;
+      if (left > FADE_MS) continue;
+      const block = this.byId.get(id);
+      if (!block) continue;
+      const mesh = this.meshes.get(block.kind)!;
+      const i = this.slots.get(block.kind)!.indexOf(id);
+      if (i < 0) continue;
+      const box = blockAabb(block.cx, block.cy, block.cz);
+      const blink = Math.floor(now / 110) % 2 === 0;
+      const scale = Math.max(0.25, left / FADE_MS) * (blink ? 1 : 0.9);
+      this.matrix.compose(new THREE.Vector3(box.minX + BLOCK_SIZE / 2, box.minY + BLOCK_SIZE / 2, box.minZ + BLOCK_SIZE / 2), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+      mesh.setMatrixAt(i, this.matrix);
+      mesh.setColorAt(i, this.tint.setRGB(1, 0.35 + 0.65 * Math.max(0, left / FADE_MS), 0.3 + 0.7 * Math.max(0, left / FADE_MS)));
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   /** Shows the translucent preview of where a block would go (null hides it). */

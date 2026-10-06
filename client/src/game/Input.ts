@@ -31,6 +31,7 @@ export type Action =
   | 'camera'
   | 'chat'
   | 'teamChat'
+  | 'zombieBuild'
   | 'use'
   | 'build'
   | 'nextBlock'
@@ -106,6 +107,8 @@ export class Input {
   pitch = -0.15;
   /** Turned off while typing in chat. */
   enabled = true;
+  /** Zombie Apocalypse: C builds a wall, so crouching is Ctrl only. */
+  zombieMode = false;
   /** App menus suspend play without disturbing the chat input state. */
   suspended = false;
   /** A panel may request normal ADS; this cannot remove recoil or movement spread. */
@@ -220,7 +223,7 @@ export class Input {
       forward: active ? clamp(axis(this.keyTables.forward, this.keyTables.back) + this.touchAxes.forward, -1, 1) : 0,
       right: active ? clamp(axis(this.keyTables.right, this.keyTables.left) + this.touchAxes.right, -1, 1) : 0,
       jump: active && (this.keys.has(this.keyTables.jump) || this.touchButtons.jump),
-      crouch: active && (this.anyDown(this.keyTables.crouch) || this.touchButtons.crouch),
+      crouch: active && (this.anyDown(this.zombieMode ? this.keyTables.crouch.filter((c) => c !== 'KeyC') : this.keyTables.crouch) || this.touchButtons.crouch),
       slowWalk: active && this.anyDown(this.keyTables.slowWalk),
       use: active && (this.keys.has(this.keyTables.use) || this.touchButtons.use),
       // Nitro while driving (on a touch screen: the crouch button).
@@ -281,8 +284,9 @@ export class Input {
     if (!this.enabled) return;
     if (e.code === 'Tab' && this.active) e.preventDefault();
     if (!this.active) return;
-    if (this.keyTables.game.has(e.code) || e.code in this.keyTables.actions || e.ctrlKey) e.preventDefault();
+    if (this.keyTables.game.has(e.code) || e.code in this.keyTables.actions || e.ctrlKey || (this.zombieMode && e.code === 'KeyC')) e.preventDefault();
     if (!e.repeat) {
+      if (this.zombieMode && e.code === 'KeyC') this.queue.push('zombieBuild');
       const action = this.keyTables.actions[e.code];
       if (action) this.queue.push(action);
     }
