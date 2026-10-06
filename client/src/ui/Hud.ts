@@ -78,7 +78,16 @@ export class Hud {
   private readonly killfeed = h('div', { class: 'killfeed' });
   private readonly crosshair = new CrosshairView();
   private readonly hitmarker = h('div', { class: 'hitmarker' }, h('i'), h('i'), h('i'), h('i'));
-  private readonly scope = h('div', { class: 'scope' });
+  private readonly scopeStatus = h('span', { class: 'scope-status' });
+  private readonly scopeZoom = h('span', { class: 'scope-zoom' });
+  private readonly scopeFlare = h('div', { class: 'scope-flare' });
+  private readonly scope = h('div', { class: 'scope', 'aria-hidden': 'true' },
+    h('div', { class: 'scope-lens' }),
+    h('div', { class: 'scope-reticle' }, h('i', { class: 'scope-horizontal' }), h('i', { class: 'scope-vertical' }),
+      h('b', { class: 'scope-dot' }), h('div', { class: 'scope-ticks' }, ...[-3,-2,-1,1,2,3].map(n => h('i', { style: `--tick:${n}` })))),
+    h('div', { class: 'scope-cone' }), this.scopeFlare,
+    h('div', { class: 'scope-readout' }, this.scopeZoom, this.scopeStatus));
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly indicators = h('div', { class: 'damage-indicators' });
   private readonly vignette = h('div', { class: 'hurt-vignette' });
   private readonly hpFill = h('div', { class: 'fill' });
@@ -292,10 +301,27 @@ export class Hud {
     this.flashTimer = window.setTimeout(() => (el.hidden = true), ms + 80);
   }
 
-  setCrosshair(visible: boolean, spreadPx: number, scoped: boolean): void {
+  setCrosshair(visible: boolean, spreadPx: number, scoped: boolean, zoom = 1, ready = true): void {
     this.crosshair.root.hidden = !visible || scoped || !this.showCrosshair;
-    this.scope.hidden = !scoped || !this.showScope;
+    this.scope.hidden = !visible || !scoped;
+    this.scope.classList.toggle('override', !this.showScope);
+    this.scope.dataset.ready = String(ready);
+    const magnification = `${zoom.toFixed(1)}×`;
+    if (this.scopeZoom.textContent !== magnification) this.scopeZoom.textContent = magnification;
+    const state = ready ? 'READY' : 'CYCLING';
+    if (this.scopeStatus.textContent !== state) this.scopeStatus.textContent = state;
+    this.scope.style.setProperty('--cone', `${Math.min(100, Math.max(0, spreadPx))}px`);
     this.crosshair.setSpread(spreadPx);
+  }
+
+  shot(scoped: boolean): void {
+    if (this.reducedMotion.matches) return;
+    const el = scoped ? this.scopeFlare : this.crosshair.root;
+    for (const animation of el.getAnimations()) animation.cancel();
+    el.animate(scoped
+      ? [{ opacity: 0.7, transform: 'translate(-50%, -50%) scale(0.8)' }, { opacity: 0, transform: 'translate(-50%, -50%) scale(1.3)' }]
+      : [{ transform: 'scale(1.22)', filter: 'brightness(1.6)' }, { transform: 'scale(1)', filter: 'brightness(1)' }],
+      { duration: scoped ? 260 : 120, easing: 'ease-out' });
   }
 
   hit(headshot: boolean, killed: boolean, damage = 0): void {
@@ -310,6 +336,12 @@ export class Hud {
     this.hitmarker.classList.toggle('kill', killed);
     this.hitmarker.classList.toggle('headshot', headshot);
     this.hitmarker.classList.add('show');
+    if (!this.reducedMotion.matches) {
+      for (const animation of this.hitmarker.getAnimations()) animation.cancel();
+      this.hitmarker.animate([{ transform: 'scale(1.3)' }, { transform: 'scale(1)' }], { duration: 130, easing: 'ease-out' });
+      for (const animation of this.damageNumber.getAnimations()) animation.cancel();
+      this.damageNumber.animate([{ transform: 'translateY(4px)', opacity: 0.65 }, { transform: 'translateY(0)', opacity: 1 }], { duration: 160, easing: 'ease-out' });
+    }
     this.hitmarkerUntil = performance.now() + (killed ? 350 : 140);
   }
 

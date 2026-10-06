@@ -57,6 +57,7 @@ it('spread probability includes resolver uncertainty instead of guaranteeing the
   const certain=hvhHitchance(w,eye,aim,right,0,false,true,world);
   const uncertain=hvhHitchance(w,eye,aim,right,0,false,true,world,undefined,32,0,[{matrix:left,probability:0.5},{matrix:right,probability:0.5}]);
   assert.equal(certain.chance,1);assert.equal(uncertain.chance,0.5);
+  assert.equal(certain.samples,1);assert.equal(uncertain.samples,1);
 });
 
 it('scanner finds reliable body shots against tucked desync heads and can prepare scope and stop together', () => {

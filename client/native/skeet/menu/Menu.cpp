@@ -412,7 +412,7 @@ void Menu::Visuals() {
 			InsertSlider("Transparent walls", g_Config.Visuals.Effects.transparentWalls, 0.f, 100.f, "%1.f%%");
 			InsertSlider("Transparent props", g_Config.Visuals.Effects.transparentProps, 0.f, 100.f, "%1.f%%");
 			InsertMultiCombo("Brightness adjustment", brightnessAdjustment, g_Config.Visuals.Effects.brightnessAdjustment, 2);
-			InsertCheckbox("Remove scope overlay", g_Config.Visuals.Effects.removeScopeOverlay);
+			InsertCheckbox("Override scope", g_Config.Visuals.Effects.removeScopeOverlay);
 			InsertCheckbox("Disable post processing", g_Config.Visuals.Effects.disablePostProcessing);
 			InsertCheckbox("Force third person", g_Config.Visuals.Effects.forceThirdPerson);
 			InsertCheckbox("Disable rendering of teammates", g_Config.Visuals.Effects.disableRenderingOfTeammates);

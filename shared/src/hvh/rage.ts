@@ -94,15 +94,12 @@ export function scanRage(input: RageScan): ShotCandidate | null {
     const matrix = buildHvhMatrix(c.record.origin, c.yaw, 1 - c.record.crouch * 0.3, c.record.pitch);
     const uncertainty = uncertaintyByRecord.get(c.record)!;
     const estimateAt = (speed: number, ads: boolean) => hvhHitchance(input.w, input.eye, c.direction, matrix, speed, input.airborne, ads, input.world, input.isSoft, 32, input.heat, uncertainty);
-    let estimate = estimateAt(input.speed, input.ads);
     const scopeAllowed = input.w.scope && !input.ads && input.allowScope !== false;
-    if (estimate.chance < s.hitchance && scopeAllowed) {
-      const scoped = estimateAt(input.speed, true);
-      if (scoped.chance >= s.hitchance) { estimate = scoped; c.scope = true; }
-    }
+    c.scope = scopeAllowed;
+    let estimate = estimateAt(input.speed, input.ads || scopeAllowed);
     if (estimate.chance < s.hitchance && input.speed > 0.5 && !input.airborne && input.allowStop !== false) {
       const preferred = clamp(input.stopSpeed ?? 0, 0, input.speed);
-      stop: for (const speed of preferred > 0 ? [preferred, 0] : [0]) for (const ads of scopeAllowed ? [input.ads, true] : [input.ads]) {
+      stop: for (const speed of preferred > 0 ? [preferred, 0] : [0]) for (const ads of scopeAllowed ? [true] : [input.ads]) {
         const stopped = estimateAt(speed, ads);
         if (stopped.chance >= s.hitchance) { estimate = stopped; c.stop = true; c.stopSpeed = speed; c.scope = ads && !input.ads; break stop; }
       }

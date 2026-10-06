@@ -21,9 +21,7 @@ export function baseFov(): number {
  * scene at the same on-screen speed as when not zoomed.
  */
 export function zoomLookScale(zoom: number): number {
-  if (zoom <= 1) return 1;
-  const half = (baseFov() * Math.PI) / 360;
-  return Math.tan(half / zoom) / Math.tan(half);
+  return 1 / Math.max(1, zoom);
 }
 
 export type CameraMode = 'third' | 'first';
@@ -137,7 +135,8 @@ export class CameraRig {
   private applyZoomAndShake(zoom: number, dt: number): void {
     this.shakeTime += dt;
     this.zoom = damp(this.zoom, zoom, 14, dt);
-    const fov = (this.hvhFov > 0 ? Math.max(30,this.hvhFov) : baseFov()) / this.zoom;
+    const base = this.hvhFov > 0 ? Math.max(30,this.hvhFov) : baseFov();
+    const fov = 360 / Math.PI * Math.atan(Math.tan(base * Math.PI / 360) / this.zoom);
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();

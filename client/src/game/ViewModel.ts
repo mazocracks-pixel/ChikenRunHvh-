@@ -134,6 +134,8 @@ const RECOIL: Partial<Record<WeaponId, RecoilFeel>> = {
   minigun: { back: 0.022, pitch: 0.045, roll: 0.065, recovery: 26, flash: 0.7, flashLife: 0.028 },
   shotgun: { back: 0.14, pitch: 0.25, roll: 0.18, recovery: 10, flash: 1.5, flashLife: 0.06 },
   sniper: { back: 0.13, pitch: 0.2, roll: 0.12, recovery: 9, flash: 1.4, flashLife: 0.055 },
+  scout: { back: 0.105, pitch: 0.17, roll: 0.1, recovery: 12, flash: 1.1, flashLife: 0.05 },
+  battle: { back: 0.085, pitch: 0.15, roll: 0.09, recovery: 14, flash: 1.15, flashLife: 0.045 },
   rocket: { back: 0.1, pitch: 0.13, roll: 0.14, recovery: 9, flash: 1.6, flashLife: 0.08 },
 };
 const DEFAULT_RECOIL = RECOIL.pistol!;

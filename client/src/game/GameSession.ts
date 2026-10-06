@@ -430,11 +430,15 @@ export class GameSession {
     this.aimWasDown = input.aiming;
 
     // HUD.
+    const spread = (this.mode.id === 'hvh' ? hvhSpread(def, this.horizontalSpeed(), !this.local.onGround, aiming, this.weapons.heat)
+      : spreadFor(def, this.horizontalSpeed(), !this.local.onGround, aiming)) * (this.weapons.mods?.spread ?? 1);
+    const pixels = Math.tan(spread) / Math.tan(this.ctx.camera.fov * Math.PI / 360) * window.innerHeight / 2;
+    hud.setCrosshair(this.local.alive && input.active && !this.building, pixels, scoped, def.zoom, this.weapons.shotState(now) === 'Ready');
     hud.update();
     this.hudTimer += dt;
     if (this.hudTimer >= HUD_INTERVAL) {
       this.hudTimer = 0;
-      this.updateHud(now, fps, aiming, scoped);
+      this.updateHud(now, fps);
     }
     this.buyMenu?.update(dt);
     dev?.afterFrame(this, dt);
@@ -491,7 +495,7 @@ export class GameSession {
   }
 
 
-  private updateHud(now: number, fps: number, aiming: boolean, scoped: boolean): void {
+  private updateHud(now: number, fps: number): void {
     const { hud, input, net } = this.ctx;
     const server = this.local.server;
     const w = this.weapons;
@@ -502,9 +506,6 @@ export class GameSession {
     hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
     hud.setGrenades(server.eggs, server.smokes, server.flashes ?? 0);
     hud.setHop(this.local.alive && !this.local.car ? this.local.state.hop : 0, hopMaxFor(w.weapon));
-    const spread = spreadFor(w.def, this.horizontalSpeed(), !this.local.onGround, aiming) * (w.mods?.spread ?? 1);
-    const pixels = (spread / ((this.ctx.camera.fov * Math.PI) / 360)) * (window.innerHeight / 2);
-    hud.setCrosshair(this.local.alive && input.active, pixels, scoped);
     hud.setMatch(this.match, this.serverNow(), this.infos.size);
     if (this.round && this.match.phase === 'playing') this.updateRoundHud();
     if (this.mode.armsRace) {
@@ -689,7 +690,7 @@ export class GameSession {
   }
 
   private fire(aiming: boolean, assisted = false): void {
-    const { net, audio, input } = this.ctx;
+    const { net, audio, input, hud } = this.ctx;
     const w = this.weapons.def;
     const eye = this.eye();
     const silentAim = this.ctx.dev?.aimOverride(this, eye) ?? null;
@@ -716,6 +717,8 @@ export class GameSession {
 
     this.local.chicken.kick();
     this.viewmodel.fire();
+    hud.shot(aiming && w.scope);
+    this.rig.addShake(w.scope || w.pellets > 1 ? 0.1 : 0.035);
     const recoil = w.recoil * (this.ctx.dev?.recoilScale() ?? 1);
     const beforeYaw=input.yaw,beforePitch=input.pitch;
     input.kick(recoil * (aiming ? 0.6 : 1), (Math.random() - 0.5) * recoil * 0.4);
@@ -744,8 +747,7 @@ export class GameSession {
         this.effects.impact(at, 0xc28a4e);
         this.effects.bulletHole(at, { x: s.nx, y: s.ny, z: s.nz });
       }
-      if (hit.pid) this.effects.feathers(end, this.skinColor(hit.pid), 4);
-      else if (hit.world) {
+      if (hit.world) {
         this.effects.impact(end);
         this.effects.bulletHole(end, hit.normal);
       }
@@ -1253,7 +1255,14 @@ export class GameSession {
   private onShot(e: ShotEvent): void {
     if (e.pid === this.selfPid) this.weapons.confirmShot(e, performance.now(), this.serverNow());
     this.ctx.dev?.onServerShot?.(this, e);
-    if (e.pid === this.selfPid) return;
+    if (e.pid === this.selfPid) {
+      // Contact effects use the accepted ray, never a locally guessed resolver hit.
+      for (let i = 0; i < e.hits.length; i++) if (e.hits[i]) {
+        const end = { x: e.ends[i * 3]!, y: e.ends[i * 3 + 1]!, z: e.ends[i * 3 + 2]! };
+        this.effects.hit(end, e.hits[i] === 2);
+      }
+      return;
+    }
     const remote = this.remotes.get(e.pid);
     const origin = remote ? remote.chicken.muzzleWorldPosition(this.tmp) : new THREE.Vector3(e.ox, e.oy, e.oz);
     const from = { x: origin.x, y: origin.y, z: origin.z };
@@ -1274,7 +1283,7 @@ export class GameSession {
     for (let i = 0; i < e.hits.length; i++) {
       const end = { x: e.ends[i * 3]!, y: e.ends[i * 3 + 1]!, z: e.ends[i * 3 + 2]! };
       if(!this.hvhVisuals||nativeOn(this.hvhVisuals,'Visuals.Effects.bulletTracers'))this.effects.tracer(from, end);
-      if (e.hits[i]) this.effects.feathers(end, 0xffffff, 3);
+      if (e.hits[i]) this.effects.hit(end, e.hits[i] === 2);
       else this.effects.impact(end);
       this.markWall(from, end);
     }

@@ -13,5 +13,6 @@ export function hvhWeapon(w: WeaponDef): WeaponDef {
   return result;
 }
 export function hvhSpread(w: WeaponDef, speed: number, air: boolean, ads: boolean, heat = 0): number {
-  return spreadFor(w, speed, air, ads) + w.spread * Math.min(3, Math.max(0, heat)) * (ads ? 0.35 : 0.75);
+  const spread = spreadFor(w, speed, air, ads);
+  return spread * (1 + Math.min(3, Math.max(0, heat)) * (ads ? 0.35 : 0.75));
 }

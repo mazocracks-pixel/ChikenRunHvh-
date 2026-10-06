@@ -78,7 +78,8 @@ export class RemotePlayer {
     const base = this.latest ?? null;
     if (!base) return;
     this.buffer.length = 0;
-    this.push(t, { ...base, x, y, z, yaw, alive: true });
+    // Position is known; wait for a fresh snapshot before aiming at this new life.
+    this.push(t, { ...base, x, y, z, yaw, alive: true, shielded: true, simulationTime: t });
     this.alive = true;
     this.chicken.setDead(false);
   }
@@ -92,6 +93,7 @@ export class RemotePlayer {
 
   kill(): void {
     this.alive = false;
+    if (this.latest) this.latest = { ...this.latest, alive: false };
     this.chicken.setDead(true);
   }
 

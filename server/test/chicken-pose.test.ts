@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { chickenHeadCenter, normalize, PLAYER, SIM_DT, unpackPlayer, type ShotEvent } from '@game/shared';
+import { chickenHeadCenter, normalize, PLAYER, SIM_DT, WEAPONS, unpackPlayer, type ShotEvent } from '@game/shared';
 import { History } from '../src/rooms/History';
 import { addPlayer, makeRoom, place, stepRoom } from './helpers';
 
@@ -23,6 +23,23 @@ it('ordinary and Manual HvH shots hit the same pitched head using rewound pitch'
     room.handleFire(a,{shot:1,weapon:a.weapon,dx:aim.x,dy:aim.y,dz:aim.z,t:now,aiming:true});stepRoom(room,now+SIM_DT*2000);
     const shot=events.filter(e=>e.event==='shot').at(-1)?.args[0] as ShotEvent;
     assert.ok(shot);assert.equal(shot.hits[0],2,mode);assert.ok(b.hp<100||!b.alive);
+  }
+});
+
+it('low horizontal velocity jump scouts hit instantly without scope or a heat penalty in ordinary and HvH matches', t => {
+  for (const mode of ['ffa','hvh'] as const) for (const aiming of [false,true]) for (const shotSeq of [1,4177]) {
+    const {room,events}=makeRoom(mode,'flat');t.after(()=>room.close());
+    const a=addPlayer(room,'Jump scout'),b=addPlayer(room,'Distant target');room.startNow();a.info.team=1;b.info.team=2;
+    a.info.loadout=['scout'];a.weaponSlot=0;a.mags.set('scout',WEAPONS.scout.magazine);
+    place(a,20,25,2);place(b,20,-30);a.shieldUntil=b.shieldUntil=0;
+    a.state.horizontalSpeed=0.1;a.state.vy=6;a.weaponHeat=3;
+    const point=chickenHeadCenter(b.state,b.yaw,1,b.pitch),eye={x:a.state.x,y:a.state.y+PLAYER.eyeHeight,z:a.state.z};
+    const d=normalize({x:point.x-eye.x,y:point.y-eye.y,z:point.z-eye.z}),now=performance.now();
+    room.handleFire(a,{shot:shotSeq,weapon:'scout',dx:d.x,dy:d.y,dz:d.z,t:now,aiming});
+    if (mode==='hvh') stepRoom(room,now);
+    const shot=events.filter(e=>e.event==='shot').at(-1)?.args[0] as ShotEvent;
+    assert.ok(shot);assert.equal(shot.hits[0],2,`${mode}: scoped=${aiming} seed=${shotSeq}`);
+    assert.ok(b.hp<100||!b.alive,'damage is applied in the same authoritative fire step');
   }
 });
 

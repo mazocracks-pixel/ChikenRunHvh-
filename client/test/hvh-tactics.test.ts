@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { MAPS, WALLBANG, WEAPONS, createCollisionWorld, normalize, softBoxTest } from '@game/shared';
 import { boundedTurn, estimateShot, peekSteering, shotGate } from '../src/dev/tactics';
+import { RemotePlayer } from '../src/game/RemotePlayers';
 const target={x:0,y:0,z:-20,yaw:0,scale:1,hp:100,armor:0};
+it('respawns never reuse an old-life targeting timestamp and death blocks aim before the next snapshot',()=>{
+  const remote=Object.assign(Object.create(RemotePlayer.prototype),{
+    latest:{x:0,y:0,z:0,yaw:0,alive:true,shielded:false,simulationTime:40},buffer:[],alive:true,culled:false,
+    chicken:{setDead(){}},
+  }) as RemotePlayer;
+  remote.kill();assert.equal(remote.latest?.alive,false);
+  remote.teleport(1000,5,0,10,1);
+  assert.equal(remote.latest?.simulationTime,1000);assert.equal(remote.latest?.shielded,true);
+  remote.push(1050,{...remote.latest!,shielded:false,simulationTime:1050});
+  assert.equal(remote.latest?.shielded,false);
+});
 it('hitchance samples actual aim, spread, and armor instead of guaranteeing a hit',()=>{
   const eye={x:0,y:0.6,z:0},aim={x:0,y:0,z:-1};
   const still=estimateShot(WEAPONS.sniper,eye,aim,target,0,false,true);

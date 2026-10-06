@@ -42,9 +42,11 @@ export function hvhHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: H
   let hits = 0, damage = 0;
   const weight = hypotheses.reduce((n, h) => n + h.probability, 0);
   if (weight <= 0) return { chance: 0, damage: 0, samples };
-  for (let n = 0; n < samples; n++) {
+  const spread = hvhSpread(w, speed, airborne, ads, heat);
+  const trials = spread === 0 ? 1 : samples;
+  for (let n = 0; n < trials; n++) {
     const trial = hypotheses.map(() => 0);
-    for (const dir of pelletDirections(w, direction, hvhSpread(w, speed, airborne, ads, heat), 4177 + n * 7919)) {
+    for (const dir of pelletDirections(w, direction, spread, 4177 + n * 7919)) {
       const ray = makeRay(eye, dir), cover = traceHvhCover(ray, world, w.range, isSoft);
       hypotheses.forEach((h, i) => {
         const hit = rayHvhMatrix(ray, h.matrix, cover.wallDistance);
@@ -53,5 +55,5 @@ export function hvhHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: H
     }
     trial.forEach((amount, i) => { if (amount > 0) { const p = hypotheses[i]!.probability / weight; hits += p; damage += amount * p; } });
   }
-  return { chance: Math.min(1, hits / samples), damage: hits ? damage / hits : 0, samples };
+  return { chance: Math.min(1, hits / trials), damage: hits ? damage / hits : 0, samples: trials };
 }

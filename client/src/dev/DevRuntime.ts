@@ -195,7 +195,8 @@ export class DevRuntime implements DevHooks {
     if (session?.mode.id === 'hvh') {
       const enabled = (a.enabled && a.autoTarget) || (trigger.enabled && this.keyHeld(trigger.key));
       if (!this.playing || !enabled || !this.coreTarget || !this.coreReady || this.coreTarget.scope) return false;
-      if (!shotRecordUsable(this.coreTarget.record.t, session.serverNow(), this.dev.ping() ?? 0) || session.remotes.players.get(this.coreTarget.target)?.latest?.alive === false) {
+      const remote = session.remotes.players.get(this.coreTarget.target);
+      if (!shotRecordUsable(this.coreTarget.record.t, session.serverNow(), this.dev.ping() ?? 0) || !remote?.alive || !remote.latest?.alive || remote.latest.shielded) {
         this.coreScanAt = -Infinity; this.diagnostics.state = 'Waiting for a fresh record'; return false;
       }
       const w = session.weapons;
@@ -339,7 +340,8 @@ export class DevRuntime implements DevHooks {
     if (!session || !this.playing || !this.policy.rage.aim.enabled || session.weapons.def.melee || session.weapons.def.projectile) return null;
     if (session.mode.id === 'hvh') {
       const target = this.coreTarget;
-      return this.coreReady && target && shotRecordUsable(target.record.t, session.serverNow(), this.dev.ping() ?? 0) && session.remotes.players.get(target.target)?.latest?.alive
+      const remote = target && session.remotes.players.get(target.target);
+      return this.coreReady && target && shotRecordUsable(target.record.t, session.serverNow(), this.dev.ping() ?? 0) && remote?.alive && remote.latest?.alive && !remote.latest.shielded
         ? normalize({ x: target.point.x - session.eye().x, y: target.point.y - session.eye().y, z: target.point.z - session.eye().z }) : null;
     }
     const target = this.target, eye = session.eye();

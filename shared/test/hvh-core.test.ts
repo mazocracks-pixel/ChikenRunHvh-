@@ -64,7 +64,8 @@ describe('guide-driven simulation contracts', () => {
     const w = hvhWeapon(WEAPONS.rifle), still = hvhSpread(w, 0, false, false, 0);
     assert.ok(hvhSpread(w, 2, false, false, 0) > still);
     assert.ok(hvhSpread(w, 6, false, false, 0) > hvhSpread(w, 2, false, false, 0));
-    assert.ok(hvhSpread(w, 0, true, false, 0) > still); assert.ok(hvhSpread(w, 0, false, false, 1) > still);
+    assert.equal(hvhSpread(w, 0, true, false, 0), still); assert.equal(hvhSpread(w, 0, false, false, 1), still);
+    assert.ok(hvhSpread(w, 6, false, false, 1) > hvhSpread(w, 6, false, false, 0));
   });
   it('makes wrong-side head shots miss and safe body geometry overlap all hypotheses', () => {
     const r = record(), d = maximumBodyDelta(0, 0, true), matrices = [-d, 0, d].map(y => buildHvhMatrix(r.origin, y));

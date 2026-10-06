@@ -1,18 +1,30 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { CollisionWorld, MAPS, PLAYER, SIM_DT, WEAPON_IDS, WEAPONS, copyMoveState, createCollisionWorld, createMoveState, hvhSpread, hvhWeapon, spreadFor, stepPlayer, type InputFrame } from '../src/index';
+import { CollisionWorld, MAPS, PLAYER, SIM_DT, WEAPON_IDS, WEAPONS, copyMoveState, createCollisionWorld, createMoveState, hvhSpread, hvhWeapon, pelletDirections, spreadFor, stepPlayer, type InputFrame } from '../src/index';
 
 const input = (forward = 0, right = 0): InputFrame => ({ seq:1, forward, right, yaw:0, pitch:0, jump:false });
 it('spread increases continuously with actual velocity for every ranged weapon', () => {
   for (const id of WEAPON_IDS) {
     const w = WEAPONS[id];
     const samples = [0, .45, 1, 1.8].map(k => spreadFor(w, PLAYER.speed*k, false, false));
-    assert.equal(samples[0], w.spread);
+    assert.equal(samples[0], 0);
     for (let i=1;i<samples.length;i++) assert.ok(samples[i]! >= samples[i-1]!);
     if (w.moveSpread) assert.ok(samples[1]! < samples[2]! && samples[2]! < samples[3]!);
-    assert.ok(spreadFor(w, 6, true, false) >= spreadFor(w, 6, false, false));
+    assert.equal(spreadFor(w, 6, true, false), spreadFor(w, 6, false, false));
     assert.ok(spreadFor(w, 6, false, true) <= spreadFor(w, 6, false, false));
     assert.ok(Number.isFinite(spreadFor(w, NaN, false, false)));
+  }
+});
+it('low-speed airborne shots stay exact across normal firing, HvH heat and seeded pellet patterns', () => {
+  const aim = {x:0,y:0,z:-1};
+  for (const id of WEAPON_IDS) for (const ads of [false,true]) {
+    const normal = WEAPONS[id], tactical = hvhWeapon(normal);
+    for (const speed of [0,0.05,0.15]) {
+      assert.equal(spreadFor(normal,speed,true,ads),0);
+      assert.equal(hvhSpread(tactical,speed,true,ads,3),0);
+      for (const d of pelletDirections(tactical,aim,hvhSpread(tactical,speed,true,ads,3),4177)) assert.deepEqual(d,aim);
+    }
+    assert.equal(hvhSpread(tactical,4,true,ads,2),hvhSpread(tactical,4,false,ads,2));
   }
 });
 it('speed follows collision-resolved motion, slow walk, stopping and knockback', () => {

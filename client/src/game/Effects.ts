@@ -51,7 +51,7 @@ export class Effects {
   private next = 0;
   private highest = 0;
 
-  private readonly tracers: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number }[] = [];
+  private readonly tracers: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number; duration: number; length: number; from: THREE.Vector3; direction: THREE.Vector3 }[] = [];
   private nextTracer = 0;
   private readonly shockwaves: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number; radius: number }[] = [];
   private nextShockwave = 0;
@@ -93,7 +93,7 @@ export class Effects {
       const mesh = new THREE.Mesh(tracerGeo, material);
       mesh.visible = false;
       mesh.frustumCulled = false;
-      this.tracers.push({ mesh, material, life: 0 });
+      this.tracers.push({ mesh, material, life: 0, duration: 0, length: 0, from: new THREE.Vector3(), direction: new THREE.Vector3() });
       this.root.add(mesh);
     }
 
@@ -151,13 +151,17 @@ export class Effects {
     if (!Number.isFinite(length) || length < 0.01) return;
     const t = this.tracers[this.nextTracer];
     this.nextTracer = (this.nextTracer + 1) % TRACER_POOL;
-    t.mesh.position.set(from.x, from.y, from.z);
+    t.from.set(from.x, from.y, from.z);
+    t.direction.set(to.x - from.x, to.y - from.y, to.z - from.z).multiplyScalar(1 / length);
+    t.mesh.position.copy(t.from);
     t.mesh.lookAt(to.x, to.y, to.z);
-    t.mesh.scale.set(0.025, 0.025, length);
+    t.mesh.scale.set(0.018, 0.018, Math.min(length, 2));
     t.material.color.set(color).multiplyScalar(TRACER_GLOW);
     t.material.opacity = 0.9;
     t.mesh.visible = true;
-    t.life = 0.07;
+    // Only the tracer travels. Hit detection and damage have already happened.
+    t.length = length;
+    t.life = t.duration = length / 1400 + 0.055;
   }
 
   muzzleFlash(at: Vec3, big = false): void {
@@ -205,6 +209,11 @@ export class Effects {
       v.y = Math.abs(v.y) + 1;
       this.particle(at, v, color, 0.07 + Math.random() * 0.05, 1.2 + Math.random() * 0.8, 3, 2.5);
     }
+  }
+
+  hit(at: Vec3, headshot: boolean): void {
+    this.feathers(at, headshot ? 0xffcc78 : 0xffffff, headshot ? 8 : 4);
+    this.spawnSprite(at, { color: headshot ? 0xffd58c : 0xffffff, life: 0.085, startScale: 0.1, endScale: headshot ? 0.4 : 0.22, opacity: 0.8, additive: true, glow: 2 });
   }
 
   /** A dead chicken vanishing: a white puff with feathers flying out of it. */
@@ -421,7 +430,11 @@ export class Effects {
     for (const t of this.tracers) {
       if (!t.mesh.visible) continue;
       t.life -= dt;
-      t.material.opacity = Math.max(0, t.life / 0.07) * 0.9;
+      const head = Math.min(t.length, 2 + (t.duration - t.life) * 1400);
+      const tail = Math.max(0, head - Math.min(8, t.length * 0.35 + 0.5));
+      t.mesh.position.copy(t.from).addScaledVector(t.direction, tail);
+      t.mesh.scale.z = Math.max(0.01, head - tail);
+      t.material.opacity = Math.min(1, Math.max(0, t.life / 0.055)) * 0.9;
       if (t.life <= 0) t.mesh.visible = false;
     }
 

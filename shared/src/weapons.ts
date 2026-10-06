@@ -347,10 +347,10 @@ export function weaponAt(index: number): WeaponId {
 }
 
 /** Current cone half-angle for a shot, depending on how the shooter is moving. */
-export function spreadFor(w: WeaponDef, horizontalSpeed: number, airborne: boolean, aiming: boolean): number {
-  // Slow walk, crouching, hops and knockback all use the same continuous curve.
-  const speed = Number.isFinite(horizontalSpeed) ? clamp(horizontalSpeed / PLAYER.speed, 0, 3) : 0;
-  let s = w.spread + w.moveSpread * speed + (airborne ? w.airSpread : 0);
+export function spreadFor(w: WeaponDef, horizontalSpeed: number, _airborne: boolean, aiming: boolean): number {
+  // Ignore tiny residual motion; jumping alone does not widen the accuracy cone.
+  const speed = Number.isFinite(horizontalSpeed) ? clamp((horizontalSpeed - 0.15) / (PLAYER.speed - 0.15), 0, 3) : 0;
+  let s = w.spread * Math.min(1, speed) + w.moveSpread * speed;
   if (aiming) s *= w.scope ? 0.25 : 0.6;
   return s;
 }

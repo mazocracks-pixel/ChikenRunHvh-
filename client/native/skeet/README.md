@@ -20,6 +20,8 @@ The checked build uses Emscripten 4.0.22. The original background PNG is also co
 
 Visual options run only while Skeet is selected in an HvH match. Switching panels or leaving restores scene, camera, materials and HUD effects. Settings persist through the existing validated config store; save/load controls include named presets and a current Native Skeet snapshot.
 
+Override scope replaces the circular lens mask with a clear-view reticle, a shot pulse and weapon readiness. It retains the original `removeScopeOverlay` setting key so saved menus remain compatible. Magnification and firing accuracy stay governed by the same global weapon rules.
+
 Player ESP and resolver displays use public snapshots. Materials use Three.js lighting, metallic surfaces, additive glow and a wireframe Bubble style. Hands, enemy money, bomb UI, Source ragdolls, matchmaking, clan tags and Danger Zone systems are marked unavailable because HvH has no matching systems. Loot replaces dropped weapons; the dead-player list replaces unavailable spectator tracking; sound rings show public shot events. The trajectory preview follows a manual egg throw. No server damage, hitbox, movement or visibility authority is changed by visual controls.
 
 ## Checks
@@ -31,3 +33,5 @@ npm run build
 ```
 
 `scripts/check-native-menu.cjs` uses Playwright with Edge against the development client at localhost:3001 and server at localhost:3000. Install or provide an existing Playwright package via PLAYWRIGHT_PACKAGE; BASE_URL overrides the address, and QA_OUTPUT_DIR saves screenshots and a report. It checks actual canvas interaction, seven tabs, 1 ms jitter, key capture, native color pickers, config save/load, viewport fit, live visual effects, restoration and FFA isolation.
+
+`scripts/check-shooting.cjs` uses the same environment to check the actual scope toggle, optics, firing feedback, pooled tracers, weapon cycling, small screens, reduced motion and ordinary-mode isolation.
