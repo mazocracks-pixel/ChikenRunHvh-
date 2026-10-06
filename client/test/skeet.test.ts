@@ -4,6 +4,17 @@ import { CROUCH, DEFAULT_MODS, HITBOX, WEAPONS, WEAPON_IDS } from '@game/shared'
 import { defaultConfig, exportConfig, importConfig, loadConfigs, loadCurrent, presetConfigs, sanitizeConfig, saveConfigs, saveCurrent, toServerMods } from '../src/dev/config';
 import { SKEET_GROUPS, skeetEffectiveConfig, skeetProfile, skeetWeaponGroup } from '../src/dev/skeet/model';
 import { skeetPointOffsets, skeetSafeRay } from '../src/dev/skeet/points';
+it('native menu colors and all six materials survive config export while invalid values are bounded', () => {
+  const c=defaultConfig('skeet');
+  Object.assign(c.skeet.native,{Visuals_ColoredModels_playerMaterial:5,Visuals_Other_droppedWeapons:999,Color_Players_glow_3:-1,Misc_overrideFov:Infinity,Visuals_Players_boundingBox:9});
+  const safe=sanitizeConfig(c);
+  assert.equal(safe.skeet.native.Visuals_ColoredModels_playerMaterial,5);
+  assert.equal(safe.skeet.native.Visuals_Other_droppedWeapons,3);
+  assert.equal(safe.skeet.native.Color_Players_glow_3,0);
+  assert.equal(safe.skeet.native.Misc_overrideFov,0);
+  assert.equal(safe.skeet.native.Visuals_Players_boundingBox,1);
+  assert.deepEqual(importConfig(exportConfig({name:'Native menu',config:safe})).config.skeet.native,safe.skeet.native);
+});
 it('weapon profiles cover the complete roster and fall back without mutating normal stats or Lab settings', () => {
   const c = defaultConfig('skeet');
   assert.equal(skeetWeaponGroup(WEAPONS.deagle), 'pistols'); assert.equal(skeetWeaponGroup(WEAPONS.scout), 'snipers');

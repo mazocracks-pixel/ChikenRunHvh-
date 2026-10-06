@@ -1,5 +1,6 @@
 import { defaultHvhCore, defaultSkeetAntiAim, type HvhCoreSettings, type SkeetAntiAim, type WeaponDef } from '@game/shared';
 import type { DevConfig } from '../config';
+import { defaultNativeValues } from './nativeFields';
 
 export const SKEET_GROUPS = ['general', 'pistols', 'rifles', 'snipers', 'shotguns', 'smgs', 'heavy'] as const;
 export type SkeetGroup = typeof SKEET_GROUPS[number];
@@ -15,6 +16,7 @@ export interface WeaponProfile {
   autoScope: boolean;
 }
 export interface SkeetConfig {
+  native: Record<string, number>;
   aimStyle: 'rage' | 'legit';
   smoothing: number;
   profiles: Record<SkeetGroup, WeaponProfile>;
@@ -31,7 +33,7 @@ export function defaultSkeetConfig(): SkeetConfig {
   Object.assign(profiles.snipers, { minDamage: 45, hitchance: 75, pointScale: 35, autoScope: true });
   Object.assign(profiles.shotguns, { minDamage: 25, hitchance: 55, bodyAim: 'prefer' });
   Object.assign(profiles.smgs, { minDamage: 12, hitchance: 55 });
-  return { aimStyle: 'rage', smoothing: 8, profiles, resolver: { mode: 'adaptive', history: 8, memoryMs: 700,
+  return { native: defaultNativeValues(), aimStyle: 'rage', smoothing: 8, profiles, resolver: { mode: 'adaptive', history: 8, memoryMs: 700,
     preferBodyBelow: 60, missedShots: 2 }, antiAim: defaultSkeetAntiAim(),
     fakeLag: { enabled: false, limit: 6, mode: 'static', breakOnShot: true },
     indicators: { resolver: true, binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' } };

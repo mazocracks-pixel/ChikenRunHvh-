@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { nativeOn, nativeValue, type NativeValues } from '../dev/skeet/visualValues';
 import {
   BLOCK_ID_BASE,
   BLOCK_KINDS,
@@ -156,6 +157,8 @@ const HVH_XRAY = new THREE.MeshBasicMaterial({ color: 0xff3b4e, opacity: 0.6, de
 
 /** Everything that exists only while in a room. Created on join, disposed on leave. */
 export class GameSession {
+  hvhVisuals: NativeValues | null = null;
+  private visualKick = {yaw:0,pitch:0};
   private readonly commandChoker = new CommandChoker();
   private commandNetwork: NetworkSimulator<readonly InputFrame[]> | null = null;
   private networkKey = '';
@@ -284,6 +287,7 @@ export class GameSession {
   get camera(): THREE.PerspectiveCamera {
     return this.ctx.camera;
   }
+  get firstPerson(): boolean { return this.rig.firstPerson; }
 
   get map() {
     return this.ctx.world.map;
@@ -387,8 +391,9 @@ export class GameSession {
       this.local.chicken.setBodyVisible(true);
       this.updateViewmodel(dt, false);
     } else if (this.local.alive) {
-      this.rig.follow(seat?.position ?? this.local.position, input.yaw, input.pitch, zoom, dt, scoped, this.local.car !== null, this.local.eyeScale);
-      this.local.chicken.setBodyVisible(!(this.rig.firstPerson || scoped));
+      const noRecoil=nativeValue(this.hvhVisuals,'Visuals.Effects.visualRecoilAdjustment')===2;
+      this.rig.follow(seat?.position ?? this.local.position, input.yaw-(noRecoil?this.visualKick.yaw:0), input.pitch-(noRecoil?this.visualKick.pitch:0), zoom, dt, scoped, this.local.car !== null, this.local.eyeScale);
+      this.local.chicken.setBodyVisible(!(this.rig.firstPerson || (scoped && !this.rig.hvhThirdPerson)));
       this.updateViewmodel(dt, this.rig.firstPerson && !scoped, aiming);
     } else if (this.deathPos) {
       this.updateViewmodel(dt, false);
@@ -399,6 +404,7 @@ export class GameSession {
     }
     const cam = this.ctx.camera;
     audio.setListener(cam.position.x, cam.position.y, cam.position.z, input.yaw);
+    this.visualKick.yaw*=Math.exp(-dt*8);this.visualKick.pitch*=Math.exp(-dt*8);
 
     // Weapons.
     this.weapons.update(now);
@@ -438,7 +444,23 @@ export class GameSession {
   get buyMenuOpen(): boolean {
     return this.buyMenu?.open ?? false;
   }
-  setWeaponTint(color: string | null): void { this.viewmodel.setTint(color); }
+  setWeaponTint(color: string | null, style = 0, alpha = 1): void { this.viewmodel.setTint(color,style,alpha); }
+
+  setSkeetVisuals(values: NativeValues | null): void {
+    const v=this.mode.id==='hvh'?values:null;if(v===this.hvhVisuals)return;this.hvhVisuals=v;
+    this.rig.hvhThirdPerson=nativeOn(v,'Visuals.Effects.forceThirdPerson');
+    this.rig.hvhFov=nativeValue(v,'Misc.overrideFov');
+    this.rig.hvhNoShake=nativeValue(v,'Visuals.Effects.visualRecoilAdjustment')>0;
+    this.viewmodel.suppressRecoil=nativeValue(v,'Visuals.Effects.visualRecoilAdjustment')===2;
+    this.effects.hideSmoke=nativeOn(v,'Visuals.Effects.removeSmokeGrenades');
+    this.effects.showImpacts=!v||nativeOn(v,'Visuals.Effects.bulletImpacts');
+    this.ctx.hud.showScope=!nativeOn(v,'Visuals.Effects.removeScopeOverlay');
+    this.ctx.hud.showFlash=!nativeOn(v,'Visuals.Effects.removeFlashbangEffects');
+    this.ctx.hud.persistentKillfeed=nativeOn(v,'Misc.persistentKillfeed');
+    const brightness=nativeOn(v,'Visuals.Effects.brightnessAdjustment_1')?2:nativeOn(v,'Visuals.Effects.brightnessAdjustment_0')?1:0;
+    this.ctx.world.setHvhEffects(nativeOn(v,'Visuals.Effects.removeFog'),nativeOn(v,'Visuals.Effects.removeGrass'),nativeValue(v,'Visuals.Effects.transparentWalls'),nativeValue(v,'Visuals.Effects.transparentProps'),brightness);
+    const sky=this.ctx.scene.getObjectByName('sky');if(sky)sky.visible=!nativeOn(v,'Visuals.Effects.removeSkybox');
+  }
   inspectWeapon(): void { this.viewmodel.inspect(); }
 
   /** Silhouettes through walls: the developer wallhack wins, otherwise HvH shows enemies. */
@@ -681,7 +703,9 @@ export class GameSession {
       dy: aim.y,
       dz: aim.z,
       t: (assisted ? this.ctx.dev?.shotIntent?.()?.recordT : undefined) ?? this.serverNow() - INTERP_DELAY_MS,
-      command: this.nextSeq - 1,
+      // Weapon requests execute from authoritative movement already acknowledged by the server.
+      // Referencing a future choked command kept every shot waiting until its target record expired.
+      command: this.mode.id === 'hvh' ? this.local.server.ack : this.nextSeq - 1,
       intent: assisted ? this.ctx.dev?.shotIntent?.() : undefined,
       aiming,
     });
@@ -693,7 +717,9 @@ export class GameSession {
     this.local.chicken.kick();
     this.viewmodel.fire();
     const recoil = w.recoil * (this.ctx.dev?.recoilScale() ?? 1);
+    const beforeYaw=input.yaw,beforePitch=input.pitch;
     input.kick(recoil * (aiming ? 0.6 : 1), (Math.random() - 0.5) * recoil * 0.4);
+    this.visualKick.yaw+=input.yaw-beforeYaw;this.visualKick.pitch+=input.pitch-beforePitch;
     const muzzle = this.viewmodel.muzzleWorld(this.tmp) ?? this.local.chicken.muzzleWorldPosition(this.tmp);
     const muzzlePos = { x: muzzle.x, y: muzzle.y, z: muzzle.z };
     this.effects.muzzleFlash(muzzlePos, w.pellets > 1 || w.id === 'sniper');
@@ -1247,7 +1273,7 @@ export class GameSession {
     this.ctx.audio.play(remote?.latest ? WEAPONS[remote.latest.weapon].sound : 'rifle', from, 0.9);
     for (let i = 0; i < e.hits.length; i++) {
       const end = { x: e.ends[i * 3]!, y: e.ends[i * 3 + 1]!, z: e.ends[i * 3 + 2]! };
-      this.effects.tracer(from, end);
+      if(!this.hvhVisuals||nativeOn(this.hvhVisuals,'Visuals.Effects.bulletTracers'))this.effects.tracer(from, end);
       if (e.hits[i]) this.effects.feathers(end, 0xffffff, 3);
       else this.effects.impact(end);
       this.markWall(from, end);
@@ -1278,7 +1304,7 @@ export class GameSession {
       }
     } else if (e.attacker === this.selfPid) {
       hud.hit(e.headshot, e.hp <= 0, e.amount);
-      audio.play(e.headshot ? 'headshot' : 'hit');
+      if(!this.hvhVisuals||nativeOn(this.hvhVisuals,'Visuals.Players.hitmarkerSound'))audio.play(e.headshot ? 'headshot' : 'hit');
     }
   }
 

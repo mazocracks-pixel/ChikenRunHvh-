@@ -10,6 +10,8 @@ import { DevDebug3D } from './DevDebug3D';
 import { DevOverlay } from './DevOverlay';
 import { estimateShot, peekSteering, shotGate, type ShotTarget } from './tactics';
 import type { DevConfig } from './config';
+import { shotRecordUsable } from '@game/shared';
+import { nativeOn, nativeValue, nativeColor } from './skeet/visualValues';
 import { skeetEffectiveConfig, skeetProfile } from './skeet/model';
 import { skeetPointOffsets, skeetSafeRay } from './skeet/points';
 import { ResolverSystem, scanRage, buildHvhMatrix, hvhHitchance, afterArmor, directionFromAngles, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
@@ -55,6 +57,10 @@ export class DevRuntime implements DevHooks {
   private peekReturnAt = 0;
   private readonly enemy = xrayMaterial();
   private readonly friendly = xrayMaterial();
+  private readonly chams = new Map<string, THREE.MeshStandardMaterial | THREE.MeshBasicMaterial>();
+  private nativeRenderValues: unknown;
+  private readonly styledPlayers = new Set<number>();
+  private readonly hiddenTeammates = new Set<number>();
   private readonly info = h('div', { class: 'dev-tactical', role: 'status', 'aria-live': 'off' });
   private infoKey = '';
   private lastInfoAt = 0;
@@ -100,7 +106,11 @@ export class DevRuntime implements DevHooks {
   attach(session: GameSession): void { this.session = session; this.debug3d = new DevDebug3D(session, this.coreResolver, () => this.coreTarget); this.reset(); this.dev.sessionStarted(); }
   detach(session: GameSession): void {
     if (this.session !== session) return;
+    session.setSkeetVisuals(null);
     this.debug3d?.dispose(); this.debug3d = null; this.session = null;
+    for (const material of this.chams.values()) material.dispose();
+    this.chams.clear();
+    this.styledPlayers.clear();this.hiddenTeammates.clear();this.nativeRenderValues=undefined;
     this.overlay.clear(); this.reset(); this.dev.sessionEnded();
   }
   private reset(): void {
@@ -122,7 +132,10 @@ export class DevRuntime implements DevHooks {
     this.session.weapons.tactical = this.session.mode.id === 'hvh';
   }
   beforeFrame(session: GameSession, _dt: number, now: number): void {
+    const native=this.active&&this.dev.panelId==='skeet'?this.dev.config.skeet.native:null;
+    session.setSkeetVisuals(native);
     session.weapons.forceAutomatic = false;
+    if(native)session.weapons.forceAutomatic=nativeOn(native,'Misc.automaticWeapons');
     this.dev.input.assistedAds = false;
     const c = this.policy;
     this.dev.hud.showCrosshair = !this.active || c.misc.crosshair;
@@ -183,7 +196,9 @@ export class DevRuntime implements DevHooks {
     if (session?.mode.id === 'hvh') {
       const enabled = (a.enabled && a.autoTarget) || (trigger.enabled && this.keyHeld(trigger.key));
       if (!this.playing || !enabled || !this.coreTarget || !this.coreReady || this.coreTarget.scope) return false;
-      if (session.serverNow() - this.coreTarget.record.t > 300 || session.remotes.players.get(this.coreTarget.target)?.latest?.alive === false) return false;
+      if (!shotRecordUsable(this.coreTarget.record.t, session.serverNow(), this.dev.ping() ?? 0) || session.remotes.players.get(this.coreTarget.target)?.latest?.alive === false) {
+        this.coreScanAt = -Infinity; this.diagnostics.state = 'Waiting for a fresh record'; return false;
+      }
       const w = session.weapons;
       if (w.shotState(now) !== 'Ready' || w.reloading) return false;
       // The shooter may have moved since the bounded scan. Validate the shot from the current eye.
@@ -257,6 +272,7 @@ export class DevRuntime implements DevHooks {
     this.logs.unshift(text); if (this.logs.length > 5) this.logs.pop();
   }
   onServerShot(session: GameSession, shot: ShotEvent): void {
+    this.overlay.sound(shot);
     if (session.mode.id === 'hvh' && shot.pid === session.selfPid && shot.audit) {
       const a = shot.audit;
       this.extensions.result(a);
@@ -324,7 +340,7 @@ export class DevRuntime implements DevHooks {
     if (!session || !this.playing || !this.policy.rage.aim.enabled || session.weapons.def.melee || session.weapons.def.projectile) return null;
     if (session.mode.id === 'hvh') {
       const target = this.coreTarget;
-      return this.coreReady && target && session.serverNow() - target.record.t <= 300 && session.remotes.players.get(target.target)?.latest?.alive
+      return this.coreReady && target && shotRecordUsable(target.record.t, session.serverNow(), this.dev.ping() ?? 0) && session.remotes.players.get(target.target)?.latest?.alive
         ? normalize({ x: target.point.x - session.eye().x, y: target.point.y - session.eye().y, z: target.point.z - session.eye().z }) : null;
     }
     const target = this.target, eye = session.eye();
@@ -365,6 +381,7 @@ export class DevRuntime implements DevHooks {
       const profile = skeetProfile(c, session.weapons.def), skeet = this.dev.panelId === 'skeet';
       const eye = session.eye(), yaw = this.dev.input.yaw, pitch = this.dev.input.pitch;
       const visible = records.filter(r => {
+        if (!shotRecordUsable(r.t, serverNow, this.dev.ping() ?? 0)) return false;
         const dx = r.origin.x - eye.x, dz = r.origin.z - eye.z, dy = r.origin.y + 0.8 - eye.y;
         const angle = Math.acos(Math.max(-1, Math.min(1, (dx * -Math.sin(yaw) * Math.cos(pitch) + dz * -Math.cos(yaw) * Math.cos(pitch) + dy * Math.sin(pitch)) / Math.hypot(dx, dy, dz))));
         return angle <= (a.enabled ? a.fov / 2 : trigger.fov) * DEG;
@@ -423,7 +440,22 @@ export class DevRuntime implements DevHooks {
     const skeet = this.active && this.dev.panelId === 'skeet';
     this.binds.hidden = !skeet || !this.dev.config.skeet.indicators.binds;
     this.watermark.hidden = !skeet || !this.dev.config.skeet.indicators.watermark;
-    session.setWeaponTint(skeet && this.dev.config.skeet.cosmetics.enabled ? this.dev.config.skeet.cosmetics.tint : null);
+    const native=skeet ? this.dev.config.skeet.native : null;
+    if(this.nativeRenderValues!==native){this.nativeRenderValues=native;this.styledPlayers.clear();}
+    const weaponChams=nativeOn(native,'Visuals.ColoredModels.weapons');
+    session.setWeaponTint(weaponChams ? nativeColor(native!,'Color.ColoredModels.weapons') : skeet && this.dev.config.skeet.cosmetics.enabled ? this.dev.config.skeet.cosmetics.tint : null,
+      weaponChams ? nativeValue(native,'Visuals.ColoredModels.weaponsMaterial') : 0, weaponChams ? nativeValue(native,'Color.ColoredModels.weapons_3',1) : 1);
+    for (const r of session.remotes.players.values()) {
+      const team=session.isFriendly(r.info);
+      if(native && team && nativeOn(native,'Visuals.Effects.disableRenderingOfTeammates')){r.chicken.root.visible=false;this.hiddenTeammates.add(r.info.pid);}
+      else if(this.hiddenTeammates.delete(r.info.pid))r.chicken.root.visible=r.alive;
+      if(!this.styledPlayers.has(r.info.pid)){r.chicken.root.traverse(node => { if (node instanceof THREE.Mesh) node.frustumCulled=!nativeOn(native,'Visuals.ColoredModels.disableModelOcclusion'); });this.styledPlayers.add(r.info.pid);}
+      const enabled=native && nativeOn(native,'Visuals.ColoredModels.player') && (!team || nativeOn(native,'Visuals.ColoredModels.teammates'));
+      r.chicken.setChams(enabled ? this.chamsFor(team?'team':'enemy',native!,nativeValue(native,'Visuals.ColoredModels.playerMaterial'),team?'Color.ColoredModels.teammates':'Color.ColoredModels.player') : null);
+      r.chicken.setShadow(nativeOn(native,'Visuals.ColoredModels.shadow') ? nativeColor(native!,'Color.ColoredModels.shadow') : null,nativeValue(native,'Color.ColoredModels.shadow_3',.25));
+    }
+    session.local.chicken.setShadow(nativeOn(native,'Visuals.ColoredModels.shadow') ? nativeColor(native!,'Color.ColoredModels.shadow') : null,nativeValue(native,'Color.ColoredModels.shadow_3',.25));
+    session.projectiles.setGlow(nativeOn(native,'Visuals.Other.glowGrenades') ? nativeColor(native!,'Color.Other.glowGrenades') : null,nativeValue(native,'Color.Other.glowGrenades_3',1));
     this.debug3d?.update(this.active ? this.dev.config : null);
     this.overlay.render(this.active ? session : null, this);
     this.info.hidden = !this.active || !(this.dev.config.hvh.feedback.targetInfo || this.dev.config.hvh.feedback.shotLog || (skeet && this.dev.config.skeet.indicators.resolver));
@@ -442,7 +474,19 @@ export class DevRuntime implements DevHooks {
     const key=lines.join('\n');
     if(key!==this.infoKey){this.infoKey=key;this.info.textContent=key;}
   }
+  private chamsFor(slot: string, n: Readonly<Record<string,number>>, kind: number, color: string): THREE.MeshStandardMaterial | THREE.MeshBasicMaterial {
+    const key=`${slot}/${kind}`;let m=this.chams.get(key);
+    if(!m){m=kind===1||kind===4 ? new THREE.MeshBasicMaterial() : new THREE.MeshStandardMaterial({roughness:kind===3?.15:.8,metalness:kind===3?1:0,wireframe:kind===5});this.chams.set(key,m);}
+    m.color.set(nativeColor(n,color));m.opacity=nativeValue(n,`${color}_3`,1);const transparent=m.opacity<1||kind===4;if(m.transparent!==transparent)m.needsUpdate=true;m.transparent=transparent;m.depthWrite=!m.transparent;m.blending=kind===4?THREE.AdditiveBlending:THREE.NormalBlending;
+    if(m instanceof THREE.MeshStandardMaterial && kind===3){m.emissive.set(nativeColor(n,'Color.ColoredModels.playerReflectivityColor'));m.emissiveIntensity=.15;}
+    return m;
+  }
   xrayFor(session: GameSession, r: RemotePlayer): THREE.Material | null {
+    const native=session.hvhVisuals;
+    if(native && r.alive && nativeOn(native,'Visuals.ColoredModels.player') && nativeOn(native,'Visuals.ColoredModels.playerBehindWall')) {
+      const team=session.isFriendly(r.info);if(team && !nativeOn(native,'Visuals.ColoredModels.teammates'))return null;
+      const m=team?this.friendly:this.enemy;m.color.set(nativeColor(native,'Color.ColoredModels.playerBehindWall'));m.opacity=nativeValue(native,'Color.ColoredModels.playerBehindWall_3',1);return m;
+    }
     const w=this.dev.config.legit.wall;
     if (!this.active || !w.enabled || !r.alive) return null;
     const team=session.isFriendly(r.info); if(team ? !w.teammates : !w.enemies) return null;

@@ -82,6 +82,15 @@ export class ClientProjectiles {
   private readonly effects: Effects;
   private readonly views: View[] = [];
   private readonly look = new THREE.Vector3();
+  private glow: string | null = null;
+  private readonly glowMaterial = new THREE.MeshBasicMaterial({transparent:true,opacity:.55,depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending});
+
+  setGlow(color: string | null, alpha = 1): void {
+    this.glowMaterial.opacity=.55*alpha;
+    if(color===this.glow)return;
+    this.glow=color;if(color)this.glowMaterial.color.set(color);
+    for(const view of this.views)view.mesh.traverse(node=>{if(node.userData.projectileGlow)node.visible=color!==null;});
+  }
 
   constructor(scene: THREE.Scene, world: CollisionWorld, effects: Effects) {
     this.world = world;
@@ -155,12 +164,14 @@ export class ClientProjectiles {
   }
 
   dispose(): void {
+    this.glowMaterial.dispose();
     this.root.removeFromParent();
     this.views.length = 0;
   }
 
   private add(v: Omit<View, 'mesh' | 'age' | 'landed' | 'accumulator'>): View {
     const view: View = { ...v, mesh: buildMesh(v.kind), age: 0, landed: false, accumulator: 0 };
+    for(const node of [...view.mesh.children])if(node instanceof THREE.Mesh){const glow=new THREE.Mesh(node.geometry,this.glowMaterial);glow.userData.projectileGlow=true;glow.scale.setScalar(1.3);glow.visible=this.glow!==null;glow.renderOrder=10;node.add(glow);}
     view.mesh.position.set(v.body.x, v.body.y, v.body.z);
     this.root.add(view.mesh);
     this.views.push(view);

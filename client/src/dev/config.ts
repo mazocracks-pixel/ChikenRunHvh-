@@ -3,6 +3,7 @@ import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
 import { SKEET_GROUPS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
 import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
+import { NATIVE_FIELDS } from './skeet/nativeFields';
 
 /**
  * Everything the developer menu can change. Plain JSON, so it can be saved, exported and
@@ -298,6 +299,10 @@ export function sanitizeConfig(raw: unknown): DevConfig {
     }
   };
   walk(out as unknown as Record<string, unknown>, raw, '');
+  for (const f of NATIVE_FIELDS) {
+    const v = Math.max(f.min,Math.min(f.max,out.skeet.native[f.key] ?? f.default));
+    out.skeet.native[f.key] = f.kind === 'float' ? v : Math.round(v);
+  }
   out.skeet.fakeLag.limit = Math.round(out.skeet.fakeLag.limit);
   const previous = raw as { skeet?: { fakeLag?: unknown }; hvh?: { core?: { fakeLag?: unknown } } } | null;
   const core = out.hvh.core ?? defaultHvhCore();

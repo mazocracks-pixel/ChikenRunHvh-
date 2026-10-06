@@ -46,6 +46,9 @@ export function setCameraMode(mode: CameraMode): void {
  * player), first-person view, scope zoom, screen shake and the death camera.
  */
 export class CameraRig {
+  hvhThirdPerson = false;
+  hvhFov = 0;
+  hvhNoShake = false;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly world: CollisionWorld;
   private readonly focus = new THREE.Vector3();
@@ -66,7 +69,7 @@ export class CameraRig {
   driving = false;
 
   get firstPerson(): boolean {
-    return preferredMode === 'first' && !this.driving;
+    return preferredMode === 'first' && !this.driving && !this.hvhThirdPerson;
   }
 
   /** V key: switch between third and first person. Returns the new mode. */
@@ -76,7 +79,7 @@ export class CameraRig {
   }
 
   addShake(amount: number): void {
-    if (!Number.isFinite(amount) || amount <= 0 || this.reducedMotion.matches) return;
+    if (!Number.isFinite(amount) || amount <= 0 || this.reducedMotion.matches || this.hvhNoShake) return;
     this.shakeAmount = Math.min(1, this.shakeAmount + amount);
   }
 
@@ -89,7 +92,7 @@ export class CameraRig {
     const fz = -Math.cos(yaw) * cosPitch;
 
     this.driving = driving;
-    if ((preferredMode === 'first' && !driving) || forceFirst) {
+    if ((preferredMode === 'first' && !driving && !this.hvhThirdPerson) || (forceFirst && !this.hvhThirdPerson)) {
       this.camera.position.set(target.x + fx * 0.3, target.y + PLAYER.eyeHeight * bodyScale + 0.05, target.z + fz * 0.3);
     } else {
       this.back.set(-fx, -fy, -fz);
@@ -134,12 +137,12 @@ export class CameraRig {
   private applyZoomAndShake(zoom: number, dt: number): void {
     this.shakeTime += dt;
     this.zoom = damp(this.zoom, zoom, 14, dt);
-    const fov = baseFov() / this.zoom;
+    const fov = (this.hvhFov > 0 ? Math.max(30,this.hvhFov) : baseFov()) / this.zoom;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
-    if (this.reducedMotion.matches) this.shakeAmount = 0;
+    if (this.reducedMotion.matches || this.hvhNoShake) this.shakeAmount = 0;
     if (this.shakeAmount <= 0.001) return;
     // Continuous vibration feels like an impact instead of changing direction randomly each frame.
     // Translation only: no extra aim kick, and less displacement through a magnified scope.

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { CHICKEN_POSE, chickenHeadCenter, chickenHeadPose, HITBOX, PLAYER, TEAM_COLORS, TEAM_NAMES, WEAPONS, type PickupKind } from '@game/shared';
+import { CHICKEN_POSE, chickenHeadCenter, chickenHeadPose, HITBOX, PLAYER, TEAM_COLORS, TEAM_NAMES, WEAPONS, PROJECTILES, SIM_DT, stepProjectile, hvhSpread, directionFromAngles, makeRay, type PickupKind, type ShotEvent } from '@game/shared';
 import type { GameSession } from '../game/GameSession';
 import { h, hex } from '../ui/dom';
 import type { Dev } from './Dev';
 import type { DevRuntime } from './DevRuntime';
+import { nativeOn, nativeValue, nativeColor, type NativeValues } from './skeet/visualValues';
 
 const PICKUP_NAMES: Record<PickupKind, string> = { medkit: 'Medkit', armor: 'Armor', fuel: 'Jetpack fuel', eggs: 'Eggs' };
 
@@ -54,6 +55,13 @@ export class DevOverlay {
   private lastTime = 0;
   private drewSomething = false;
   private panelKey = '';
+  private sounds: {x:number;y:number;z:number;at:number}[] = [];
+
+  sound(shot: ShotEvent): void {
+    if(!this.dev.active||this.dev.panelId!=='skeet'||shot.pid===this.dev.runtime.currentSession?.selfPid)return;
+    this.sounds.push({x:shot.ox,y:shot.oy,z:shot.oz,at:performance.now()});
+    if(this.sounds.length>32)this.sounds.shift();
+  }
 
   constructor(dev: Dev) {
     this.dev = dev;
@@ -66,6 +74,7 @@ export class DevOverlay {
   }
 
   clear(): void {
+    this.sounds.length = 0;
     if (this.drewSomething) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drewSomething = false;
     this.panel.hidden = true;
@@ -79,7 +88,8 @@ export class DevOverlay {
     }
     const c = this.dev.config;
     this.updatePanel(session);
-    const esp = c.visuals.esp.enabled;
+    const native=this.dev.panelId==='skeet'?c.skeet.native:null;
+    const esp = native ? true : c.visuals.esp.enabled;
     const world = c.visuals.world;
     const anyWorld = world.items || world.weapons || world.spawns || world.objectives;
     if (!esp && !anyWorld) {
@@ -108,6 +118,8 @@ export class DevOverlay {
 
     if (anyWorld) this.drawWorld(session, w, hgt);
     if (esp) this.drawPlayers(session, runtime, w, hgt);
+    g.globalAlpha=c.visuals.colors.opacity;
+    if(native)this.drawNative(session,native,w,hgt);
     g.globalAlpha = 1;
   }
 
@@ -123,16 +135,28 @@ export class DevOverlay {
 
   private drawPlayers(session: GameSession, runtime: DevRuntime, w: number, hgt: number): void {
     const c = this.dev.config;
-    const e = c.visuals.esp;
+    const n=this.dev.panelId==='skeet'?c.skeet.native:null;
+    const e = n ? {...c.visuals.esp,box:nativeOn(n,'Visuals.Players.boundingBox'),health:nativeOn(n,'Visuals.Players.healthBar'),name:nativeOn(n,'Visuals.Players.name'),weapon:nativeOn(n,'Visuals.Players.weaponText'),distance:nativeOn(n,'Visuals.Players.distance'),skeleton:nativeOn(n,'Visuals.Players.skeleton'),snaplines:false,headCircle:false} : c.visuals.esp;
     const colors = c.visuals.colors;
     const g = this.ctx;
     const camPos = session.camera.position;
     for (const [pid, r] of session.remotes.players) {
-      if (!r.alive) continue;
+      if (!r.alive || (n && session.isFriendly(r.info)&&!nativeOn(n,'Visuals.Players.teammates'))) continue;
+      const stale=session.serverNow()-r.latestAt>250 || r.culled;
+      if(n&&stale&&!nativeOn(n,'Visuals.Players.dormant'))continue;
+      g.globalAlpha=colors.opacity*(stale ? .4 : 1);
       const p = r.position;
       const feet = this.project(session, p.x, p.y, p.z, w, hgt);
       const top = this.project(session, p.x, p.y + PLAYER.height + 0.12, p.z, w, hgt);
-      if (!feet || !top) continue;
+      if (!feet || !top) {
+        if(n&&nativeOn(n,'Visuals.Players.outOfFOVArrow')){
+          const bearing=Math.atan2(p.x-camPos.x,p.z-camPos.z)+session.camera.rotation.y;
+          const distance=Math.min(w,hgt)*.45*nativeValue(n,'Visuals.Players.arrowDistance',75)/100,size=nativeValue(n,'Visuals.Players.arrowSize',12);
+          const x=w/2+Math.sin(bearing)*distance,y=hgt/2+Math.cos(bearing)*distance;
+          g.save();g.translate(x,y);g.rotate(-bearing);g.fillStyle=nativeColor(n,'Color.Players.outOfFOVArrow');g.beginPath();g.moveTo(0,size);g.lineTo(-size*.55,-size*.6);g.lineTo(size*.55,-size*.6);g.closePath();g.fill();g.restore();
+        }
+        continue;
+      }
       const color = r.info.bot ? colors.npc : session.isFriendly(r.info) ? colors.friendly : colors.enemy;
       const boxH = Math.max(6, feet.y - top.y);
       const boxW = boxH * 0.62;
@@ -145,7 +169,7 @@ export class DevOverlay {
         g.strokeStyle = 'rgba(0,0,0,0.6)';
         g.strokeRect(left, top.y, boxW, boxH);
         g.lineWidth = focused ? 2 : 1;
-        g.strokeStyle = color;
+        g.strokeStyle = n?nativeColor(n,'Color.Players.boundingBox'):color;
         g.strokeRect(left, top.y, boxW, boxH);
       }
       if (e.health) {
@@ -156,7 +180,17 @@ export class DevOverlay {
         g.fillRect(left - 5, top.y + boxH * (1 - hp), 2, boxH * hp);
       }
       const scale = r.scale;
-      if (e.skeleton) this.drawSkeleton(session, r.position, r.yaw, color, w, hgt, r.pitch, scale);
+      if (e.skeleton) this.drawSkeleton(session, r.position, r.yaw, n?nativeColor(n,'Color.Players.skeleton'):color, w, hgt, r.pitch, scale);
+      if(n&&nativeOn(n,'Visuals.Players.lineOfSight')){
+        const dir=directionFromAngles(r.yaw,r.pitch),end=this.project(session,p.x+dir.x*4,p.y+1+dir.y*4,p.z+dir.z*4,w,hgt);
+        if(end)this.line(feet.x,top.y+boxH*.25,end.x,end.y,nativeColor(n,'Color.Players.lineOfSight'),1.5);
+      }
+      if(n&&nativeOn(n,'Visuals.Players.flags')&&r.latest){
+        const s=r.latest,flags=[s.shielded?'SHIELD':'',s.crouching?'DUCK':'',!s.onGround?'AIR':'',s.reloading?'RELOAD':'',s.aiming?'ADS':'',s.carryingFlag?'FLAG':''].filter(Boolean);
+        flags.forEach((flag,i)=>this.label(flag,left+boxW+5,top.y+7+i*12,color,'left'));
+      }
+      if(n&&nativeOn(n,'Visuals.Players.ammo')&&r.latest){const mag=r.latest.mag,max=WEAPONS[r.latest.weapon].magazine;g.fillStyle='#101010';g.fillRect(left,feet.y+2,boxW,3);g.fillStyle=nativeColor(n,'Color.Players.ammo');g.fillRect(left,feet.y+2,boxW*Math.max(0,Math.min(1,mag/max)),3);}
+      if(n&&nativeOn(n,'Visuals.Players.weaponIcon')&&r.latest)this.label(WEAPONS[r.latest.weapon].melee?'†':WEAPONS[r.latest.weapon].scope?'⌖':'━',feet.x,feet.y+10,nativeColor(n,'Color.Players.weaponIcon'),'center');
       if (e.headCircle) {
         const center = chickenHeadCenter(p,r.yaw,scale,r.pitch);
         const head = this.project(session, center.x, center.y, center.z, w, hgt);
@@ -172,9 +206,37 @@ export class DevOverlay {
       const labels: string[] = [];
       if (e.distance) labels.push(`${Math.round(camPos.distanceTo(p))} m`);
       if (e.weapon && r.latest) labels.push(WEAPONS[r.latest.weapon].name);
-      if (e.name) this.label(r.info.name + (r.info.bot ? ' [BOT]' : ''), feet.x, top.y - 9, color, 'center');
-      labels.forEach((text, i) => this.label(text, feet.x, feet.y + 9 + i * 13, '#e8ecf4', 'center'));
+      if (e.name) this.label(r.info.name + (r.info.bot ? ' [BOT]' : ''), feet.x, top.y - 9, n?nativeColor(n,'Color.Players.name'):color, 'center');
+      labels.forEach((text, i) => this.label(text, feet.x, feet.y + (n?19:9) + i * 13, '#e8ecf4', 'center'));
     }
+    g.globalAlpha=colors.opacity;
+  }
+
+  private drawNative(s: GameSession,n: NativeValues,w:number,hgt:number):void {
+    const g=this.ctx,now=performance.now();
+    if(nativeOn(n,'Visuals.Other.radar')){
+      const size=140,cx=90,cy=hgt-180;g.fillStyle='rgba(12,12,12,.75)';g.fillRect(cx-size/2,cy-size/2,size,size);g.strokeStyle='#5d5d5d';g.strokeRect(cx-size/2,cy-size/2,size,size);g.fillStyle='#fff';g.fillRect(cx-2,cy-2,4,4);
+      for(const r of s.remotes.players.values()){if(!r.alive||r.culled)continue;const x=Math.max(-65,Math.min(65,(r.position.x-s.local.position.x)*2)),y=Math.max(-65,Math.min(65,(r.position.z-s.local.position.z)*2));g.fillStyle=s.isFriendly(r.info)?'#75b8eb':'#d96262';g.beginPath();g.arc(cx+x,cy+y,3,0,Math.PI*2);g.fill();}
+      this.label('RADAR · N ↑',cx,cy-size/2-9,'#d0d0d0','center');
+    }
+    if(nativeOn(n,'Visuals.Other.inaccuracyOverlay')){const spread=hvhSpread(s.weapons.def,s.horizontalSpeed(),!s.local.onGround,this.dev.input.aiming,s.weapons.heat),radius=Math.min(hgt*.45,Math.max(2,spread/Math.tan(s.camera.fov*Math.PI/360)*hgt/2));g.strokeStyle=nativeColor(n,'Color.Other.inaccuracyOverlay');g.beginPath();g.arc(w/2,hgt/2,radius,0,Math.PI*2);g.stroke();}
+    if(nativeOn(n,'Visuals.Other.recoilOverlay')){const dir=directionFromAngles(this.dev.input.yaw,this.dev.input.pitch),eye=s.eye(),p=this.project(s,eye.x+dir.x*100,eye.y+dir.y*100,eye.z+dir.z*100,w,hgt);if(p){this.line(p.x-4,p.y,p.x+4,p.y,'#ffcc55',2);this.line(p.x,p.y-4,p.x,p.y+4,'#ffcc55',2);}}
+    if(nativeOn(n,'Visuals.Other.penetrationReticle')){const hit=s.raycastScene(makeRay(s.eye(),directionFromAngles(this.dev.input.yaw,this.dev.input.pitch)),s.weapons.def.range,true);g.fillStyle=hit.soft.length?'#a7d66f':'#ef8888';g.fillRect(w/2-1,hgt/2-1,3,3);}
+    if(nativeOn(n,'Visuals.Other.spectators')){const dead=[...s.remotes.players.values()].filter(p=>!p.alive).map(p=>p.info.name);if(dead.length)this.label(`Dead players: ${dead.join(', ')}`,w-15,90,'#ccc','right');}
+    if(nativeOn(n,'Misc.lowFpsWarning')&&this.dev.fps()<30)this.label(`LOW FPS · ${this.dev.fps()}`,w/2,80,'#e8b854','center');
+    if(nativeValue(n,'Visuals.Other.droppedWeapons')>0)for(const m of s.loot.markers()){if(m.phase!==1)continue;const p=this.project(s,m.x,m.y,m.z,w,hgt);if(p){const type=nativeValue(n,'Visuals.Other.droppedWeapons');this.label(type===1?'◇':m.pickup?PICKUP_NAMES[m.pickup]:'Loot box',p.x,p.y,type===3?'#b3dd78':'#ddd','center');if(nativeOn(n,'Visuals.Other.droppedWeaponsAmmo'))this.label(m.pickup?'Pickup':'Open for supplies',p.x,p.y+13,'#aaa','center');}}
+    if(nativeOn(n,'Visuals.Other.grenades')||nativeOn(n,'Visuals.Other.grenadeProximityWarning'))for(const m of s.projectiles.markers()){
+      const p=this.project(s,m.x,m.y,m.z,w,hgt),distance=Math.hypot(m.x-s.local.position.x,m.y-s.local.position.y,m.z-s.local.position.z);
+      if(p&&nativeOn(n,'Visuals.Other.grenades'))this.label(`${m.kind} · ${Math.round(distance)}m`,p.x,p.y,nativeColor(n,'Color.Other.grenades'),'center');
+      if(nativeOn(n,'Visuals.Other.grenadeProximityWarning')&&PROJECTILES[m.kind].damage>0&&distance<PROJECTILES[m.kind].splashRadius+5)this.label(`GRENADE NEARBY · ${Math.round(distance)}m`,w/2,hgt*.65,'#ef805d','center');
+    }
+    if(nativeOn(n,'Visuals.Other.grenadeTrajectory')){
+      const dir=directionFromAngles(this.dev.input.yaw,this.dev.input.pitch),eye=s.eye(),def=PROJECTILES.egg;
+      const body={x:eye.x+dir.x*.5,y:eye.y+dir.y*.5,z:eye.z+dir.z*.5,vx:dir.x*def.speed,vy:dir.y*def.speed+def.upBoost,vz:dir.z*def.speed};let last=this.project(s,body.x,body.y,body.z,w,hgt);
+      for(let i=0;i<160;i++){const hit=stepProjectile(body,def,SIM_DT,s.collision);if(i%3===0||hit){const p=this.project(s,body.x,body.y,body.z,w,hgt);if(last&&p)this.line(last.x,last.y,p.x,p.y,nativeColor(n,'Color.Other.grenadeTrajectory'),1);last=p;}if(hit)break;}
+    }
+    this.sounds=this.sounds.filter(sound=>now-sound.at<1200);
+    if(nativeOn(n,'Visuals.Players.visualizeSounds'))for(const sound of this.sounds){const p=this.project(s,sound.x,sound.y,sound.z,w,hgt);if(p){g.strokeStyle=nativeColor(n,'Color.Players.visualizeSounds');g.beginPath();g.arc(p.x,p.y,8+(now-sound.at)*.035,0,Math.PI*2);g.stroke();}}
   }
 
   private drawSkeleton(session: GameSession, pos: THREE.Vector3, yaw: number, color: string, w: number, hgt: number, pitch = 0, scale = 1): void {
