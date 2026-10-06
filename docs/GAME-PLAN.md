@@ -64,10 +64,11 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 - Account page shows **Last 10 matches** with K/D, headshot % and how long ago. New `match_history` table.
 
 ### 10. Title screen background
-- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) poses in front of one map at a time: Sandstown, Harbor, Town, Frostbite and Farm, 9 seconds each, with a quick fade to black between them.
-- The chicken stands on the left, where the menu has free space; the camera is low and close and drifts slowly. A spot with room in front and a view behind is picked on each map.
+- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) **runs laps on one map, Sandstown**, in a loop. The camera stands in the middle of the lap and turns to follow it, so the background sweeps past.
+- The chicken stays on the left of the screen, where the menu has free space. The lap spot is a place on the map with room all round.
 - A small 🎬 button (bottom right) hides the menu so you can look at the whole scene.
 - Code: [client/src/game/Game.ts](../client/src/game/Game.ts) (showcase), [client/src/ui/MainMenu.ts](../client/src/ui/MainMenu.ts) (the button). It stops when a match or the shop opens.
+- Earlier version (cycled through five maps) was replaced on 6 Oct, because the idea was a running chicken in a loop on one map.
 
 ### 11. Zombie Apocalypse
 - A co-op mode (up to 4 survivors) on the new **Graveyard** night map, with a merchant hut in the middle. Menu: Fun tab, 🧟.
