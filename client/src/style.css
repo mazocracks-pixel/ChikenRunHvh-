@@ -2576,32 +2576,32 @@ code {
 
 /* ---------- kill tags and flashbangs ---------- */
 
-.killfeed .kf-tag {
-  padding: 0 4px;
-  font-size: 0.66em;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  color: #1a1a1a;
-  background: #ffd76a;
+/* Kill feed rows, like Counter-Strike: names with a weapon silhouette and a symbol for each way it was done. */
+.killfeed .kill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px;
+  background: rgba(20, 16, 14, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 3px;
-  vertical-align: 1px;
+  white-space: nowrap;
 }
 
-.killfeed .kf-tag.t2 {
-  background: #ffb36b;
+.killfeed .kill.mine {
+  background: rgba(34, 18, 14, 0.9);
+  border-color: #d2362f;
 }
 
-.killfeed .kf-tag.t4 {
-  background: #c9cdd2;
+.killfeed .kf-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #f4f1ec;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
 }
 
-.killfeed .kf-tag.t8 {
-  background: #8fd4ff;
-}
-
-.killfeed .kf-tag.t16 {
-  color: #333;
-  background: #ffffff;
+.killfeed .kf-icon svg {
+  display: block;
 }
 
 .death-how {

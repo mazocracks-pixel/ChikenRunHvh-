@@ -19,6 +19,7 @@ part 4 how bunny hop works, part 5 what to do next._
 | 10 | Title screen background: your chicken posing in front of our maps | Done |
 | 11 | Zombie Apocalypse mode (waves, bosses, shop, 10-second builds, night map) | Done |
 | 12 | Sniper double scope (scroll 4× / 8×) and 25% less wallbang damage | Done |
+| 13 | Kill feed icons (weapon silhouettes and a symbol for each kill type) | Done |
 
 Earlier in the same stretch (also done): Squad Up mode, With bots / Without bots lobby choice,
 Y and U chat, jumpscares and funnyChiken, unlimited flashbangs in Rage, dark brown mega?dev,
@@ -85,6 +86,11 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 ### 12. Sniper double scope and weaker wallbang
 - **Double scope:** right-click scopes the sniper at 4× as before; while scoped, **scroll the mouse wheel** to switch to 8× and back. The hint line shows the current zoom. Unscoped, the wheel still switches weapons. The 8× level is `zoom2` on the sniper in [shared/src/weapons.ts](../shared/src/weapons.ts) (the Scout keeps its single scope).
 - **Wallbang:** a bullet through a box now keeps 0.4875 of its damage (it was 0.65, so 25% less than before; two boxes compound). One number: `WALLBANG.damageScale` in [shared/src/wallbang.ts](../shared/src/wallbang.ts).
+
+### 13. Kill feed icons
+- The kill feed now looks like Counter-Strike's: killer, a **weapon silhouette** (pistol, SMG, rifle, sniper, shotgun, LMG, launcher, crossbow, knives, katana, pan, egg, car, bomb), then a **symbol for each way it was done**: no scope, through smoke, through a wall (a door with an arrow), in mid-air, headshot (a skull). A blind killer gets the crossed-out eye before their name.
+- Rows with you in them have a red edge. Hover an icon to see its name.
+- Code: [client/src/ui/KillIcons.ts](../client/src/ui/KillIcons.ts) (all the drawings, in one place) and [client/src/ui/Hud.ts](../client/src/ui/Hud.ts).
 
 ### Notes on safety and checks
 - Every step has tests; the full suite was 355 passing tests at the end of this stretch, and the build passes.

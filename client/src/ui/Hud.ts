@@ -1,5 +1,6 @@
 import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
 import { watchSettings } from '../settings';
+import { killTags, shapeSvg, tagSvg, weaponShape } from './KillIcons';
 import { CombatFeedback } from '../game/CombatFeedback';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
@@ -7,14 +8,12 @@ import { clear, formatTime, h, hex } from './dom';
 const KILLFEED_MS = 6000;
 const CHAT_VISIBLE_MS = 10000;
 
-/** Short tags for the kill feed. */
-const KILL_TAGS: [number, string, string][] = [
-  [KILL_FLAGS.noscope, 'NO SCOPE', 'No scope'],
-  [KILL_FLAGS.wallbang, 'WALL', 'Through a wall'],
-  [KILL_FLAGS.smoke, 'SMOKE', 'Through smoke'],
-  [KILL_FLAGS.air, 'AIR', 'In mid-air'],
-  [KILL_FLAGS.blind, 'BLIND', 'While blind'],
-];
+/** A small kill-feed icon (the markup comes from KillIcons, never from a player). */
+function icon(html: string, title: string): HTMLElement {
+  const el = h('span', { class: 'kf-icon', title });
+  el.innerHTML = html;
+  return el;
+}
 
 /** "No-scope headshot through the wall, in mid-air" — or null for a plain kill. */
 export function killSentence(flags: number, headshot: boolean): string | null {
@@ -344,11 +343,14 @@ export class Hud {
       this.eliminationUntil = performance.now() + 2400;
     }
     const involved = killer?.pid === selfPid || victim.pid === selfPid;
+    // Like Counter-Strike: [blind] killer [weapon] [no scope] [smoke] [wall] [air] [headshot] victim.
     const row = h('div', { class: `kill${involved ? ' mine' : ''}` });
-    if (killer && killer.pid !== victim.pid) row.append(nameEl(killer.name, killer.team, killer.pid === selfPid, killer.dev), ' ');
-    row.append(h('span', { class: 'cause' }, `[${causeLabel(cause)}${headshot ? ' ⌖' : ''}]`));
-    for (const [bit, tag, title] of KILL_TAGS) if (flags & bit) row.append(' ', h('span', { class: `kf-tag t${bit}`, title }, tag));
-    row.append(' ', nameEl(victim.name, victim.team, victim.pid === selfPid, victim.dev));
+    const tags = killTags(flags, headshot);
+    for (const kind of tags.before) row.append(icon(tagSvg(kind).html, tagSvg(kind).title));
+    if (killer && killer.pid !== victim.pid) row.append(nameEl(killer.name, killer.team, killer.pid === selfPid, killer.dev));
+    row.append(icon(shapeSvg(weaponShape(cause)), causeLabel(cause)));
+    for (const kind of tags.after) row.append(icon(tagSvg(kind).html, tagSvg(kind).title));
+    row.append(nameEl(victim.name, victim.team, victim.pid === selfPid, victim.dev));
     this.killfeed.prepend(row);
     row.dataset.at=String(performance.now());
     while (this.killfeed.children.length > 5) this.killfeed.lastElementChild?.remove();
