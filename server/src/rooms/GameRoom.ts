@@ -540,7 +540,11 @@ export class GameRoom {
     this.enforceHvhRules(p);
     const req = parseFire(raw);
     if (!req || !p.alive || p.removedForCheating || this.match.phase === 'ended' || this.actionsBlocked()) return;
-    if (this.mode.id === 'hvh') {
+    // A shot waits for the movement it was fired after (`command`): the client aims from where it
+    // stands after that input, so firing from an older server position (moving, airborne) shifts
+    // every bullet away from where the crosshair was, even with no spread at all.
+    const late = req.command !== undefined && req.command > p.lastSeq;
+    if (this.mode.id === 'hvh' || late || p.fireQueue.length > 0) {
       if (p.fireQueue.length < 4 && req.shot > p.lastShotSeq && !p.fireQueue.some(r => r.shot === req.shot)) p.fireQueue.push(Object.freeze({ ...req, intent: req.intent ? Object.freeze({ ...req.intent }) : undefined }));
       return;
     }
@@ -1269,7 +1273,7 @@ export class GameRoom {
       }
       if (!p.hvhPreparing && !p.alive && now >= p.respawnAt && this.match.phase !== 'ended') this.spawn(p, now, true);
     }
-    if (this.mode.id === 'hvh') for (const p of this.players.values()) {
+    for (const p of this.players.values()) {
       const req = p.fireQueue[0];
       if (req && (req.command === undefined || req.command <= p.lastSeq || now - req.t > MAX_REWIND_MS)) { p.fireQueue.shift(); this.executeFire(p, req, now); }
     }

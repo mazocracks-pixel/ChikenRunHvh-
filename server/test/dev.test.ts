@@ -295,6 +295,32 @@ describe('wallbang', () => {
   });
 });
 
+describe('shots fire from where you were when you fired', () => {
+  it('a shot waits for the movement before it, then fires from that position', () => {
+    const { room } = makeRoom('ffa', 'flat');
+    const p = addPlayer(room, 'A');
+    room.startNow();
+    p.shieldUntil = 0;
+    place(p, 0, 10);
+    const fire = (shot: number, command?: number) => room.handleFire(p, { shot, weapon: p.weapon, dx: 0, dy: 0, dz: -1, t: performance.now(), aiming: false, ...(command === undefined ? {} : { command }) });
+    // The client moved (input 1) and then fired (command 1), but the server has not simulated input 1 yet.
+    room.handleInput(p, { seq: 1, forward: 1, right: 0, jump: true, yaw: 0, pitch: 0 });
+    fire(1, 1);
+    assert.equal(p.lastShotSeq, 0, 'held back until the movement before it is simulated');
+    stepRoom(room);
+    assert.equal(p.lastSeq, 1);
+    assert.equal(p.lastShotSeq, 1, 'then it is fired');
+    // A shot that is not behind any movement (or without a command) fires at once.
+    p.lastFireAt = -Infinity;
+    fire(2, 1);
+    assert.equal(p.lastShotSeq, 2);
+    p.lastFireAt = -Infinity;
+    fire(3);
+    assert.equal(p.lastShotSeq, 3);
+    room.close();
+  });
+});
+
 describe('crouching', () => {
   it('a shot at head height goes over a crouched chicken', () => {
     const { room } = makeRoom('ffa', 'flat');

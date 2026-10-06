@@ -7,7 +7,9 @@ const PITCH_MAX = 1.1;
 /** Ignore mouse movement for this long after the pointer gets locked. */
 const LOCK_SETTLE_MS = 250;
 /** A single mousemove larger than this (px) is a browser glitch, not a flick. */
-const MAX_MOUSE_DELTA = 250;
+// A fast flick on a high-DPI mouse is one big movement event (well over 1000 px), so only
+// values no hand could make (bogus browser spikes) are thrown away.
+const MAX_MOUSE_DELTA = 4000;
 
 export type Action =
   | 'reload'
