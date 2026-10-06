@@ -435,7 +435,7 @@ export class GameSession {
     // Weapons.
     this.weapons.update(now);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
-    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !dev?.blocksShooting();
+    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !dev?.blocksShooting();
     if (aiming !== this.aimingSent) {
       this.aimingSent = aiming;
       net.socket.emit('aim', aiming);
@@ -793,11 +793,11 @@ export class GameSession {
 
   /** Our own melee swing: animate and give instant feedback. The server decides the damage. */
   private swing(eye: Vec3, aim: Vec3): void {
-    const { audio, input } = this.ctx;
+    const { audio } = this.ctx;
     const w = this.weapons.def;
     this.local.chicken.swing();
     this.viewmodel.fire();
-    input.kick(w.recoil, 0);
+    // (A knife, pan or katana swing doesn't kick the camera.)
     audio.play(w.sound);
     const targets: MeleeTarget<number>[] = [];
     for (const [pid, r] of this.remotes.players) {
@@ -810,9 +810,18 @@ export class GameSession {
     audio.play(w.id === 'pan' ? 'bonk' : 'meleeHit', hit.point);
   }
 
+  /** ChikenBomb buy time: the server refuses every shot and throw, so we don't pretend to fire either. */
+  private get buyTime(): boolean {
+    return this.mode.bomb === true && this.round?.phase === 'buy';
+  }
+
   private throwGrenade(kind: 'egg' | 'smoke' | 'flash'): void {
     const { net, audio, hud } = this.ctx;
     if (!this.local.alive) return;
+    if (this.buyTime) {
+      hud.toast('Buy time: no throwing yet', 'bad');
+      return;
+    }
     const count = kind === 'egg' ? this.local.server.eggs : kind === 'smoke' ? this.local.server.smokes : (this.local.server.flashes ?? 0);
     if (count <= 0) {
       hud.toast(kind === 'egg' ? 'No eggs left — break boxes to find more' : kind === 'smoke' ? 'No smoke grenades left' : 'No flashbangs left', 'bad');

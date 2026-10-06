@@ -20,6 +20,7 @@ part 4 how bunny hop works, part 5 what to do next._
 | 11 | Zombie Apocalypse mode (waves, bosses, shop, 10-second builds, night map) | Done |
 | 12 | Sniper double scope (scroll 4× / 8×) and 25% less wallbang damage | Done |
 | 13 | Kill feed icons (weapon silhouettes and a symbol for each kill type) | Done |
+| 14 | ChikenBomb: no shooting or throwing in buy time; melee swings don't kick the camera | Done |
 
 Earlier in the same stretch (also done): Squad Up mode, With bots / Without bots lobby choice,
 Y and U chat, jumpscares and funnyChiken, unlimited flashbangs in Rage, dark brown mega?dev,
@@ -91,6 +92,10 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 - The kill feed now looks like Counter-Strike's: killer, a **weapon silhouette** (pistol, SMG, rifle, sniper, shotgun, LMG, launcher, crossbow, knives, katana, pan, egg, car, bomb), then a **symbol for each way it was done**: no scope, through smoke, through a wall (a door with an arrow), in mid-air, headshot (a skull). A blind killer gets the crossed-out eye before their name.
 - Rows with you in them have a red edge. Hover an icon to see its name.
 - Code: [client/src/ui/KillIcons.ts](../client/src/ui/KillIcons.ts) (all the drawings, in one place) and [client/src/ui/Hud.ts](../client/src/ui/Hud.ts).
+
+### 14. ChikenBomb buy time and knife recoil
+- During the 15-second buy time the server already refused every shot and throw, but your screen still let you fire (flash, sound, ammo going down) while nothing happened. The game now simply does not fire or throw in buy time, and tells you when you try a grenade. Warmup is unchanged (you can still shoot there).
+- Knife, pan, katana and the other melee weapons no longer kick the camera when you swing.
 
 ### Notes on safety and checks
 - Every step has tests; the full suite was 355 passing tests at the end of this stretch, and the build passes.
