@@ -77,7 +77,7 @@ describe('stepPlayer', () => {
     assert.ok(t.vy < -PLAYER.glideFallSpeed * 2);
   });
 
-  it('requires fresh manual jump presses and lets the timing helper re-hop without generating speed', () => {
+  it('bunny hop works by holding Space or by tapping it on landing, and neither generates speed', () => {
     const flat = new CollisionWorld(200,[]);
     for(const autoHop of [false,true]) {
       const s=createMoveState(0,0,0);s.walkVz=-PLAYER.speed;
@@ -88,9 +88,19 @@ describe('stepPlayer', () => {
         ground=s.onGround;
         assert.ok(s.horizontalSpeed<=PLAYER.speed+1e-9,'jump timing grants no speed');
       }
-      assert.equal(autoHop ? jumps>=4 : jumps===1,true);
+      assert.ok(jumps>=4,'holding Space hops again on every landing');
       assert.equal(s.gliding,false);
     }
+    // Tapping on the landing tick (release in the air, press again) hops just the same.
+    const t=createMoveState(0,0,0);t.walkVz=-PLAYER.speed;
+    let taps=0,onGround=true;
+    for(let i=0;i<200;i++) {
+      stepPlayer(t,frame(i,{forward:1,jump:t.onGround||i%2===0}),SIM_DT,flat,null,0.1,1,true);
+      if(onGround&&!t.onGround)taps++;
+      onGround=t.onGround;
+      assert.ok(t.horizontalSpeed<=PLAYER.speed+1e-9,'timing grants no speed');
+    }
+    assert.ok(taps>=4,'tapped hops work too');
   });
 
   it('legacy hop values cannot create movement speed', () => {

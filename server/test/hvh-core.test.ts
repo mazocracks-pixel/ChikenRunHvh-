@@ -43,7 +43,7 @@ it('batched inputs advance once per server tick and choked remote snapshots keep
   assert.ok(own.simulationTime! > held.simulationTime!); assert.ok(own.z < held.z);
 });
 
-it('a gap in HvH commands preserves held-jump state without inventing presses or automatic landing jumps', t => {
+it('a gap in HvH commands preserves held-jump state without inventing landing jumps; a held key hops again once commands resume', t => {
   for (const autoHop of [false, true]) {
     const {room} = makeRoom('hvh','flat'); t.after(() => room.close());
     const p=addPlayer(room,'Jumper'); room.startNow(); place(p,20,20);
@@ -56,7 +56,7 @@ it('a gap in HvH commands preserves held-jump state without inventing presses or
     assert.equal(p.state.jumpHeld,true,'no command means no observed button release');
     room.handleInput(p,{seq:2,forward:0,right:0,yaw:0,pitch:0,jump:true,autoHop});
     stepRoom(room,now+=SIM_DT*1000);
-    assert.equal(p.state.onGround,!autoHop,'only the explicitly requested helper can re-jump');
+    assert.equal(p.state.onGround,false,'holding Space is a real command: it hops again on landing');
   }
 });
 

@@ -1248,9 +1248,14 @@ export class GameRoom {
       const command = p.commands.next();
       if (command) this.applyInput(p, command);
       // Missing commands cannot invent presses or run assistance without new input.
-      else if (p.alive && !p.frozen && !p.vehicle && p.lastInput) stepPlayer(p.state,
-        { ...p.lastInput, forward: 0, right: 0, jump: p.state.jumpHeld, autoHop: false, subtickStrafe: false }, SIM_DT,
-        this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
+      else if (p.alive && !p.frozen && !p.vehicle && p.lastInput) {
+        // A held key is remembered, but a missing command never makes the chicken hop on landing.
+        const held = p.state.jumpHeld;
+        stepPlayer(p.state,
+          { ...p.lastInput, forward: 0, right: 0, jump: held && !p.state.onGround, autoHop: false, subtickStrafe: false }, SIM_DT,
+          this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
+        p.state.jumpHeld = held;
+      }
       p.simulationTime = now;
       if (this.mode.id === 'hvh') {
         p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);

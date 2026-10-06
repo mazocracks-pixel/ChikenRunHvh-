@@ -157,12 +157,14 @@ function stepMovement(s: MoveState, input: InputFrame, dt: number, world: Collis
   const cos = Math.cos(input.yaw);
 
   // Jump before ground friction: a correctly timed hop preserves landing momentum.
-  // Holding Space alone does not re-jump; autoHop changes timing, never acceleration.
+  // Bunny hop works both ways: hold Space and you jump again the moment you land, or tap Space on
+  // the landing tick yourself. Neither adds speed (that comes from air strafing); holding only
+  // takes care of the timing.
   const pressed = input.jump && !s.jumpHeld;
   if (s.onGround) {
     s.jetting = false;
     s.gliding = false;
-    if (input.jump && (pressed || input.autoHop === true)) {
+    if (input.jump) {
       const speed = Math.hypot(velocity.x, velocity.z), limit = runSpeed * (1 + clamp(hopMax, 0, HOP.max));
       if (speed > limit && speed) { velocity.x *= limit / speed; velocity.z *= limit / speed; }
       s.vy = PLAYER.jumpVelocity * (mods?.jump ?? 1);
