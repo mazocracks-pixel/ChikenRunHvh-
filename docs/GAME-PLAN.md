@@ -64,7 +64,7 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 - Account page shows **Last 10 matches** with K/D, headshot % and how long ago. New `match_history` table.
 
 ### 10. Title screen background
-- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) **runs laps on one map, Sandstown**, in a loop. The camera stands in the middle of the lap and turns to follow it, so the background sweeps past.
+- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) **runs laps on one map, Sandstown**, in a loop, **facing the camera**. The lap is a big circle (up to 6.5 m radius, sized to the free space) and the camera rides inside it, always looking at the chicken, so the background sweeps past.
 - The chicken stays on the left of the screen, where the menu has free space. The lap spot is a place on the map with room all round.
 - A small 🎬 button (bottom right) hides the menu so you can look at the whole scene.
 - Code: [client/src/game/Game.ts](../client/src/game/Game.ts) (showcase), [client/src/ui/MainMenu.ts](../client/src/ui/MainMenu.ts) (the button). It stops when a match or the shop opens.

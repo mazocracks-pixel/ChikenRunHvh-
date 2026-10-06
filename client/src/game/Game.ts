@@ -25,10 +25,14 @@ const DEFAULT_LOOK_KEY = JSON.stringify(defaultLook());
 
 /** The title screen: your chicken runs laps on this map (Sandstown, like the poster). */
 const SHOWCASE_MAP: MapId = 'sandstown';
-/** The lap: radius in metres and running speed in m/s. */
-const SHOWCASE_RADIUS = 3.4;
-const SHOWCASE_SPEED = 5.2;
+/** The lap: the biggest radius that fits (metres), and running speed in m/s. */
+const SHOWCASE_RADIUS = 6.5;
+const SHOWCASE_SPEED = 6.5;
+/** The camera is this close to the chicken (it rides inside the lap), at this height. */
+const SHOWCASE_DISTANCE = 3;
 const SHOWCASE_HEIGHT = 0.85;
+/** How far the chicken turns from facing the camera towards the way it runs (radians). */
+const SHOWCASE_TURN = 0.35;
 /** The chicken runs on the left of the screen, where the title screen has room (0 = centre, 1 = the edge). */
 const SHOWCASE_SHIFT = 0.52;
 
@@ -98,9 +102,10 @@ export class Game {
   private showcaseAppearance: Appearance | null = null;
   private showcase: {
     chicken: Chicken;
-    /** The middle of the lap (where the camera stands), and how far round the chicken is (radians). */
+    /** The middle of the lap, its radius, and how far round the chicken is (radians). */
     x: number;
     z: number;
+    radius: number;
     lap: number;
     clock: number;
   } | null = null;
@@ -221,22 +226,23 @@ export class Game {
     this.showcase = null;
   }
 
-  /** The middle of a lap: the first spawn spot with room all round (or the one with the most). */
-  private lapCentre(): { x: number; z: number } {
-    const spawns = this.world.map.spawns.length > 0 ? this.world.map.spawns : [{ x: 0, z: 0 }];
-    let best = { room: -1, x: spawns[0]!.x, z: spawns[0]!.z };
-    for (const spot of spawns) {
-      let room = 0;
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2;
-        const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
-        const hit = raycastWorld(makeRay(new THREE.Vector3(spot.x, 0.5, spot.z), dir), this.world.collision, SHOWCASE_RADIUS + 1);
-        room += hit ? hit.t : SHOWCASE_RADIUS + 1;
+  /** The roomiest spot on the map: the middle of a lap, and how big a lap fits round it. */
+  private lapCentre(): { x: number; z: number; radius: number } {
+    const half = this.world.map.halfSize;
+    let best = { room: 0, x: 0, z: 0 };
+    for (let x = -half + 4; x <= half - 4; x += 3) {
+      for (let z = -half + 4; z <= half - 4; z += 3) {
+        let room = SHOWCASE_RADIUS + 2;
+        for (let i = 0; i < 16 && room > best.room; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const hit = raycastWorld(makeRay(new THREE.Vector3(x, 0.5, z), new THREE.Vector3(Math.sin(a), 0, Math.cos(a))), this.world.collision, SHOWCASE_RADIUS + 2);
+          if (hit) room = Math.min(room, hit.t);
+        }
+        if (room > best.room) best = { room, x, z };
       }
-      if (room > best.room) best = { room, x: spot.x, z: spot.z };
-      if (room >= 16 * (SHOWCASE_RADIUS + 1)) break;
     }
-    return best;
+    // The lap keeps a little clear of the walls.
+    return { x: best.x, z: best.z, radius: Math.max(3, Math.min(SHOWCASE_RADIUS, best.room - 1.3)) };
   }
 
   private updateShowcase(dt: number): void {
@@ -249,23 +255,26 @@ export class Game {
     }
     const s = this.showcase;
     s.clock += dt;
-    s.lap += (SHOWCASE_SPEED / SHOWCASE_RADIUS) * dt;
+    s.lap += (SHOWCASE_SPEED / s.radius) * dt;
 
-    // The chicken runs round in a circle, facing the way it runs.
+    // The chicken runs round a big circle, turned towards the camera (a little towards where it runs).
     const sin = Math.sin(s.lap);
     const cos = Math.cos(s.lap);
-    s.chicken.root.position.set(s.x + sin * SHOWCASE_RADIUS, 0, s.z + cos * SHOWCASE_RADIUS);
-    s.chicken.root.rotation.y = Math.atan2(-cos, sin);
+    s.chicken.root.position.set(s.x + sin * s.radius, 0, s.z + cos * s.radius);
     s.chicken.animate(dt, SHOWCASE_SPEED, true);
 
-    // The camera stands in the middle and turns to follow. Camera and target slide sideways
-    // together, so the chicken stays on the left of the screen.
+    // The camera rides inside the lap, always SHOWCASE_DISTANCE in front of the chicken and looking
+    // out at it. Camera and target slide sideways together, so the chicken stays on the left.
     this.syncFov();
-    const halfWidth = SHOWCASE_RADIUS * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
+    const halfWidth = SHOWCASE_DISTANCE * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
     const slide = this.camera.aspect > 1.1 ? halfWidth * SHOWCASE_SHIFT : 0;
+    const inner = s.radius - SHOWCASE_DISTANCE;
     const rx = -cos * slide;
     const rz = sin * slide;
-    this.camera.position.set(s.x + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 5) * 0.015, s.z + rz);
+    this.camera.position.set(s.x + sin * inner + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 5) * 0.015, s.z + cos * inner + rz);
+    // Face the camera (a little towards where it runs).
+    const at = s.chicken.root.position;
+    s.chicken.root.rotation.y = Math.atan2(at.x - this.camera.position.x, at.z - this.camera.position.z) - SHOWCASE_TURN;
     this.camera.lookAt(s.chicken.root.position.x + rx, 0.55, s.chicken.root.position.z + rz);
   }
 
