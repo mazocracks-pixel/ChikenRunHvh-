@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { dailyChallenges, dayKey, msUntilNextDay, type DailyStatus } from '@game/shared';
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_LOADOUT,
@@ -35,6 +36,8 @@ export interface MatchTotals {
   xp: number;
   /** Coins paid for reaching new levels (already in `coins`). */
   levelCoins: number;
+  /** Coins paid for finishing daily challenges this match (already in `coins`). */
+  dailyCoins: number;
 }
 
 interface UserRow {
@@ -137,6 +140,16 @@ const MIGRATIONS = [
      created_at INTEGER NOT NULL
    );
    CREATE INDEX reports_target ON reports(reported_id, created_at);`,
+  // v9: daily challenge progress (one row per player per UTC day; `rewarded` is a bit per challenge).
+  `CREATE TABLE daily_progress (
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     day TEXT NOT NULL,
+     kills INTEGER NOT NULL DEFAULT 0,
+     matches INTEGER NOT NULL DEFAULT 0,
+     wins INTEGER NOT NULL DEFAULT 0,
+     rewarded INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (user_id, day)
+   );`,
 ];
 
 export type FriendLink = 'none' | 'sent' | 'received' | 'friends';
@@ -405,7 +418,7 @@ export class GameDatabase {
    * Saves match results and rewards in one transaction (account totals and the stats for
    * `mode`); returns each user's new coin and XP totals.
    */
-  recordMatch(records: MatchRecord[], mode: ModeId | null = null): Map<number, MatchTotals> {
+  recordMatch(records: MatchRecord[], mode: ModeId | null = null, now = Date.now()): Map<number, MatchTotals> {
     return this.transaction(() => {
       const current = this.db.prepare('SELECT coins, xp FROM users WHERE id = ?');
       const update = this.db.prepare('UPDATE users SET coins = ?, xp = ?, kills = kills + ?, deaths = deaths + ?, wins = wins + ?, matches = matches + 1 WHERE id = ?');
@@ -420,13 +433,45 @@ export class GameDatabase {
         // Rank points never drop you below the level you've reached; each new level pays coins.
         const xp = r.xp === 0 ? row.xp : applyRankPoints(row.xp, r.xp);
         const levelCoins = Math.max(0, levelFor(xp) - levelFor(row.xp)) * RANKED.levelCoins;
-        const coins = row.coins + r.coins + levelCoins;
+        const dailyCoins = this.addDailyProgress(r.userId, r.kills, r.won ? 1 : 0, now);
+        const coins = row.coins + r.coins + levelCoins + dailyCoins;
         update.run(coins, xp, r.kills, r.deaths, r.won ? 1 : 0, r.userId);
         if (mode) perMode.run(r.userId, mode, r.kills, r.deaths, r.won ? 1 : 0);
-        totals.set(r.userId, { coins, xp, levelCoins });
+        totals.set(r.userId, { coins, xp, levelCoins, dailyCoins });
       }
       return totals;
     });
+  }
+
+  /**
+   * Adds one finished match to today's daily challenges; returns the coins for any challenge
+   * that this match completed (each pays once).
+   */
+  private addDailyProgress(userId: number, kills: number, wins: number, now: number): number {
+    const day = dayKey(now);
+    this.db.prepare('INSERT OR IGNORE INTO daily_progress (user_id, day) VALUES (?, ?)').run(userId, day);
+    this.db.prepare('UPDATE daily_progress SET kills = kills + ?, wins = wins + ?, matches = matches + 1 WHERE user_id = ? AND day = ?').run(kills, wins, userId, day);
+    const row = this.db.prepare('SELECT kills, matches, wins, rewarded FROM daily_progress WHERE user_id = ? AND day = ?').get(userId, day) as { kills: number; matches: number; wins: number; rewarded: number };
+    let rewarded = row.rewarded;
+    let coins = 0;
+    dailyChallenges(userId, day).forEach((c, i) => {
+      if (rewarded & (1 << i) || row[c.id] < c.goal) return;
+      rewarded |= 1 << i;
+      coins += c.reward;
+    });
+    if (rewarded !== row.rewarded) this.db.prepare('UPDATE daily_progress SET rewarded = ? WHERE user_id = ? AND day = ?').run(rewarded, userId, day);
+    return coins;
+  }
+
+  /** Today's challenges and how far along this player is. */
+  dailyStatus(userId: number, now = Date.now()): DailyStatus {
+    const day = dayKey(now);
+    const row = (this.db.prepare('SELECT kills, matches, wins FROM daily_progress WHERE user_id = ? AND day = ?').get(userId, day) as { kills: number; matches: number; wins: number } | undefined) ?? { kills: 0, matches: 0, wins: 0 };
+    return {
+      day,
+      resetsInMs: msUntilNextDay(now),
+      challenges: dailyChallenges(userId, day).map((c) => ({ ...c, progress: Math.min(row[c.id], c.goal), done: row[c.id] >= c.goal })),
+    };
   }
 
 // ---------------------------------------------------------------------------

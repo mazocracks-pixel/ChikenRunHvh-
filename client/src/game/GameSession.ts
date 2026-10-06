@@ -1444,6 +1444,7 @@ export class GameSession {
   private onReward(e: MatchRewardEvent): void {
     this.ctx.hud.showReward(e);
     this.ctx.hud.toast(e.ranked ? `+${e.coins} coins · ${e.xp >= 0 ? '+' : ''}${e.xp} rank points` : `+${e.coins} coins`, 'good');
+    if (e.dailyCoins) this.ctx.hud.toast(`📅 Daily challenge done! +${e.dailyCoins} coins`, 'good');
     const before = levelFor(e.xpTotal - e.xp);
     const after = levelFor(e.xpTotal);
     if (after > before) {

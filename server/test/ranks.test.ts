@@ -74,8 +74,10 @@ describe('saved progress', () => {
       'face',
     );
     const henXp = RANKS[1]!.xp - 10 + rankedPoints(5, true);
-    assert.deepEqual(totals.get(hen), { coins: 10 + RANKED.levelCoins, xp: henXp, levelCoins: RANKED.levelCoins }, 'level 2: +250 coins');
-    assert.deepEqual(totals.get(rooster), { coins: 10, xp: 0, levelCoins: 0 }, 'a loss at level 1 stays at 0');
+    // Daily challenge coins are tested on their own (daily.test.ts); leave them out here.
+    const withoutDaily = (t: { coins: number; xp: number; levelCoins: number; dailyCoins: number } | undefined) => t && { coins: t.coins - t.dailyCoins, xp: t.xp, levelCoins: t.levelCoins };
+    assert.deepEqual(withoutDaily(totals.get(hen)), { coins: 10 + RANKED.levelCoins, xp: henXp, levelCoins: RANKED.levelCoins }, 'level 2: +250 coins');
+    assert.deepEqual(withoutDaily(totals.get(rooster)), { coins: 10, xp: 0, levelCoins: 0 }, 'a loss at level 1 stays at 0');
     // Other modes don't touch rank points.
     db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 0 }], 'ffa');
     db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 0 }], 'ffa');
@@ -100,7 +102,7 @@ describe('saved progress', () => {
       db.close();
       const raw = new DatabaseSync(path);
       // Back to schema v4 (before the reset, the anti-cheat and friends tables), with some XP.
-      raw.exec('DROP INDEX reports_target; DROP TABLE reports; DROP INDEX friends_incoming; DROP TABLE friends; DROP INDEX ac_strikes_user; DROP TABLE ac_strikes; UPDATE users SET xp = 900; PRAGMA user_version = 4;');
+      raw.exec('DROP TABLE daily_progress; DROP INDEX reports_target; DROP TABLE reports; DROP INDEX friends_incoming; DROP TABLE friends; DROP INDEX ac_strikes_user; DROP TABLE ac_strikes; UPDATE users SET xp = 900; PRAGMA user_version = 4;');
       raw.close();
       db = new GameDatabase(path);
       assert.equal(db.profile(id)!.xp, 0);

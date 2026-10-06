@@ -237,6 +237,38 @@ export function openAccount(api: Api, onChanged: () => void): void {
 const BOARD_MODES = MODE_IDS.filter((id) => !MODES[id].building);
 
 /** Top chickens overall (by rank) or in one mode (by wins), one tab each. */
+/** "3h 20m" / "12m" until the daily challenges reset. */
+function untilReset(ms: number): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000));
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+/** Main menu > Daily challenges: three goals a day, each pays coins once when you reach it. */
+export async function openDaily(api: Api): Promise<void> {
+  const body = h('div', { class: 'daily' }, h('p', { class: 'muted' }, 'Loading…'));
+  openModal('📅 Daily challenges', body);
+  try {
+    const status = await api.daily();
+    clear(body);
+    body.append(h('p', { class: 'muted daily-note' }, `Progress counts every match you finish today, in any mode. New challenges in ${untilReset(status.resetsInMs)}.`));
+    for (const c of status.challenges) {
+      body.append(
+        h(
+          'div',
+          { class: `daily-row${c.done ? ' done' : ''}` },
+          h('div', { class: 'daily-top' }, h('b', null, c.done ? `✅ ${c.label}` : c.label), h('span', { class: 'daily-reward' }, `🪙 ${c.reward}`)),
+          h('div', { class: 'daily-bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': c.goal, 'aria-valuenow': c.progress }, h('i', { style: `width:${Math.round((c.progress / c.goal) * 100)}%` })),
+          h('small', { class: 'muted' }, `${c.progress} / ${c.goal}`),
+        ),
+      );
+    }
+    if (status.challenges.every((c) => c.done)) body.append(h('p', { class: 'daily-note' }, 'All done for today. Come back tomorrow!'));
+  } catch {
+    clear(body);
+    body.append(h('p', { class: 'muted' }, 'Could not load the challenges. Try again in a moment.'));
+  }
+}
+
 export async function openLeaderboard(api: Api, initial?: ModeId): Promise<void> {
   const tabs = h('div', { class: 'tabs board-tabs', role: 'tablist' });
   const content = h('div', { class: 'board' });

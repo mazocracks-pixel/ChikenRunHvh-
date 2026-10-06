@@ -504,6 +504,8 @@ export interface MatchRewardEvent {
   xpTotal: number;
   /** Coins for reaching a new level (included in `coins`). */
   levelCoins: number;
+  /** Coins from daily challenges this match completed (already in `coins`). */
+  dailyCoins?: number;
   ranked: boolean;
 }
 

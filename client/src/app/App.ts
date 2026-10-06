@@ -7,7 +7,7 @@ import { exitPlayFullscreen } from '../fullscreen';
 import { Game } from '../game/Game';
 import { Api } from '../net/Api';
 import { Network } from '../net/Network';
-import { openAccount, openCreateRoom, openJoinCode, openLeaderboard, openServerBrowser, openSettings, openReportDialog } from '../ui/Dialogs';
+import { openAccount, openCreateRoom, openJoinCode, openLeaderboard, openServerBrowser, openSettings, openReportDialog, openDaily } from '../ui/Dialogs';
 import { byId, h } from '../ui/dom';
 import { HvhSetup } from '../ui/HvhSetup';
 import { MainMenu } from '../ui/MainMenu';
@@ -58,6 +58,7 @@ export class App {
       customize: () => this.showShop(),
       friends: () => this.friends.open(),
       leaderboard: (mode) => void openLeaderboard(this.api, mode),
+      daily: () => void openDaily(this.api),
       account: () => openAccount(this.api, () => this.net.reconnect()),
       settings: () => openSettings(this.game.audio),
       privacy: () => openPrivacy(),

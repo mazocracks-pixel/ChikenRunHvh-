@@ -214,6 +214,12 @@ export function createApiRouter(db: GameDatabase, rooms: RoomManager, options: A
     if (userId !== null) sendProfile(req, res, userId);
   });
 
+  /** Today's daily challenges and the player's progress. */
+  router.get('/daily', (req, res) => {
+    const userId = requireUser(req, res);
+    if (userId !== null) res.json(db.dailyStatus(userId));
+  });
+
   router.patch('/me', (req, res) => {
     const userId = requireUser(req, res);
     if (userId === null) return;

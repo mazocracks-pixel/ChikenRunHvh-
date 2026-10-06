@@ -4,6 +4,7 @@ export * from './building';
 export * from './collision';
 export * from './chickenPose';
 export * from './constants';
+export * from './daily';
 export * from './dev';
 export * from './hvh';
 export * from './hvh/animation';

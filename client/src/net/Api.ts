@@ -1,4 +1,4 @@
-import type { Appearance, LeaderboardRow, ModeId, Profile, WeaponId } from '@game/shared';
+import type { Appearance, DailyStatus, LeaderboardRow, ModeId, Profile, WeaponId } from '@game/shared';
 import { storage } from '../ui/dom';
 
 /** Where older versions kept the session token. Moved into an HttpOnly cookie on first load. */
@@ -83,6 +83,10 @@ export class Api {
 
   async refresh(): Promise<Profile> {
     return this.setProfile((await this.request<{ profile: Profile }>('GET', '/api/me')).profile);
+  }
+
+  async daily(): Promise<DailyStatus> {
+    return this.request<DailyStatus>('GET', '/api/daily');
   }
 
   /** Overall, or for one game mode. */

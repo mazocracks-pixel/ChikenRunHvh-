@@ -3265,3 +3265,48 @@ code {
   color: var(--accent-ink);
   border-color: var(--accent);
 }
+
+/* ---------------------------------------------------------------- daily challenges */
+.daily {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.daily-note {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.daily-row {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+.daily-row.done {
+  border-color: var(--good);
+}
+.daily-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.daily-reward {
+  color: var(--accent);
+  font-weight: 700;
+}
+.daily-bar {
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.daily-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.daily-row.done .daily-bar i {
+  background: var(--good);
+}

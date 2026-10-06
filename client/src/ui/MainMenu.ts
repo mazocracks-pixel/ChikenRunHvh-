@@ -12,6 +12,7 @@ export interface MenuActions {
   friends(): void;
   /** Opens on that mode's tab, or overall. */
   leaderboard(mode?: ModeId): void;
+  daily(): void;
   account(): void;
   settings(): void;
   privacy(): void;
@@ -131,6 +132,7 @@ export class MainMenu {
         button('🌐 Server browser', actions.browse, 'secondary'),
         button('➕ Create room', actions.createRoom, 'secondary'),
         button('🔑 Join with code', actions.joinCode, 'secondary'),
+        button('📅 Daily challenges', actions.daily, 'secondary'),
         button('🏆 Leaderboard', () => actions.leaderboard(), 'secondary'),
         button('⚙️ Settings', actions.settings, 'secondary'),
       ),

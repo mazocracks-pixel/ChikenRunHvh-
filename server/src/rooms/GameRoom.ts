@@ -147,7 +147,7 @@ export interface MatchResult {
 
 export interface RoomHooks {
   /** Persist rewards; returns each user's new coin and rank-point totals. */
-  onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, { coins: number; xp: number; levelCoins: number }>;
+  onMatchEnd?(room: GameRoom, results: MatchResult[]): Map<number, { coins: number; xp: number; levelCoins: number; dailyCoins?: number }>;
   /** Called when the last human leaves. */
   onEmpty?(room: GameRoom): void;
   /** The anti-cheat caught someone: record it and (when `remove`) take them out of the room. */
@@ -1195,7 +1195,7 @@ export class GameRoom {
       const total = totals.get(r.userId);
       const p = this.players.get(r.pid);
       if (total === undefined || !p) continue;
-      p.socket?.emit('reward', { coins: r.coins + total.levelCoins, total: total.coins, kills: r.kills, won: r.won, xp: r.xp, xpTotal: total.xp, levelCoins: total.levelCoins, ranked: this.mode.ranked === true });
+      p.socket?.emit('reward', { coins: r.coins + total.levelCoins + (total.dailyCoins ?? 0), total: total.coins, kills: r.kills, won: r.won, xp: r.xp, xpTotal: total.xp, levelCoins: total.levelCoins, dailyCoins: total.dailyCoins ?? 0, ranked: this.mode.ranked === true });
       // Ranked up: everyone's scoreboard shows the new badge.
       const rank = levelFor(total.xp);
       if (rank !== p.info.rank) {
