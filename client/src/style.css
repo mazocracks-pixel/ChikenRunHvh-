@@ -3343,3 +3343,22 @@ code {
 .history-row.lost b {
   color: var(--danger);
 }
+
+/* ---------------------------------------------------------------- title screen: look at the scene */
+.scene-toggle {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-border);
+  background: rgba(16, 20, 28, 0.78);
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.main-menu.scene-only > *:not(.scene-toggle) {
+  visibility: hidden;
+}

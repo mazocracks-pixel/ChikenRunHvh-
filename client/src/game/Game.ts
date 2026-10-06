@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { MAPS, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
+import { MAPS, makeRay, raycastWorld, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
 import type { Network } from '../net/Network';
 import { watchSettings, type Quality } from '../settings';
 import { Hud } from '../ui/Hud';
@@ -20,6 +20,17 @@ import { World } from './World';
 /** Clamp long frames (tab switches, breakpoints) so the simulation doesn't try to catch up for seconds. */
 const MAX_FRAME_DT = 0.25;
 const PREVIEW_SPOT = new THREE.Vector3(0, 0, 18);
+
+/** The title screen shows the player's chicken posing on these maps, one after the other. */
+const SHOWCASE_MAPS: readonly MapId[] = ['sandstown', 'harbor', 'town', 'frostbite', 'farm'];
+/** Seconds on each map, and the fade to black between two maps. */
+const SHOWCASE_SECONDS = 9;
+const SHOWCASE_FADE_SECONDS = 0.5;
+/** How far the camera stands from the chicken, and how high it is (low and close, like a poster). */
+const SHOWCASE_DISTANCE = 2.6;
+const SHOWCASE_HEIGHT = 0.75;
+/** The chicken stands on the left of the screen, where the title screen has room (0 = centre, 1 = the edge). */
+const SHOWCASE_SHIFT = 0.52;
 
 interface QualityPreset {
   /** Upper limit for the device pixel ratio. */
@@ -81,6 +92,20 @@ export class Game {
   private preview: Chicken | null = null;
   private lastFrameTime: number | null = null;
   private idleAngle = 0.7;
+  /** The player's chicken for the title screen (set by the app); null = just the fly-over. */
+  private showcaseAppearance: Appearance | null = null;
+  private showcase: {
+    chicken: Chicken;
+    mapIndex: number;
+    /** Where the chicken stands, and the direction the camera is in (radians). */
+    x: number;
+    z: number;
+    angle: number;
+    clock: number;
+    /** 'show' → 'out' (fading to black) → 'in' (fading back) → 'show'. */
+    phase: 'show' | 'out' | 'in';
+    phaseTime: number;
+  } | null = null;
   private fpsFrames = 0;
   private fpsWindowStart = 0;
   private readonly shadowFocus = new THREE.Vector3();
@@ -124,6 +149,7 @@ export class Game {
   startSession(net: Network, join: JoinSuccess, callbacks: SessionCallbacks): void {
     this.endSession();
     this.setPreview(null);
+    this.endShowcase();
     this.useMap(join.room.map);
     this.session = new GameSession({
       scene: this.scene,
@@ -155,6 +181,9 @@ export class Game {
       return;
     }
     if (!this.preview) {
+      // The preview spot is chosen for the farm; the title screen may have another map up.
+      this.endShowcase();
+      this.useMap('farm');
       this.preview = new Chicken(appearance);
       this.preview.root.position.copy(PREVIEW_SPOT);
       this.scene.add(this.preview.root);
@@ -169,6 +198,106 @@ export class Game {
     this.world = new World(this.scene, MAPS[id], this.renderer.capabilities.getMaxAnisotropy());
     this.applyWorldQuality();
     this.world.setLook(this.look);
+  }
+
+  /** The chicken the title screen shows (your own, with a rifle); null for the plain fly-over. */
+  setMenuChicken(appearance: Appearance | null): void {
+    this.showcaseAppearance = appearance;
+    if (this.showcase) {
+      this.showcase.chicken.setAppearance(this.showcaseLook(appearance));
+    }
+  }
+
+  /** The title-screen chicken wears an army helmet when you have no hat on, like the poster. */
+  private showcaseLook(appearance: Appearance | null): Appearance {
+    const a = appearance ?? { skin: 'white', hat: 'none', beak: 'orange', shoes: 'none' };
+    return a.hat === 'none' ? { ...a, hat: 'helmet' } : a;
+  }
+
+  private endShowcase(): void {
+    if (!this.showcase) return;
+    this.showcase.chicken.dispose();
+    this.showcase = null;
+    const canvas = this.renderer.domElement;
+    canvas.style.transition = '';
+    canvas.style.opacity = '';
+  }
+
+  /** Puts the chicken on the current map where the camera has room in front and a view behind. */
+  private poseShowcase(): void {
+    const s = this.showcase!;
+    const map = this.world.map;
+    let best = { score: -1, x: 0, z: 0, angle: 0 };
+    const spawns = map.spawns.length > 0 ? map.spawns : [{ x: 0, z: 0 }];
+    for (let i = 0; i < Math.min(spawns.length, 12); i++) {
+      const spawn = spawns[(i * 5 + s.mapIndex * 3) % spawns.length]!;
+      for (let step = 0; step < 16; step++) {
+        const angle = (step / 16) * Math.PI * 2;
+        const toCamera = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+        const eye = new THREE.Vector3(spawn.x, 1, spawn.z);
+        // Room for the camera in front of the chicken...
+        const front = raycastWorld(makeRay(eye, toCamera), this.world.collision, SHOWCASE_DISTANCE + 1.2);
+        if (front) continue;
+        // ...and something to look at behind it: not a wall right at its back, not empty void.
+        const back = raycastWorld(makeRay(eye, toCamera.clone().multiplyScalar(-1)), this.world.collision, 40);
+        const distance = back ? back.t : 40;
+        if (distance < 5) continue;
+        const score = 100 - Math.abs(distance - 14) + Math.random();
+        if (score > best.score) best = { score, x: spawn.x, z: spawn.z, angle };
+      }
+      if (best.score > 0 && i >= 3) break;
+    }
+    if (best.score < 0) best = { score: 0, x: spawns[0]!.x, z: spawns[0]!.z, angle: 0.6 };
+    s.x = best.x;
+    s.z = best.z;
+    s.angle = best.angle;
+    s.chicken.root.position.set(s.x, 0, s.z);
+  }
+
+  private updateShowcase(dt: number): void {
+    if (!this.showcase) {
+      const chicken = new Chicken(this.showcaseLook(this.showcaseAppearance));
+      chicken.setWeapon('rifle');
+      this.scene.add(chicken.root);
+      this.showcase = { chicken, mapIndex: 0, x: 0, z: 0, angle: 0, clock: 0, phase: 'in', phaseTime: 0 };
+      this.useMap(SHOWCASE_MAPS[0]!);
+      this.poseShowcase();
+      this.renderer.domElement.style.transition = `opacity ${SHOWCASE_FADE_SECONDS}s ease`;
+    }
+    const s = this.showcase;
+    s.clock += dt;
+    s.phaseTime += dt;
+    const canvas = this.renderer.domElement;
+    if (s.phase === 'show' && s.phaseTime >= SHOWCASE_SECONDS) {
+      s.phase = 'out';
+      s.phaseTime = 0;
+      canvas.style.opacity = '0';
+    } else if (s.phase === 'out' && s.phaseTime >= SHOWCASE_FADE_SECONDS + 0.05) {
+      // Dark: change the map (the pause hides the rebuild), then fade back in.
+      s.mapIndex = (s.mapIndex + 1) % SHOWCASE_MAPS.length;
+      this.useMap(SHOWCASE_MAPS[s.mapIndex]!);
+      this.poseShowcase();
+      s.phase = 'in';
+      s.phaseTime = 0;
+      canvas.style.opacity = '1';
+    } else if (s.phase === 'in' && s.phaseTime >= SHOWCASE_FADE_SECONDS) {
+      s.phase = 'show';
+      s.phaseTime = 0;
+    }
+
+    // The chicken stands there, breathing, turned three-quarters toward the camera, like a poster.
+    s.chicken.root.rotation.y = s.angle + Math.PI + 0.5 + Math.sin(s.clock * 0.4) * 0.08;
+    s.chicken.animate(dt, 0, true);
+    // The camera drifts slowly, low and close.
+    const angle = s.angle + Math.sin(s.clock * 0.25) * 0.16;
+    this.syncFov();
+    // Slide the whole view to the right (camera and target together) so the chicken sits on the left.
+    const halfWidth = SHOWCASE_DISTANCE * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
+    const slide = this.camera.aspect > 1.1 ? halfWidth * SHOWCASE_SHIFT : 0;
+    const rx = Math.cos(angle) * slide;
+    const rz = -Math.sin(angle) * slide;
+    this.camera.position.set(s.x + Math.sin(angle) * SHOWCASE_DISTANCE + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 0.35) * 0.04, s.z + Math.cos(angle) * SHOWCASE_DISTANCE + rz);
+    this.camera.lookAt(s.x + rx, 0.5, s.z + rz);
   }
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */
@@ -252,12 +381,13 @@ export class Game {
   private frame = (time: number): void => {
     if (document.hidden) { this.lastFrameTime = null; this.fpsFrames = this.fpsWindowStart = 0; return; }
     // A slowly moving menu background needs fewer draws; active play keeps display refresh rate.
-    if (!this.session && !this.preview && this.lastFrameTime !== null && time-this.lastFrameTime < 1000/30 - 0.5) return;
+    if (!this.session && !this.preview && !this.showcaseAppearance && this.lastFrameTime !== null && time-this.lastFrameTime < 1000/30 - 0.5) return;
     const dt = this.lastFrameTime === null ? 0 : Math.min((time - this.lastFrameTime) / 1000, MAX_FRAME_DT);
     this.lastFrameTime = time;
 
     if (this.session) this.session.update(dt, this.fps);
     else if (this.preview) this.updatePreview(dt);
+    else if (this.showcaseAppearance) this.updateShowcase(dt);
     else this.updateIdleCamera(dt);
 
     this.sky.update(this.camera, dt);

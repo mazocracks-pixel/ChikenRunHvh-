@@ -154,6 +154,7 @@ export class App {
     this.game.input.touchMode = this.isTouch;
     this.game.input.onLockChange = () => this.refreshOverlays();
     this.api.onProfile((p) => {
+      this.game.setMenuChicken(p.appearance);
       this.menu.setProfile(p);
       this.friends.selfId = p.id;
     });

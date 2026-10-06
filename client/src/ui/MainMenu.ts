@@ -137,6 +137,7 @@ export class MainMenu {
         button('⚙️ Settings', actions.settings, 'secondary'),
       ),
       this.status,
+      h('button', { type: 'button', class: 'scene-toggle', title: 'Hide the menu to see the scene', 'aria-label': 'Hide or show the menu', onclick: () => this.root.classList.toggle('scene-only') }, '🎬'),
       h('footer', { class: 'controls-help' }, 'WASD move · Shift slow walk (better moving accuracy) · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Air glide / jetpack outside HvH · Mouse aim · Click shoot · Right-click zoom · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat'),
       h('footer', { class: 'legal-links' }, h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy')),
     );

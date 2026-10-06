@@ -16,6 +16,7 @@ part 4 how bunny hop works, part 5 what to do next._
 | 7 | New modes: Chicken Run (timed parkour race) and Fox Hunt (infection) | Not started |
 | 8 | Killcam / spectate, practice range with bots | Not started |
 | 9 | ImGui-style cheat menu for mega?dev (look only; security stays on the server) | Not started |
+| 10 | Title screen background: your chicken posing in front of our maps | Done |
 
 Earlier in the same stretch (also done): Squad Up mode, With bots / Without bots lobby choice,
 Y and U chat, jumpscares and funnyChiken, unlimited flashbangs in Rage, dark brown mega?dev,
@@ -60,6 +61,12 @@ new shop hats, skins, beaks and shoes, passkey-free HvH panels, and your own jum
 ### 5. Match history
 - Every finished match is saved per player (mode, win or loss, kills, deaths, headshot kills); the newest 30 are kept.
 - Account page shows **Last 10 matches** with K/D, headshot % and how long ago. New `match_history` table.
+
+### 10. Title screen background
+- The menu used to circle over the farm. Now your own chicken (army helmet if you wear no hat, rifle in hand) poses in front of one map at a time: Sandstown, Harbor, Town, Frostbite and Farm, 9 seconds each, with a quick fade to black between them.
+- The chicken stands on the left, where the menu has free space; the camera is low and close and drifts slowly. A spot with room in front and a view behind is picked on each map.
+- A small 🎬 button (bottom right) hides the menu so you can look at the whole scene.
+- Code: [client/src/game/Game.ts](../client/src/game/Game.ts) (showcase), [client/src/ui/MainMenu.ts](../client/src/ui/MainMenu.ts) (the button). It stops when a match or the shop opens.
 
 ### Notes on safety and checks
 - Every step has tests; the full suite was 355 passing tests at the end of this stretch, and the build passes.
