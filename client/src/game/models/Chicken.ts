@@ -108,6 +108,8 @@ export class Chicken {
 
   private time = Math.random() * 10;
   private walkPhase = 0;
+  /** Let the head bob while running (only for chickens that aren't in a match). */
+  headBob = false;
   private walkBlend = 0;
   private flapBlend = 0;
   private deadTime = -1;
@@ -378,9 +380,12 @@ export class Chicken {
     this.bodyPivot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06 * this.walkBlend + Math.sin(this.time * 2.4) * 0.01 * idle;
     this.bodyPivot.rotation.x = -0.1 * this.walkBlend;
     this.bodyPivot.rotation.z = Math.sin(this.walkPhase) * 0.025 * this.walkBlend;
-    // The head isn't rigid: like a real chicken's it thrusts forward on every step, and sways a little.
-    this.headGroup.position.z = NECK_REST.z - Math.cos(this.walkPhase * 2) * 0.07 * this.walkBlend;
-    this.headGroup.rotation.y = Math.sin(this.walkPhase) * 0.1 * this.walkBlend;
+    // Title screen only: the head thrusts forward on every step and sways, like a real chicken's.
+    // (In matches the drawn head must stay on the hitbox, so it never moves.)
+    if (this.headBob) {
+      this.headGroup.position.z = NECK_REST.z - Math.cos(this.walkPhase * 2) * 0.07 * this.walkBlend;
+      this.headGroup.rotation.y = Math.sin(this.walkPhase) * 0.1 * this.walkBlend;
+    }
     this.scarfTails.forEach((tail, i) => {
       tail.rotation.x = -0.25 + Math.sin(this.time * 8 + i) * 0.12 * moving;
     });

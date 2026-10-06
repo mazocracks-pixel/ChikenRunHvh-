@@ -249,6 +249,7 @@ export class Game {
     if (!this.showcase) {
       const chicken = new Chicken(this.showcaseLook(this.showcaseAppearance));
       chicken.setWeapon('rifle');
+      chicken.headBob = true;
       this.scene.add(chicken.root);
       this.useMap(SHOWCASE_MAP);
       this.showcase = { chicken, ...this.lapCentre(), lap: 0, clock: 0 };
