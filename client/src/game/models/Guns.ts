@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, type WeaponId } from '@game/shared';
 
 export interface GunModel {
@@ -27,16 +28,130 @@ function material(key: string, make: () => THREE.MeshStandardMaterial): THREE.Me
   return m;
 }
 
-const metal = (color: number, roughness = 0.34) => material(`metal:${color}:${roughness}`, () => new THREE.MeshStandardMaterial({ color, metalness: 0.85, roughness }));
-const polymer = (color: number, roughness = 0.68) => material(`poly:${color}:${roughness}`, () => new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness }));
-const GOLD = () => material('gold', () => new THREE.MeshStandardMaterial({ color: 0xe8b93e, metalness: 1, roughness: 0.22 }));
+/** Brushed metal: fine lengthwise streaks and a few scratches (colour and roughness). */
+const metal = (color: number, roughness = 0.34) =>
+  material(`metal:${color}:${roughness}`, () => new THREE.MeshStandardMaterial({ color, metalness: 0.8, roughness, map: tex('brushed'), roughnessMap: tex('brushedRough') }));
+/** Polymer: a fine stippled grain, slightly bumpy. */
+const polymer = (color: number, roughness = 0.68) =>
+  material(`poly:${color}:${roughness}`, () => new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness, map: tex('stipple'), bumpMap: tex('stippleBump'), bumpScale: 0.6 }));
+/** Grip panels and knife handles: diamond knurling you can see. */
+const grippy = (color: number) =>
+  material(`grip:${color}`, () => new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.82, map: tex('knurl'), bumpMap: tex('knurlBump'), bumpScale: 1.2 }));
+const GOLD = () => material('gold', () => new THREE.MeshStandardMaterial({ color: 0xe8b93e, metalness: 1, roughness: 0.22, map: tex('brushed'), roughnessMap: tex('brushedRough') }));
 const BRASS = () => metal(0xc9a33a, 0.3);
 const STEEL = () => metal(0x2b2e33);
 const DARK = () => metal(0x141619, 0.42);
-const RUBBER = () => polymer(0x111213, 0.9);
+const RUBBER = () => grippy(0x18191b);
 const GLASS = () =>
   material('glass', () => new THREE.MeshStandardMaterial({ color: 0x0a2440, metalness: 0.9, roughness: 0.04, emissive: 0x0b3a66, emissiveIntensity: 0.55 }));
 const WOOD = () => material('wood', () => new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.58, metalness: 0 }));
+
+// ---------------------------------------------------------------------------
+// Surface textures (small, drawn once on a canvas, shared by every gun)
+// ---------------------------------------------------------------------------
+
+type TexKind = 'brushed' | 'brushedRough' | 'stipple' | 'stippleBump' | 'knurl' | 'knurlBump' | 'blade' | 'bladeRough';
+const textures = new Map<TexKind, THREE.CanvasTexture>();
+
+/** A repeatable random generator, so every texture looks the same every time. */
+function seeded(seed: number): () => number {
+  return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
+
+function tex(kind: TexKind): THREE.CanvasTexture {
+  let t = textures.get(kind);
+  if (t) return t;
+  const blade = kind === 'blade' || kind === 'bladeRough';
+  const canvas = document.createElement('canvas');
+  canvas.width = blade ? 256 : 128;
+  canvas.height = blade ? 64 : 128;
+  const ctx = canvas.getContext('2d')!;
+  const W = canvas.width;
+  const H = canvas.height;
+  const rand = seeded(kind.length * 977 + 13);
+  const gray = (v: number, a = 1) => `rgba(${v},${v},${v},${a})`;
+  switch (kind) {
+    case 'brushed':
+    case 'brushedRough': {
+      // Colour: near white (it tints the material colour). Roughness: mid grey, streaks vary it.
+      const rough = kind === 'brushedRough';
+      ctx.fillStyle = gray(rough ? 150 : 236);
+      ctx.fillRect(0, 0, W, H);
+      for (let y = 0; y < H; y++) {
+        ctx.fillStyle = gray(rough ? 110 + rand() * 90 : 205 + rand() * 50, 0.55);
+        ctx.fillRect(0, y, W, 1);
+      }
+      for (let i = 0; i < 18; i++) {
+        ctx.strokeStyle = gray(rough ? 70 : 255, rough ? 0.8 : 0.6);
+        ctx.lineWidth = 0.7;
+        const x = rand() * W;
+        const y = rand() * H;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + 10 + rand() * 30, y + (rand() - 0.5) * 8);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'stipple':
+    case 'stippleBump': {
+      const bump = kind === 'stippleBump';
+      ctx.fillStyle = gray(bump ? 128 : 232);
+      ctx.fillRect(0, 0, W, H);
+      for (let i = 0; i < 2600; i++) {
+        const v = rand() < 0.5 ? (bump ? 90 : 205) : bump ? 175 : 250;
+        ctx.fillStyle = gray(v, 0.7);
+        ctx.fillRect(rand() * W, rand() * H, 1.2, 1.2);
+      }
+      break;
+    }
+    case 'knurl':
+    case 'knurlBump': {
+      // Diamond knurling: two sets of diagonal grooves.
+      const bump = kind === 'knurlBump';
+      ctx.fillStyle = gray(bump ? 200 : 236);
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = gray(bump ? 40 : 150, bump ? 1 : 0.8);
+      ctx.lineWidth = 2;
+      for (let i = -H; i < W + H; i += 10) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i + H, H);
+        ctx.moveTo(i, H);
+        ctx.lineTo(i + H, 0);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'blade':
+    case 'bladeRough': {
+      // Across the blade (v 0 = the cutting edge, 1 = the spine): a mirror-polished edge bevel,
+      // a sharp grind line, satin flats with a fuller groove, and a darker spine.
+      const rough = kind === 'bladeRough';
+      const bands: [number, number][] = rough
+        ? [[0, 40], [0.3, 40], [0.31, 200], [0.32, 120], [0.58, 120], [0.6, 200], [0.68, 200], [0.7, 120], [0.92, 120], [1, 170]]
+        : [[0, 255], [0.28, 238], [0.3, 120], [0.32, 205], [0.58, 200], [0.6, 150], [0.68, 165], [0.7, 210], [0.92, 196], [1, 140]];
+      const g = ctx.createLinearGradient(0, H, 0, 0);
+      for (const [at, v] of bands) g.addColorStop(at, gray(v));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      // Brushed lengthwise.
+      for (let y = 0; y < H; y++) {
+        ctx.fillStyle = gray(rough ? 90 + rand() * 80 : 150 + rand() * 105, 0.18);
+        ctx.fillRect(0, y, W, 1);
+      }
+      break;
+    }
+  }
+  t = new THREE.CanvasTexture(canvas);
+  // Colour maps are sRGB; roughness and bump maps are plain data.
+  if (kind === 'brushed' || kind === 'stipple' || kind === 'knurl' || kind === 'blade') t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if (!blade) t.repeat.set(2, 2);
+  t.anisotropy = 4;
+  textures.set(kind, t);
+  return t;
+}
 
 /** Walnut with a long grain, drawn once. */
 function woodTexture(): THREE.CanvasTexture {
@@ -103,7 +218,31 @@ const blade = (length: number, height: number, thickness: number, curve = 0) =>
     shape.closePath();
     const bevel = thickness * 0.35;
     const g = new THREE.ExtrudeGeometry(shape, { depth: thickness - bevel * 2, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 8 });
+    // u along the blade (0 at the guard), v across it (0 at the edge): the blade texture's polished
+    // edge and fuller then sit in the same place on every blade.
+    g.computeBoundingBox();
+    const bb = g.boundingBox!;
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('uv');
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - bb.min.x) / (bb.max.x - bb.min.x), (pos.getY(i) - bb.min.y) / (bb.max.y - bb.min.y));
+    uv.needsUpdate = true;
     g.translate(0, 0, -(thickness - bevel * 2) / 2);
+    return g.rotateY(Math.PI / 2);
+  });
+
+/** An assault-rifle magazine: one curved piece, 0.04 wide, hanging down and sweeping forward. */
+const curvedMag = () =>
+  geometry('curvedmag', () => {
+    // Drawn side on: x = forward (towards -Z), y = up. Front and back edges both curve forward.
+    const shape = new THREE.Shape();
+    shape.moveTo(-0.032, 0);
+    shape.quadraticCurveTo(-0.034, -0.1, 0.046, -0.17);
+    shape.lineTo(0.112, -0.15);
+    shape.quadraticCurveTo(0.04, -0.09, 0.032, 0);
+    shape.closePath();
+    const g = new THREE.ExtrudeGeometry(shape, { depth: 0.032, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2, curveSegments: 10 });
+    g.translate(0, 0, -0.016);
+    // Extrusion depth becomes the width (X); the drawing's x becomes forward (-Z).
     return g.rotateY(Math.PI / 2);
   });
 
@@ -188,7 +327,9 @@ function rifleLike(body: THREE.Material, accent: THREE.Material, gold: boolean):
     // Curved magazine.
     const mag = new THREE.Group();
     mag.position.set(0, -0.025, -0.135);
-    for (let k = 0; k < 3; k++) add(mag, rbox(0.042, 0.055, 0.064), gold ? DARK() : accent, 0, -0.025 - k * 0.05, -0.012 * k - 0.01 * k * k, 0.16 * k);
+    // One smooth banana magazine, with a base plate.
+    add(mag, curvedMag(), gold ? DARK() : accent, 0, 0.01, 0);
+    add(mag, rbox(0.046, 0.014, 0.07), DARK(), 0, -0.168, -0.083, 0.42);
     g.add(mag);
     grip(g, gold ? DARK() : polymer(0x1c1d1f), 0.04);
     trigger(g, accent, -0.005, 0.01, 0.024);
@@ -567,17 +708,20 @@ const launcher: Builder = (g, id) => {
 // ---------------------------------------------------------------------------
 
 /** Blade steel: only half metallic, so it still reads as bright steel without reflections (Low quality). */
-const POLISHED = () => material('blade', () => new THREE.MeshStandardMaterial({ color: 0xe4e9f0, metalness: 0.55, roughness: 0.24 }));
+const POLISHED = () => material('blade', () => new THREE.MeshStandardMaterial({ color: 0xf2f5f8, metalness: 0.6, roughness: 0.32, map: tex('blade'), roughnessMap: tex('bladeRough') }));
+const GOLD_BLADE = () => material('blade:gold', () => new THREE.MeshStandardMaterial({ color: 0xf0c04a, metalness: 0.95, roughness: 0.3, map: tex('blade'), roughnessMap: tex('bladeRough') }));
 
-const knife: Builder = (g, id) => knifeWith(id === 'goldknife' ? GOLD() : POLISHED())(g, id);
+const knife: Builder = (g, id) => knifeWith(id === 'goldknife' ? GOLD_BLADE() : POLISHED())(g, id);
 
 function knifeWith(bladeMaterial: THREE.Material): Builder {
   return (g, id) => {
-  const handle = polymer(WEAPONS[id].model.color, 0.55);
+  const handle = grippy(WEAPONS[id].model.color);
   add(g, rbox(0.026, 0.034, 0.11), handle, 0, 0.03, 0.02);
   for (let i = 0; i < 3; i++) add(g, box(0.028, 0.005, 0.012), RUBBER(), 0, 0.0145, 0.05 - i * 0.028);
   add(g, rbox(0.03, 0.038, 0.012), DARK(), 0, 0.03, 0.08);
+  add(g, ring(0.007, 0.0018), STEEL(), 0, 0.03, 0.093, 0, Math.PI / 2);
   add(g, rbox(0.012, 0.06, 0.012), STEEL(), 0, 0.03, -0.04);
+  for (const s of [-1, 1]) add(g, ball(0.006), STEEL(), 0, 0.03 + s * 0.03, -0.04);
   add(g, blade(0.17, 0.032, 0.005), bladeMaterial, 0, 0.034, -0.046);
   if (id === 'goldknife') add(g, rbox(0.032, 0.04, 0.014), GOLD(), 0, 0.03, 0.08);
   return { muzzle: new THREE.Vector3(0, 0.04, -0.22), scale: 1.1 };
@@ -851,11 +995,55 @@ const BUILDERS: Record<WeaponId, Builder> = {
   daggers,
 };
 
+/** Baked geometry per weapon, group and material: made the first time, shared by every copy after. */
+const baked = new Map<string, THREE.BufferGeometry>();
+
+/**
+ * A gun is dozens of small parts, each its own draw call (and again for shadows). Every group's own
+ * meshes are merged into one mesh per material, so a gun draws in a handful of calls. Groups that
+ * move (magazine, minigun barrels, knife-trick parts) stay groups, merged inside, and other objects
+ * (the muzzle) are kept as they are. The builders are deterministic, so the key is the group's path.
+ */
+function bake(group: THREE.Object3D, key: string): void {
+  const byMaterial = new Map<THREE.Material, THREE.Mesh[]>();
+  [...group.children].forEach((child, i) => {
+    const mesh = child as THREE.Mesh;
+    if (mesh.isMesh && child.children.length === 0 && !Array.isArray(mesh.material)) {
+      const list = byMaterial.get(mesh.material) ?? [];
+      list.push(mesh);
+      byMaterial.set(mesh.material, list);
+    } else bake(child, `${key}/${i}`);
+  });
+  for (const [mat, meshes] of byMaterial) {
+    if (meshes.length < 2) continue;
+    const k = `${key}|${mat.uuid}`;
+    let geo = baked.get(k);
+    if (!geo) {
+      const parts = meshes.map((m) => {
+        m.updateMatrix();
+        const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+        for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+        g.clearGroups();
+        return g.applyMatrix4(m.matrix);
+      });
+      const merged = mergeGeometries(parts, false);
+      for (const p of parts) p.dispose();
+      if (!merged) continue;
+      baked.set(k, (geo = merged));
+    }
+    for (const m of meshes) group.remove(m);
+    const one = new THREE.Mesh(geo, mat);
+    one.castShadow = true;
+    group.add(one);
+  }
+}
+
 /** A detailed procedural gun pointing down -Z, held at the origin (the grip). */
 export function buildGun(id: WeaponId): GunModel {
   const group = new THREE.Group();
   const parts = new THREE.Group();
   const built = BUILDERS[id](parts, id);
+  bake(parts, id);
   parts.scale.setScalar(built.scale ?? 1);
   group.add(parts);
   const muzzle = new THREE.Object3D();
