@@ -3,7 +3,7 @@ import { afterEach, describe, it } from 'node:test';
 import { PLAYER, WEAPONS, normalize } from '@game/shared';
 import type { GameRoom } from '../src/rooms/GameRoom';
 import type { ServerPlayer } from '../src/rooms/ServerPlayer';
-import { addPlayer, makeRoom, place, type RecordedEvent } from './helpers';
+import { addPlayer, makeRoom, place, stepRoom, type RecordedEvent } from './helpers';
 
 let current: GameRoom | null = null;
 afterEach(() => current?.close());
@@ -37,6 +37,29 @@ function useWeapon(room: GameRoom, p: ServerPlayer, slot: number) {
 const named = (events: RecordedEvent[], name: string) => events.filter((e) => e.event === name).map((e) => e.args[0] as Record<string, unknown>);
 
 describe('hitscan combat', () => {
+  it('executes an ordinary shot after the movement command it was aimed from', () => {
+    const { room, events, a, b } = setup();
+    room.handleInput(a, { seq: 1, forward: 0, right: 0, jump: true, yaw: 0, pitch: 0 });
+    const now = performance.now();
+    room.handleFire(a, { shot: ++shotSeq, command: 1, weapon: 'rifle', dx: 0, dy: 0, dz: -1, t: now, aiming: true });
+    assert.equal(named(events, 'shot').length, 0, 'future movement must be applied before tracing');
+    stepRoom(room, now + 16);
+    const shot = named(events, 'shot').at(-1)!;
+    assert.ok(shot, 'one accepted shot after the command');
+    assert.ok(Math.abs(Number(shot.oy) - (a.state.y + PLAYER.eyeHeight)) < 0.011);
+    assert.equal(a.mag, WEAPONS.rifle.magazine - 1);
+    assert.equal(b.hp, PLAYER.maxHealth);
+  });
+
+  it('does not rewind an ordinary shot into a target life that had not started', () => {
+    const { room, a, b } = setup();
+    const now = performance.now();
+    b.history.clear();
+    b.history.push({ t: now - 20, x: 20, y: 0, z: -15, yaw: 0, alive: true, scale: 1 });
+    fire(room, a, { x: 20, y: 0.6, z: -15 }, { t: now - 150 });
+    assert.equal(b.hp, PLAYER.maxHealth, 'a new life cannot be substituted for missing history');
+  });
+
   it('damages a body shot by the weapon damage', () => {
     const { room, a, b } = setup();
     fire(room, a, { x: 20, y: 0.6, z: -15 });

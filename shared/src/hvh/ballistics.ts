@@ -2,29 +2,30 @@ import { PLAYER } from '../constants';
 import type { CollisionWorld } from '../collision';
 import { damageAt, pelletDirections, type WeaponDef } from '../weapons';
 import { hvhSpread } from './weapons';
-import { makeRay, rayAabb, raycastWorld, type Ray } from '../raycast';
+import { makeRay, rayAabb, raycastWorld, type Ray, type RayHit } from '../raycast';
 import type { Vec3 } from '../math';
 import { rayHvhMatrix, type HvhHit, type HvhMatrix } from './geometry';
 
-export interface BallisticTrace { wallDistance: number; passages: { entry: number; exit: number; loss: number }[] }
+export interface BallisticTrace { wallDistance: number; passages: { entry: number; exit: number; loss: number }[]; wall?: RayHit | null; soft?: RayHit[] }
 /** Thickness-based penetration shared by server execution and every targeting prediction. */
 export function traceHvhCover(ray: Ray, world: CollisionWorld, range: number, isSoft?: (id: number) => boolean): BallisticTrace {
-  const skip = new Set<number>(), passages: BallisticTrace['passages'] = [];
+  const skip = new Set<number>(), passages: BallisticTrace['passages'] = [], soft: RayHit[] = [];
   for (let n = 0; n < 3; n++) {
     const hit = raycastWorld(ray, world, range, skip);
-    if (!hit) return { wallDistance: range, passages };
-    if (hit.id === undefined || !isSoft?.(hit.id) || passages.length >= 2) return { wallDistance: hit.t, passages };
+    if (!hit) return { wallDistance: range, passages, wall: null, soft };
+    if (hit.id === undefined || !isSoft?.(hit.id) || passages.length >= 2) return { wallDistance: hit.t, passages, wall: hit, soft };
     const box = world.get(hit.id);
-    if (!box) return { wallDistance: hit.t, passages };
+    if (!box) return { wallDistance: hit.t, passages, wall: hit, soft };
     const endpoint = { x: ray.ox + ray.dx * range, y: ray.oy + ray.dy * range, z: ray.oz + ray.dz * range };
     const reverse = makeRay(endpoint, { x: -ray.dx, y: -ray.dy, z: -ray.dz });
     const backwardsEntry = rayAabb(reverse, box, range);
     const exit = backwardsEntry < 0 ? range : range - backwardsEntry;
     const thickness = Math.max(0, exit - hit.t);
     passages.push({ entry: hit.t, exit, loss: Math.exp(-thickness * 0.22) * 0.82 });
+    soft.push(hit);
     skip.add(hit.id);
   }
-  return { wallDistance: range, passages };
+  return { wallDistance: range, passages, wall: null, soft };
 }
 export function coverDamageScale(cover: BallisticTrace, t: number): number {
   return cover.passages.filter(p => p.entry < t).reduce((n, p) => n * p.loss, 1);

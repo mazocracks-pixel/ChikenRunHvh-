@@ -51,7 +51,7 @@ export class Effects {
   private next = 0;
   private highest = 0;
 
-  private readonly tracers: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number; duration: number; length: number; from: THREE.Vector3; direction: THREE.Vector3 }[] = [];
+  private readonly tracers: { mesh: THREE.Line; material: THREE.LineBasicMaterial; life: number; id?: string }[] = [];
   private nextTracer = 0;
   private readonly shockwaves: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; life: number; radius: number }[] = [];
   private nextShockwave = 0;
@@ -86,14 +86,14 @@ export class Effects {
     this.particles.setColorAt(0, this.color.set(0xffffff));
     this.root.add(this.particles);
 
-    const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
-    tracerGeo.translate(0, 0, 0.5);
+    const tracerGeo = new THREE.BufferGeometry();
+    tracerGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 1], 3));
     for (let i = 0; i < TRACER_POOL; i++) {
-      const material = new THREE.MeshBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-      const mesh = new THREE.Mesh(tracerGeo, material);
+      const material = new THREE.LineBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+      const mesh = new THREE.Line(tracerGeo, material);
       mesh.visible = false;
       mesh.frustumCulled = false;
-      this.tracers.push({ mesh, material, life: 0, duration: 0, length: 0, from: new THREE.Vector3(), direction: new THREE.Vector3() });
+      this.tracers.push({ mesh, material, life: 0 });
       this.root.add(mesh);
     }
 
@@ -146,22 +146,21 @@ export class Effects {
   // Spawners
   // ---------------------------------------------------------------------------
 
-  tracer(from: Vec3, to: Vec3, color = 0xfff1a8): void {
-    const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+  tracer(from: Vec3, to: Vec3, color = 0xfff1a8, id?: string): void {
+    const previous = id === undefined ? undefined : this.tracers.find(t => t.id === id);
+    const start = previous?.mesh.position ?? from;
+    const length = Math.hypot(to.x - start.x, to.y - start.y, to.z - start.z);
     if (!Number.isFinite(length) || length < 0.01) return;
-    const t = this.tracers[this.nextTracer];
-    this.nextTracer = (this.nextTracer + 1) % TRACER_POOL;
-    t.from.set(from.x, from.y, from.z);
-    t.direction.set(to.x - from.x, to.y - from.y, to.z - from.z).multiplyScalar(1 / length);
-    t.mesh.position.copy(t.from);
+    const t = previous ?? this.tracers[this.nextTracer]!;
+    if (!previous) {
+      this.nextTracer = (this.nextTracer + 1) % TRACER_POOL;
+      t.id = id; t.life = 0.065; t.mesh.visible = true;
+      t.mesh.position.set(from.x, from.y, from.z);
+    }
     t.mesh.lookAt(to.x, to.y, to.z);
-    t.mesh.scale.set(0.018, 0.018, Math.min(length, 2));
+    t.mesh.scale.set(1, 1, length);
     t.material.color.set(color).multiplyScalar(TRACER_GLOW);
-    t.material.opacity = 0.9;
-    t.mesh.visible = true;
-    // Only the tracer travels. Hit detection and damage have already happened.
-    t.length = length;
-    t.life = t.duration = length / 1400 + 0.055;
+    t.material.opacity = Math.max(0, t.life / 0.065) * 0.75;
   }
 
   muzzleFlash(at: Vec3, big = false): void {
@@ -430,11 +429,7 @@ export class Effects {
     for (const t of this.tracers) {
       if (!t.mesh.visible) continue;
       t.life -= dt;
-      const head = Math.min(t.length, 2 + (t.duration - t.life) * 1400);
-      const tail = Math.max(0, head - Math.min(8, t.length * 0.35 + 0.5));
-      t.mesh.position.copy(t.from).addScaledVector(t.direction, tail);
-      t.mesh.scale.z = Math.max(0.01, head - tail);
-      t.material.opacity = Math.min(1, Math.max(0, t.life / 0.055)) * 0.9;
+      t.material.opacity = Math.max(0, t.life / 0.065) * 0.75;
       if (t.life <= 0) t.mesh.visible = false;
     }
 

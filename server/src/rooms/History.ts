@@ -50,9 +50,9 @@ export class History {
   at(t: number): HistorySample | null {
     const s = this.samples;
     if (s.length === 0) return null;
-    if (t <= s[0]!.t) return s[0]!;
+    if (t <= s[0]!.t) return { ...s[0]!, broken: false };
     const last = s[s.length - 1]!;
-    if (t >= last.t) return last;
+    if (t >= last.t) return { ...last, broken: false };
     // Binary search for the last sample at or before t.
     let lo = 0;
     let hi = s.length - 1;
@@ -63,6 +63,7 @@ export class History {
     }
     const a = s[lo]!;
     const b = s[hi]!;
+    if (t === a.t) return { ...a, broken: false };
     const k = (t - a.t) / (b.t - a.t);
     return {
       t,
@@ -73,7 +74,8 @@ export class History {
       pitch: lerp(a.pitch ?? 0, b.pitch ?? 0, k),
       alive: a.alive && b.alive,
       scale: lerp(a.scale, b.scale, k),
-      broken: a.broken || b.broken,
+      // A break is before b; the exact pose at a and motion after a are already known.
+      broken: b.broken,
     };
   }
 }

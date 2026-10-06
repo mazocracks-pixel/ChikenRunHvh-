@@ -28,8 +28,8 @@ import {
   normalize,
   pelletDirections,
   pointOnRay,
-  rayChicken,
-  rayHvhChicken, CommandChoker, NetworkSimulator, buildCommand, defaultHvhCore, fakeLagTicks,
+  traceHitscan, buildHvhMatrix,
+  CommandChoker, NetworkSimulator, buildCommand, defaultHvhCore, fakeLagTicks,
   hvhSpread,
   raycastPenetrating,
   raycastWorld,
@@ -207,6 +207,7 @@ export class GameSession {
   private throwSeq = 0;
   /** Estimated (server clock − performance.now()), in ms. */
   private clockOffset = 0;
+  private renderedAt = 0;
   private hasClock = false;
   private aimingSent = false;
   private chatOpen = false;
@@ -359,6 +360,7 @@ export class GameSession {
 
     // Render everything.
     const renderTime = this.serverNow() - INTERP_DELAY_MS;
+    this.renderedAt = renderTime;
     this.vehicles.render(renderTime, dt, this.local.car ? { id: this.local.vehicleId, car: this.local.car, input: this.local.alive ? input.sample(0) : null } : null);
     // In the seat the chicken turns to face where you aim (that's where its gun points).
     const carSeat = this.local.car ? this.vehicles.seatOf(this.local.vehicleId, new THREE.Vector3()) : null;
@@ -662,23 +664,18 @@ export class GameSession {
    * crates/hay/wood don't stop the ray; the boxes passed through come back in `soft`.
    */
   raycastScene(ray: ReturnType<typeof makeRay>, range: number, penetrate = false): { t: number; pid: number; headshot: boolean; world: boolean; normal: Vec3; soft: RayHit[] } {
-    const pen = raycastPenetrating(ray, this.collision, range, this.isSoft, penetrate ? this.wallbangBoxes : 0);
-    const wall = pen.wall;
-    const soft = pen.soft;
-    const normal = wall ? { x: wall.nx, y: wall.ny, z: wall.nz } : { x: 0, y: 1, z: 0 };
-    let best = { t: wall ? wall.t : range, pid: 0, headshot: false, world: !!wall, normal, soft };
+    const targets = [];
     for (const [pid, r] of this.remotes.players) {
       // Drivers count too: they sit in their seat (see sitAt), head above the car.
       if (!r.alive || r.culled || r.latest?.alive === false || this.isFriendly(r.info)) continue;
-      const hit = (this.mode.id === 'hvh' ? rayHvhChicken : rayChicken)(ray, r.position.x, r.position.y, r.position.z, r.yaw, best.t, r.scale, r.pitch);
-      if (hit) best = { t: hit.t, pid, headshot: hit.headshot, world: false, normal, soft };
+      targets.push({ key: pid, matrix: buildHvhMatrix(r.position, r.yaw, r.scale, r.pitch) });
     }
-    const box = this.loot.raycast(ray, best.t);
-    if (box >= 0) best = { t: box, pid: 0, headshot: false, world: false, normal, soft };
-    // Your own buggy never gets in the way of your aim (the server skips it too).
-    const car = this.vehicles.raycast(ray, best.t, this.local.car ? this.local.vehicleId : 0);
-    if (car >= 0) best = { t:car, pid:0, headshot:false, world:false, normal, soft };
-    return best;
+    const box = this.loot.raycast(ray, range), car = this.vehicles.raycast(ray, range, this.local.car ? this.local.vehicleId : 0);
+    const trace = traceHitscan(ray, this.collision, range, targets, {
+      penetration: penetrate && this.mode.wallbang ? this.mode.id === 'hvh' ? 'thickness' : 'simple' : 'none', isSoft: this.isSoft,
+      blockers: [...(box >= 0 ? [{ t: box, id: 0, kind: 'loot' as const }] : []), ...(car >= 0 ? [{ t: car, id: 0, kind: 'vehicle' as const }] : [])],
+    });
+    return { t: trace.t, pid: trace.target ?? 0, headshot: trace.hit?.headshot === true, world: trace.surface === 'world', normal: trace.normal, soft: trace.soft };
   }
 
   eye(acknowledged = false): Vec3 {
@@ -687,8 +684,9 @@ export class GameSession {
       const seat = seatPosition(this.local.car);
       return { x: seat.x, y: seat.y + PLAYER.eyeHeight, z: seat.z };
     }
-    const latest = this.local.server, s = acknowledged && this.mode.id === 'hvh' ? { ...latest } : this.local.state;
-    if (acknowledged && this.mode.id === 'hvh' && latest.simulationTime) {
+    const latest = this.local.server, held = acknowledged && this.mode.id === 'hvh' && this.commandForShot() === latest.ack;
+    const s = held ? { ...latest } : this.local.state;
+    if (held && latest.simulationTime) {
       const ticks = Math.min(10, Math.max(0, Math.floor((this.serverNow() - latest.simulationTime) / (SIM_DT * 1000))) + 1);
       // ponytail: cap acknowledged coasting at 10 ticks; longer delays need delivered-input replay.
       for (let i = 0; i < ticks; i++) stepPlayer(s, { seq: latest.ack, forward: 0, right: 0, yaw: latest.yaw, pitch: latest.pitch,
@@ -697,10 +695,17 @@ export class GameSession {
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
   }
 
+  private commandForShot(): number {
+    const core = this.weapons.hvh.core ?? defaultHvhCore();
+    const held = this.mode.id === 'hvh' && (core.fakeLag > 0 || core.latencyMs > 0 || core.jitterMs > 0 || core.packetLoss > 0);
+    // Held batches can outlive the target record; their future position cannot be used yet.
+    return held ? this.local.server.ack : this.nextSeq - 1;
+  }
+
   private fire(aiming: boolean, assisted = false): void {
     const { net, audio, input, hud } = this.ctx;
     const w = this.weapons.def;
-    const eye = this.eye();
+    const eye = this.eye(this.mode.id === 'hvh');
     const silentAim = this.ctx.dev?.aimOverride(this, eye) ?? null;
     assisted ||= this.mode.id === 'hvh' && silentAim !== null;
     this.ctx.dev?.onShot?.(this, assisted);
@@ -711,10 +716,8 @@ export class GameSession {
       dx: aim.x,
       dy: aim.y,
       dz: aim.z,
-      t: (assisted ? this.ctx.dev?.shotIntent?.()?.recordT : undefined) ?? this.serverNow() - INTERP_DELAY_MS,
-      // Weapon requests execute from authoritative movement already acknowledged by the server.
-      // Referencing a future choked command kept every shot waiting until its target record expired.
-      command: this.mode.id === 'hvh' ? this.local.server.ack : this.nextSeq - 1,
+      t: (assisted ? this.ctx.dev?.shotIntent?.()?.recordT : undefined) ?? this.renderedAt,
+      command: this.commandForShot(),
       intent: assisted ? this.ctx.dev?.shotIntent?.() : undefined,
       aiming,
     });
@@ -743,22 +746,13 @@ export class GameSession {
       : spreadFor(w, this.horizontalSpeed(), !this.local.onGround, aiming)) * (this.weapons.mods?.spread ?? 1);
     const directions = pelletDirections(w, aim, spread, shotSeed(this.selfPid, this.weapons.shotSeq));
     if (this.mode.id === 'hvh' && this.weapons.lastShotBurst === 2) directions.push(...pelletDirections(w, aim, spread, shotSeed(this.selfPid, this.weapons.shotSeq) ^ 0x51ed270b));
-    for (const d of directions) {
+    for (let i = 0; i < directions.length; i++) {
+      const d = directions[i]!;
       const ray = makeRay(eye, d);
       const hit = this.raycastScene(ray, w.range, true);
       const end = pointOnRay(ray, hit.t);
-      this.effects.tracer(muzzlePos, end);
-      // Holes in the boxes the bullet went through on the way.
-      for (const s of hit.soft) {
-        if (s.t >= hit.t) break;
-        const at = pointOnRay(ray, s.t);
-        this.effects.impact(at, 0xc28a4e);
-        this.effects.bulletHole(at, { x: s.nx, y: s.ny, z: s.nz });
-      }
-      if (hit.world) {
-        this.effects.impact(end);
-        this.effects.bulletHole(end, hit.normal);
-      }
+      if (!this.hvhVisuals || nativeOn(this.hvhVisuals,'Visuals.Effects.bulletTracers'))
+        this.effects.tracer(muzzlePos, end, 0xfff1a8, `${this.weapons.shotSeq}:${i}`);
     }
   }
 
@@ -1261,21 +1255,19 @@ export class GameSession {
   }
 
   private onShot(e: ShotEvent): void {
-    if (e.pid === this.selfPid) this.weapons.confirmShot(e, performance.now(), this.serverNow());
+    const own = e.pid === this.selfPid;
+    if (own) this.weapons.confirmShot(e, performance.now(), this.serverNow());
     this.ctx.dev?.onServerShot?.(this, e);
-    if (e.pid === this.selfPid) {
-      // Contact effects use the accepted ray, never a locally guessed resolver hit.
-      for (let i = 0; i < e.hits.length; i++) if (e.hits[i]) {
-        const end = { x: e.ends[i * 3]!, y: e.ends[i * 3 + 1]!, z: e.ends[i * 3 + 2]! };
-        this.effects.hit(end, e.hits[i] === 2);
-      }
-      return;
-    }
-    const remote = this.remotes.get(e.pid);
+    const remote = own ? undefined : this.remotes.get(e.pid);
     const origin = remote ? remote.chicken.muzzleWorldPosition(this.tmp) : new THREE.Vector3(e.ox, e.oy, e.oz);
     const from = { x: origin.x, y: origin.y, z: origin.z };
     const def = WEAPONS[e.weapon];
     if (def.melee) {
+      if (own) {
+        for (let i = 0; i < e.hits.length; i++) if (e.hits[i])
+          this.effects.hit({ x: e.ends[i*3]!, y: e.ends[i*3+1]!, z: e.ends[i*3+2]! }, e.hits[i] === 2);
+        return;
+      }
       remote?.chicken.swing();
       this.ctx.audio.play(def.sound, from, 0.9);
       if (e.hits.length > 0) {
@@ -1285,15 +1277,19 @@ export class GameSession {
       }
       return;
     }
-    remote?.chicken.kick();
-    this.effects.muzzleFlash(from);
-    this.ctx.audio.play(remote?.latest ? WEAPONS[remote.latest.weapon].sound : 'rifle', from, 0.9);
+    if (!own) {
+      remote?.chicken.kick(); this.effects.muzzleFlash(from);
+      this.ctx.audio.play(def.sound, from, 0.9);
+    }
     for (let i = 0; i < e.hits.length; i++) {
       const end = { x: e.ends[i * 3]!, y: e.ends[i * 3 + 1]!, z: e.ends[i * 3 + 2]! };
-      if(!this.hvhVisuals||nativeOn(this.hvhVisuals,'Visuals.Effects.bulletTracers'))this.effects.tracer(from, end);
+      if(!this.hvhVisuals||nativeOn(this.hvhVisuals,'Visuals.Effects.bulletTracers'))
+        this.effects.tracer(from, end, 0xfff1a8, own && e.shot !== undefined ? `${e.shot}:${i}` : undefined);
       if (e.hits[i]) this.effects.hit(end, e.hits[i] === 2);
-      else this.effects.impact(end);
-      this.markWall(from, end);
+      else if (e.surfaces?.[i] && e.surfaces[i] !== 'none') this.effects.impact(end);
+      if (e.surfaces?.[i] === 'world' && e.normals)
+        this.effects.bulletHole(end, { x: e.normals[i*3]!, y: e.normals[i*3+1]!, z: e.normals[i*3+2]! });
+      else if (!e.surfaces && !own) this.markWall({ x:e.ox, y:e.oy, z:e.oz }, end);
     }
   }
 

@@ -34,7 +34,7 @@ npm run build
 
 `scripts/check-native-menu.cjs` uses Playwright with Edge against the development client at localhost:3001 and server at localhost:3000. Install or provide an existing Playwright package via PLAYWRIGHT_PACKAGE; BASE_URL overrides the address, and QA_OUTPUT_DIR saves screenshots and a report. It checks actual canvas interaction, four tabs, weapon/stance selectors and quick pre-match configs, 1 ms jitter, key capture, native color pickers, config save/load, viewport fit, live visual effects, restoration and FFA isolation.
 
-`scripts/check-shooting.cjs` uses the same environment to check the actual scope toggle, optics, firing feedback, pooled tracers, weapon cycling, small screens, reduced motion and ordinary-mode isolation.
+`scripts/check-shooting.cjs` uses the same environment to check the actual scope toggle, optics, instant hitscan streaks and server correction, sent/held jump origins, weapon cycling, small screens, reduced motion and ordinary-mode isolation. See [hitscan behavior](../../../docs/hitscan.md).
 
 The compact C++ layout keeps Aim, Anti-aim, Visuals and Settings. Advanced visuals are expandable; saved native field names remain compatible. See [resolver changes](../../../docs/resolver-notes.md).
 

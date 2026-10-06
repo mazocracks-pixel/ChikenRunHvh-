@@ -393,6 +393,9 @@ export interface ShotEvent {
   ends: number[];
   /** Per pellet: 0 = missed / hit the level, 1 = hit a chicken, 2 = headshot. */
   hits: number[];
+  /** Accepted contact type and normal per pellet; empty space produces no impact effect. */
+  surfaces?: import('./hitscan').ShotSurface[];
+  normals?: number[];
 }
 
 export interface DamageEvent {

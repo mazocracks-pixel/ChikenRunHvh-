@@ -31,13 +31,10 @@ import {
   packPlayer,
   pelletDirections,
   pointOnRay,
-  rayChicken,
-  raycastPenetrating,
+  traceHitscan,
   raycastWorld,
   round,
   softBoxTest,
-  wallbangScale,
-  WALLBANG,
   shotSeed,
   shotUsesAmmo,
   takeShot,
@@ -534,7 +531,7 @@ export class GameRoom {
     this.enforceHvhRules(p);
     const req = parseFire(raw);
     if (!req || !p.alive || p.removedForCheating || this.match.phase === 'ended' || this.actionsBlocked()) return;
-    if (this.mode.id === 'hvh') {
+    if (this.mode.id === 'hvh' || (req.command !== undefined && req.command > p.lastSeq)) {
       if (p.fireQueue.length < 4 && req.shot > p.lastShotSeq && !p.fireQueue.some(r => r.shot === req.shot)) p.fireQueue.push(Object.freeze({ ...req, intent: req.intent ? Object.freeze({ ...req.intent }) : undefined }));
       return;
     }
@@ -551,7 +548,7 @@ export class GameRoom {
     const mods = p.mods;
     if (now < p.switchReadyAt || p.reloadUntil > 0 || p.mag <= 0) { this.rejectHvhShot(p, req, 'SERVER_REJECTED'); return; }
     const tactical = this.mode.id === 'hvh';
-    if (tactical && (req.t < now - MAX_REWIND_MS || req.t > now + 16)) {
+    if (req.t < now - MAX_REWIND_MS || req.t > now + 16) {
       this.rejectHvhShot(p, req, 'RECORD_INVALID'); return;
     }
     const core = p.hvh.core ?? defaultHvhCore();
@@ -598,7 +595,7 @@ export class GameRoom {
       this.io.to(this.channel).emit('shot', { pid: p.pid, weapon: req.weapon, ox: eye.x, oy: eye.y, oz: eye.z, ends: [], hits: [] });
       return;
     }
-    const rewindTo = clamp(req.t, now - MAX_REWIND_MS, now);
+    const rewindTo = req.t;
     if (w.melee) {
       this.swing(p, w, eye, aim, rewindTo, now);
       return;
@@ -612,47 +609,25 @@ export class GameRoom {
     const dirs = pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot));
     if (shotCount === 2) dirs.push(...pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot) ^ 0x51ed270b));
     const targets = this.targetsAt(p, rewindTo, now);
+    const matrices = targets.map(t => ({ key: t.key, matrix: buildHvhMatrix(t, t.yaw, t.scale, t.pitch) }));
 
     const ends: number[] = [];
     const hits: number[] = [];
+    const surfaces: import('@game/shared').ShotSurface[] = [], normals: number[] = [];
     const damageByVictim = new Map<ServerPlayer, { amount: number; headshot: boolean; flags: number }>();
     // Kill tags that hold for the whole shot.
     const shotFlags = (w.scope && !req.aiming ? KILL_FLAGS.noscope : 0) | this.shooterFlags(p, now);
     for (const d of dirs) {
       const ray = makeRay(eye, d);
-      // Wallbang: crates, hay and wood don't stop bullets, they just weaken them.
-      const { soft, wall } = raycastPenetrating(ray, this.world, w.range, this.isSoft, this.mode.wallbang ? WALLBANG.maxBoxes : 0);
-      const cover = tactical ? traceHvhCover(ray, this.world, w.range, this.mode.wallbang ? this.isSoft : undefined) : null;
-      let maxT = cover ? cover.wallDistance : wall ? wall.t : w.range;
-      let kind = 0;
-      let victim: ServerPlayer | null = null;
-      let victimAt: MeleeTarget<ServerPlayer> | null = null;
-      let headshot = false;
-
-      for (const t of targets) {
-        const hit = (tactical ? rayHvhChicken : rayChicken)(ray, t.x, t.y, t.z, t.yaw, maxT, t.scale, t.pitch);
-        if (hit) {
-          maxT = hit.t;
-          victim = t.key;
-          victimAt = t;
-          headshot = hit.headshot;
-          kind = hit.headshot ? 2 : 1;
-        }
-      }
-      const box = this.loot.raycast(ray, maxT);
-      if (box) {
-        maxT = box.t;
-        victim = null;
-        kind = 0;
-        this.loot.smash(box.id, now);
-      }
-      const car = this.vehicles?.raycast(ray, maxT, p);
-      if (car) {
-        maxT = car.t;
-        victim = null;
-        kind = 0;
-        this.vehicles!.damage(car.id, damageAt(w, car.t) * wallbangScale(soft, car.t), p, now);
-      }
+      const box = this.loot.raycast(ray, w.range), car = this.vehicles?.raycast(ray, w.range, p);
+      const trace = traceHitscan(ray, this.world, w.range, matrices, {
+        penetration: tactical ? 'thickness' : this.mode.wallbang ? 'simple' : 'none', isSoft: this.mode.wallbang ? this.isSoft : undefined,
+        blockers: [...(box ? [{ ...box, kind: 'loot' as const }] : []), ...(car ? [{ ...car, kind: 'vehicle' as const }] : [])],
+      });
+      const { t: maxT, soft, cover, hit } = trace, victim = trace.target;
+      const victimAt = victim && targets.find(t => t.key === victim), headshot = hit?.headshot === true;
+      if (trace.surface === 'loot') this.loot.smash(trace.blocker!, now);
+      if (trace.surface === 'vehicle') this.vehicles!.damage(trace.blocker!, damageAt(w, maxT) * trace.damageScale, p, now);
 
       // Ranked: how close to the middle of the head / body single bullets land (aim lock).
       if (victim && victimAt && w.pellets === 1) this.antiCheat?.onHit(p, eye, aim, victimAt, headshot);
@@ -660,15 +635,15 @@ export class GameRoom {
         const entry = damageByVictim.get(victim) ?? { amount: 0, headshot: false, flags: shotFlags };
         if (soft.some((s) => s.t < maxT)) entry.flags |= KILL_FLAGS.wallbang;
         if (this.throughSmoke(eye, pointOnRay(ray, maxT), now)) entry.flags |= KILL_FLAGS.smoke;
-        const trueHit = tactical && victimAt ? rayHvhChicken(ray, victimAt.x, victimAt.y,
-          victimAt.z, victimAt.yaw, maxT + 0.001, victimAt.scale, victimAt.pitch) : null;
-        entry.amount += trueHit && cover ? hvhHitDamage(w, trueHit, cover) : damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * wallbangScale(soft, maxT);
+        entry.amount += tactical && hit && cover ? hvhHitDamage(w, hit, cover)
+          : damageAt(w, maxT) * (headshot ? w.headshotMultiplier : 1) * trace.damageScale;
         entry.headshot ||= headshot;
         damageByVictim.set(victim, entry);
       }
-      const end = pointOnRay(ray, maxT);
-      ends.push(round(end.x, 2), round(end.y, 2), round(end.z, 2));
-      hits.push(kind);
+      const end = trace.point;
+      ends.push(round(end.x, 4), round(end.y, 4), round(end.z, 4));
+      hits.push(hit ? headshot ? 2 : 1 : 0);
+      surfaces.push(trace.surface); normals.push(trace.normal.x, trace.normal.y, trace.normal.z);
     }
 
     const target = req.intent ? targets.find(t => t.key.pid === req.intent!.target) : undefined;
@@ -691,11 +666,12 @@ export class GameRoom {
       shot: req.shot,
       pid: p.pid,
       weapon: req.weapon,
-      ox: round(eye.x, 2),
-      oy: round(eye.y, 2),
-      oz: round(eye.z, 2),
+      ox: round(eye.x, 4),
+      oy: round(eye.y, 4),
+      oz: round(eye.z, 4),
       ends,
       hits,
+      surfaces, normals,
       burst: shotCount,
     };
     if (p.socket && tactical) {
@@ -761,8 +737,8 @@ export class GameRoom {
     const targets: MeleeTarget<ServerPlayer>[] = [];
     for (const t of this.players.values()) {
       if (t === p || !t.alive || this.areTeammates(p, t)) continue;
-      const past = this.mode.id === 'hvh' ? t.history.atValid(rewindTo, now) : t.history.at(rewindTo);
-      if (this.mode.id === 'hvh' && !past) continue;
+      const past = t.history.atValid(rewindTo, now);
+      if (!past && (this.mode.id === 'hvh' || t.history.at(rewindTo) || now - rewindTo > SIM_DT * 1000)) continue;
       if (past && !past.alive) continue;
       const seat = this.vehicles?.seatOf(t);
       if (seat) {
@@ -1263,7 +1239,7 @@ export class GameRoom {
       }
       if (!p.hvhPreparing && !p.alive && now >= p.respawnAt && this.match.phase !== 'ended') this.spawn(p, now, true);
     }
-    if (this.mode.id === 'hvh') for (const p of this.players.values()) {
+    for (const p of this.players.values()) {
       const req = p.fireQueue[0];
       if (req && (req.command === undefined || req.command <= p.lastSeq || now - req.t > MAX_REWIND_MS)) { p.fireQueue.shift(); this.executeFire(p, req, now); }
     }

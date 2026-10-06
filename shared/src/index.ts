@@ -15,6 +15,7 @@ export * from './hvh/ballistics';
 export * from './hvh/rage';
 export * from './hvh/weapons';
 export * from './hvh/hooks';
+export * from './hitscan';
 export * from './items';
 export * from './maps';
 export * from './math';

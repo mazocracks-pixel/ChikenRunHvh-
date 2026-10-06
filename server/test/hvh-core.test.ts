@@ -72,7 +72,7 @@ it('a gap in HvH commands preserves held-jump state without inventing presses or
 it('rejects historical records from an earlier life or across a teleport', () => {
   const history = new History(), sample = {x: 0, y: 0, z: 0, yaw: 0, alive: true, scale: 1};
   history.push({...sample, t: 100}); history.push({...sample, x: 20, t: 200});
-  assert.equal(history.atValid(150, 200), null); assert.equal(history.atValid(200, 200), null);
+  assert.equal(history.atValid(150, 200), null); assert.equal(history.atValid(200, 200)?.x, 20);
   history.push({...sample, x: 20, t: 216}); assert.ok(history.atValid(216, 216));
   history.clear(); history.push({...sample, t: 300});
   assert.equal(history.atValid(250, 310), null); assert.equal(history.atValid(300, 601), null);

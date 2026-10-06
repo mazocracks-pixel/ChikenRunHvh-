@@ -10,6 +10,14 @@ it('lag history interpolates physical pitch with yaw and crouch scale', () => {
   assert.equal(h.at(150)?.pitch,-0.6);assert.equal(h.at(150)?.scale,0.85);
 });
 
+it('never interpolates through a teleport but can hit an exact known pose after it', () => {
+  const h = new History(), base = { x: 0, y: 0, z: 0, yaw: 0, alive: true, scale: 1 };
+  h.push({ ...base, t: 100 }); h.push({ ...base, x: 20, t: 200 }); h.push({ ...base, x: 20, t: 216 });
+  assert.equal(h.atValid(150, 216), null);
+  assert.equal(h.atValid(200, 216)?.x, 20);
+  assert.equal(h.atValid(208, 216)?.x, 20);
+});
+
 it('ordinary and Manual HvH shots hit the same pitched head using rewound pitch', t => {
   for(const mode of ['ffa','hvh'] as const){
     const {room,events}=makeRoom(mode,'flat');t.after(()=>room.close());

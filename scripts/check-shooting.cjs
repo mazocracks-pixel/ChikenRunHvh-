@@ -50,6 +50,32 @@ async function main() {
     });
     await page.goto(process.env.BASE_URL || 'http://localhost:3001');await page.locator('.main-menu .logo').waitFor();
     await enter('hvh');
+    const origins = await app(()=>{
+      const s=window.__app.game.activeSession, state={...s.local.state}, server=s.local.server, seq=s.nextSeq, core=s.weapons.hvh.core;
+      try {
+        Object.assign(s.local.state,{y:2,onGround:false,crouching:false,crouchAmount:0});
+        s.local.server={...server,y:0,onGround:true,crouching:false,crouchAmount:0,ack:100,simulationTime:s.serverNow()};s.nextSeq=102;
+        s.weapons.hvh.core={...core,fakeLag:0,latencyMs:0,jitterMs:0,packetLoss:0};const sent=s.eye(true).y;
+        s.weapons.hvh.core.fakeLag=12;return {sent,held:s.eye(true).y};
+      } finally {Object.assign(s.local.state,state);s.local.server=server;s.nextSeq=seq;s.weapons.hvh.core=core;}
+    });
+    assert.equal(origins.sent,3.3,'normal shots use their delivered jump command origin');
+    assert.equal(origins.held,1.3,'held commands cannot move the firing origin into an unsent jump');
+    const trace = await app(()=>{
+      const effects=window.__app.game.activeSession.effects;
+      effects.tracer({x:10,y:2,z:10},{x:10,y:2,z:-30},0xfff1a8,'hitscan-check');
+      const t=effects.tracers[(effects.nextTracer+effects.tracers.length-1)%effects.tracers.length];
+      const first={length:t.mesh.scale.z,x:t.mesh.position.x,z:t.mesh.position.z};
+      effects.update(0.016);
+      const second={length:t.mesh.scale.z,x:t.mesh.position.x,z:t.mesh.position.z};
+      const slot=effects.nextTracer,life=t.life;
+      effects.tracer({x:99,y:99,z:99},{x:10,y:2,z:-20},0xfff1a8,'hitscan-check');
+      return {first,second,corrected:t.mesh.scale.z,reused:effects.nextTracer===slot,lifeUnchanged:t.life===life};
+    });
+    assert.equal(trace.first.length,40,'the complete hitscan streak appears immediately');
+    assert.deepEqual(trace.second,trace.first,'the streak fades without traveling');
+    assert.equal(trace.corrected,30,'the accepted endpoint corrects the existing streak');
+    assert.ok(trace.reused&&trace.lifeUnchanged,'confirmation creates no duplicate or replayed shot');
     assert.ok((await scope.getAttribute('class')).includes('override'));
     const optics = await app(()=>{const s=window.__app.game.activeSession;return {fov:s.camera.fov,zoom:s.weapons.def.zoom,base:window.__app.game.input.zoomScale,cone:document.querySelector('.scope').style.getPropertyValue('--cone')};});
     assert.equal(optics.cone,'0px');assert.ok(optics.base>0&&optics.base<1);
@@ -59,7 +85,7 @@ async function main() {
     assert.equal(await app(()=>window.__app.game.activeSession.weapons.shotSeq),seq+1);
     assert.equal(await scope.getAttribute('data-ready'),'false');
     assert.ok(await app(()=>document.querySelector('.scope-flare').getAnimations().length>0));
-    assert.ok(await app(()=>window.__app.game.activeSession.effects.tracers.some(t=>t.duration>0&&t.mesh.scale.z<=8)));
+    assert.ok(await app(()=>window.__app.game.activeSession.effects.tracers.some(t=>t.mesh.visible&&t.mesh.scale.z>0)));
     await screenshot('Skeet-scope-shot.png');await page.mouse.up();
     await page.waitForFunction(()=>document.querySelector('.scope').dataset.ready==='true',null,{timeout:4000});
     await page.mouse.up({button:'right'});await scope.waitFor({state:'hidden'});await page.waitForTimeout(500);
@@ -77,7 +103,7 @@ async function main() {
     await page.emulateMedia({reducedMotion:'reduce'});await page.mouse.down();await page.waitForTimeout(60);await page.mouse.up();
     assert.equal(await app(()=>document.querySelector('.scope-flare').getAnimations().length),0);
     assert.deepEqual(errors,[]);
-    const result = {nativeOverride:true,normalScope:true,scopeCycling:true,shotPulse:true,pooledShortTracers:true,ordinaryModeIsolation:true,smallViewport:true,reducedMotion:true,optics,errors};
+    const result = {nativeOverride:true,normalScope:true,scopeCycling:true,shotPulse:true,instantHitscanStreak:true,ordinaryModeIsolation:true,smallViewport:true,reducedMotion:true,optics,errors};
     if(output) fs.writeFileSync(path.join(output,'shooting-browser-qa.json'),JSON.stringify(result,null,2));
     console.log(JSON.stringify(result));
   } finally {await browser.close();}
