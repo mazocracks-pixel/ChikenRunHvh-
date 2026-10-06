@@ -1,4 +1,5 @@
 import { MAPS, MODES, MODE_IDS, rankOf, type CreateRoomRequest, type LeaderboardRow, type MapId, type ModeId, type Profile, type RoomSummary } from '@game/shared';
+import { BINDS, getKeybinds, keyLabel, resetKeybinds, setKeybind, watchKeybinds, type BindId } from '../keybinds';
 import { MODE_ICONS } from './MainMenu';
 import type { AudioEngine } from '../game/Audio';
 import { getCameraMode, setCameraMode, type CameraMode } from '../game/CameraRig';
@@ -285,9 +286,10 @@ export async function openLeaderboard(api: Api, initial?: ModeId): Promise<void>
   await show(start);
 }
 
-type SettingsTab = 'controls' | 'crosshair' | 'graphics' | 'sound';
+type SettingsTab = 'controls' | 'keys' | 'crosshair' | 'graphics' | 'sound';
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'controls', label: '🖱️ Controls' },
+  { id: 'keys', label: '⌨️ Keys' },
   { id: 'crosshair', label: '⌖ Crosshair' },
   { id: 'graphics', label: '✨ Graphics' },
   { id: 'sound', label: '🔊 Sound' },
@@ -352,6 +354,7 @@ export function openSettings(audio: AudioEngine, initialTab?: SettingsTab): void
     for (const b of tabs.children) b.classList.toggle('active', (b as HTMLElement).dataset.tab === tab);
     clear(body);
     if (tab === 'controls') body.append(controlsTab(() => show('controls')));
+    if (tab === 'keys') body.append(keysTab());
     if (tab === 'crosshair') {
       const { el, stop } = crosshairTab(() => show('crosshair'));
       stopPreview = stop;
@@ -363,6 +366,79 @@ export function openSettings(audio: AudioEngine, initialTab?: SettingsTab): void
   for (const t of SETTINGS_TABS) tabs.append(h('button', { type: 'button', class: 'tab', 'data-tab': t.id, onclick: () => show(t.id) }, t.label));
   openModal('Settings', h('div', { class: 'settings-wrap' }, tabs, body), { onClose: () => stopPreview?.() });
   show(initialTab ?? lastSettingsTab);
+}
+
+/** Settings > Keys: click a key, press the new one (Esc cancels). A key another action uses swaps places. */
+function keysTab(): HTMLElement {
+  const root = h('div', { class: 'keys-tab' });
+  const note = h('p', { class: 'muted keys-note' }, 'Click a key, then press the new one. Esc cancels. Arrow keys also move you. 1-9 pick weapons, Tab shows the scores, Enter opens chat.');
+  let listening: { id: BindId; stop: () => void } | null = null;
+
+  const draw = () => {
+    clear(root);
+    root.append(note);
+    const keys = getKeybinds();
+    for (const group of ['Movement', 'Combat', 'Grenades', 'Other'] as const) {
+      root.append(h('h4', { class: 'keys-group' }, group));
+      for (const b of BINDS.filter((x) => x.group === group)) {
+        const active = listening?.id === b.id;
+        const button = h('button', { type: 'button', class: `key-cap${active ? ' listening' : ''}${keys[b.id] !== b.code ? ' changed' : ''}`, 'aria-label': `${b.label}: ${keyLabel(keys[b.id])}. Click to change.` }, active ? 'Press a key…' : keyLabel(keys[b.id]));
+        button.addEventListener('click', () => (active ? stopListening() : listen(b.id)));
+        root.append(h('div', { class: 'key-row' }, h('span', null, b.label), button));
+      }
+    }
+    root.append(
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'secondary',
+          onclick: () => {
+            stopListening();
+            resetKeybinds();
+          },
+        },
+        'Reset all keys',
+      ),
+    );
+  };
+
+  const stopListening = () => {
+    listening?.stop();
+    listening = null;
+    draw();
+  };
+
+  const listen = (id: BindId) => {
+    listening?.stop();
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === 'Escape') return stopListening();
+      if (!setKeybind(id, e.code)) {
+        note.textContent = `${keyLabel(e.code)} can't be used (menus, weapon slots and the dev menus keep their keys). Pick another.`;
+        return;
+      }
+      note.textContent = 'Saved.';
+      stopListening();
+    };
+    window.addEventListener('keydown', onKey, true);
+    listening = { id, stop: () => window.removeEventListener('keydown', onKey, true) };
+    draw();
+  };
+
+  const unwatch = watchKeybinds(() => {
+    if (root.isConnected || !listening) draw();
+  });
+  // The tab is rebuilt when it is shown again; stop listening when the dialog goes away.
+  new MutationObserver(() => {
+    if (!root.isConnected) {
+      listening?.stop();
+      unwatch();
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+  draw();
+  return root;
 }
 
 function controlsTab(rerender: () => void): HTMLElement {

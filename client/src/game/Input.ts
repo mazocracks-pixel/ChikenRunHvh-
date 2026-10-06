@@ -1,6 +1,7 @@
 import { clamp, wrapAngle, type InputFrame } from '@game/shared';
 import { enterPlayFullscreen } from '../fullscreen';
 import { MOUSE_BASE, TOUCH_BASE, watchSettings } from '../settings';
+import { getKeybinds, watchKeybinds, type BindId, type Keybinds } from '../keybinds';
 
 const PITCH_MIN = -1.25;
 const PITCH_MAX = 1.1;
@@ -35,11 +36,8 @@ export type Action =
   | 'nextBlock'
   | 'inspect';
 
-const KEY_ACTIONS: Record<string, Action> = {
-  KeyR: 'reload',
-  KeyG: 'egg',
-  KeyQ: 'smoke',
-  KeyZ: 'flash',
+/** Keys that always do the same thing (the rest come from Settings > Keys, see keybinds.ts). */
+const FIXED_ACTIONS: Record<string, Action> = {
   Digit1: 'slot1',
   Digit2: 'slot2',
   Digit3: 'slot3',
@@ -49,29 +47,53 @@ const KEY_ACTIONS: Record<string, Action> = {
   Digit7: 'slot7',
   Digit8: 'slot8',
   Digit9: 'slot9',
-  KeyV: 'camera',
-  KeyY: 'chat',
-  KeyU: 'teamChat',
   Enter: 'chat',
-  KeyE: 'use',
-  KeyB: 'build',
-  KeyX: 'nextBlock',
-  KeyF: 'inspect',
 };
 
-const FORWARD = ['KeyW', 'ArrowUp'];
-const BACK = ['KeyS', 'ArrowDown'];
-const LEFT = ['KeyA', 'ArrowLeft'];
-const RIGHT = ['KeyD', 'ArrowRight'];
-/**
- * Crouch: either Ctrl, or C. While Ctrl is held every blockable browser shortcut is blocked
- * (Ctrl+R reload, Ctrl+1-4 switch tab, Ctrl+S, Ctrl+scroll zoom); Ctrl+W / T / N only reach
- * the game in full screen with Keyboard Lock (see fullscreen.ts).
- */
-const CROUCH = ['ControlLeft', 'ControlRight', 'KeyC'];
-const SLOW_WALK = ['ShiftLeft', 'ShiftRight'];
-/** Keys whose default browser action (scrolling, focus change) we suppress while playing. */
-const GAME_KEYS = new Set([...FORWARD, ...BACK, ...LEFT, ...RIGHT, ...CROUCH, ...SLOW_WALK, 'Space', 'Tab']);
+/** The keys for each thing the chicken does, from the player's key settings. */
+interface KeyTables {
+  actions: Record<string, Action>;
+  forward: string[];
+  back: string[];
+  left: string[];
+  right: string[];
+  /**
+   * Crouch: the crouch key, or either Ctrl. While Ctrl is held every blockable browser shortcut
+   * is blocked (Ctrl+R reload, Ctrl+1-4 switch tab, Ctrl+S, Ctrl+scroll zoom); Ctrl+W / T / N
+   * only reach the game in full screen with Keyboard Lock (see fullscreen.ts).
+   */
+  crouch: string[];
+  slowWalk: string[];
+  jump: string;
+  use: string;
+  /** Keys whose default browser action (scrolling, focus change) we suppress while playing. */
+  game: Set<string>;
+}
+
+function buildKeyTables(k: Readonly<Keybinds>): KeyTables {
+  const actions: Record<string, Action> = { ...FIXED_ACTIONS };
+  const bound: [BindId, Action][] = [
+    ['reload', 'reload'],
+    ['inspect', 'inspect'],
+    ['egg', 'egg'],
+    ['smoke', 'smoke'],
+    ['flash', 'flash'],
+    ['use', 'use'],
+    ['camera', 'camera'],
+    ['chat', 'chat'],
+    ['teamChat', 'teamChat'],
+    ['build', 'build'],
+    ['nextBlock', 'nextBlock'],
+  ];
+  for (const [id, action] of bound) actions[k[id]] = action;
+  const forward = [k.forward, 'ArrowUp'];
+  const back = [k.back, 'ArrowDown'];
+  const left = [k.left, 'ArrowLeft'];
+  const right = [k.right, 'ArrowRight'];
+  const crouch = [k.crouch, 'ControlLeft', 'ControlRight'];
+  const slowWalk = k.slowWalk === 'ShiftLeft' || k.slowWalk === 'ShiftRight' ? ['ShiftLeft', 'ShiftRight'] : [k.slowWalk];
+  return { actions, forward, back, left, right, crouch, slowWalk, jump: k.jump, use: k.use, game: new Set([...forward, ...back, ...left, ...right, ...crouch, ...slowWalk, k.jump, 'Tab']) };
+}
 
 /**
  * Keyboard + pointer-locked mouse, plus a touch mode fed by the on-screen controls.
@@ -107,6 +129,7 @@ export class Input {
 
   private readonly target: HTMLElement;
   private readonly keys = new Set<string>();
+  private keyTables = buildKeyTables(getKeybinds());
   /** Mouse buttons held while pointer-locked (0 left, 1 middle, 2 right, 3/4 side buttons). */
   private readonly buttons = new Set<number>();
   private readonly queue: Action[] = [];
@@ -129,6 +152,10 @@ export class Input {
     document.addEventListener('wheel', this.onWheel, { passive: false });
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
     target.addEventListener('contextmenu', (e) => e.preventDefault());
+    watchKeybinds((k) => {
+      this.keyTables = buildKeyTables(k);
+      this.keys.clear();
+    });
     watchSettings((s) => {
       this.sensitivity = s.mouseSensitivity * MOUSE_BASE;
       this.touchSensitivity = s.touchSensitivity * TOUCH_BASE;
@@ -190,14 +217,14 @@ export class Input {
     const active = this.active;
     return {
       seq,
-      forward: active ? clamp(axis(FORWARD, BACK) + this.touchAxes.forward, -1, 1) : 0,
-      right: active ? clamp(axis(RIGHT, LEFT) + this.touchAxes.right, -1, 1) : 0,
-      jump: active && (this.keys.has('Space') || this.touchButtons.jump),
-      crouch: active && (this.anyDown(CROUCH) || this.touchButtons.crouch),
-      slowWalk: active && this.anyDown(SLOW_WALK),
-      use: active && (this.keys.has('KeyE') || this.touchButtons.use),
+      forward: active ? clamp(axis(this.keyTables.forward, this.keyTables.back) + this.touchAxes.forward, -1, 1) : 0,
+      right: active ? clamp(axis(this.keyTables.right, this.keyTables.left) + this.touchAxes.right, -1, 1) : 0,
+      jump: active && (this.keys.has(this.keyTables.jump) || this.touchButtons.jump),
+      crouch: active && (this.anyDown(this.keyTables.crouch) || this.touchButtons.crouch),
+      slowWalk: active && this.anyDown(this.keyTables.slowWalk),
+      use: active && (this.keys.has(this.keyTables.use) || this.touchButtons.use),
       // Nitro while driving (on a touch screen: the crouch button).
-      boost: active && (this.anyDown(SLOW_WALK) || this.touchButtons.crouch),
+      boost: active && (this.anyDown(this.keyTables.slowWalk) || this.touchButtons.crouch),
       yaw: this.yaw,
       pitch: this.pitch,
     };
@@ -254,9 +281,9 @@ export class Input {
     if (!this.enabled) return;
     if (e.code === 'Tab' && this.active) e.preventDefault();
     if (!this.active) return;
-    if (GAME_KEYS.has(e.code) || e.code in KEY_ACTIONS || e.ctrlKey) e.preventDefault();
+    if (this.keyTables.game.has(e.code) || e.code in this.keyTables.actions || e.ctrlKey) e.preventDefault();
     if (!e.repeat) {
-      const action = KEY_ACTIONS[e.code];
+      const action = this.keyTables.actions[e.code];
       if (action) this.queue.push(action);
     }
     this.keys.add(e.code);

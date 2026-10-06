@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getKeybinds } from '../keybinds';
 import { HITBOX, PLAYER, chickenHeadCenter, defaultHvhLoadout, hvhPose, makeRay, normalize, raycastWorld, raycastPenetrating, softBoxTest, wallbangScale, WALLBANG, wrapAngle, type InputFrame, type Vec3, type ShotEvent } from '@game/shared';
 import type { DevHooks, GameSession } from '../game/GameSession';
 import type { RemotePlayer } from '../game/RemotePlayers';
@@ -400,7 +401,7 @@ export class DevRuntime implements DevHooks {
     this.coreScoped = session.weapons.def.scope && (this.coreScoped || target.scope);
     this.dev.input.assistedAds = this.coreScoped;
     const stable = this.rageTiming || (now >= this.switchingUntil && now - this.acquiredAt >= Math.max(c.hvh.aim.reaction, triggering ? trigger.delay : 0));
-    const stop = this.autoStopPlan(session,{jump:this.dev.input.isDown('Space')},now);
+    const stop = this.autoStopPlan(session,{jump:this.dev.input.isDown(getKeybinds().jump)},now);
     const stopLimit = stop.kind === 'slowwalk' ? PLAYER.speed*moveSpeedFor(session.weapons.weapon)*PLAYER.slowWalkSpeed+0.1 : 0.5;
     this.coreReady = stable && !target.scope && !target.stop && (stop.kind === 'off' || session.horizontalSpeed() <= stopLimit);
     // Both manual and automatic assisted shots use shot angles; the view stays under player control.
