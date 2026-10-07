@@ -271,6 +271,7 @@ export class GameSession {
     this.weapons = new WeaponController(meInfo.loadout);
     this.weapons.tactical = this.mode.id === 'hvh';
     this.viewmodel = new ViewModel(ctx.overlay);
+    this.viewmodel.onInspectCue = (cue) => ctx.audio.play(cue === 'in' ? 'reload' : 'click', undefined, 0.55);
     this.bombView = this.mode.bomb ? new BombView(ctx.scene) : null;
     this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root, meInfo.appearance) : null;
     if (this.buyMenu) {

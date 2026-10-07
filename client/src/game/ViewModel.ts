@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { WEAPONS, clamp, damp, wrapAngle, type WeaponId } from '@game/shared';
+import { WEAPONS, clamp, damp, isSidearm, wrapAngle, type WeaponId } from '@game/shared';
 import { buildGun, type GunModel } from './models/Guns';
 
 /** Where the gun sits in front of the camera (metres), hip-fire and aiming down the sights. */
@@ -75,28 +75,70 @@ const SWING: Keyframes = [
   [0.5, pose({ x: -0.22, y: -0.07, z: -0.1, rx: -0.4, ry: 0.95, rz: 0.55 })],
   [1, REST],
 ];
-/** Inspect (F): bring it in, show the left side, flip to show the right, put it back. */
+// ---------------------------------------------------------------------------
+// Inspect (F): a different move for each kind of weapon
+// ---------------------------------------------------------------------------
+
+const TAU = Math.PI * 2;
+/** Turned to show the gun's left side, and its right side. */
 const SHOW_LEFT = pose({ x: -0.13, y: 0.05, z: 0.07, rx: 0.15, ry: 0.95, rz: 0.35 });
-const INSPECT: Keyframes = [
+const SHOW_RIGHT = pose({ x: -0.1, y: 0.06, z: 0.06, rx: 0.3, ry: -0.85, rz: -0.55 });
+
+/** Pistols: show the left side, a quick spin round the trigger finger, then the right side. */
+const INSPECT_PISTOL: Keyframes = [
   [0, REST],
-  [0.14, SHOW_LEFT],
-  [0.48, { ...SHOW_LEFT, ry: 1.15, rz: 0.45 }],
-  [0.62, pose({ x: -0.1, y: 0.06, z: 0.06, rx: 0.3, ry: -0.85, rz: -0.55 })],
-  [0.84, pose({ x: -0.09, y: 0.05, z: 0.06, rx: 0.25, ry: -1.0, rz: -0.6 })],
+  [0.13, SHOW_LEFT],
+  [0.36, { ...SHOW_LEFT, ry: 1.12, rz: 0.42 }],
+  [0.42, pose({ x: -0.07, y: 0.08, z: 0.05, rx: 0.25, ry: 0.4 })],
+  [0.58, pose({ x: -0.07, y: 0.08, z: 0.05, rx: 0.25 + TAU, ry: 0.4 })],
+  [0.7, { ...SHOW_RIGHT, rx: 0.3 + TAU }],
+  [0.88, { ...SHOW_RIGHT, rx: 0.25 + TAU, ry: -1.0, rz: -0.6 }],
+  [1, pose({ rx: TAU })],
+];
+/** Rifles, SMGs, shotguns: left side, tipped over to check the magazine, then the right side. */
+const MAG_LOOK = pose({ x: -0.1, y: 0.1, z: 0.06, rx: -0.5, ry: 0.6, rz: -0.4 });
+const INSPECT_RIFLE: Keyframes = [
+  [0, REST],
+  [0.12, SHOW_LEFT],
+  [0.36, { ...SHOW_LEFT, ry: 1.15, rz: 0.45 }],
+  [0.46, MAG_LOOK],
+  [0.62, { ...MAG_LOOK, rx: -0.45, rz: -0.45 }],
+  [0.72, SHOW_RIGHT],
+  [0.9, { ...SHOW_RIGHT, ry: -1.0, rz: -0.6 }],
   [1, REST],
 ];
-/**
- * Melee weapons: turned across the screen to show the flat of the blade, then rolled over to
- * show the other side (and rolled the rest of the way round on the way back, so it ends at rest).
- */
+/** Snipers: a heavy lift to show the side, then nose up to look along the scope. */
+const INSPECT_SNIPER: Keyframes = [
+  [0, REST],
+  [0.15, pose({ x: -0.16, y: 0.08, z: 0.1, rx: 0.1, ry: 1.2, rz: 0.2 })],
+  [0.42, pose({ x: -0.16, y: 0.08, z: 0.1, rx: 0.12, ry: 1.3, rz: 0.3 })],
+  [0.56, pose({ x: -0.05, y: 0.11, z: 0.08, rx: -0.35, ry: 0.35, rz: -0.2 })],
+  [0.7, pose({ x: -0.05, y: 0.11, z: 0.08, rx: -0.3, ry: 0.3, rz: -0.25 })],
+  [0.8, { ...SHOW_RIGHT, ry: -0.8, rz: -0.4 }],
+  [0.92, { ...SHOW_RIGHT, ry: -0.9, rz: -0.45 }],
+  [1, REST],
+];
+/** Heavy weapons: slow, with a little bounce from the weight. */
+const INSPECT_HEAVY: Keyframes = [
+  [0, REST],
+  [0.18, pose({ x: -0.1, y: 0.04, z: 0.06, rx: 0.1, ry: 0.8, rz: 0.25 })],
+  [0.26, pose({ x: -0.1, y: 0.02, z: 0.06, rx: 0.14, ry: 0.82, rz: 0.3 })],
+  [0.5, pose({ x: -0.1, y: 0.045, z: 0.06, rx: 0.1, ry: 0.95, rz: 0.3 })],
+  [0.68, pose({ x: -0.06, y: 0.04, z: 0.05, rx: 0.2, ry: -0.6, rz: -0.35 })],
+  [0.88, pose({ x: -0.06, y: 0.035, z: 0.05, rx: 0.22, ry: -0.68, rz: -0.38 })],
+  [1, REST],
+];
+/** Knives without their own trick: show the flat, toss it up spinning, catch it, show the other side. */
 const ACROSS = pose({ x: -0.15, y: 0.07, z: 0.03, rx: -0.1, ry: 1.35 });
 const INSPECT_MELEE: Keyframes = [
   [0, REST],
-  [0.15, ACROSS],
-  [0.42, { ...ACROSS, ry: 1.45, rx: -0.05 }],
-  [0.58, { ...ACROSS, ry: 1.45, rz: Math.PI }],
-  [0.84, { ...ACROSS, ry: 1.35, rx: -0.15, rz: Math.PI }],
-  [1, pose({ rz: Math.PI * 2 })],
+  [0.12, ACROSS],
+  [0.3, { ...ACROSS, ry: 1.45, rx: -0.05 }],
+  [0.36, { ...ACROSS, y: 0.04, ry: 1.45 }],
+  [0.5, { ...ACROSS, y: 0.22, ry: 1.45, rz: Math.PI }],
+  [0.62, { ...ACROSS, y: 0.07, ry: 1.45, rz: TAU }],
+  [0.84, { ...ACROSS, ry: 1.35, rx: -0.15, rz: TAU }],
+  [1, pose({ rz: TAU })],
 ];
 /** Knives with their own trick (butterfly fan, karambit spin...): held up in view while it plays. */
 const SHOW = pose({ x: -0.12, y: 0.07, z: 0.04, rx: 0.25, ry: 0.55, rz: 0.1 });
@@ -106,15 +148,47 @@ const INSPECT_TRICK: Keyframes = [
   [0.88, { ...SHOW, ry: 0.65 }],
   [1, REST],
 ];
-/** A pair (Dual Pistols, Shadow Daggers): lifted and tipped, not turned, so the left one stays in view. */
+/** A pair (Dual Pistols, Shadow Daggers): lifted and rocked side to side, so both stay in view. */
 const LIFT = pose({ x: -0.03, y: 0.06, z: 0.05, rx: 0.35 });
 const INSPECT_PAIR: Keyframes = [
   [0, REST],
   [0.14, LIFT],
+  [0.4, { ...LIFT, rz: 0.35 }],
+  [0.64, { ...LIFT, rz: -0.35 }],
   [0.86, { ...LIFT, rx: 0.25 }],
   [1, REST],
 ];
-const INSPECT_SECONDS = 2.4;
+
+type InspectKind = 'pistol' | 'rifle' | 'sniper' | 'heavy' | 'melee' | 'trick' | 'pair';
+interface InspectMove {
+  frames: Keyframes;
+  seconds: number;
+  /** When (progress) the magazine slides out and back in, if it does. */
+  magCheck?: readonly [number, number];
+}
+const INSPECTS: Record<InspectKind, InspectMove> = {
+  pistol: { frames: INSPECT_PISTOL, seconds: 2.6 },
+  rifle: { frames: INSPECT_RIFLE, seconds: 3.2, magCheck: [0.47, 0.61] },
+  sniper: { frames: INSPECT_SNIPER, seconds: 3.4 },
+  heavy: { frames: INSPECT_HEAVY, seconds: 3.6 },
+  melee: { frames: INSPECT_MELEE, seconds: 2.8 },
+  trick: { frames: INSPECT_TRICK, seconds: 2.6 },
+  pair: { frames: INSPECT_PAIR, seconds: 2.8 },
+};
+const HEAVY = new Set<WeaponId>(['lmg', 'minigun', 'rocket', 'launcher', 'crossbow']);
+
+/** Which inspect a weapon gets. */
+export function inspectKind(id: WeaponId, gun: Pick<GunModel, 'offhand' | 'animate'> | null): InspectKind {
+  const w = WEAPONS[id];
+  if (gun?.offhand) return 'pair';
+  if (gun?.animate) return 'trick';
+  if (w.melee) return 'melee';
+  if (w.scope) return 'sniper';
+  if (HEAVY.has(id)) return 'heavy';
+  if (isSidearm(id)) return 'pistol';
+  return 'rifle';
+}
+
 /** Per-weapon size (big guns would cover the HUD). */
 const SIZES: Partial<Record<WeaponId, number>> = { rocket: 0.72, minigun: 0.85, sniper: 0.95, lmg: 0.82, launcher: 0.85, crossbow: 0.9, scout: 0.95, battle: 0.95 };
 interface RecoilFeel {
@@ -194,6 +268,10 @@ export class ViewModel {
   private swingT = -1;
   /** Seconds into an inspect (F), or -1. */
   private inspectT = -1;
+  /** Where the inspect's magazine check is, so each click plays once. */
+  private magCue: 'out' | 'in' | null = null;
+  /** Sound cues from the inspect: the magazine sliding out, and back in. */
+  onInspectCue: ((cue: 'out' | 'in') => void) | null = null;
   private readonly swingPose: Pose = { ...REST };
   private readonly inspectPose: Pose = { ...REST };
   private readonly pose: Pose = { ...REST };
@@ -296,13 +374,39 @@ export class ViewModel {
     // Inspect (F), stopped by aiming or reloading.
     const look = mixPose(REST, REST, 0, this.inspectPose);
     if (this.inspectT >= 0 && (f.aiming || f.reload !== null)) this.inspectT = -1;
+    const move = INSPECTS[inspectKind(f.weapon, this.gun)];
+    let inspectP = -1;
     if (this.inspectT >= 0) {
       this.inspectT += dt;
-      const p = this.inspectT / INSPECT_SECONDS;
-      if (p >= 1) this.inspectT = -1;
-      else sample(this.gun?.offhand ? INSPECT_PAIR : this.gun?.animate ? INSPECT_TRICK : WEAPONS[f.weapon].melee ? INSPECT_MELEE : INSPECT, p, look);
+      inspectP = this.inspectT / move.seconds;
+      if (inspectP >= 1) {
+        this.inspectT = -1;
+        inspectP = -1;
+      } else {
+        sample(move.frames, inspectP, look);
+        // The hand isn't a machine: a slow, small wobble on top.
+        const live = Math.sin(inspectP * Math.PI) * motion;
+        look.rx += Math.sin(this.inspectT * 5.3) * 0.02 * live;
+        look.rz += Math.sin(this.inspectT * 3.7 + 1) * 0.025 * live;
+        look.y += Math.sin(this.inspectT * 4.1) * 0.003 * live;
+      }
     }
-    this.gun?.animate?.(this.inspectT >= 0 ? this.inspectT / INSPECT_SECONDS : -1);
+    this.gun?.animate?.(inspectP);
+    // Magazine check: out a little, then slapped back in (with a click each way).
+    let magCheck = 0;
+    if (inspectP >= 0 && move.magCheck) {
+      const [from, to] = move.magCheck;
+      const k = (inspectP - from) / (to - from);
+      if (k > 0 && k < 1) magCheck = k < 0.35 ? k / 0.35 : k < 0.75 ? 1 : 1 - (k - 0.75) / 0.25;
+      // Each click once: out as the check starts, in when the magazine is slapped home.
+      if (k > 0 && k < 1) {
+        const cue = k > 0.75 ? 'in' : 'out';
+        if (cue !== this.magCue) {
+          this.magCue = cue;
+          this.onInspectCue?.(cue);
+        }
+      }
+    } else if (inspectP < 0) this.magCue = null;
     const pose = this.pose;
     for (const k of Object.keys(pose) as (keyof Pose)[]) pose[k] = swing[k] + look[k];
     const hold = HOLD_ANGLES[f.weapon];
@@ -329,11 +433,12 @@ export class ViewModel {
       if (p !== null) drop = p < 0.25 ? 0 : p < 0.45 ? (p - 0.25) / 0.2 : p < 0.6 ? 1 : p < 0.85 ? 1 - (p - 0.6) / 0.25 : 0;
       const mag = this.gun.magazine;
       mag.position.copy(this.magRest);
-      mag.position.y -= drop * 0.22;
-      mag.position.z += drop * 0.03;
+      mag.position.y -= drop * 0.22 + magCheck * 0.05;
+      mag.position.z += drop * 0.03 + magCheck * 0.006;
     }
 
-    if (this.gun?.spinner) this.gun.spinner.rotation.z += dt * (4 + this.kick * 30);
+    // The minigun's barrels spin up while you look at it.
+    if (this.gun?.spinner) this.gun.spinner.rotation.z += dt * (4 + this.kick * 30 + (inspectP >= 0 ? Math.sin(inspectP * Math.PI) * 14 : 0));
 
     this.flashLife = Math.max(0, this.flashLife - dt);
     this.flash.visible = this.flashLife > 0;
