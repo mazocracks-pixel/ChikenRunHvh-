@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { SIM_DT, PLAYER, normalize, unpackPlayer, type ShotEvent } from '@game/shared';
+import { SIM_DT, PLAYER, LOOT, normalize, unpackPlayer, buildHvhMatrix, maximumBodyDelta, observableRecord, rayHvhChicken, makeRay, type ShotEvent } from '@game/shared';
 import { History } from '../src/rooms/History';
 import { GameRoom } from '../src/rooms/GameRoom';
 import { addPlayer, fakeIo, makeRoom, place, stepRoom } from './helpers';
@@ -114,4 +114,72 @@ it('HvH bots fire through the normal queue, damage opponents and ignore teammate
     stepRoom(room, now); now += SIM_DT * 1000;
   }
   assert.equal(bot.lastShotSeq, accepted, 'no enemy observations means no assisted friendly fire');
+});
+
+it('only an unobstructed wrong-side shot teaches a resolver miss', t => {
+  for (const blockerZ of [12.5, -12.5, null, 'loot'] as const) {
+    const {room} = makeRoom('hvh', 'flat'); t.after(() => room.close());
+    const a = addPlayer(room, 'Shooter'), target = addPlayer(room, 'Target'), blocker = addPlayer(room, 'Blocker');
+    a.info.team = 1; target.info.team = blocker.info.team = 2; room.startNow();
+    place(a, 20, 25); place(target, 20, 0);
+    for (const p of [a, target, blocker]) { p.shieldUntil = 0; p.armor = 0; }
+    const delta = maximumBodyDelta(0, 0, true), eye = {x: 20, y: PLAYER.eyeHeight, z: 25};
+    const point = buildHvhMatrix(target.state, -delta).boxes[0]!.center;
+    const dir = normalize({x: point.x - eye.x, y: point.y - eye.y, z: point.z - eye.z});
+    if (blockerZ === null || blockerZ === 'loot') blocker.alive = false;
+    else place(blocker, eye.x + (point.x - eye.x) * (blockerZ - eye.z) / (point.z - eye.z), blockerZ);
+    if (blockerZ === 'loot') Object.assign(room.loot, {boxes: [{id: 0, phase: 0, pickup: null, until: 0, floor: 0,
+      x: (eye.x + point.x) / 2, y: (eye.y + point.y) / 2, z: (eye.z + point.z) / 2}]});
+    const now = performance.now();
+    for (const [p, yaw] of [[target, delta], [blocker, 0]] as const) {
+      p.history.clear(); p.history.push({t: now, ...p.state, yaw, pitch: 0, alive: p.alive, scale: 1});
+    }
+    const record = observableRecord(target.pid, 0, now, target.state, {x: 0, y: 0, z: 0}, target.animation, 100, 0, true);
+    a.resolver.observe(record);
+    const shots: ShotEvent[] = [];
+    Object.defineProperty(a, 'socket', {value: {emit(event: string, data: ShotEvent) {if (event === 'shot') shots.push(data);}, to() {return {emit() {}};}, leave() {}}});
+    room.handleFire(a, {shot: 1, weapon: a.weapon, dx: dir.x, dy: dir.y, dz: dir.z, t: now, aiming: true,
+      intent: {target: target.pid, recordT: now, source: 'LEFT', yaw: -delta}});
+    stepRoom(room, now + SIM_DT * 1000);
+    const blocked = blockerZ === 12.5 || blockerZ === 'loot';
+    assert.equal(target.hp, 100);
+    if (blockerZ === 12.5) assert.ok(blocker.hp < 100);
+    if (blockerZ === 'loot') assert.equal(room.loot.states()[0]?.phase, 1, 'audit retains the box obstruction after the pellet smashes it');
+    assert.equal(shots.at(-1)?.audit?.reason, blocked ? 'OCCLUSION' : 'RESOLVER');
+    assert.equal(a.resolver.resolve(record).misses, blocked ? 0 : 1);
+  }
+});
+
+it('recharge follows effective choke rather than an inactive fake-lag setting', t => {
+  for (const [enabled, mode, expected] of [[true, 'velocity', 1], [true, 'static', 0], [false, 'static', 1]] as const) {
+    const {room} = makeRoom('hvh', 'flat'); t.after(() => room.close());
+    const p = addPlayer(room, 'Charging'); room.startNow(); place(p, 20, 20);
+    p.hvhEnabled = enabled; p.hvh.core!.fakeLag = 8; p.hvh.core!.fakeLagMode = mode;
+    let now = performance.now();
+    for (let tick = 0; tick < 256; tick++) stepRoom(room, now += SIM_DT * 1000);
+    assert.equal(p.resource.charge, expected, `${enabled ? 'assisted' : 'Manual'} ${mode}`);
+  }
+});
+
+it('loot behind the authoritative target does not turn a spread miss into obstruction', t => {
+  const {room} = makeRoom('hvh', 'flat'); t.after(() => room.close());
+  const a = addPlayer(room, 'Shooter'), target = addPlayer(room, 'Target');
+  a.info.team = 1; target.info.team = 2; room.startNow(); place(a, 20, 25); place(target, 20, 0);
+  a.shieldUntil = target.shieldUntil = target.armor = 0; a.state.horizontalSpeed = 6;
+  const now = performance.now(), eye = {x: 20, y: PLAYER.eyeHeight, z: 25};
+  const predictedYaw = -10 * Math.PI / 180, actualYaw = -58 * Math.PI / 180;
+  const dir = normalize({x: 0.215598676717902, y: 1.25 - eye.y, z: -0.28692065209303036 - eye.z});
+  const ray = makeRay(eye, dir), lootEntry = 25.02;
+  assert.ok(rayHvhChicken(ray, 20, 0, 0, actualYaw, 100)!.t < lootEntry);
+  assert.ok(rayHvhChicken(ray, 20, 0, 0, predictedYaw, 100)!.t > lootEntry);
+  const centerT = lootEntry + LOOT.boxSize / 2 / Math.abs(dir.z);
+  Object.assign(room.loot, {boxes: [{id: 0, phase: 0, pickup: null, until: 0, floor: 0,
+    x: eye.x + dir.x * centerT, y: eye.y + dir.y * centerT, z: eye.z + dir.z * centerT}]});
+  target.history.clear(); target.history.push({t: now, ...target.state, yaw: actualYaw, pitch: 0, alive: true, scale: 1});
+  const shots: ShotEvent[] = [];
+  Object.defineProperty(a, 'socket', {value: {emit(event: string, data: ShotEvent) {if (event === 'shot') shots.push(data);}, to() {return {emit() {}};}, leave() {}}});
+  room.handleFire(a, {shot: 2, weapon: a.weapon, dx: dir.x, dy: dir.y, dz: dir.z, t: now, aiming: true,
+    intent: {target: target.pid, recordT: now, source: 'CENTER', yaw: predictedYaw}});
+  stepRoom(room, now + SIM_DT * 1000);
+  assert.equal(shots.at(-1)?.audit?.reason, 'SPREAD');
 });

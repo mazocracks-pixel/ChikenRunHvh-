@@ -442,7 +442,8 @@ export class GameSession {
     this.visualKick.yaw*=Math.exp(-dt*8);this.visualKick.pitch*=Math.exp(-dt*8);
 
     // Weapons.
-    this.weapons.update(now);
+    this.weapons.update(now, this.mode.id === 'hvh'
+      && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed()) > 0);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
     const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !dev?.blocksShooting();
     if (aiming !== this.aimingSent) {

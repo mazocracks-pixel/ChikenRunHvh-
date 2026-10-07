@@ -71,10 +71,15 @@ function sanitize(raw: unknown): Keybinds {
   if (!raw || typeof raw !== 'object') return out;
   const r = raw as Record<string, unknown>;
   for (const b of BINDS) if (isBindable(r[b.id])) out[b.id] = r[b.id] as string;
-  // Two actions on one key would make both fire: fall back to the defaults for the later one.
+  // Keep unique saved keys before assigning unused defaults to conflicting actions.
   const seen = new Set<string>();
   for (const b of BINDS) {
-    if (seen.has(out[b.id])) out[b.id] = b.code;
+    if (seen.has(out[b.id])) { out[b.id] = ''; continue; }
+    seen.add(out[b.id]);
+  }
+  for (const b of BINDS) {
+    if (out[b.id]) continue;
+    out[b.id] = !seen.has(b.code) ? b.code : BINDS.find(def => !seen.has(def.code))!.code;
     seen.add(out[b.id]);
   }
   return out;

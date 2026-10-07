@@ -143,26 +143,33 @@ an uploaded-script sandbox. Existing recipes compose supported settings.
 Debug outlines show public reconstructed hypotheses and the selected historical matrix.
 The shooter receives HIT, RESOLVER, SPREAD, RECORD_INVALID, OCCLUSION, TARGET_DIED,
 SERVER_REJECTED or PREDICTION feedback with accepted health damage, without hidden yaw.
-Actor/loot obstruction cannot falsely reinforce a hit. Reload/cooldown rejection is explicit.
+Actor/loot obstruction is classified before resolver learning, including wrong-side misses.
+Reload/cooldown rejection is explicit. The client refreshes its weapon, damage and accuracy
+feedback at the final firing gate.
 
 ## Validation and practical limits
 
 Run `npm run typecheck`, `npm test`, `npm run build` and `npm run benchmark:hvh`.
 The seeded 1,000-duel headshot benchmark compares an adaptive controller against a center-only
-controller using real skeleton rays, spread, inversion and simulated packet timing. Both use
+controller using real skeleton rays, spread, inversion and delayed observations. Both use
 the same weapon/resource rules and idle charge; first-action order alternates. At seed 7042 the
-adaptive controller wins 926 duels and hits 54.2% of shots, versus 74 wins and 10.8% for center-only.
-Resolver and spread misses remain. This demonstrates material improvement, not perfect balance
-across maps, weapon rosters or human players.
+adaptive controller wins 760 duels and hits 58.5% of shots, versus 240 wins and 33.8% for center-only.
+This is a stationary, unarmored rifle headshot microbenchmark with full initial charge and
+observations every four ticks. It bypasses the production scanner, room and bot controller.
+It measures resolver behavior in that scenario; it does not establish balance across moving
+targets, cover, weapon rosters, maps or human players.
 
 Regression tests cover information separation, wrong-side head misses, safe-point damage
 tradeoffs, movement/spread/crouch, historical validity, input batches, shared resource, panel
-permissions and bot damage/friendly filtering. Production browser checks additionally exercise
-real Socket.IO input, live autofire/Double Tap, setup/pause, fake duck with latency, menu controls
-and phone layout. Longer multiplayer sessions and player feedback remain necessary for tuning.
+permissions and bot damage/friendly filtering. Production regressions also exercise shotgun
+pellet damage, HP-relative scope/stop gates, blocked resolver misses, effective-choke recharge,
+bot obstacle recovery and respawn, saved hotkeys, and final client firing feedback.
+Browser acceptance checks should additionally exercise real Socket.IO input, live autofire/Double
+Tap, setup/pause, fake duck with latency, menu controls and phone layout. Longer multiplayer
+sessions and player feedback remain necessary for tuning.
 
 The simulation deliberately simplifies full CSGO animation layers, networking and weapon
 tickbase. Packet practice affects input delivery and held public presentation; it is not a full
-network emulator for every message. Pitch is cosmetic; no fake hitboxes or arbitrary native
-SDK/Lua execution is included. A future uploaded-script feature requires its own isolation and
+network emulator for every message. Pitch affects the reconstructed head pose; no arbitrary
+native SDK/Lua execution is included. A future uploaded-script feature requires its own isolation and
 resource limits. Adding such unsupported options as decorative toggles would undermine the game.

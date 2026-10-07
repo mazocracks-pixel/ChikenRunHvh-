@@ -41,6 +41,7 @@ const PERCEIVE_MS = 200;
 const SMOKE_BLOCK_RADIUS = 3.6;
 
 interface Brain {
+  hvhLifeState?: ServerPlayer['state'];
   hvhCandidate?: ShotCandidate | null;
   hvhNextScan?: number;
   hvhReturnUntil?: number;
@@ -306,38 +307,7 @@ export class BotSystem {
       lookPitch = p.pitch * 0.9;
     }
 
-    // Hop over low obstacles, steer around tall ones.
-    const len = Math.hypot(moveX, moveZ);
-    if (len > 0.01) {
-      moveX /= len;
-      moveZ /= len;
-      const knee = makeRay({ x: p.state.x, y: p.state.y + 0.4, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
-      if (raycastWorld(knee, this.room.world, 1.1)) {
-        const head = makeRay({ x: p.state.x, y: p.state.y + 1.45, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
-        if (!raycastWorld(head, this.room.world, 1.4)) jump = true;
-        else {
-          [moveX, moveZ] = [-moveZ * b.strafe, moveX * b.strafe];
-          if (!target) this.newWaypoint(b);
-        }
-      }
-    }
-
-    // Stuck for a second while trying to move: jump and try somewhere else.
-    if (now - b.progressAt > 1000) {
-      const moved = Math.hypot(p.state.x - b.progressPos.x, p.state.z - b.progressPos.z);
-      if (moved < 0.6 && len > 0.01) {
-        b.jumpTicks = 12;
-        b.strafe = b.strafe === 1 ? -1 : 1;
-        this.newWaypoint(b);
-        b.nextPath = 0;
-      }
-      b.progressAt = now;
-      b.progressPos = { x: p.state.x, z: p.state.z };
-    }
-    if (b.jumpTicks > 0) {
-      b.jumpTicks--;
-      jump = true;
-    }
+    ({ moveX, moveZ, jump } = this.recoverMovement(b, now, moveX, moveZ, jump, !target));
 
     // World-space movement → forward/right relative to where the bot looks.
     const fx = -Math.sin(lookYaw);
@@ -357,6 +327,15 @@ export class BotSystem {
   /** HvH bots consume the same public snapshot API as human panels, never enemy server objects. */
   private thinkHvh(b: Brain, now: number): void {
     const p = b.p, eye = this.eye(p);
+    // Respawn replaces the movement state; ticks mutate it, even if no dead tick was observed.
+    if (b.hvhLifeState !== p.state) {
+      b.hvhLifeState = p.state;
+      b.hvhAnchor = { x: p.state.x, y: p.state.y, z: p.state.z };
+      b.hvhCandidate = null; b.hvhReturnUntil = b.hvhNextScan = b.hvhNextObserve = 0;
+      b.hvhObserved = []; p.resolver.clear();
+      b.waypoint = b.pathGoal = null; b.path = []; b.nextPath = b.jumpTicks = 0;
+      b.progressAt = now; b.progressPos = { x: p.state.x, z: p.state.z };
+    }
     if (now >= (b.hvhNextObserve ?? 0)) {
       b.hvhNextObserve = now + 1000 / SNAPSHOT_RATE; b.hvhObserved = [];
       for (const packed of this.room.snapshot(now, p.pid).p) {
@@ -379,12 +358,15 @@ export class BotSystem {
     }
     const c = b.hvhCandidate && records.some(r => r.pid === b.hvhCandidate!.target) && now - b.hvhCandidate.record.t <= 300 ? b.hvhCandidate : null;
     let x = 0, z = 0;
-    if (!b.hvhAnchor) b.hvhAnchor = { x: p.state.x, y: p.state.y, z: p.state.z };
     if (now < (b.hvhReturnUntil ?? 0)) {
-      x = b.hvhAnchor.x - p.state.x; z = b.hvhAnchor.z - p.state.z;
+      const next = this.nextStep(b, b.hvhAnchor!, now);
+      x = next.x - p.state.x; z = next.z - p.state.z;
     } else if (!c) {
       const target = records[0];
-      if (target) { x = target.origin.x - p.state.x; z = target.origin.z - p.state.z; }
+      if (target) {
+        const next = this.nextStep(b, target.origin, now);
+        x = next.x - p.state.x; z = next.z - p.state.z;
+      }
       else {
         if (!b.waypoint || Math.hypot(b.waypoint.x - p.state.x, b.waypoint.z - p.state.z) < 2) this.newWaypoint(b);
         const next = this.nextStep(b, b.waypoint!, now); x = next.x - p.state.x; z = next.z - p.state.z;
@@ -393,9 +375,13 @@ export class BotSystem {
       x = -(p.state.walkVx ?? 0); z = -(p.state.walkVz ?? 0);
     }
     const length = Math.hypot(x, z); if (length > 0.1) { x /= length; z /= length; } else x = z = 0;
+    let jump = false;
+    if (!c || now < (b.hvhReturnUntil ?? 0)) {
+      ({ moveX: x, moveZ: z, jump } = this.recoverMovement(b, now, x, z, false, !records.length));
+    }
     const yaw = c ? Math.atan2(-c.direction.x, -c.direction.z) : p.lookYaw;
     const frame: InputFrame = { seq: ++b.seq, forward: -Math.sin(yaw) * x - Math.cos(yaw) * z,
-      right: Math.cos(yaw) * x - Math.sin(yaw) * z, jump: false, yaw, pitch: c ? Math.asin(c.direction.y) : 0 };
+      right: Math.cos(yaw) * x - Math.sin(yaw) * z, jump: jump && (!p.state.onGround || !p.state.jumpHeld), yaw, pitch: c ? Math.asin(c.direction.y) : 0 };
     this.room.handleInput(p, frame);
     if (p.mag <= 0) { this.room.handleReload(p); return; }
     if (c?.scope) p.aiming = true;
@@ -406,6 +392,43 @@ export class BotSystem {
         t: c.record.t, aiming: p.aiming, intent: { target: c.target, source: c.source, recordT: c.record.t, yaw: c.yaw } });
       b.hvhReturnUntil = now + 400; b.hvhNextScan = 0;
     }
+  }
+
+  private recoverMovement(b: Brain, now: number, moveX: number, moveZ: number, jump: boolean, roaming: boolean) {
+    const p = b.p;
+    // Hop over low obstacles, steer around tall ones.
+    const len = Math.hypot(moveX, moveZ);
+    if (len > 0.01) {
+      moveX /= len;
+      moveZ /= len;
+      const knee = makeRay({ x: p.state.x, y: p.state.y + 0.4, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
+      if (raycastWorld(knee, this.room.world, 1.1)) {
+        const head = makeRay({ x: p.state.x, y: p.state.y + 1.45, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
+        if (!raycastWorld(head, this.room.world, 1.4)) jump = true;
+        else {
+          [moveX, moveZ] = [-moveZ * b.strafe, moveX * b.strafe];
+          if (roaming) this.newWaypoint(b);
+        }
+      }
+    }
+
+    // Stuck for a second while trying to move: jump and try somewhere else.
+    if (now - b.progressAt > 1000) {
+      const moved = Math.hypot(p.state.x - b.progressPos.x, p.state.z - b.progressPos.z);
+      if (moved < 0.6 && len > 0.01) {
+        b.jumpTicks = 12;
+        b.strafe = b.strafe === 1 ? -1 : 1;
+        this.newWaypoint(b);
+        b.nextPath = 0;
+      }
+      b.progressAt = now;
+      b.progressPos = { x: p.state.x, z: p.state.z };
+    }
+    if (b.jumpTicks > 0) {
+      b.jumpTicks--;
+      jump = true;
+    }
+    return { moveX, moveZ, jump };
   }
 
 /** The next spot to walk to on the way to `goal`, following the map's waypoints around walls. */

@@ -104,6 +104,32 @@ describe('guide-driven simulation contracts', () => {
     const safer = scanRage({...input, w: hvhWeapon(WEAPONS.sniper), settings: {...input.settings, hitchance: 0}});
     assert.ok(riskier && safer && riskier.damage > safer.damage, 'safe body overlap costs head damage');
   });
+  it('gates shotgun candidates on whole-shot damage and verifies the sampled result', () => {
+    for (const { id, group, minDamage, armor } of [
+      { id: 'shotgun' as const, group: 'stomach' as const, minDamage: 20, armor: 0 },
+      { id: 'autoshotgun' as const, group: 'stomach' as const, minDamage: 20, armor: 0 },
+      { id: 'shotgun' as const, group: 'chest' as const, minDamage: 115, armor: 0 },
+      { id: 'shotgun' as const, group: 'stomach' as const, minDamage: 105, armor: 10 },
+    ]) {
+      const r = { ...record(), origin: { x: 0, y: 0, z: 2 }, hp: 200, armor }, resolver = new ResolverSystem(); resolver.observe(r);
+      const input = { now: 100, eye: { x: 0, y: 1.3, z: 0 }, w: hvhWeapon(WEAPONS[id]), speed: 0, airborne: false, ads: false,
+        world: new CollisionWorld(100), records: [r], resolver,
+        settings: { ...DEFAULT_RAGE, resolver: false, preferSafe: false, groups: [group], pointScale: 0, minDamage, hitchance: 1 } };
+      const candidate = scanRage(input);
+      assert.ok(candidate, `${id} ${group} must meet whole-shot minimum ${minDamage}`);
+      assert.ok(candidate.damage >= minDamage); assert.equal(candidate.chance, 1);
+      assert.equal(scanRage({ ...input, settings: { ...input.settings, minDamage: 150 } }), null,
+        'an optimistic cheap bound cannot bypass sampled damage');
+    }
+  });
+  it('keeps a qualifying head shot in the bounded shortlist when body damage is below the minimum', () => {
+    const r = { ...record(), origin: { x: 0, y: 0, z: -10 } }, resolver = new ResolverSystem(); resolver.observe(r);
+    const input = { now: 100, eye: { x: 0, y: 1.3, z: 0 }, w: hvhWeapon(WEAPONS.rifle), speed: 0, airborne: false, ads: false,
+      world: new CollisionWorld(100), records: [r], resolver, settings: { ...DEFAULT_RAGE, minDamage: 70, hitchance: 0.5 } };
+    const candidate = scanRage(input);
+    assert.ok(candidate); assert.equal(candidate.group, 'head');
+    assert.ok(candidate.damage >= 70); assert.ok(candidate.chance >= 0.5);
+  });
   it('stores command time for Double Tap, shares it with Hide Shots, and never changes fire rate', () => {
     const resource = new ExploitResource();
     for (let i = 0; i < 256; i++) resource.step(i, false, false);

@@ -104,10 +104,10 @@ export class WeaponController {
     return true;
   }
 
-  update(now: number): void {
+  update(now: number, choked = (this.hvh.core?.fakeLag ?? 0) > 0): void {
     const count = Math.min(8, Math.floor((now - this.resourceTime) / (1000 / 64)));
     for (let i = 0; i < count; i++) {
-      this.resource.step(++this.wallTick, now - this.timing.lastFireAt < 250, (this.hvh.core?.fakeLag ?? 0) > 0);
+      this.resource.step(++this.wallTick, now - this.timing.lastFireAt < 250, choked);
       this.resourceTime += 1000 / 64;
       this.heat = Math.max(0, this.heat - 1.5 / 64);
     }
