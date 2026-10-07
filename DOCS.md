@@ -11,7 +11,7 @@ step, then a log of every mistake made along the way (what went wrong, and how i
 | B | Scope on every sniper (Sniper and Scout): click once to scope, it stays; click again to zoom in further; a third click leaves the scope. No more scroll wheel | Done |
 | C | Kill feed icons: a silhouette for every single gun, not one per gun family | Done |
 | D | Better inspect (F): longer, smoother, a different move per kind of weapon | Done |
-| E | More detailed gun shapes | Planned |
+| E | More detailed gun shapes | Done |
 | F | Main menu: look and feel like a game, not an app, with new features; checked in the browser | Planned |
 
 Rules for every step: read the code it touches first, change as little as works, test it, look at it
@@ -54,7 +54,21 @@ in the browser, then commit. Nothing is pushed if a test fails.
 - Checked in the browser: screenshots partway through the rifle and pistol inspects, and the magazine clicks played once each per inspect.
 - Code: [client/src/game/ViewModel.ts](client/src/game/ViewModel.ts) (`INSPECTS`, `inspectKind`); test: [client/test/inspect.test.ts](client/test/inspect.test.ts).
 
-_Steps E and F follow below as they are finished._
+### E. More detailed gun shapes
+- Guns were built only from rounded boxes. A new helper cuts a part from a drawn side outline (the way game guns are modelled), and the parts you see most now use it:
+  - **Grips (every gun):** raked, with finger grooves on the front and a curved back strap.
+  - **Pistol and Deagle:** slides sloped at the front and back, a shaped frame.
+  - **Rifle:** one receiver with a magazine well, a tapered handguard, a stock with a sloped comb, and the curved magazine from before.
+  - **Sniper:** a thumbhole stock and a fluted barrel.
+  - **Shotgun:** a wooden stock with a pistol-grip wrist and a proper butt.
+  - **SMG:** a receiver with an angled front and a magazine well.
+  - **Knife:** a contoured handle with finger grooves.
+- The kill-feed icons (step C) are drawn from the models, so they picked up the new shapes by themselves.
+- Speed is unchanged: the parts are still merged per material (about 7 draw calls per gun).
+- Checked with close-up renders of the rifle, sniper, pistol, Deagle, shotgun, SMG, knife and M9.
+- Code: [client/src/game/models/Guns.ts](client/src/game/models/Guns.ts) (`profile`, `metresToUv`).
+
+_Step F follows below when it is finished._
 
 ## Mistakes log
 
@@ -63,4 +77,7 @@ _Steps E and F follow below as they are finished._
 - **DOCS.md text eaten by the shell.** I wrote the DOCS entry through a shell command, and the shell treated the backtick-quoted file names as commands to run, so they vanished from three lines (it only printed harmless "not found" errors; nothing was changed). Fixed by hand, and from now on DOCS.md is only edited with the file editor, never through the shell.
 - **Magazine click repeating.** In the first version of the new inspect, the "magazine in" click played on every frame after the magazine check finished, instead of once. Caught by recording the clicks; fixed so each click plays exactly once per inspect (checked over two full inspects: out, in, out, in).
 - **Magazine check pointed the wrong way.** My first magazine-check pose tipped the rifle so it pointed at the sky, with the magazine off screen; my second showed the top rail instead. I then rendered three candidate poses side by side and picked the one where the magazine faces you.
+- **Two new gun parts placed wrong (caught before rendering).** Checking each new outline against the old part's position showed the Deagle slide would have left a 3 cm gap before the muzzle and the knife handle would have poked out behind its pommel. Both fixed before the first render.
+- **Knife handle drawn inside out.** I listed the knife handle's outline points in the wrong order, so the shape crossed itself and rendered as a zigzag. Fixed the order.
+- **Texture grain too big on the new parts.** The outline-cut parts measure texture coordinates in metres, the box parts stretch a texture over each face, so the grain on the new parts came out several times too big (blotchy wood and plastic). Fixed by scaling their texture coordinates to match.
 - **A slow test, not a bug.** "Knife Fight bots charge in to stab" failed once in a full run and passed three times on its own and in the next full run. It waits 4 real seconds for a bot to walk over, so a busy machine can make it miss. Nothing in this change touches bots or the server.

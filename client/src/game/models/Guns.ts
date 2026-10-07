@@ -230,6 +230,35 @@ const blade = (length: number, height: number, thickness: number, curve = 0) =>
     return g.rotateY(Math.PI / 2);
   });
 
+/**
+ * Extruded shapes get texture coordinates in metres; box parts stretch a texture over each face.
+ * This scales the first to match the second (about one texture per 25 cm), so the grain is the
+ * same size on every part.
+ */
+function metresToUv(g: THREE.BufferGeometry): void {
+  const uv = g.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 4, uv.getY(i) * 4);
+  uv.needsUpdate = true;
+}
+
+/**
+ * A part cut from a side outline, like a gun drawn from the side: `points` are [forward, up]
+ * in metres (forward is towards the muzzle, -Z), extruded `width` wide across X with softened
+ * edges. Used for slides, receivers, stocks and grips, so guns have real outlines, not boxes.
+ */
+const profile = (key: string, points: readonly (readonly [number, number])[], width: number, soft = 0.004) =>
+  geometry(`pf:${key}:${width}`, () => {
+    const shape = new THREE.Shape();
+    points.forEach(([x, y], i) => (i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y)));
+    shape.closePath();
+    const depth = Math.max(0.001, width - soft * 2);
+    const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: soft, bevelSize: soft, bevelSegments: 2, curveSegments: 4 });
+    g.translate(0, 0, -depth / 2);
+    metresToUv(g);
+    // Extrusion depth becomes the width (X); the drawing's x becomes forward (-Z).
+    return g.rotateY(Math.PI / 2);
+  });
+
 /** An assault-rifle magazine: one curved piece, 0.04 wide, hanging down and sweeping forward. */
 const curvedMag = () =>
   geometry('curvedmag', () => {
@@ -242,6 +271,7 @@ const curvedMag = () =>
     shape.closePath();
     const g = new THREE.ExtrudeGeometry(shape, { depth: 0.032, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2, curveSegments: 10 });
     g.translate(0, 0, -0.016);
+    metresToUv(g);
     // Extrusion depth becomes the width (X); the drawing's x becomes forward (-Z).
     return g.rotateY(Math.PI / 2);
   });
@@ -263,7 +293,12 @@ function trigger(g: THREE.Object3D, mat: THREE.Material, z: number, y = 0.012, r
 
 /** Pistol grip, raked back like a real one. */
 function grip(g: THREE.Object3D, mat: THREE.Material, z: number, h = 0.095, rake = 0.28): void {
-  add(g, rbox(0.034, h, 0.046), mat, 0, -0.03, z, rake);
+  const t = h / 2;
+  const outline: [number, number][] = [
+    [-0.022, t], [0.022, t], [0.024, t * 0.62], [0.019, t * 0.42], [0.025, t * 0.18], [0.019, -t * 0.04],
+    [0.025, -t * 0.28], [0.019, -t * 0.5], [0.023, -t * 0.78], [0.02, -t], [-0.024, -t], [-0.027, -t * 0.4], [-0.025, t * 0.5],
+  ];
+  add(g, profile(`grip:${h}`, outline, 0.034), mat, 0, -0.03, z, rake);
   // Rubbery side panels.
   add(g, rbox(0.037, h * 0.62, 0.032), RUBBER(), 0, -0.032, z + 0.002, rake);
 }
@@ -284,12 +319,14 @@ interface Build {
 
 type Builder = (g: THREE.Group, id: WeaponId) => Build;
 
+/** A pistol slide from the side: front and back sloped like a real one. */
+const SLIDE: readonly (readonly [number, number])[] = [[-0.02, 0.0], [-0.016, 0.034], [-0.006, 0.042], [0.168, 0.042], [0.19, 0.03], [0.19, 0.0]];
 const pistol: Builder = (g) => {
   const slide = STEEL();
-  add(g, rbox(0.038, 0.042, 0.19), slide, 0, 0.072, -0.075);
+  add(g, profile('slide', SLIDE, 0.038), slide, 0, 0.051, 0.02);
   for (let i = 0; i < 5; i++) add(g, box(0.0405, 0.026, 0.003), DARK(), 0, 0.073, 0.008 - i * 0.008);
   add(g, box(0.003, 0.016, 0.034), DARK(), 0.019, 0.08, -0.05);
-  add(g, rbox(0.034, 0.026, 0.16), polymer(0x1a1b1e), 0, 0.037, -0.065);
+  add(g, profile('frame', [[-0.012, 0.026], [0.15, 0.026], [0.152, 0.004], [0.11, 0.0], [0.04, 0.0], [0.02, -0.006], [-0.012, 0.006]], 0.034), polymer(0x1a1b1e), 0, 0.024, 0.015);
   add(g, box(0.03, 0.008, 0.05), DARK(), 0, 0.022, -0.12);
   add(g, tube(0.0085, 0.014), DARK(), 0, 0.074, -0.174);
   add(g, box(0.006, 0.008, 0.006), DARK(), 0, 0.097, -0.16);
@@ -307,13 +344,12 @@ const pistol: Builder = (g) => {
 /** Assault-rifle family: Rifle and Golden Rifle. */
 function rifleLike(body: THREE.Material, accent: THREE.Material, gold: boolean): Builder {
   return (g) => {
-    add(g, rbox(0.066, 0.085, 0.34), body, 0, 0.06, -0.1);
-    add(g, rbox(0.05, 0.05, 0.1), body, 0, 0.005, -0.13);
+    add(g, profile('rifle:receiver', [[-0.07, 0.102], [0.27, 0.102], [0.27, 0.035], [0.19, 0.03], [0.182, -0.02], [0.082, -0.02], [0.074, 0.02], [0.0, 0.02], [-0.05, 0.028], [-0.07, 0.05]], 0.064), body, 0, 0, 0);
     // Picatinny rail with teeth.
     add(g, box(0.028, 0.012, 0.3), accent, 0, 0.108, -0.12);
     for (let i = 0; i < 10; i++) add(g, box(0.032, 0.006, 0.01), accent, 0, 0.116, -0.25 + i * 0.028);
     // Handguard with cooling slots.
-    add(g, rbox(0.07, 0.068, 0.26), body, 0, 0.058, -0.4);
+    add(g, profile('rifle:handguard', [[0.27, 0.094], [0.53, 0.088], [0.535, 0.03], [0.27, 0.024]], 0.07, 0.006), body, 0, 0, 0);
     for (let i = 0; i < 4; i++) add(g, box(0.073, 0.012, 0.034), DARK(), 0, 0.06, -0.33 - i * 0.05);
     add(g, tube(0.011, 0.2), DARK(), 0, 0.064, -0.62);
     add(g, rbox(0.022, 0.03, 0.025), accent, 0, 0.07, -0.55);
@@ -334,8 +370,7 @@ function rifleLike(body: THREE.Material, accent: THREE.Material, gold: boolean):
     grip(g, gold ? DARK() : polymer(0x1c1d1f), 0.04);
     trigger(g, accent, -0.005, 0.01, 0.024);
     // Stock with cheek riser and rubber butt pad.
-    add(g, rbox(0.045, 0.07, 0.2), body, 0, 0.035, 0.17);
-    add(g, rbox(0.035, 0.02, 0.12), body, 0, 0.075, 0.16);
+    add(g, profile('rifle:stock', [[-0.06, 0.09], [-0.27, 0.083], [-0.275, -0.025], [-0.2, -0.008], [-0.11, 0.02], [-0.06, 0.03]], 0.045), body, 0, 0, 0);
     add(g, rbox(0.05, 0.095, 0.022), RUBBER(), 0, 0.03, 0.28);
     if (gold) {
       // Engraved trim strips.
@@ -355,8 +390,7 @@ const shotgun: Builder = (g) => {
   add(g, box(0.008, 0.006, 0.5), STEEL(), 0, 0.093, -0.33);
   add(g, ball(0.005), BRASS(), 0, 0.099, -0.57);
   add(g, rbox(0.055, 0.035, 0.2), wood, 0, 0.045, -0.2);
-  add(g, rbox(0.04, 0.05, 0.08), wood, 0, 0.03, 0.06, 0.1);
-  add(g, rbox(0.05, 0.085, 0.28), wood, 0, 0.012, 0.2, 0.12);
+  add(g, profile('shotgun:stock', [[-0.02, 0.085], [-0.14, 0.07], [-0.33, 0.075], [-0.345, -0.05], [-0.25, -0.035], [-0.1, 0.0], [-0.04, 0.0], [-0.02, 0.03]], 0.05), wood, 0, 0, 0);
   add(g, rbox(0.054, 0.094, 0.02), RUBBER(), 0, -0.006, 0.34, 0.12);
   // Exposed hammers.
   for (const s of [-1, 1]) add(g, box(0.008, 0.02, 0.01), STEEL(), s * 0.016, 0.098, 0.035, -0.4);
@@ -369,11 +403,24 @@ const sniper: Builder = (g, id) => {
   add(g, rbox(0.058, 0.07, 0.28), body, 0, 0.06, -0.06);
   add(g, rbox(0.064, 0.06, 0.3), body, 0, 0.045, -0.3);
   add(g, tube(0.013, 0.52), DARK(), 0, 0.066, -0.46);
+  // Fluting along the barrel.
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; add(g, box(0.003, 0.003, 0.3), STEEL(), Math.cos(a) * 0.0128, 0.066 + Math.sin(a) * 0.0128, -0.42); }
   add(g, rbox(0.03, 0.026, 0.06), DARK(), 0, 0.066, -0.75);
   for (const s of [-1, 1]) add(g, box(0.006, 0.008, 0.012), polymer(0x050505), s * 0.015, 0.066, -0.745);
   // Stock with cheek rest.
-  add(g, rbox(0.05, 0.1, 0.34), body, 0, 0.03, 0.2);
-  add(g, rbox(0.04, 0.025, 0.14), body, 0, 0.088, 0.2);
+  // Thumbhole stock: the outline with a hole cut through it.
+  add(g, geometry('sniper:stock', () => {
+    const shape = new THREE.Shape();
+    for (const [i, [x, y]] of ([[-0.03, 0.095], [-0.36, 0.1], [-0.37, -0.03], [-0.28, -0.035], [-0.16, -0.005], [-0.06, 0.0], [-0.03, 0.02]] as const).entries()) (i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y));
+    shape.closePath();
+    const hole = new THREE.Path();
+    hole.absellipse(-0.11, 0.045, 0.035, 0.022, 0, Math.PI * 2, false, 0);
+    shape.holes.push(hole);
+    const g2 = new THREE.ExtrudeGeometry(shape, { depth: 0.042, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2, curveSegments: 10 });
+    g2.translate(0, 0, -0.021);
+    metresToUv(g2);
+    return g2.rotateY(Math.PI / 2);
+  }), body, 0, 0, 0);
   add(g, rbox(0.054, 0.11, 0.022), RUBBER(), 0, 0.03, 0.37);
   grip(g, polymer(0x1c1d1f), 0.05, 0.085, 0.3);
   trigger(g, DARK(), 0.005, 0.012);
@@ -404,7 +451,7 @@ const sniper: Builder = (g, id) => {
 
 const smg: Builder = (g, id) => {
   const body = metal(WEAPONS[id].model.color, 0.45);
-  add(g, rbox(0.058, 0.075, 0.24), body, 0, 0.056, -0.06);
+  add(g, profile('smg:receiver', [[-0.06, 0.094], [0.16, 0.094], [0.185, 0.07], [0.18, 0.02], [0.12, 0.018], [0.11, -0.01], [0.075, -0.01], [0.07, 0.018], [-0.06, 0.018]], 0.058), body, 0, 0, 0);
   add(g, box(0.026, 0.012, 0.2), DARK(), 0, 0.1, -0.06);
   add(g, tube(0.016, 0.06), DARK(), 0, 0.06, -0.21);
   // Suppressor.
@@ -716,7 +763,7 @@ const knife: Builder = (g, id) => knifeWith(id === 'goldknife' ? GOLD_BLADE() : 
 function knifeWith(bladeMaterial: THREE.Material): Builder {
   return (g, id) => {
   const handle = grippy(WEAPONS[id].model.color);
-  add(g, rbox(0.026, 0.034, 0.11), handle, 0, 0.03, 0.02);
+  add(g, profile('knife:handle', [[0.035, 0.017], [-0.07, 0.016], [-0.075, -0.016], [-0.06, -0.017], [-0.042, -0.012], [-0.024, -0.018], [-0.006, -0.012], [0.012, -0.018], [0.026, -0.011], [0.035, -0.017]], 0.026, 0.005), handle, 0, 0.03, 0);
   for (let i = 0; i < 3; i++) add(g, box(0.028, 0.005, 0.012), RUBBER(), 0, 0.0145, 0.05 - i * 0.028);
   add(g, rbox(0.03, 0.038, 0.012), DARK(), 0, 0.03, 0.08);
   add(g, ring(0.007, 0.0018), STEEL(), 0, 0.03, 0.093, 0, Math.PI / 2);
@@ -778,7 +825,7 @@ function pistolMag(g: THREE.Object3D, body: THREE.Material, height = 0.085, z = 
 /** Deagle: a big stainless slide with a top rib, hammer, chunky grip. Hits like a truck. */
 const deagle: Builder = (g, id) => {
   const steel = metal(WEAPONS[id].model.color, 0.24);
-  add(g, rbox(0.044, 0.05, 0.26), steel, 0, 0.078, -0.1);
+  add(g, profile('deagle', [[-0.03, 0.0], [-0.026, 0.04], [-0.014, 0.05], [0.215, 0.05], [0.235, 0.036], [0.236, 0.0]], 0.044), steel, 0, 0.053, 0);
   add(g, box(0.018, 0.008, 0.25), steel, 0, 0.106, -0.1);
   for (let i = 0; i < 7; i++) add(g, box(0.0462, 0.03, 0.003), DARK(), 0, 0.08, 0.016 - i * 0.007);
   add(g, box(0.0455, 0.005, 0.14), DARK(), 0, 0.058, -0.16);
