@@ -40,12 +40,15 @@ export interface RageScan {
 export function scanRage(input: RageScan): ShotCandidate | null {
   if (input.w.projectile || input.w.melee) return null;
   const { settings: s } = input, cheap: ShotCandidate[] = [];
+  // Spread can hit other groups; armor applies to the whole pellet sum.
+  const maximumDamage = input.w.damage * input.w.pellets * Math.max(input.w.headshotMultiplier, 1.15);
   const uncertaintyByRecord = new Map<ObservableRecord, HitchanceHypothesis[]>();
   const counts = new Map<number, number>();
   for (const record of input.records) {
     const rule = input.playerRules?.get(record.pid); if (rule?.ignore) continue;
     if (recordValidity(record, input.now) !== 'VALID') continue;
     const count = counts.get(record.pid) ?? 0; if (count >= s.maxRecords) continue; counts.set(record.pid, count + 1);
+    if (afterArmor(maximumDamage, record.armor) < (s.hpRelative === undefined ? Math.min(record.hp, s.minDamage) : record.hp + s.hpRelative)) continue;
     const r = input.resolver.resolve(record, s.resolver, undefined, s.resolverPolicy);
     const plausible = s.resolver ? r : input.resolver.resolve(record, true, undefined, s.resolverPolicy);
     uncertaintyByRecord.set(record, r.hypotheses.map(h => ({ probability: h.probability,
@@ -62,8 +65,7 @@ export function scanRage(input: RageScan): ShotCandidate | null {
         const ray = makeRay(input.eye, direction), cover = traceHvhCover(ray, input.world, input.w.range, input.isSoft);
         const hit = rayHvhMatrix(ray, matrix, cover.wallDistance); if (!hit) continue;
         const group = hit.group;
-        const damage = afterArmor(hvhHitDamage(input.w, hit, cover), record.armor);
-        if (damage < (s.hpRelative === undefined ? Math.min(record.hp, s.minDamage) : record.hp + s.hpRelative)) continue;
+        const damage = afterArmor(hvhHitDamage(input.w, hit, cover) * input.w.pellets, record.armor);
         const rayPoint = input.forceDirection ? { x: input.eye.x + direction.x * 100, y: input.eye.y + direction.y * 100, z: input.eye.z + direction.z * 100 } : point;
         const safety = pointSafety(input.eye, rayPoint, all, group === 'head' ? ['head'] : ['chest', 'stomach', 'pelvis', 'arm', 'leg']);
         if (s.forceSafe && safety < 1) continue;
@@ -83,8 +85,9 @@ export function scanRage(input: RageScan): ShotCandidate | null {
   cheap.sort((a, b) => b.score - a.score);
   if (input.scoreCandidate) { cheap.slice(0, 16).forEach(c => c.score += input.scoreCandidate!(c)); cheap.sort((a, b) => b.score - a.score); }
   let best: ShotCandidate | null = null;
+  // Reserve first slots for points meeting damage; spread-only prospects remain eligible below.
+  const shortlist = cheap.filter(c => c.damage >= (s.hpRelative === undefined ? Math.min(c.record.hp, s.minDamage) : c.record.hp + s.hpRelative)).slice(0, 4);
   // Keep room for a body fallback instead of spending the whole budget on duplicate head points.
-  const shortlist = cheap.slice(0, 4);
   const seen = new Set<number>();
   for (const c of cheap) if (c.group !== 'head' && !seen.has(c.target)) {
     seen.add(c.target); if (!shortlist.includes(c)) shortlist.push(c); if (shortlist.length >= 7) break;
@@ -94,28 +97,28 @@ export function scanRage(input: RageScan): ShotCandidate | null {
     const matrix = buildHvhMatrix(c.record.origin, c.yaw, 1 - c.record.crouch * 0.3, c.record.pitch);
     const uncertainty = uncertaintyByRecord.get(c.record)!;
     const estimateAt = (speed: number, ads: boolean) => hvhHitchance(input.w, input.eye, c.direction, matrix, speed, input.airborne, ads, input.world, input.isSoft, 32, input.heat, uncertainty);
+    const minimumDamage = s.hpRelative === undefined ? Math.min(c.record.hp, s.minDamage) : c.record.hp + s.hpRelative;
+    const sufficient = (estimate: ReturnType<typeof hvhHitchance>) => estimate.chance >= s.hitchance && afterArmor(estimate.damage, c.record.armor) >= minimumDamage;
     let estimate = estimateAt(input.speed, input.ads);
     const scopeAllowed = input.w.scope && !input.ads && input.allowScope !== false;
-    if (estimate.chance < s.hitchance && scopeAllowed) {
+    if (!sufficient(estimate) && scopeAllowed) {
       const scoped = estimateAt(input.speed, true);
-      if (scoped.chance >= s.hitchance) { estimate = scoped; c.scope = true; }
+      if (sufficient(scoped)) { estimate = scoped; c.scope = true; }
     }
-    if (estimate.chance < s.hitchance && input.speed > 0.5 && !input.airborne && input.allowStop !== false) {
+    if (!sufficient(estimate) && input.speed > 0.5 && !input.airborne && input.allowStop !== false) {
       const preferred = clamp(input.stopSpeed ?? 0, 0, input.speed);
       stop: for (const speed of preferred > 0 ? [preferred, 0] : [0]) for (const ads of scopeAllowed ? [input.ads, true] : [input.ads]) {
         const stopped = estimateAt(speed, ads);
-        if (stopped.chance >= s.hitchance) { estimate = stopped; c.stop = true; c.stopSpeed = speed; c.scope = ads && !input.ads; break stop; }
+        if (sufficient(stopped)) { estimate = stopped; c.stop = true; c.stopSpeed = speed; c.scope = ads && !input.ads; break stop; }
       }
     }
-    if (estimate.chance < s.hitchance) continue;
+    if (!sufficient(estimate)) continue;
     c.chance = estimate.chance; c.damage = afterArmor(estimate.damage, c.record.armor);
-    if (c.damage < (s.hpRelative === undefined ? Math.min(c.record.hp, s.minDamage) : c.record.hp + s.hpRelative)) continue;
     if (!c.stop && !input.airborne && input.allowStop !== false && (input.stopSpeed ?? 0) > 0) {
       const walking = estimateAt(input.stopSpeed!,input.ads || c.scope);
       // Keep a stationary fallback after stopping; otherwise the next scan starts walking again
       // before the weapon can fire, repeatedly losing its required accuracy.
-      c.stopSpeed = walking.chance >= s.hitchance && afterArmor(walking.damage,c.record.armor) >= Math.min(c.record.hp,s.minDamage)
-        ? input.stopSpeed : 0;
+      c.stopSpeed = sufficient(walking) ? input.stopSpeed : 0;
     }
     c.score += c.chance * s.accuracyWeight;
     if (!best || c.score > best.score) best = c;

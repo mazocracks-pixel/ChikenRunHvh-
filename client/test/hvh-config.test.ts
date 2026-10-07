@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { DEFAULT_MODS } from '@game/shared';
 import { defaultConfig, importConfig, presetConfigs, sanitizeConfig, toServerMods } from '../src/dev/config';
+import { BINDS } from '../src/keybinds';
 it('migrates unsafe legacy configurations and clamps supported HvH choices',()=>{
   const c=defaultConfig();
   Object.assign(c.rage.weapon,{noRecoil:true,noSpread:true,infiniteAmmo:true,rapidFire:true,noRocketDamage:true});
@@ -19,5 +20,15 @@ it('migrates unsafe legacy configurations and clamps supported HvH choices',()=>
 it('every shipped preset keeps baseline stats and non-conflicting hotkeys',()=>{
   const p=presetConfigs();assert.deepEqual(p.map(p=>p.name),['Balanced','Precision','Aggressive','Scout']);
   for(const n of p){assert.deepEqual(toServerMods(n.config),DEFAULT_MODS);assert.deepEqual(sanitizeConfig(n.config),n.config);}
-  const c=defaultConfig();assert.equal(c.hvh.aim.overrideKey,'KeyH');assert.equal(c.hvh.aim.bodyKey,'KeyJ');assert.equal(c.hvh.movement.peekKey,'KeyZ');
+  for (const panel of ['lab', 'skeet'] as const) {
+    for (const c of [defaultConfig(panel), ...presetConfigs(panel).map(p => p.config)]) {
+      const hotkeys = [c.hvh.aim.overrideKey, c.hvh.aim.bodyKey, c.hvh.movement.peekKey, c.hvh.invertKey];
+      assert.equal(new Set(hotkeys).size, hotkeys.length);
+      for (const key of hotkeys) assert.ok(!BINDS.some(b => b.code === key), `${panel}: ${key} conflicts with a game action`);
+      assert.equal(c.hvh.movement.slowKey, BINDS.find(b => b.id === 'slowWalk')!.code, 'slow walk intentionally shares its game action');
+    }
+  }
+});
+it('preserves an explicitly saved auto-peek key',()=>{
+  assert.equal(sanitizeConfig({hvh:{movement:{peekKey:'KeyZ'}}}).hvh.movement.peekKey,'KeyZ');
 });

@@ -77,3 +77,21 @@ it('slow-walk shot estimation selects walking accuracy when sufficient and stati
  const stationary=scanRage({...input,settings:{...input.settings,groups:['chest'],hitchance:1}});
  assert.ok(stationary?.stop);assert.equal(stationary.stopSpeed,0);
 });
+it('keeps stationary auto stop when slow walking meets hitchance but misses HP-relative damage',()=>{
+ const r={...record(),origin:{x:0,y:0,z:15},velocity:{x:0,y:0,z:0},speed:0,hp:70},resolver=new ResolverSystem();resolver.observe(r);
+ const input={now:1000,eye:{x:0,y:1.3,z:0},w:hvhWeapon(WEAPONS.rifle),speed:0,airborne:false,ads:false,world:new CollisionWorld(100),records:[r],resolver,
+  stopSpeed:2.7,settings:{...DEFAULT_RAGE,resolver:false,preferSafe:false,groups:['head'] as const,pointScale:0,minDamage:1,hpRelative:0,hitchance:.6}};
+ const stationary=scanRage({...input,settings:{...input.settings,groups:['head']}});
+ assert.ok(stationary);assert.ok(stationary.damage>=70);assert.equal(stationary.stopSpeed,0);
+ const moving=scanRage({...input,speed:2.7,settings:{...input.settings,groups:['head']}});
+ assert.ok(moving?.stop);assert.equal(moving.stopSpeed,0);assert.ok(moving.damage>=70);
+ assert.equal(scanRage({...input,speed:2.7,allowStop:false,settings:{...input.settings,groups:['head']}}),null);
+});
+it('scopes when unscoped hitchance passes but HP-relative damage fails',()=>{
+ const r={...record(),origin:{x:0,y:0,z:15},velocity:{x:0,y:0,z:0},speed:0,hp:150},resolver=new ResolverSystem();resolver.observe(r);
+ const input={now:1000,eye:{x:0,y:1.3,z:0},w:hvhWeapon(WEAPONS.sniper),speed:2.7,airborne:false,ads:false,world:new CollisionWorld(100),records:[r],resolver,
+  allowStop:false,settings:{...DEFAULT_RAGE,resolver:false,preferSafe:false,groups:['head'] as const,pointScale:0,minDamage:1,hpRelative:0,hitchance:.3}};
+ const scoped=scanRage({...input,settings:{...input.settings,groups:['head']}});
+ assert.ok(scoped?.scope);assert.ok(scoped.damage>=150);
+ assert.equal(scanRage({...input,allowScope:false,settings:{...input.settings,groups:['head']}}),null);
+});

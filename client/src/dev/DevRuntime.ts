@@ -200,7 +200,8 @@ export class DevRuntime implements DevHooks {
         this.coreScanAt = -Infinity; this.diagnostics.state = 'Waiting for a fresh record'; return false;
       }
       const w = session.weapons;
-      if (w.shotState(now) !== 'Ready' || w.reloading) return false;
+      const weaponState = w.shotState(now);
+      if (weaponState !== 'Ready') { this.diagnostics.state = weaponState; return false; }
       // The shooter may have moved since the bounded scan. Validate the shot from the current eye.
       const target = this.coreTarget, eye = session.eye(), skeet = this.dev.panelId === 'skeet';
       const direction = a.enabled ? normalize({x:target.point.x-eye.x,y:target.point.y-eye.y,z:target.point.z-eye.z})
@@ -214,8 +215,11 @@ export class DevRuntime implements DevHooks {
       const overridden=this.keyHeld(c.hvh.aim.overrideKey,false);
       const requiredDamage = !overridden && c.hvh.aim.hpRelative >= 0 ? target.record.hp+c.hvh.aim.hpRelative
         : Math.min(target.record.hp,overridden ? c.hvh.aim.damageOverride : c.hvh.aim.minDamage);
-      return estimate.chance+1e-9 >= (session.local.onGround ? c.hvh.aim.hitchance : c.hvh.aim.airHitchance)/100
-        && afterArmor(estimate.damage,target.record.armor)+1e-9 >= requiredDamage;
+      const damage = afterArmor(estimate.damage,target.record.armor);
+      const state = damage+1e-9 < requiredDamage ? 'Waiting for damage'
+        : estimate.chance+1e-9 < (session.local.onGround ? c.hvh.aim.hitchance : c.hvh.aim.airHitchance)/100 ? 'Waiting for accuracy' : 'Ready';
+      Object.assign(this.diagnostics, { damage: Math.round(damage), chance: Math.round(estimate.chance*100), state });
+      return state === 'Ready';
     }
     if (!this.playing || !session || !this.target) return false;
     const auto = a.enabled && a.autoTarget;

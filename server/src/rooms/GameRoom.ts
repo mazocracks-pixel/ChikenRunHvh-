@@ -631,6 +631,18 @@ export class GameRoom {
     const dirs = pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot));
     if (shotCount === 2) dirs.push(...pelletDirections(w, aim, spread, shotSeed(p.pid, req.shot) ^ 0x51ed270b));
     const targets = this.targetsAt(p, rewindTo, now);
+    const target = req.intent ? targets.find(t => t.key.pid === req.intent!.target) : undefined;
+    let intentBlocked = false;
+    if (tactical && req.intent && target) {
+      const ray = makeRay(eye, aim);
+      const predicted = rayHvhChicken(ray, target.x, target.y, target.z, req.intent.yaw, w.range, target.scale, target.pitch);
+      const actual = rayHvhChicken(ray, target.x, target.y, target.z, target.yaw, w.range, target.scale, target.pitch);
+      const distance = predicted && actual ? Math.min(predicted.t, actual.t) : predicted?.t ?? actual?.t;
+      // Observe obstruction before pellets can smash a loot box.
+      if (distance !== undefined) intentBlocked = targets.some(t => t !== target
+        && !!rayHvhChicken(ray, t.x, t.y, t.z, t.yaw, distance, t.scale, t.pitch))
+        || !!this.loot.raycast(ray, distance) || !!this.vehicles?.raycast(ray, distance, p);
+    }
 
     const ends: number[] = [];
     const hits: number[] = [];
@@ -690,7 +702,6 @@ export class GameRoom {
       hits.push(kind);
     }
 
-    const target = req.intent ? targets.find(t => t.key.pid === req.intent!.target) : undefined;
     let audit: ShotAudit | undefined;
     if (tactical && req.intent) {
       const intendedPlayer = this.players.get(req.intent.target);
@@ -701,6 +712,7 @@ export class GameRoom {
       const rawDamage = target ? damageByVictim.get(target.key)?.amount ?? 0 : 0;
       const damage = target && now >= target.key.shieldUntil
         ? Math.min(target.key.hp, rawDamage - Math.min(target.key.armor, rawDamage * PLAYER.armorAbsorb)) : 0;
+      if (intentBlocked && (reason === 'RESOLVER' || reason === 'SPREAD')) reason = 'OCCLUSION';
       if (reason === 'HIT' && rawDamage === 0) reason = 'OCCLUSION';
       else if (reason === 'HIT' && damage === 0) reason = 'SERVER_REJECTED';
       audit = { target: req.intent.target, source: req.intent.source, recordT: req.intent.recordT, reason, damage,
@@ -1313,7 +1325,8 @@ export class GameRoom {
       p.simulationTime = now;
       if (this.mode.id === 'hvh') {
         p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);
-        p.resource.step(this.hvhTick, p.fireQueue.length > 0 || now - p.lastFireAt < 250, (p.hvh.core?.fakeLag ?? 0) > 0);
+        p.resource.step(this.hvhTick, p.fireQueue.length > 0 || now - p.lastFireAt < 250,
+          p.hvhEnabled && fakeLagTicks(p.hvh.core ?? defaultHvhCore(), p.lastSeq, p.state.horizontalSpeed) > 0);
       } else p.resource.playerTick++;
       this.updateHvhPose(p, now);
       if (this.mode.id === 'hvh') {

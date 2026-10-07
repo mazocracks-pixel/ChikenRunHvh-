@@ -114,7 +114,7 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
         forceSafe: false, preferSafe: true, multipoint: true, pointScale: 65,
         accuracyWeight: 15, confidenceWeight: 15, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
       movement: { autoStop: false, autoStopSlowWalk: false, autoStopBetweenShots: true, autoStopPredict: false, autoStopPredictMs: 200,
-        slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyZ', subtickStrafe: false },
+        slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyP', subtickStrafe: false },
       feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK',
     },
     legit: {
