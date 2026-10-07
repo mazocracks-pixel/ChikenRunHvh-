@@ -145,6 +145,7 @@ struct BrowserConfig {
     bool antiUntrusted{};
     bool antiScreenshot{};
     bool lowFpsWarning{};
+    float menuColor[4]{ 0.576f, 0.773f, 0.224f, 1.f };
   } Misc;
 };
 extern BrowserConfig g_Config;

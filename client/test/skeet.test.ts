@@ -65,3 +65,17 @@ it('multipoints stay inside standing and crouching hit volumes and safe points r
   assert.equal(skeetSafeRay(eye, { x: 0.22, y: 0, z: 9.7 }, target, 0, 20), true);
   assert.equal(skeetSafeRay(eye, { x: 0.22, y: 0, z: 9.7 }, target, 25, 20), false);
 });
+
+it('every saved native menu field has a matching C++ bridge case, both ways', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { NATIVE_FIELDS } = await import('../src/dev/skeet/nativeFields');
+  const bridge = readFileSync(new URL('../native/skeet/config_bridge.inc', import.meta.url), 'utf8');
+  const [set, get] = bridge.split('float native_get');
+  NATIVE_FIELDS.forEach((f, i) => {
+    assert.equal(f.id, i, 'ids run 0, 1, 2…');
+    // Arrays (colours, multi-selects) end in _0, _1…: that index must be the one the case uses.
+    const path = `g_Config.${f.field}${/_\d$/.test(f.key) ? `[${f.component}]` : ''}`;
+    assert.ok(set!.includes(`case ${f.id}: ${path}=`), `native_set ${f.id} ${f.key}`);
+    assert.ok(get!.includes(`case ${f.id}: return ${path};`), `native_get ${f.id} ${f.key}`);
+  });
+});

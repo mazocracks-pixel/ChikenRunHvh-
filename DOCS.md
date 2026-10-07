@@ -11,7 +11,14 @@ for each step, and a log of every mistake made along the way (what went wrong, a
 | --- | --- | --- |
 | G | Lobby music: `CHIKEN_HVHLOBBY` loops on the title screen, fades out when a match starts, has its own volume in Settings | Done |
 | H | The title-screen chicken's lap: wider again, still clear of every wall | Done |
-| I | Skeet panel (C++ compiled to WebAssembly): install the exact compiler it was built with (Emscripten 4.0.22), check the unchanged source rebuilds and works, then make it better | Planned |
+| I | Skeet panel (C++ compiled to WebAssembly): install the exact compiler it was built with (Emscripten 4.0.22), check the unchanged source rebuilds and works, then make it better | Done |
+| I1 | Tabs: a drawn icon for each tab (crosshair, shield, pistol, eye, gear, paint drop, player) instead of plain text, in the menu colour when selected | Done |
+| I2 | Section headings in bold with a divider line; info lines in grey; sliders, lists and buttons lined up with the original Skeet controls | Done |
+| I3 | Remove the ~20 "(unavailable)" lines that only cluttered Visuals and Misc | Done |
+| I4 | **Menu color** picker (Misc > Settings), like real Skeet: recolours ticks, sliders and the selected tab icon, and is saved with your config | Done |
+| I5 | Fixes: the Skins tab's two empty boxes, three buttons all called "Apply", bot names showing "?" (the emoji has no letter in the menu font), and the Legit tab ignoring a click | Done |
+| J | (added mid-batch) Bug: holding the Shadow Daggers makes the screen flash blue. Find the cause and fix it | Planned |
+| K | (added mid-batch) **M** switches your team (Red to Blue, Blue to Red), checked by the server. Not in FaceChiken: ranked teams are random and can't be changed | Planned |
 
 Same rules: read first, smallest change that works, test, look at it in the browser, commit only when every test passes.
 
@@ -31,9 +38,31 @@ Same rules: read first, smallest change that works, test, look at it in the brow
 - Checked in the browser: four screenshots around the lap, no errors.
 - Code: `LOBBY_LAP` in [shared/src/maps/lobby.ts](shared/src/maps/lobby.ts).
 
+### I. The Skeet panel, in its C++
+- **The compiler first.** Installed Emscripten 4.0.22 (the version the panel was built with) and rebuilt the *unchanged* C++. The output was byte-for-byte the same as the committed `menu.js` / `menu.wasm`, so any change after that comes only from the edits.
+- **Before screenshots of all 7 tabs** showed what to fix: plain-text tabs; section names that looked like ordinary labels; sliders and lists out of line with the original controls; about 20 "(unavailable)" lines; three buttons all called "Apply"; two empty boxes on Skins; bots shown as "? Omelette"; and a click on Legit that did nothing.
+- **I1 Tab icons**: drawn in C++ with ImGui shapes (the original icon font is missing): crosshair (Rage), half-filled shield (Anti-aim), pistol (Legit), eye (Visuals), gear (Misc), paint drop (Skins), head and shoulders (Players), with the name underneath. Grey, brighter on hover, and the menu colour when selected.
+- **I2 Layout**: section headings are bold with a thin divider; info and status lines are grey, so they read differently from settings; sliders, lists and buttons line up with the names of the ticks, as in the original menu; spacing matches the original boxes.
+- **I3**: the ~20 "unavailable" lines (Knifebot, Zeusbot, Ragdoll gravity, Danger Zone, money, hands…) are gone, and so is the dead code behind them.
+- **I4 Menu color** (Misc > Settings): one picker recolours every tick, slider and the selected tab. It is saved with the config like every other panel setting (C++ `Config.h` field, the bridge, `nativeFields.ts`). Checked: set to red, everything turned red; picking a colour in the picker wrote it to the config and to storage.
+- **I5 Fixes**
+  - **The lost click (Legit).** ImGui applies a click over two frames, and the second frame used wherever the mouse was *by then*. Click and move away quickly, or click while the game runs slowly, and the release landed somewhere else, so the click was lost. `browser.cpp` now uses the press position on the press frame and the release position on the release frame.
+  - **Duplicates.** Every box called "Other" (in Anti-aim, Legit and Misc) drew the same controls, so the Resolver settings showed up three times. Legit is now one "Triggerbot" box, and Misc's "Other" holds the recipes.
+  - Skins is now "Weapon skin" and "Weapon stats", with no empty boxes.
+  - The recipe buttons are named: "Apply precision safe points", "Apply ground peek", "Apply state jitter".
+  - Bots read "Sunny (bot)": the menu font only has Latin letters, so other symbols are swapped or dropped.
+- **Checked**
+  - Typecheck, all tests (one new: every saved panel setting has its C++ case, so the two can't drift apart) and the build all pass.
+  - `scripts/check-native-menu.cjs` passes: 7 tabs, key binding, colour pickers, save and load, small window, scene effects, reset when you switch panels, and FFA untouched.
+  - After screenshots of every tab.
+- Code: [client/native/skeet/menu/Menu.cpp](client/native/skeet/menu/Menu.cpp), [client/native/skeet/browser.cpp](client/native/skeet/browser.cpp), [client/src/dev/skeet/NativeMenu.ts](client/src/dev/skeet/NativeMenu.ts), rebuilt [client/public/skeet-native/](client/public/skeet-native/).
+
 ## Mistakes log (batch 2)
 
-_Every mistake goes here._
+1. **The first compile from PowerShell failed.** With `2>&1`, PowerShell 5.1 treats Emscripten's normal "sanity checks" message (printed on stderr) as an error and stops. Then `emsdk_env.bat` didn't put `em++` on PATH inside a batch file. **Fix:** a small batch file that sets `EM_CONFIG` and PATH itself and calls `em++.bat` by its full path. Written into the Skeet README.
+2. **Batch 1 broke the Skeet QA script and I didn't notice.** The lobby redesign moved **Create room** into **Change mode**, and `check-native-menu.cjs` still looked for it on the title screen. It wasn't run after the menu change. **Fix:** the script opens Change mode first. **Rule:** run that script after any main-menu change.
+3. **The new bridge test was wrong at first.** It assumed only colours are arrays, but a multi-select (brightness adjustment) is one too, so the test failed on correct code. **Fix:** treat every field whose key ends in `_0`, `_1`… as an array element.
+4. **The shell ate a backslash again.** Editing that test with `node -e` in the shell turned `/_\d$/` into `/_d$/`. **Fix:** corrected with the Edit tool. **Rule (again):** edit files with the Edit tool or a .cjs script file, never inline in the shell.
 
 # Batch 1 (6 Oct): sounds, scope, kill icons, inspect, gun shapes, main menu
 

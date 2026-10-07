@@ -192,5 +192,9 @@ export const NATIVE_FIELDS = [
   {"id":189,"key":"Misc_antiUntrusted","field":"Misc.antiUntrusted","component":0,"kind":"bool","min":0,"max":1,"default":0},
   {"id":190,"key":"Misc_antiScreenshot","field":"Misc.antiScreenshot","component":0,"kind":"bool","min":0,"max":1,"default":0},
   {"id":191,"key":"Misc_lowFpsWarning","field":"Misc.lowFpsWarning","component":0,"kind":"bool","min":0,"max":1,"default":0},
+  {"id":192,"key":"Misc_menuColor_0","field":"Misc.menuColor","component":0,"kind":"float","min":0,"max":1,"default":0.576},
+  {"id":193,"key":"Misc_menuColor_1","field":"Misc.menuColor","component":1,"kind":"float","min":0,"max":1,"default":0.773},
+  {"id":194,"key":"Misc_menuColor_2","field":"Misc.menuColor","component":2,"kind":"float","min":0,"max":1,"default":0.224},
+  {"id":195,"key":"Misc_menuColor_3","field":"Misc.menuColor","component":3,"kind":"float","min":0,"max":1,"default":1},
 ] as const;
 export function defaultNativeValues(): Record<string, number> { return Object.fromEntries(NATIVE_FIELDS.map(f=>[f.key,f.default])); }

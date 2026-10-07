@@ -14,7 +14,9 @@ interface NativeModule {
 }
 let modulePromise: Promise<NativeModule> | undefined;
 const canvas = h('canvas', { id: 'skeet-native-canvas', width: 660, height: 560, tabindex: 0, 'aria-label': 'Original C++ Skeet menu' });
-const call = (m: NativeModule, name: string, ...values: (number | string)[]) => m.ccall(name, null, values.map(v => typeof v), values);
+/** The menu font has Latin-1 letters only: swap common symbols and drop the rest (like the bots' emoji, which showed as "?"). */
+export const menuText = (s: string): string => s.replace(/[\u2013\u2014]/g, '-').replace(/\u2026/g, '...').replace(/\u2192/g, '->').replace(/[^\x20-\x7e\xa0-\xff]/g, '').replace(/\s+/g, ' ').trim();
+const call = (m: NativeModule, name: string, ...values: (number | string)[]) => m.ccall(name, null, values.map(v => typeof v), values.map(v => typeof v === 'string' ? menuText(v) : v));
 const value = (m: NativeModule, name: string, id: number) => m.ccall(name, 'number', ['number'], [id]) as number;
 const mapped: Record<string,string> = {
   'Misc.bunnyHop':'legit.move.bhop', 'Misc.airStrafe':'legit.move.autoStrafe',
@@ -88,10 +90,11 @@ export class NativeMenu {
       for(const section of tab.sections) {
         const group=tab.id==='rage'?(section.title==='Shot overrides'?'Rage Other':'Aimbot')
           :tab.id==='antiaim'?(section.title==='Resolver'?'Other':section.title.toLowerCase().includes('network')?'Fake lag':'Anti-aimbot angles')
-          :tab.id==='fakelag'?'Fake lag':tab.id==='legit'?'Trigger':tab.id==='skins'?'Weapon skin':tab.id==='misc'?'Browser Misc':'Settings';
-        add(group,{type:'info',label:section.title,value:()=>''});
+          :tab.id==='fakelag'?'Fake lag':tab.id==='legit'?'Trigger':tab.id==='skins'?(section.title==='Weapon finish'?'Weapon skin':'Weapon stats'):tab.id==='misc'?'Browser Misc':tab.id==='extensions'?'Misc Other':'Settings';
+        // Type 6: a section heading.
+        call(m,'native_add',id++,group,section.title,6,0,1,'','');
         for(const c of section.items) {
-          if(c.type==='buttons')for(const b of c.items)addButton(group,b.label,b.run);
+          if(c.type==='buttons')for(const b of c.items)addButton(group,c.items.length===1&&b.label==='Apply'?`Apply ${c.label.toLowerCase()}`:b.label,b.run);
           else add(group,c);
         }
       }
@@ -101,7 +104,7 @@ export class NativeMenu {
     for(const saved of this.dev.configs)addButton('Settings',`Load ${saved.name}`,()=>this.dev.replaceConfig(structuredClone(saved.config)));
     addButton('Settings','Reset all settings',()=>this.dev.resetAll());
     for(const p of this.dev.runtime.currentSession?.infos.values()??[]) if(p.pid!==this.dev.runtime.currentSession?.selfPid) {
-      for(const key of ['ignore','body'] as const)add('Players',{type:'check',label:`${key==='ignore'?'Ignore':'Body aim'} ${p.name}`,bind:{get:()=>this.dev.runtime.playerRule(p.pid)[key],set:v=>this.dev.runtime.setPlayerRule(p.pid,key,v)}});
+      for(const key of ['ignore','body'] as const)add('Players',{type:'check',label:`${key==='ignore'?'Ignore':'Body aim'} ${p.name}${p.bot?' (bot)':''}`,bind:{get:()=>this.dev.runtime.playerRule(p.pid)[key],set:v=>this.dev.runtime.setPlayerRule(p.pid,key,v)}});
     }
     add('Adjustments',{type:'info',label:'Opponent overrides',value:()=> 'Ignore excludes assisted targeting. Body aim selects torso points. Both clear on leaving.'});
   }

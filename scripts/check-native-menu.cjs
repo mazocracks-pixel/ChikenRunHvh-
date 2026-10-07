@@ -10,7 +10,7 @@ async function main() {
   try {
     await page.addInitScript(()=>{localStorage.setItem('chikengun:cookie-notice','2');localStorage.setItem('chikengun:settings',JSON.stringify({fullscreen:false,quality:'low'}));});
     await page.goto(process.env.BASE_URL || 'http://localhost:3001');
-    await page.getByRole('button',{name:/Create room/}).click();
+    await page.getByRole('button',{name:/Change mode/}).click();await page.getByRole('button',{name:/Create room/}).click();
     await page.locator('#create-mode').selectOption('hvh');await page.locator('#create-bots').fill('1');
     await page.getByRole('button',{name:'Create room',exact:true}).click();
     await page.getByRole('dialog',{name:'HvH setup'}).waitFor();
@@ -73,7 +73,7 @@ async function main() {
     assert.equal(await read('game.activeSession.rig.hvhThirdPerson'),false);
     assert.equal(await read('game.activeSession.ctx.world.foliage.root.visible'),true);
     assert.ok(await page.evaluate(()=>window.__app.game.scene.fog!==null));
-    await page.reload();await page.getByRole('button',{name:/Create room/}).click();
+    await page.reload();await page.getByRole('button',{name:/Change mode/}).click();await page.getByRole('button',{name:/Create room/}).click();
     await page.locator('#create-mode').selectOption('ffa');await page.locator('#create-bots').fill('0');await page.getByRole('button',{name:'Create room',exact:true}).click();await page.waitForTimeout(500);
     await page.evaluate(()=>{const d=window.__app.dev;d.selectPanel('skeet');const c=structuredClone(d.config);for(const k of Object.keys(c.skeet.native))c.skeet.native[k]=1;d.replaceConfig(c);});
     await page.keyboard.press('Insert');await page.waitForTimeout(200);

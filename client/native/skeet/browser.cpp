@@ -23,6 +23,8 @@ static GLint projection,texture;
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context;
 static std::string widgets;
 static bool heldMouse[5]={},pressedMouse[5]={};
+static ImVec2 mouseNow,pressPos,releasePos;
+static bool pressQueued=false,releaseQueued=false;
 static bool heldKeys[512]={},pressedKeys[512]={};
 
 void BrowserRecordWidget(const char* label) {
@@ -32,29 +34,49 @@ void BrowserRecordWidget(const char* label) {
   widgets += std::string(label)+"\t"+std::to_string(p.x)+"\t"+std::to_string(p.y)+"\t"+std::to_string(q.x)+"\t"+std::to_string(q.y)+"\n";
 }
 void BrowserGroup(const char* group) {
+  // The same spacing as the original group boxes, with their gap at the top.
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(4.f,2.f));
+  bool top=ImGui::GetCursorPosY()<20.f;
+  if(top)ImGui::CustomSpacing(7.f);
   for(auto& c:controls) if(c.group==group) {
-    ImGui::PushID(c.id); ImGui::Spacing();
+    ImGui::PushID(c.id);
+    if(c.type==6) {
+      // A section heading: bold, with a divider running to the edge of the box.
+      if(!top)ImGui::CustomSpacing(9.f);
+      ImGui::NewLine(); ImGui::SameLine(19.f);
+      ImGui::PushFont(boldMenuFont); ImGui::PushStyleColor(ImGuiCol_Text,ImColor(214,214,214).Value);
+      ImGui::TextUnformatted(c.label.c_str());
+      ImGui::PopStyleColor(); ImGui::PopFont();
+      ImVec2 a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();float y=floorf((a.y+b.y)*.5f)+.5f;
+      ImGui::GetWindowDrawList()->AddLine(ImVec2(b.x+6.f,y),ImVec2(ImGui::GetWindowPos().x+ImGui::GetWindowWidth()-27.f,y),ImColor(52,52,52));
+      ImGui::PopID(); top=false; continue;
+    }
+    top=false;
+    ImGui::Spacing();
     std::string label=c.label;
-    while(label.size()>3 && ImGui::CalcTextSize(label.c_str()).x>185.f)label.pop_back();
+    const float fit=c.type==3?150.f:185.f;
+    while(label.size()>3 && ImGui::CalcTextSize(label.c_str()).x>fit)label.pop_back();
     if(label!=c.label)label+="...";
     label+="##control";
     if(c.type==1||c.type==2)ImGui::CustomSpacing(18.f);
-    ImGui::NewLine(); ImGui::SameLine(19.f);
+    // Ticks sit at the box's edge; everything else lines up with their names, as in the original menu.
+    ImGui::NewLine(); ImGui::SameLine(c.type==0?19.f:42.f);
     ImGui::PushItemWidth(159.f);
     if(c.type==0) { bool value=c.value!=0; if(ImGui::Checkbox(label.c_str(),&value))c.value=value; }
     if(c.type==1) ImGui::SliderFloat(label.c_str(),&c.value,c.min,c.max,c.max>10?"%.0f":"%.2f");
     if(c.type==2) { int value=(int)c.value; std::vector<const char*> choices; for(auto& s:c.choices)choices.push_back(s.c_str()); if(ImGui::Combo(label.c_str(),&value,choices.data(),choices.size()))c.value=value; }
-    if(c.type==3) { ImGui::PushStyleColor(ImGuiCol_Button,ImColor(35,35,35).Value);ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImColor(55,55,55).Value);ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImColor(65,65,65).Value);if(ImGui::Button(label.c_str(),ImVec2(210,20)))c.value=1;ImGui::PopStyleColor(3); }
-    if(c.type==4) { ImGui::TextWrapped("%s%s%s",c.label.c_str(),c.detail.empty()?"":": ",c.detail.c_str()); }
+    if(c.type==3) { ImGui::PushStyleColor(ImGuiCol_Button,ImColor(35,35,35).Value);ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImColor(55,55,55).Value);ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImColor(65,65,65).Value);if(ImGui::Button(label.c_str(),ImVec2(159,20)))c.value=1;ImGui::PopStyleColor(3); }
+    if(c.type==4) { ImGui::PushStyleColor(ImGuiCol_Text,ImColor(150,150,150).Value);ImGui::PushTextWrapPos(ImGui::GetWindowWidth()-27.f);ImGui::Text("%s%s%s",c.label.c_str(),c.detail.empty()?"":": ",c.detail.c_str());ImGui::PopTextWrapPos();ImGui::PopStyleColor(); }
     if(c.type==5) {
       int rgb=(int)c.value;float color[3]={((rgb>>16)&255)/255.f,((rgb>>8)&255)/255.f,(rgb&255)/255.f};
-      ImGui::TextUnformatted(label.substr(0,label.find("##")).c_str());ImGui::SameLine(210.f);
+      ImGui::AlignTextToFramePadding();ImGui::TextUnformatted(label.substr(0,label.find("##")).c_str());ImGui::SameLine(219.f);
       if(ImGui::ColorEdit3("##color",color,ImGuiColorEditFlags_NoInputs))c.value=((int)(color[0]*255)<<16)|((int)(color[1]*255)<<8)|(int)(color[2]*255);
     }
     BrowserRecordWidget(c.label.c_str());
     if(c.type!=4 && ImGui::IsItemHovered()) ImGui::SetTooltip("%s%s%s",c.label.c_str(),c.detail.empty()?"":"\n",c.detail.c_str());
     ImGui::PopItemWidth(); ImGui::PopID();
   }
+  ImGui::PopStyleVar();
 }
 
 static GLuint shader(GLenum type,const char* source) { GLuint s=glCreateShader(type);glShaderSource(s,1,&source,nullptr);glCompileShader(s);return s; }
@@ -86,14 +108,15 @@ EMSCRIPTEN_KEEPALIVE void native_add(int id,const char* group,const char* label,
 EMSCRIPTEN_KEEPALIVE void native_control_set(int id,float value){for(auto& c:controls)if(c.id==id)c.value=value;}
 EMSCRIPTEN_KEEPALIVE float native_control_get(int id){for(auto& c:controls)if(c.id==id)return c.value;return 0;}
 EMSCRIPTEN_KEEPALIVE void native_detail(int id,const char* detail){for(auto& c:controls)if(c.id==id)c.detail=detail;}
-EMSCRIPTEN_KEEPALIVE void native_mouse(float x,float y,int button,int down,float wheel){auto& io=ImGui::GetIO();io.MousePos=ImVec2(x,y);if(button>=0&&button<5){heldMouse[button]=down;if(down)pressedMouse[button]=true;}io.MouseWheel+=wheel;}
+EMSCRIPTEN_KEEPALIVE void native_mouse(float x,float y,int button,int down,float wheel){auto& io=ImGui::GetIO();mouseNow=ImVec2(x,y);if(button>=0&&button<5){heldMouse[button]=down;if(down){pressedMouse[button]=true;pressPos=mouseNow;pressQueued=true;}else{releasePos=mouseNow;releaseQueued=true;}}io.MouseWheel+=wheel;}
 EMSCRIPTEN_KEEPALIVE void native_key(int key,int down,int ctrl,int shift,int alt){auto& io=ImGui::GetIO();if(key>=0&&key<512){heldKeys[key]=down;if(down)pressedKeys[key]=true;}io.KeyCtrl=ctrl;io.KeyShift=shift;io.KeyAlt=alt;}
 EMSCRIPTEN_KEEPALIVE void native_text(const char* text){ImGui::GetIO().AddInputCharactersUTF8(text);}
 EMSCRIPTEN_KEEPALIVE const char* native_widgets(){return widgets.c_str();}
 EMSCRIPTEN_KEEPALIVE int native_popup_count(){return ImGui::GetCurrentContext()->OpenPopupStack.Size;}
-EMSCRIPTEN_KEEPALIVE void native_reset_input(){std::fill(heldMouse,heldMouse+5,false);std::fill(pressedMouse,pressedMouse+5,false);std::fill(heldKeys,heldKeys+512,false);std::fill(pressedKeys,pressedKeys+512,false);auto& io=ImGui::GetIO();std::fill(io.MouseDown,io.MouseDown+5,false);std::fill(io.KeysDown,io.KeysDown+512,false);io.KeyCtrl=io.KeyShift=io.KeyAlt=false;io.MouseWheel=0;ImGui::GetCurrentContext()->OpenPopupStack.clear();}
+EMSCRIPTEN_KEEPALIVE void native_reset_input(){std::fill(heldMouse,heldMouse+5,false);std::fill(pressedMouse,pressedMouse+5,false);std::fill(heldKeys,heldKeys+512,false);std::fill(pressedKeys,pressedKeys+512,false);pressQueued=releaseQueued=false;auto& io=ImGui::GetIO();std::fill(io.MouseDown,io.MouseDown+5,false);std::fill(io.KeysDown,io.KeysDown+512,false);io.KeyCtrl=io.KeyShift=io.KeyAlt=false;io.MouseWheel=0;ImGui::GetCurrentContext()->OpenPopupStack.clear();}
 EMSCRIPTEN_KEEPALIVE void native_frame(float width,float height,float dt) {
   emscripten_webgl_make_context_current(context);auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(width,height);io.DeltaTime=std::max(0.001f,dt);
+  if(pressQueued){io.MousePos=pressPos;pressQueued=false;}else if(releaseQueued){io.MousePos=releasePos;releaseQueued=false;}else io.MousePos=mouseNow;
   for(int b=0;b<5;b++){io.MouseDown[b]=heldMouse[b]||pressedMouse[b];pressedMouse[b]=false;}
   for(int k=0;k<512;k++){io.KeysDown[k]=heldKeys[k]||pressedKeys[k];pressedKeys[k]=false;}
   widgets.clear();ImGui::NewFrame();ImGui::SetNextWindowPos(ImVec2(0,0),ImGuiCond_Always);Menu::Get().isOpen=true;Menu::Get().Render();ImGui::Render();

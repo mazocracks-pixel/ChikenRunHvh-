@@ -5,6 +5,7 @@
 
 #include "imgui.h"
 #include "imgui_internal.h"
+#include <cmath>
 
 
 extern ImFont* menuFont;
@@ -16,6 +17,79 @@ extern ImTextureID menuBg;
 void BrowserGroup(const char* name);
 
 static int tab = 0;
+
+// The tab icons, drawn from lines and shapes (the original icon font is not available).
+static void DrawTabIcon(int i, ImDrawList* d, ImVec2 c, ImU32 col) {
+	switch (i) {
+	case 0: // Rage: a crosshair
+		d->AddCircle(c, 9.f, col, 24, 2.f);
+		d->AddLine(ImVec2(c.x, c.y - 14.f), ImVec2(c.x, c.y - 5.f), col, 2.f);
+		d->AddLine(ImVec2(c.x, c.y + 5.f), ImVec2(c.x, c.y + 14.f), col, 2.f);
+		d->AddLine(ImVec2(c.x - 14.f, c.y), ImVec2(c.x - 5.f, c.y), col, 2.f);
+		d->AddLine(ImVec2(c.x + 5.f, c.y), ImVec2(c.x + 14.f, c.y), col, 2.f);
+		d->AddCircleFilled(c, 1.8f, col, 8);
+		break;
+	case 1: // Anti-aim: a shield, its left half filled
+		d->PathLineTo(ImVec2(c.x, c.y - 12.f));
+		d->PathLineTo(ImVec2(c.x + 10.f, c.y - 8.f));
+		d->PathLineTo(ImVec2(c.x + 10.f, c.y));
+		d->PathBezierCurveTo(ImVec2(c.x + 10.f, c.y + 7.f), ImVec2(c.x + 5.f, c.y + 11.f), ImVec2(c.x, c.y + 13.f));
+		d->PathBezierCurveTo(ImVec2(c.x - 5.f, c.y + 11.f), ImVec2(c.x - 10.f, c.y + 7.f), ImVec2(c.x - 10.f, c.y));
+		d->PathLineTo(ImVec2(c.x - 10.f, c.y - 8.f));
+		d->PathStroke(col, true, 2.f);
+		d->PathLineTo(ImVec2(c.x, c.y - 12.f));
+		d->PathLineTo(ImVec2(c.x, c.y + 13.f));
+		d->PathBezierCurveTo(ImVec2(c.x - 5.f, c.y + 11.f), ImVec2(c.x - 10.f, c.y + 7.f), ImVec2(c.x - 10.f, c.y));
+		d->PathLineTo(ImVec2(c.x - 10.f, c.y - 8.f));
+		d->PathFillConvex(col);
+		break;
+	case 2: // Legit: a pistol, muzzle to the left
+		d->AddRectFilled(ImVec2(c.x - 13.f, c.y - 8.f), ImVec2(c.x + 11.f, c.y - 2.f), col, 1.5f);
+		d->AddRectFilled(ImVec2(c.x - 12.f, c.y - 10.f), ImVec2(c.x - 10.f, c.y - 8.f), col);
+		d->AddQuadFilled(ImVec2(c.x + 3.f, c.y - 2.f), ImVec2(c.x + 10.f, c.y - 2.f), ImVec2(c.x + 13.f, c.y + 10.f), ImVec2(c.x + 6.f, c.y + 10.f), col);
+		d->PathArcTo(ImVec2(c.x + 0.5f, c.y - 2.f), 3.5f, 0.f, IM_PI, 8);
+		d->PathStroke(col, false, 1.5f);
+		break;
+	case 3: // Visuals: an eye
+		d->PathLineTo(ImVec2(c.x - 14.f, c.y));
+		d->PathBezierCurveTo(ImVec2(c.x - 7.f, c.y - 10.f), ImVec2(c.x + 7.f, c.y - 10.f), ImVec2(c.x + 14.f, c.y));
+		d->PathBezierCurveTo(ImVec2(c.x + 7.f, c.y + 10.f), ImVec2(c.x - 7.f, c.y + 10.f), ImVec2(c.x - 14.f, c.y));
+		d->PathStroke(col, true, 2.f);
+		d->AddCircleFilled(c, 4.5f, col, 16);
+		d->AddCircleFilled(c, 1.8f, IM_COL32(10, 10, 10, 255), 8);
+		break;
+	case 4: // Misc: a gear
+		d->AddCircle(c, 6.5f, col, 20, 3.f);
+		for (int k = 0; k < 8; k++) {
+			const float a = k * IM_PI / 4.f, x = cosf(a), y = sinf(a);
+			auto at = [&](float r, float w) { return ImVec2(c.x + x * r - y * w, c.y + y * r + x * w); };
+			d->AddQuadFilled(at(7.f, -2.5f), at(12.f, -1.8f), at(12.f, 1.8f), at(7.f, 2.5f), col);
+		}
+		break;
+	case 5: // Skins: a paint drop
+		d->AddCircleFilled(ImVec2(c.x, c.y + 3.f), 8.f, col, 20);
+		d->AddTriangleFilled(ImVec2(c.x, c.y - 13.f), ImVec2(c.x + 6.93f, c.y - 1.f), ImVec2(c.x - 6.93f, c.y - 1.f), col);
+		break;
+	case 6: // Players: a head and shoulders
+		d->AddCircleFilled(ImVec2(c.x, c.y - 6.f), 5.f, col, 16);
+		d->PathArcTo(ImVec2(c.x, c.y + 12.f), 10.f, IM_PI, 2.f * IM_PI, 16);
+		d->PathFillConvex(col);
+		break;
+	}
+}
+
+// Icon and name on the tab just drawn: the menu colour when selected, brighter on hover.
+static void DrawTab(int i, const char* name, bool selected) {
+	ImDrawList* d = ImGui::GetWindowDrawList();
+	const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+	const bool hovered = !selected && ImGui::IsItemHovered();
+	const ImU32 icon = selected ? ImGui::GetColorU32(ImGuiCol_MenuTheme) : hovered ? IM_COL32(205, 205, 205, 255) : IM_COL32(92, 92, 92, 255);
+	const ImU32 text = selected ? IM_COL32(220, 220, 220, 255) : hovered ? IM_COL32(180, 180, 180, 255) : IM_COL32(105, 105, 105, 255);
+	const float cx = floorf((a.x + b.x) * 0.5f);
+	DrawTabIcon(i, d, ImVec2(cx, a.y + 30.f), icon);
+	const ImVec2 size = ImGui::CalcTextSize(name);
+	d->AddText(ImVec2(floorf(cx - size.x * 0.5f), a.y + 52.f), text, name);
+}
 
 extern bool unload;
 
@@ -36,6 +110,8 @@ void Menu::Render() {
 	ImGuiStyle* style = &ImGui::GetStyle();
 
 	style->WindowPadding = ImVec2(6, 6);
+	// I4: the menu colour (ticks, sliders, the selected tab) comes from your config.
+	style->Colors[ImGuiCol_MenuTheme] = ImVec4(g_Config.Misc.menuColor[0], g_Config.Misc.menuColor[1], g_Config.Misc.menuColor[2], 1.f);
 
 	ImGui::PushFont(menuFont);
 
@@ -68,10 +144,14 @@ void Menu::Render() {
 				ImGui::PushFont(tabFont);
 
                 const char* tabs[] = {"Rage", "Anti-aim", "Legit", "Visuals", "Misc", "Skins", "Players"};
+                // "##" hides the widgets' own text: DrawTab draws an icon and the name instead.
+                const char* ids[] = {"##Rage", "##Anti-aim", "##Legit", "##Visuals", "##Misc", "##Skins", "##Players"};
                 ImGui::TabSpacer("##Top Spacer", ImVec2(75.f, 10.f));
                 for (int i = 0; i < 7; i++) {
-                    if (i == tab) ImGui::SelectedTab(tabs[i], ImVec2(75.f, 75.f));
-                    else if (ImGui::Tab(tabs[i], ImVec2(75.f, 75.f))) tab = i;
+                    const bool selected = i == tab;
+                    if (selected) ImGui::SelectedTab(ids[i], ImVec2(75.f, 75.f));
+                    else if (ImGui::Tab(ids[i], ImVec2(75.f, 75.f))) tab = i;
+                    DrawTab(i, tabs[i], selected);
                 }
                 ImGui::TabSpacer2("##Bottom Spacer", ImVec2(75.f, 7.f));
                 ImGui::PopFont();
@@ -187,24 +267,9 @@ void Menu::Legit() {
 
 	InsertSpacer("Weapon Selection - Main Group boxes Spacer");
 
-	ImGui::Columns(2, NULL, false); {
-
-		InsertGroupBoxLeft("Aimbot", 427.f); {
+	InsertGroupBoxTop("Triggerbot", ImVec2(535.f, 427.f)); {
  BrowserGroup("Trigger");
- } InsertEndGroupBoxLeft("Aimbot Cover", "Aimbot");
-	}
-	ImGui::NextColumn(); {
-
-		InsertGroupBoxRight("Triggerbot", 277.f); {
- BrowserGroup("Triggerbot");
- } InsertEndGroupBoxRight("Triggerbot Cover", "Triggerbot");
-
-		InsertSpacer("Triggerbot - Other Spacer");
-
-		InsertGroupBoxRight("Other", 132.f); {
- BrowserGroup("Other");
- } InsertEndGroupBoxRight("Other Cover", "Other");
-	}
+ } InsertEndGroupBoxTop("Triggerbot Cover", "Triggerbot", ImVec2(536.f, 11.f));
 }
 
 void Menu::Visuals() {
@@ -243,7 +308,6 @@ void Menu::Visuals() {
 			InsertColorPicker("##Sounds color", g_Config.Color.Players.visualizeSounds, false);
 			InsertCheckbox("Line of sight", g_Config.Visuals.Players.lineOfSight);
 			InsertColorPicker("##Line of sight color", g_Config.Color.Players.lineOfSight, false);
-			ImGui::TextDisabled("Money: unavailable in HvH");
 			InsertCheckbox("Skeleton", g_Config.Visuals.Players.skeleton);
 			InsertColorPicker("##Skeleton color", g_Config.Color.Players.skeleton, false);
 			InsertCheckbox("Out of FOV arrow", g_Config.Visuals.Players.outOfFOVArrow);
@@ -300,17 +364,8 @@ void Menu::Visuals() {
 				// nothing
 			}
 			
-			ImGui::TextDisabled("Hands: no hand model");
 
 
-			if (g_Config.Visuals.ColoredModels.hands) {
-
-				InsertComboWithoutText("##hands material", g_Config.Visuals.ColoredModels.handsMaterial, chamsMaterials);
-			}
-			else {
-
-				// nothing
-			}
 
 			InsertCheckbox("Weapons", g_Config.Visuals.ColoredModels.weapons);
 			InsertColorPicker("##Weapons color", g_Config.Color.ColoredModels.weapons, true);
@@ -354,41 +409,13 @@ void Menu::Visuals() {
 			InsertColorPicker("##Inaccuracy overlay color", g_Config.Color.Other.inaccuracyOverlay, true);
 			InsertCheckbox("Recoil overlay", g_Config.Visuals.Other.recoilOverlay);
 			InsertCheckbox("Crosshair", g_Config.Visuals.Other.crosshair);
-			ImGui::TextDisabled("Bomb: unavailable in HvH");
 
 			InsertCheckbox("Grenade trajectory", g_Config.Visuals.Other.grenadeTrajectory);
 			InsertColorPicker("##Grenade trajectory color", g_Config.Color.Other.grenadeTrajectory, false);
 			InsertCheckbox("Grenade proximity warning", g_Config.Visuals.Other.grenadeProximityWarning);
 			InsertCheckbox("Dead players", g_Config.Visuals.Other.spectators);
 			InsertCheckbox("Penetration reticle", g_Config.Visuals.Other.penetrationReticle);
-			ImGui::Spacing(); ImGui::TextDisabled("Hostages (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Upgrade tablet (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Danger Zone items (unavailable)");
 
-			if (g_Config.Visuals.Other.dangerZoneItems) {
-
-				InsertCheckbox("Drone gun", g_Config.Visuals.DangerZone.droneGun);
-				InsertCheckbox("Blackhawk", g_Config.Visuals.DangerZone.blackhawk);
-				InsertCheckbox("Drone", g_Config.Visuals.DangerZone.drone);
-				InsertCheckbox("Random case", g_Config.Visuals.DangerZone.randomCase);
-				InsertCheckbox("Tool case", g_Config.Visuals.DangerZone.toolCase);
-				InsertCheckbox("Pistol case", g_Config.Visuals.DangerZone.pistolCase);
-				InsertCheckbox("Explosive case", g_Config.Visuals.DangerZone.explosiveCase);
-				InsertCheckbox("Heavy weapon case", g_Config.Visuals.DangerZone.heavyWeaponCase);
-				InsertCheckbox("Dufflebag", g_Config.Visuals.DangerZone.dufflebag);
-				InsertCheckbox("Jammer", g_Config.Visuals.DangerZone.jammer);
-				InsertCheckbox("Ammo box", g_Config.Visuals.DangerZone.ammoBox);
-				InsertCheckbox("Armor", g_Config.Visuals.DangerZone.armor);
-				InsertCheckbox("Parachute pack", g_Config.Visuals.DangerZone.parachutePack);
-				InsertCheckbox("Briefcase", g_Config.Visuals.DangerZone.briefcase);
-				InsertCheckbox("Tablet upgrade zone", g_Config.Visuals.DangerZone.tabletUpgradeZone);
-				InsertCheckbox("Tablet upgrade drone", g_Config.Visuals.DangerZone.tabletUpgradeDrone);
-				InsertCheckbox("Cash stack", g_Config.Visuals.DangerZone.cashStack);
-			}
-			else {
-
-				// nothing
-			}
 
 			style->ItemSpacing = ImVec2(0, 0);
 			style->WindowPadding = ImVec2(6, 6);
@@ -452,40 +479,12 @@ void Menu::Misc() {
 				// nothing
 			}
 
-			ImGui::Spacing(); ImGui::TextDisabled("Knifebot (unavailable)");
 
-			if (g_Config.Misc.knifeBot) {
 
-				InsertMultiComboWithoutText("##knifebot settings", knifebotSettings, g_Config.Misc.knifeBotSettings, 2);			
-			}
-			else {
 
-				// nothing
-			}
 
-			ImGui::Spacing(); ImGui::TextDisabled("Zeusbot (unavailable)");
-
-			if (g_Config.Misc.knifeBot) {
-
-				// add slider for hitchance
-			}
-			else {
-
-				// nothing
-			}
-
-			ImGui::Spacing(); ImGui::TextDisabled("Blockbot (unavailable)");
 			InsertCheckbox("Automatic weapons", g_Config.Misc.automaticWeapons);
-			ImGui::Spacing(); ImGui::TextDisabled("Jump at edge (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Ragdoll force (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Ragdoll gravity (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Reveal competitive ranks (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Auto-accept matchmaking (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Clan tag spammer (unavailable)");
-			ImGui::TextDisabled("Purchases: no shop in HvH");
 			InsertCheckbox("Log damage dealt", g_Config.Misc.logDamageDealt);
-			ImGui::Spacing(); ImGui::TextDisabled("Fast walk (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Free look (unavailable)");
 			InsertCheckbox("Persistent Killfeed", g_Config.Misc.persistentKillfeed); BrowserGroup("Browser Misc");
 
 			style->ItemSpacing = ImVec2(0, 0);
@@ -502,8 +501,8 @@ void Menu::Misc() {
 			style->WindowPadding = ImVec2(4, 4);
 			ImGui::CustomSpacing(9.f);
 
-			ImGui::Spacing(); ImGui::TextDisabled("Anti-untrusted (unavailable)");
-			ImGui::Spacing(); ImGui::TextDisabled("Anti-screenshot (unavailable)");
+			ImGui::Spacing(); ImGui::NewLine(); ImGui::SameLine(42.f); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Menu color");
+			InsertColorPicker("Menu color", g_Config.Misc.menuColor, false);
 			InsertCheckbox("Low FPS warning", g_Config.Misc.lowFpsWarning); BrowserGroup("Settings");
 
 			style->ItemSpacing = ImVec2(0, 0);
@@ -514,7 +513,7 @@ void Menu::Misc() {
 		InsertSpacer("Settings - Other Spacer");
 
 		InsertGroupBoxRight("Other", 332.f); {
- BrowserGroup("Other");
+ BrowserGroup("Misc Other");
  } InsertEndGroupBoxRight("Other Cover", "Other");
 	}
 }
@@ -526,21 +525,15 @@ void Menu::Skins() {
 
 	ImGui::Columns(2, NULL, false); {
 
-		InsertGroupBoxLeft("Knife options", 112.f); {
- BrowserGroup("Knife options");
- } InsertEndGroupBoxLeft("Knife options Cover", "Knife options");
-
-		InsertSpacer("Fake lag - Other Spacer");
-
-		InsertGroupBoxLeft("Glove options", 376.f); {
- BrowserGroup("Glove options");
- } InsertEndGroupBoxLeft("Glove options Cover", "Glove options");
+		InsertGroupBoxLeft("Weapon skin", 506.f); {
+ BrowserGroup("Weapon skin");
+ } InsertEndGroupBoxLeft("Weapon skin Cover", "Weapon skin");
 	}
 	ImGui::NextColumn(); {
 
-		InsertGroupBoxRight("Weapon skin", 506.f); {
- BrowserGroup("Weapon skin");
- } InsertEndGroupBoxRight("Weapon skin Cover", "Weapon skin");
+		InsertGroupBoxRight("Weapon stats", 506.f); {
+ BrowserGroup("Weapon stats");
+ } InsertEndGroupBoxRight("Weapon stats Cover", "Weapon stats");
 	}
 }
 
