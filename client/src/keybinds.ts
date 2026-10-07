@@ -25,6 +25,7 @@ export type BindId =
   | 'camera'
   | 'chat'
   | 'teamChat'
+  | 'team'
   | 'build'
   | 'nextBlock';
 
@@ -45,6 +46,7 @@ export const BINDS: readonly BindDef[] = [
   { id: 'camera', label: 'First / third person', group: 'Other', code: 'KeyV' },
   { id: 'chat', label: 'Chat (everyone)', group: 'Other', code: 'KeyY' },
   { id: 'teamChat', label: 'Team chat', group: 'Other', code: 'KeyU' },
+  { id: 'team', label: 'Switch team', group: 'Other', code: 'KeyM' },
   { id: 'build', label: 'Build mode (Sandbox)', group: 'Other', code: 'KeyB' },
   { id: 'nextBlock', label: 'Next block (Sandbox)', group: 'Other', code: 'KeyX' },
 ];

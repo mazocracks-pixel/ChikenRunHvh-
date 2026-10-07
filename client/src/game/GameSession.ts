@@ -77,6 +77,8 @@ import {
   seatPosition,
   carAimSpeed, type FlashedEvent,
   bombHoldsPlayer,
+  teamName,
+  teamSwitchBlocked,
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
@@ -627,6 +629,9 @@ export class GameSession {
       case 'teamChat':
         this.openChat(true);
         break;
+      case 'team':
+        this.requestTeamSwitch();
+        break;
       case 'use':
         net.socket.emit('useVehicle');
         break;
@@ -664,6 +669,21 @@ export class GameSession {
         }
         break;
     }
+  }
+
+  /** M: ask the server for the other team. It checks the rules (and may say no); we only explain. */
+  private requestTeamSwitch(): void {
+    const { hud, net } = this.ctx;
+    const blocked = teamSwitchBlocked(this.mode);
+    if (blocked) {
+      hud.toast(blocked, 'bad');
+      return;
+    }
+    net.socket
+      .timeout(5000)
+      .emitWithAck('switchTeam')
+      .then((res) => { if (!res.ok) hud.toast(res.error ?? 'Could not switch team.', 'bad'); })
+      .catch(() => hud.toast('Could not switch team.', 'bad'));
   }
 
   private switchWeapon(change: () => boolean): void {
@@ -1384,7 +1404,13 @@ export class GameSession {
 
   private onPlayerInfo(info: PlayerInfo): void {
     const before = this.infos.get(info.pid)?.level;
+    const teamBefore = this.infos.get(info.pid)?.team;
     this.infos.set(info.pid, info);
+    // Our own team changed (M): everyone else is now a friend or a foe the other way round.
+    if (info.pid === this.selfPid && teamBefore !== undefined && teamBefore !== info.team) {
+      for (const other of this.infos.values()) if (other.pid !== this.selfPid) this.remotes.add(other, this.isFriendly(other));
+      this.ctx.hud.toast(`You joined ${teamName(this.mode, info.team)}`, 'good');
+    }
     // Arms Race: a new weapon (or knocked back a step).
     if (info.pid === this.selfPid && info.level !== undefined && before !== undefined && info.level !== before) {
       const weapon = WEAPONS[ARMS_LADDER[info.level]!].name;

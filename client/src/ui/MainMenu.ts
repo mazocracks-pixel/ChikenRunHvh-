@@ -41,7 +41,7 @@ const WHATS_NEW: readonly { title: string; text: string }[] = [
   { title: 'Zombie Apocalypse', text: 'Survive waves on the Graveyard. Bosses every 5 waves, a shop between waves.' },
 ];
 
-const CONTROLS = 'WASD move · Shift slow walk · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Mouse aim · Click shoot · Right-click aim / scope · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat · B buy menu';
+const CONTROLS = 'WASD move · Shift slow walk · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Mouse aim · Click shoot · Right-click aim / scope · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat · M switch team · B buy menu';
 
 const TAB_KEY = 'chikengun:menu-tab';
 const BOTS_KEY = 'chikengun:menu-no-bots';

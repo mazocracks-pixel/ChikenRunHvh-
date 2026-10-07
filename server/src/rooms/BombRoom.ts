@@ -346,6 +346,13 @@ export class BombRoom extends GameRoom {
     }
   }
 
+  /** Switching team during buy time: straight to your new team's spawn (frozen like everyone), not out for the round. */
+  protected override onTeamSwitched(p: ServerPlayer, now: number): void {
+    if (this.phase !== 'playing' || this.state.phase !== 'buy') return;
+    this.spawn(p, now, true);
+    p.frozen = true;
+  }
+
   protected override onPlayerDeath(victim: ServerPlayer, now: number): void {
     super.onPlayerDeath(victim, now);
     this.release(victim);

@@ -86,6 +86,8 @@ import {
   hvhHitDamage, auditShot, type ShotAudit,
   hvhWeapon, hvhSpread, unpackPlayer, hvhStance,
   KILL_FLAGS,
+  teamName,
+  teamSwitchBlocked,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -167,6 +169,8 @@ const SMOKE_SIGHT_RADIUS = 3.4;
 const SPREAD_SAFE = 28;
 const HEADSHOT_BONUS = 25;
 const SUICIDE_PENALTY = 50;
+/** How long after switching team (M) before you can switch again. */
+const TEAM_SWITCH_COOLDOWN_MS = 5000;
 
 export class GameRoom {
   readonly info: RoomInfo;
@@ -928,7 +932,8 @@ export class GameRoom {
     if (victim.hp <= 0) this.kill(victim, attacker, cause, headshot, now, flags);
   }
 
-  protected kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number, flags = 0): void {
+  /** `counted`: false for a death that isn't a kill or a suicide (switching team). */
+  protected kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number, flags = 0, counted = true): void {
     victim.alive = false;
     victim.hp = 0;
     victim.reloadUntil = 0;
@@ -937,7 +942,7 @@ export class GameRoom {
     this.onPlayerDeath(victim, now);
     this.onKill(victim, attacker, cause, now);
 
-    const scoring = this.match.phase === 'playing' && !this.mode.building;
+    const scoring = counted && this.match.phase === 'playing' && !this.mode.building;
     if (scoring) {
       victim.info.deaths++;
       if (attacker && attacker !== victim) {
@@ -986,6 +991,44 @@ export class GameRoom {
     this.updateHvhPose(p, performance.now());
     return true;
   }
+
+  /**
+   * M: move `p` to the other team, decided here. Not where teams are fixed (teamSwitchBlocked).
+   * Teams can't end up more than two real players apart, and a bot gives up its seat on a full
+   * team (the bot system then refills the other one). Switching while alive costs that life,
+   * as in Counter-Strike (not counted as a death), so it can't escape a fight or revive you.
+   * Returns why not, or null when done.
+   */
+  switchTeam(p: ServerPlayer, now: number): string | null {
+    const blocked = teamSwitchBlocked(this.mode);
+    if (blocked) return blocked;
+    if (p.info.bot || (p.info.team !== 1 && p.info.team !== 2)) return 'You are not on a team.';
+    if (this.closed || this.match.phase === 'ended') return 'The match is over.';
+    if (now < p.teamSwitchAt) return 'Wait a few seconds before switching again.';
+    const from = p.info.team;
+    const to: 1 | 2 = from === 1 ? 2 : 1;
+    let humansFrom = 0;
+    let humansTo = 0;
+    for (const q of this.players.values()) {
+      if (q.info.bot) continue;
+      if (q.info.team === from) humansFrom++;
+      else if (q.info.team === to) humansTo++;
+    }
+    if (humansTo + 1 - (humansFrom - 1) > 2) return `${teamName(this.mode, to)} already has more players.`;
+    if (this.teamSize(to) >= this.mode.maxPlayers / 2 && !this.bots.removeOne(to)) return `${teamName(this.mode, to)} is full.`;
+    p.teamSwitchAt = now + TEAM_SWITCH_COOLDOWN_MS;
+    if (p.alive) this.kill(p, null, 'world', false, now, 0, false);
+    p.info.team = to;
+    // Bots even it out: one leaves the bigger side and the bot top-up refills the smaller one.
+    if (this.teamSize(to) - this.teamSize(from) >= 2) this.bots.removeOne(to);
+    this.announcePlayer(p);
+    this.systemMessage(`${p.info.name} joined ${teamName(this.mode, to)}`);
+    this.onTeamSwitched(p, now);
+    return null;
+  }
+
+  /** Hook after a team switch (ChikenBomb puts you back in during buy time). */
+  protected onTeamSwitched(_p: ServerPlayer, _now: number): void {}
 
   /** Puts a player back at a spawn point right away (developer tools). */
   respawnPlayer(p: ServerPlayer, now: number): void {

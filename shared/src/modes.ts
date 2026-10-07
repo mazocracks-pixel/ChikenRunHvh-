@@ -143,6 +143,16 @@ export const TEAM_NAMES: Record<Team, string> = { 0: 'None', 1: 'Red', 2: 'Blue'
 export function teamName(mode: ModeDef, team: Team): string {
   return team !== 0 && mode.teamNames ? mode.teamNames[team - 1]! : TEAM_NAMES[team];
 }
+/**
+ * Why a mode doesn't let you switch team (M), or null if it does. FaceChiken is ranked and its
+ * teams are random, so they stay as they are; in Zombie Apocalypse everyone is on one side.
+ */
+export function teamSwitchBlocked(mode: ModeDef): string | null {
+  if (!mode.teams) return 'This mode has no teams.';
+  if (mode.ranked) return `${mode.name} is ranked: teams are random and can't be changed.`;
+  if (mode.zombies) return 'Everyone is on the same side against the zombies.';
+  return null;
+}
 export const TEAM_COLORS: Record<Team, number> = { 0: 0xffffff, 1: 0xe53935, 2: 0x1e88e5 };
 
 export const COINS = {

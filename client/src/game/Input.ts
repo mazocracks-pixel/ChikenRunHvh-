@@ -31,6 +31,7 @@ export type Action =
   | 'camera'
   | 'chat'
   | 'teamChat'
+  | 'team'
   | 'zombieBuild'
   | 'use'
   | 'build'
@@ -83,6 +84,7 @@ function buildKeyTables(k: Readonly<Keybinds>): KeyTables {
     ['camera', 'camera'],
     ['chat', 'chat'],
     ['teamChat', 'teamChat'],
+    ['team', 'team'],
     ['build', 'build'],
     ['nextBlock', 'nextBlock'],
   ];

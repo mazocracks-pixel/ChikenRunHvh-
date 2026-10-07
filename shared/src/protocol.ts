@@ -555,6 +555,8 @@ export interface ClientToServerEvents {
   fire: (req: FireRequest) => void;
   reload: () => void;
   switchWeapon: (slot: number) => void;
+  /** M: move to the other team. The server checks the mode, balance and a cooldown. */
+  switchTeam: (ack: (res: { ok: boolean; error?: string }) => void) => void;
   throw: (req: ThrowRequest) => void;
   aim: (aiming: boolean) => void;
   /** `teamOnly`: only your team hears it (in modes without teams it goes to everyone). */

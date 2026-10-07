@@ -18,7 +18,7 @@ for each step, and a log of every mistake made along the way (what went wrong, a
 | I4 | **Menu color** picker (Misc > Settings), like real Skeet: recolours ticks, sliders and the selected tab icon, and is saved with your config | Done |
 | I5 | Fixes: the Skins tab's two empty boxes, three buttons all called "Apply", bot names showing "?" (the emoji has no letter in the menu font), and the Legit tab ignoring a click | Done |
 | J | (added mid-batch) Bug: holding the Shadow Daggers makes the screen flash blue. Find the cause and fix it | Done |
-| K | (added mid-batch) **M** switches your team (Red to Blue, Blue to Red), checked by the server. Not in FaceChiken: ranked teams are random and can't be changed | Planned |
+| K | (added mid-batch) **M** switches your team (Red to Blue, Blue to Red), checked by the server. Not in FaceChiken: ranked teams are random and can't be changed | Done |
 
 Same rules: read first, smallest change that works, test, look at it in the browser, commit only when every test passes.
 
@@ -73,6 +73,15 @@ Same rules: read first, smallest change that works, test, look at it in the brow
   - All 29 models are clean.
   - A new test checks every blade size the knives use has a proper normal on every point.
 
+### K. M switches team
+- **M** (rebindable in Settings > Keys) asks the server to move you to the other team. The server decides; the game only explains a "no".
+- **Refused** in FaceChiken (ranked, random teams), Zombie Apocalypse (everyone on one side) and modes with no teams. A 5-second cooldown stops hopping back and forth. Teams can't end up more than 2 real players apart.
+- **Like CS:** switching while alive costs that life, with no death counted and no penalty, so it can't save you from a fight or revive you. In ChikenBomb during buy time you go straight to your new spawn; mid-round you sit out until the next round.
+- **Bots keep it even:** a full team gives up a bot's seat, and a half-full room rebalances (2 v 2 stays 2 v 2).
+- Everyone sees "X joined Blue", and your friend/enemy colours flip at once.
+- **Checked:** 5 new server tests, plus in the browser: Red to Blue, then the cooldown, then respawned on Blue with teams still 2 v 2; Against All says "This mode has no teams."
+- Code: `switchTeam` in [server/src/rooms/GameRoom.ts](server/src/rooms/GameRoom.ts), `teamSwitchBlocked` in [shared/src/modes.ts](shared/src/modes.ts), [client/src/game/GameSession.ts](client/src/game/GameSession.ts).
+
 ## Mistakes log (batch 2)
 
 1. **The first compile from PowerShell failed.** With `2>&1`, PowerShell 5.1 treats Emscripten's normal "sanity checks" message (printed on stderr) as an error and stops. Then `emsdk_env.bat` didn't put `em++` on PATH inside a batch file. **Fix:** a small batch file that sets `EM_CONFIG` and PATH itself and calls `em++.bat` by its full path. Written into the Skeet README.
@@ -81,6 +90,8 @@ Same rules: read first, smallest change that works, test, look at it in the brow
 4. **The shell ate a backslash again.** Editing that test with `node -e` in the shell turned `/_\d$/` into `/_d$/`. **Fix:** corrected with the Edit tool. **Rule (again):** edit files with the Edit tool or a .cjs script file, never inline in the shell.
 5. **(J) My first guess at the blue flash was wrong.** I thought the slash swung the left dagger into the camera, and said so before checking. Measured, the closest it gets is 15 cm, and nothing covers the screen. **Rule:** measure before naming a cause.
 6. **(J) Too long testing at 7 fps.** Software rendering at 7 fps can't show a one-frame flash, and it only happens on High. The first test should have matched how you play: graphics card, High quality, holding attack. That test found it at once.
+7. **(K) The new test hung.** I used a Zombie map that doesn't exist ("graveyard"; it's "night"), the test failed, and the room it left open kept the run alive (the same hang as an earlier batch). **Fix:** take the map from the mode's own list, and close every room in a `finally`.
+8. **(K) The first version left half-full bot rooms 3 v 1.** It only made room on a full team. The browser test caught it. **Fix:** after a switch, a bot leaves the bigger side and the bot top-up refills the smaller one. A test covers both cases.
 
 # Batch 1 (6 Oct): sounds, scope, kill icons, inspect, gun shapes, main menu
 

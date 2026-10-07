@@ -208,6 +208,14 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
   socket.on('fire', inRoom((room, player, req: unknown) => room.handleFire(player, req)));
   socket.on('reload', inRoom((room, player) => room.handleReload(player)));
   socket.on('switchWeapon', inRoom((room, player, slot: unknown) => room.handleSwitch(player, slot)));
+  socket.on('switchTeam', (ack) => {
+    if (typeof ack !== 'function') return;
+    const room = rooms.roomOf(socket.id);
+    const player = room?.playerFor(socket.id);
+    if (!room || !player) return ack({ ok: false, error: 'You are not in a match.' });
+    const error = room.switchTeam(player, performance.now());
+    ack(error ? { ok: false, error } : { ok: true });
+  });
   socket.on('throw', inRoom((room, player, req: unknown) => room.handleThrow(player, req)));
   socket.on('aim', inRoom((room, player, aiming: unknown) => room.handleAim(player, aiming)));
   socket.on('chat', inRoom((room, player, text: unknown, teamOnly?: unknown) => room.handleChat(player, text, teamOnly === true)));

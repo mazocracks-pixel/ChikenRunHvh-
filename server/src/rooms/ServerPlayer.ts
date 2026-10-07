@@ -79,6 +79,8 @@ export class ServerPlayer {
   burstStart = -Infinity;
   burstShots = 0;
   switchReadyAt = 0;
+  /** When this player may switch team (M) again. */
+  teamSwitchAt = 0;
   lastShotSeq = 0;
   aiming = false;
 
