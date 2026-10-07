@@ -9,7 +9,7 @@ step, then a log of every mistake made along the way (what went wrong, and how i
 | --- | --- | --- |
 | A | Your sounds: `AWP_SOUND` (sniper shot), `SNIPER_ZOOM` (scoping in with the Sniper or Scout), `equip_sound` (switching weapons) | Done |
 | B | Scope on every sniper (Sniper and Scout): click once to scope, it stays; click again to zoom in further; a third click leaves the scope. No more scroll wheel | Done |
-| C | Kill feed icons: a silhouette for every single gun, not one per gun family | Planned |
+| C | Kill feed icons: a silhouette for every single gun, not one per gun family | Done |
 | D | Better inspect (F): longer, smoother, a different move per kind of weapon | Planned |
 | E | More detailed gun shapes | Planned |
 | F | Main menu: look and feel like a game, not an app, with new features; checked in the browser | Planned |
@@ -35,7 +35,13 @@ in the browser, then commit. Nothing is pushed if a test fails.
 - You said "left click"; left click fires, so the scope is on the scope button (right click), as in CS. If you really want it on another button, it is one line to change.
 - Checked in the browser: both guns cycle scope → zoom → off, the zoom sound plays twice, switching puts the scope away and plays the equip sound, and a sniper shot plays the AWP file.
 
-_Steps C to F follow below as they are finished._
+### C. A kill icon for every gun
+- Every gun's kill-feed icon is now drawn from the gun's own 3D model: side on, muzzle to the right, as a white silhouette (like Counter-Strike). So all 29 weapons have their own exact shape: each pistol, rifle, sniper, shotgun, knife, the katana and the pan look different. When a gun model changes, its icon changes with it.
+- The icons are drawn once, a few per frame, shortly after your first match starts (so nothing stutters). Until a gun's icon is ready, the hand-drawn one from before is used; eggs, cars, the bomb and falls keep their drawn icons.
+- Checked in the browser: a feed with one kill for each of the 29 weapons, every one showing its own picture.
+- Code: [client/src/ui/GunIcons.ts](client/src/ui/GunIcons.ts), used in [client/src/ui/Hud.ts](client/src/ui/Hud.ts).
+
+_Steps D to F follow below as they are finished._
 
 ## Mistakes log
 

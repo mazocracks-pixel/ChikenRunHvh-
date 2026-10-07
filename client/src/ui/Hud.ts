@@ -1,6 +1,7 @@
 import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
 import { watchSettings } from '../settings';
 import { killTags, shapeSvg, tagSvg, weaponShape } from './KillIcons';
+import { gunIcon, prepareGunIcons } from './GunIcons';
 import { CombatFeedback } from '../game/CombatFeedback';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
@@ -186,6 +187,8 @@ export class Hud {
 
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
+    // The kill feed's gun pictures are drawn once, shortly after the first match starts.
+    if (visible) window.setTimeout(prepareGunIcons, 800);
   }
 
   setRoom(room: RoomInfo): void {
@@ -348,7 +351,9 @@ export class Hud {
     const tags = killTags(flags, headshot);
     for (const kind of tags.before) row.append(icon(tagSvg(kind).html, tagSvg(kind).title));
     if (killer && killer.pid !== victim.pid) row.append(nameEl(killer.name, killer.team, killer.pid === selfPid, killer.dev));
-    row.append(icon(shapeSvg(weaponShape(cause)), causeLabel(cause)));
+    const picture = cause in WEAPONS ? gunIcon(cause as WeaponId) : null;
+    if (picture) row.append(h('img', { class: 'kf-gun', src: picture.url, width: picture.width, height: picture.height, alt: causeLabel(cause), title: causeLabel(cause) }));
+    else row.append(icon(shapeSvg(weaponShape(cause)), causeLabel(cause)));
     for (const kind of tags.after) row.append(icon(tagSvg(kind).html, tagSvg(kind).title));
     row.append(nameEl(victim.name, victim.team, victim.pid === selfPid, victim.dev));
     this.killfeed.prepend(row);

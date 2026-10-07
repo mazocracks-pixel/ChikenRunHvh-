@@ -2604,6 +2604,14 @@ code {
   display: block;
 }
 
+/* A gun drawn from its own model (white silhouette); tall guns are scaled to the row. */
+.killfeed .kf-gun {
+  display: block;
+  max-height: 22px;
+  width: auto;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
+}
+
 .death-how {
   margin-top: 4px;
   font-size: 0.62em;
