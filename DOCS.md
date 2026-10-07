@@ -10,7 +10,7 @@ for each step, and a log of every mistake made along the way (what went wrong, a
 | # | Step | Status |
 | --- | --- | --- |
 | G | Lobby music: `CHIKEN_HVHLOBBY` loops on the title screen, fades out when a match starts, has its own volume in Settings | Done |
-| H | The title-screen chicken's lap: wider again, still clear of every wall | Planned |
+| H | The title-screen chicken's lap: wider again, still clear of every wall | Done |
 | I | Skeet panel (C++ compiled to WebAssembly): install the exact compiler it was built with (Emscripten 4.0.22), check the unchanged source rebuilds and works, then make it better | Planned |
 
 Same rules: read first, smallest change that works, test, look at it in the browser, commit only when every test passes.
@@ -24,6 +24,12 @@ Same rules: read first, smallest change that works, test, look at it in the brow
 - **Settings > Sound** has a new **Lobby music** slider (0 turns it off). The main Volume slider also turns it down. It skips the effects compressor, so gunshots in a match never make it "pump".
 - Checked in the browser: silent before any click; after a click it plays, looping, at 40%; in a match it stops; back on the menu it plays again; music volume 0 silences it; no errors.
 - Code: [client/src/game/Audio.ts](client/src/game/Audio.ts) (`setMusic`), [client/src/app/App.ts](client/src/app/App.ts), [client/src/ui/Dialogs.ts](client/src/ui/Dialogs.ts).
+
+### H. A wider lap
+- The title-screen chicken's oval went from 12 x 10 m to 18 x 15 m (half-widths), half as wide again. One lap now takes about 16 seconds.
+- Nothing had to move: the test that checks every point of the lap is at least 3 m from any wall, post, palm or hedge still passes, and the pergola and palms now pass right behind the chicken.
+- Checked in the browser: four screenshots around the lap, no errors.
+- Code: `LOBBY_LAP` in [shared/src/maps/lobby.ts](shared/src/maps/lobby.ts).
 
 ## Mistakes log (batch 2)
 

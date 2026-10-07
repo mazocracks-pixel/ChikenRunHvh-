@@ -9,7 +9,7 @@ import { hut } from './night';
  */
 
 /** The title screen's running track: an oval round the house (centre and half-widths, in metres). */
-export const LOBBY_LAP = { x: 0, z: 0, a: 12, b: 10 } as const;
+export const LOBBY_LAP = { x: 0, z: 0, a: 18, b: 15 } as const;
 
 const HEDGE = 0x3f8f3f;
 const hedge = (x: number, z: number, w: number, d: number): MapBox => ({ kind: 'metal', x, z, w, h: 2.2, d, color: HEDGE });
