@@ -65,7 +65,7 @@ export interface WeaponDef {
   minDamageScale: number;
   /** Field-of-view divisor while aiming (right mouse). */
   zoom: number;
-  /** A second scope level (scroll while scoped): the sniper's double scope. */
+  /** A second scope level (click the scope button again): the snipers' double scope. */
   zoom2?: number;
   scope: boolean;
   /** Camera kick per shot, radians. */
@@ -200,7 +200,7 @@ const DEFS: WeaponDef[] = [
   {
     id: 'scout', name: 'Scout', damage: 68, headshotMultiplier: 2.5, fireInterval: 1000, automatic: false,
     magazine: 8, reloadTime: 2600, pellets: 1, spread: 0.003, moveSpread: 0.012, airSpread: 0.02,
-    range: 220, falloffStart: 220, minDamageScale: 1, zoom: 3.2, scope: true, recoil: 0.05,
+    range: 220, falloffStart: 220, minDamageScale: 1, zoom: 3.2, zoom2: 6.5, scope: true, recoil: 0.05,
     price: 1400, sound: 'sniper', model: { length: 0.95, color: 0x3d4f3a, accent: 0x1c1e21 },
   },
   {

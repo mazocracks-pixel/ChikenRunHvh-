@@ -3,6 +3,7 @@ import { nativeOn, nativeValue, type NativeValues } from '../dev/skeet/visualVal
 import {
   ZOMBIE_SHOP_BY_ID,
   type ZombieState,
+  type WeaponId,
   BLOCK_ID_BASE,
   BLOCK_KINDS,
   BLOCK_SIZE,
@@ -202,8 +203,10 @@ export class GameSession {
   /** Zombie Apocalypse: the wave panel, shop and game-over screen. */
   private readonly zombieHud: ZombieHud | null;
   private zombieOver = false;
-  /** Which zoom of a double scope is on (1 or 2). */
-  private scopeLevel: 1 | 2 = 1;
+  /** A sniper's scope: 0 = not scoped, 1 = scoped, 2 = zoomed in further. */
+  private scopeLevel: 0 | 1 | 2 = 0;
+  /** The weapon the scope belongs to (a different weapon puts the scope away). */
+  private scopeWeapon: WeaponId | null = null;
   private readonly bombView: BombView | null;
   private hasKit = false;
   private nextBeep = 0;
@@ -407,11 +410,14 @@ export class GameSession {
     this.effects.update(dt);
 
     const def = this.weapons.def;
-    const aiming = input.aiming && input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading;
+    const canAim = input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading;
+    // Snipers (Sniper, Scout): the scope button is a click, not a hold (see stepScope).
+    if (def.scope) this.stepScope(canAim && this.scopeWeapon === def.id, input.aiming && !this.aimWasDown);
+    else this.scopeLevel = 0;
+    this.scopeWeapon = def.id;
+    const aiming = def.scope ? this.scopeLevel > 0 : input.aiming && canAim;
     const scoped = aiming && def.scope;
-    // A double scope (the sniper): scrolling while scoped switches between its two zoom levels.
-    if (!scoped) this.scopeLevel = 1;
-    const zoom = aiming ? (this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom) : 1;
+    const zoom = !aiming ? 1 : this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom;
     input.zoomScale = zoom > 1 ? zoomLookScale(zoom) * getSettings().zoomSensitivity : 1;
     if (dev?.controlCamera(this, dt)) {
       this.local.chicken.setBodyVisible(true);
@@ -601,10 +607,10 @@ export class GameSession {
         break;
       }
       case 'nextWeapon':
-        if (!this.scrollScope()) this.switchWeapon(() => this.weapons.cycle(1, now));
+        this.switchWeapon(() => this.weapons.cycle(1, now));
         break;
       case 'prevWeapon':
-        if (!this.scrollScope()) this.switchWeapon(() => this.weapons.cycle(-1, now));
+        this.switchWeapon(() => this.weapons.cycle(-1, now));
         break;
       case 'egg':
       case 'smoke':
@@ -662,7 +668,7 @@ export class GameSession {
   private switchWeapon(change: () => boolean): void {
     if (!this.local.alive || !change()) return;
     this.ctx.net.socket.emit('switchWeapon', this.weapons.slot);
-    this.ctx.audio.play('switch');
+    this.ctx.audio.play('equip');
   }
 
   private startReload(now: number): void {
@@ -856,18 +862,29 @@ export class GameSession {
     return r && r.alive ? { position: r.chicken.root.position, yaw: r.chicken.root.rotation.y } : null;
   }
 
-  /** The scroll wheel while looking through a double scope changes the zoom instead of the weapon. */
-  private scrollScope(): boolean {
-    const def = this.weapons.def;
-    if (!def.zoom2 || !def.scope || !this.ctx.input.aiming || !this.local.alive) return false;
-    this.scopeLevel = this.scopeLevel === 1 ? 2 : 1;
-    this.ctx.audio.play('click');
-    return true;
+  /**
+   * A sniper's scope, like Counter-Strike: click the scope button once to look through it (it
+   * stays when you let go), again to zoom in further, a third time to put it away. Switching
+   * weapons, reloading, getting in a car or dying puts it away too.
+   */
+  private stepScope(allowed: boolean, clicked: boolean): void {
+    if (!allowed) {
+      this.scopeLevel = 0;
+      return;
+    }
+    if (!clicked) return;
+    const levels = this.weapons.def.zoom2 ? 2 : 1;
+    this.scopeLevel = this.scopeLevel >= levels ? 0 : ((this.scopeLevel + 1) as 1 | 2);
+    if (this.scopeLevel > 0) this.ctx.audio.play('sniperZoom');
   }
 
   private hintText(): string | null {
-    const double = this.weapons.def.zoom2;
-    if (double && this.local.alive && this.ctx.input.aiming && this.weapons.def.scope) return `Scope ${this.scopeLevel === 2 ? double : this.weapons.def.zoom}× · Scroll for ${this.scopeLevel === 2 ? this.weapons.def.zoom : double}×`;
+    const def = this.weapons.def;
+    if (def.scope && this.local.alive && this.scopeLevel > 0) {
+      const zoom = this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom;
+      const next = this.scopeLevel === 1 && def.zoom2 ? `zoom to ${def.zoom2}×` : 'put the scope away';
+      return `Scope ${zoom}× · Right-click to ${next}`;
+    }
     if (!this.local.alive) return this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup' ? 'You’re back when the next round starts' : null;
     const bomb = this.bombHint();
     if (bomb) return bomb;

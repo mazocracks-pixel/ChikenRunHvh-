@@ -65,7 +65,7 @@ describe('saved progress', () => {
     const hen = db.createUser('Hen', 0);
     const rooster = db.createUser('Rooster', 0);
     // Hen is just short of level 2.
-    db.recordMatch([{ userId: hen, kills: 0, deaths: 0, won: true, coins: 0, xp: RANKS[1]!.xp - 10 }], 'face');
+    const first = db.recordMatch([{ userId: hen, kills: 0, deaths: 0, won: true, coins: 0, xp: RANKS[1]!.xp - 10 }], 'face');
     const totals = db.recordMatch(
       [
         { userId: hen, kills: 5, deaths: 2, won: true, coins: 10, xp: rankedPoints(5, true) },
@@ -74,10 +74,12 @@ describe('saved progress', () => {
       'face',
     );
     const henXp = RANKS[1]!.xp - 10 + rankedPoints(5, true);
-    // Daily challenge coins are tested on their own (daily.test.ts); leave them out here.
-    const withoutDaily = (t: { coins: number; xp: number; levelCoins: number; dailyCoins: number } | undefined) => t && { coins: t.coins - t.dailyCoins, xp: t.xp, levelCoins: t.levelCoins };
-    assert.deepEqual(withoutDaily(totals.get(hen)), { coins: 10 + RANKED.levelCoins, xp: henXp, levelCoins: RANKED.levelCoins }, 'level 2: +250 coins');
-    assert.deepEqual(withoutDaily(totals.get(rooster)), { coins: 10, xp: 0, levelCoins: 0 }, 'a loss at level 1 stays at 0');
+    // Daily challenge coins are tested on their own (daily.test.ts); leave them out here. Today's
+    // challenges depend on the date, so either match may have paid some: take both out.
+    const earlierDaily = (id: number) => first.get(id)?.dailyCoins ?? 0;
+    const withoutDaily = (t: { coins: number; xp: number; levelCoins: number; dailyCoins: number } | undefined, id: number) => t && { coins: t.coins - t.dailyCoins - earlierDaily(id), xp: t.xp, levelCoins: t.levelCoins };
+    assert.deepEqual(withoutDaily(totals.get(hen), hen), { coins: 10 + RANKED.levelCoins, xp: henXp, levelCoins: RANKED.levelCoins }, 'level 2: +250 coins');
+    assert.deepEqual(withoutDaily(totals.get(rooster), rooster), { coins: 10, xp: 0, levelCoins: 0 }, 'a loss at level 1 stays at 0');
     // Other modes don't touch rank points.
     db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 0 }], 'ffa');
     db.recordMatch([{ userId: rooster, kills: 2, deaths: 4, won: true, coins: 0, xp: 0 }], 'ffa');

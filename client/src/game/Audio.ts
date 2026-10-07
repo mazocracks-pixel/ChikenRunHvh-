@@ -39,14 +39,53 @@ export type SoundName =
   | 'glassCrack'
   | 'wail'
   | 'heartbeat'
-  | 'giggle';
+  | 'giggle'
+  | 'sniperZoom'
+  | 'equip';
 
 const VOLUME_KEY = 'chikengun:volume';
 /** Your own sound files live in client/public/sounds/ (served from /sounds/). */
 export const JUMPSCARE_FILE = '/sounds/jumpscare.mp3';
+/**
+ * Sounds that play your own recordings (client/public/sounds/, names exactly as the files):
+ * the Sniper and Scout shot, scoping in with them, and switching weapons. The built-in sound
+ * plays until a file has loaded, or if it can't load.
+ */
+const FILE_SOUNDS: Partial<Record<SoundName, string>> = {
+  sniper: '/sounds/AWP_SOUND.mp3',
+  sniperZoom: '/sounds/SNIPER_ZOOM.mp3',
+  equip: '/sounds/equip_sound.mp3',
+};
+/** Quieter than this (about -40 dB) counts as silence, trimmed off both ends of a file. */
+const SILENCE = 0.01;
 /** Beyond this distance a sound is silent. */
 const HEARING_RANGE = 70;
 const MAX_VOICES = 64;
+
+/** A copy of `buffer` without the silence at its start and end (a few ms are kept either side). */
+export function trimSilence(ctx: BaseAudioContext, buffer: AudioBuffer): AudioBuffer {
+  let first = buffer.length;
+  let last = -1;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    let i = 0;
+    while (i < data.length && Math.abs(data[i]!) < SILENCE) i++;
+    let j = data.length - 1;
+    while (j > i && Math.abs(data[j]!) < SILENCE) j--;
+    if (i < data.length) {
+      first = Math.min(first, i);
+      last = Math.max(last, j);
+    }
+  }
+  if (last < first) return buffer;
+  const pad = Math.round(buffer.sampleRate * 0.005);
+  const start = Math.max(0, first - pad);
+  const end = Math.min(buffer.length, last + pad);
+  if (start === 0 && end === buffer.length) return buffer;
+  const out = ctx.createBuffer(buffer.numberOfChannels, end - start, buffer.sampleRate);
+  for (let c = 0; c < buffer.numberOfChannels; c++) out.copyToChannel(buffer.getChannelData(c).subarray(start, end), c);
+  return out;
+}
 
 function safeVolume(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.6;
@@ -78,6 +117,8 @@ export class AudioEngine {
   private activeVoices = 0;
   /** Decoded sound files by URL (null: it could not be loaded, so the built-in sound is used). */
   private readonly files = new Map<string, Promise<AudioBuffer | null>>();
+  /** FILE_SOUNDS that have loaded, trimmed of silence, ready to play. */
+  private readonly fileBuffers = new Map<SoundName, AudioBuffer>();
 
   get volume(): number {
     return this.volumeValue;
@@ -106,6 +147,11 @@ export class AudioEngine {
       this.master.connect(compressor).connect(this.ctx.destination);
       this.noise = this.makeNoise();
       void this.load(JUMPSCARE_FILE);
+      for (const [name, url] of Object.entries(FILE_SOUNDS) as [SoundName, string][]) {
+        void this.load(url).then((buffer) => {
+          if (buffer && this.ctx) this.fileBuffers.set(name, trimSilence(this.ctx, buffer));
+        });
+      }
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
   }
@@ -201,7 +247,15 @@ export class AudioEngine {
       },
     };
     this.voices.set(out, voice);
-    this.synth(name, ctx, out, ctx.currentTime);
+    const file = this.fileBuffers.get(name);
+    if (file) {
+      // Your own recording, through the same distance and left/right chain as the built-in sounds.
+      const src = ctx.createBufferSource();
+      src.buffer = file;
+      src.connect(out);
+      this.track(out, src, [src]);
+      src.start();
+    } else this.synth(name, ctx, out, ctx.currentTime);
     if (voice.sources === 0) voice.release();
   }
 
@@ -453,7 +507,13 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.03, type: 'highpass', freq: 3000, gain: 0.4 });
         break;
       case 'switch':
+      case 'equip':
         this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 2200, gain: 0.4 });
+        break;
+      case 'sniperZoom':
+        // A short mechanical click-whirr (until SNIPER_ZOOM.mp3 has loaded).
+        this.burst(ctx, out, t, { dur: 0.04, type: 'highpass', freq: 3500, gain: 0.35 });
+        this.tone(ctx, out, t, { dur: 0.12, type: 'triangle', freq: 900, to: 1500, gain: 0.08, delay: 0.02 });
         break;
       case 'jump':
         this.tone(ctx, out, t, { dur: 0.08, type: 'triangle', freq: 600, to: 950, gain: 0.25 });
