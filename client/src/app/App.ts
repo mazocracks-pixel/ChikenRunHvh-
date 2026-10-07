@@ -62,6 +62,13 @@ export class App {
       account: () => openAccount(this.api, () => this.net.reconnect()),
       settings: () => openSettings(this.game.audio),
       privacy: () => openPrivacy(),
+      dailyStatus: () => this.api.daily(),
+      online: () => this.api.online(),
+      sound: (kind) => {
+        // A button press is a user gesture: the moment the browser lets sound start.
+        if (kind === 'press') this.game.audio.unlock();
+        this.game.audio.play('click', undefined, kind === 'press' ? 0.8 : 0.22);
+      },
     });
     // Friends and parties: the leader's Play brings the whole party along (the server moves them).
     this.friends = new Friends(this.net.socket, ui, {

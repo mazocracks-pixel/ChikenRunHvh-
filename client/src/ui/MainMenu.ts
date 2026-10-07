@@ -1,9 +1,9 @@
-import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
+import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type DailyStatus, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
 import { clear, h, storage } from './dom';
+import { anyModalOpen } from './Modal';
 
 export interface MenuActions {
-  /** `map` undefined: any map. */
-  /** `noBots`: the "Without bots" choice (wait for real players). */
+  /** `map` undefined: any map. `noBots`: the "Without bots" choice (wait for real players). */
   quickPlay(mode: ModeId, map?: MapId, noBots?: boolean): void;
   browse(): void;
   createRoom(): void;
@@ -16,6 +16,12 @@ export interface MenuActions {
   account(): void;
   settings(): void;
   privacy(): void;
+  /** Today's challenges, for the card on the title screen. */
+  dailyStatus(): Promise<DailyStatus>;
+  /** How many people are playing right now. */
+  online(): Promise<number>;
+  /** Menu sounds: hovering a button, pressing one. */
+  sound(kind: 'hover' | 'press'): void;
 }
 
 export const MODE_ICONS: Record<ModeId, string> = { zombie: '🧟', squad: '👥', face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
@@ -28,9 +34,21 @@ const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
 ];
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
 
+/** "What's new" on the title screen: newest first. Edit freely. */
+const WHATS_NEW: readonly { title: string; text: string }[] = [
+  { title: 'Sniper scope', text: 'Right-click once to scope, again to zoom in, a third time to put it away. Sniper and Scout.' },
+  { title: 'New gun looks', text: 'Real gun shapes, metal and grip textures, and a new inspect (F) for every weapon.' },
+  { title: 'Zombie Apocalypse', text: 'Survive waves on the Graveyard. Bosses every 5 waves, a shop between waves.' },
+];
+
+const CONTROLS = 'WASD move · Shift slow walk · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Mouse aim · Click shoot · Right-click aim / scope · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat · B buy menu';
+
 const TAB_KEY = 'chikengun:menu-tab';
 const BOTS_KEY = 'chikengun:menu-no-bots';
+const MODE_KEY = 'chikengun:menu-mode';
 const mapKey = (mode: ModeId) => `chikengun:map:${mode}`;
+/** How often the "playing now" count is refreshed while the title screen is up. */
+const ONLINE_EVERY_MS = 20_000;
 
 /** "5 vs 5", "1 vs 1", "Free for all · 12"… */
 function playersLine(m: ModeDef): string {
@@ -42,7 +60,12 @@ function playersLine(m: ModeDef): string {
   return `Free for all · up to ${m.maxPlayers}`;
 }
 
-/** Title screen: profile, the modes by tab (each with a map choice), and the rest of the menus. */
+/**
+ * The title screen, laid out like a game lobby: a big PLAY for your mode and a column of menu
+ * buttons on the left (your chicken runs on the right), your level and coins up top, today's
+ * challenges and what's new below, and how many people are playing. "Change mode" opens the
+ * mode select: every mode by tab, the bots choice, the server browser and private rooms.
+ */
 export class MainMenu {
   readonly root: HTMLElement;
   private readonly name = h('span', { class: 'profile-name' });
@@ -64,25 +87,41 @@ export class MainMenu {
   private readonly botsNote = h('p', { class: 'bots-note' });
   private readonly botsButtons = new Map<boolean, HTMLButtonElement>();
 
+  // The lobby itself.
+  private selected: ModeId = this.savedMode();
+  private readonly playLabel = h('span', { class: 'lobby-play-label' }, 'Play');
+  private readonly playMode = h('span', { class: 'lobby-play-mode' });
+  private readonly playButton: HTMLButtonElement;
+  private readonly modePanel: HTMLElement;
+  private readonly controlsCard = h('div', { class: 'lobby-controls', hidden: true }, h('b', null, 'Controls'), h('p', null, CONTROLS));
+  private readonly online = h('span', { class: 'lobby-online' }, h('i'), 'Connecting…');
+  private readonly daily = h('div', { class: 'lobby-card lobby-daily' });
+  private onlineTimer = 0;
+
   get noBots(): boolean {
     return this.withoutBots;
   }
 
-  constructor(container: HTMLElement, actions: MenuActions) {
+  constructor(container: HTMLElement, private readonly actions: MenuActions) {
     const button = (label: string, onClick: () => void, cls = '') => {
-      const b = h('button', { class: cls, type: 'button', onclick: onClick }, label);
+      const b = h('button', { class: cls, type: 'button', onclick: () => { actions.sound('press'); onClick(); } }, label);
+      b.addEventListener('pointerenter', () => actions.sound('hover'));
       this.buttons.push(b);
       return b;
     };
     this.accountBtn.addEventListener('click', actions.account);
 
+    // ---- Mode select (opened by "Change mode").
     const modes = h('div', { class: 'mode-grid' });
     for (const id of MODE_IDS) {
       const m = MODES[id];
       const picker = h('select', { class: 'map-pick', 'aria-label': `${m.name} map` }, h('option', { value: '' }, '🎲 Any map'), ...m.maps.map((map) => h('option', { value: map }, MAPS[map].name)));
       const saved = storage.get(mapKey(id));
       picker.value = saved && m.maps.includes(saved as MapId) ? saved : '';
-      picker.addEventListener('change', () => storage.set(mapKey(id), picker.value));
+      picker.addEventListener('change', () => {
+        storage.set(mapKey(id), picker.value);
+        this.refreshPlay();
+      });
       const card = h(
         'div',
         { class: `mode-card mode-${id}${m.ranked ? ' ranked' : ''}` },
@@ -96,7 +135,7 @@ export class MainMenu {
         h('h3', null, m.name),
         h('p', null, m.description),
         m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, `🗺️ ${MAPS[m.maps[0]!].name}`),
-        this.playButton(button('Play', () => actions.quickPlay(id, isMapId(picker.value) ? picker.value : undefined, this.withoutBots), 'play')),
+        this.addPlayButton(button('Play', () => this.play(id), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
       card.style.order = String(CATEGORIES.find((c) => c.modes.includes(id))?.modes.indexOf(id) ?? 0);
@@ -106,10 +145,53 @@ export class MainMenu {
     for (const c of CATEGORIES) {
       this.tabs.append(h('button', { type: 'button', class: 'tab', role: 'tab', 'data-tab': c.id, onclick: () => this.showTab(c.id) }, c.label));
     }
+    const closeModes = h('button', { type: 'button', class: 'icon-btn mode-select-close', 'aria-label': 'Close' }, '✕');
+    closeModes.addEventListener('click', () => this.openModes(false));
+    this.modePanel = h(
+      'div',
+      { class: 'mode-select', hidden: true, role: 'dialog', 'aria-label': 'Choose a mode' },
+      h(
+        'div',
+        { class: 'mode-select-window' },
+        h('header', { class: 'mode-select-head' }, h('h2', null, 'Choose a mode'), closeModes),
+        h(
+          'div',
+          { class: 'bots-choice' },
+          h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, '🤖 With bots'), this.botsOption(true, '👤 Without bots')),
+          this.botsNote,
+        ),
+        this.tabs,
+        modes,
+        h(
+          'div',
+          { class: 'mode-select-rooms' },
+          button('🌐 Server browser', actions.browse, 'secondary'),
+          button('➕ Create room', actions.createRoom, 'secondary'),
+          button('🔑 Join with code', actions.joinCode, 'secondary'),
+        ),
+      ),
+    );
+    this.modePanel.addEventListener('click', (e) => {
+      if (e.target === this.modePanel) this.openModes(false);
+    });
+
+    // ---- The lobby.
+    this.playButton = this.addPlayButton(button('', () => this.play(this.selected), 'lobby-play'));
+    this.playButton.append(h('span', { class: 'lobby-play-arrow' }, '▶'), h('span', { class: 'lobby-play-text' }, this.playLabel, this.playMode));
+    const changeMode = button('Change mode ▾', () => this.openModes(true), 'lobby-change');
+    const navButton = (icon: string, label: string, run: () => void) => {
+      const b = button('', run, 'lobby-btn');
+      b.append(h('span', { class: 'lobby-btn-icon' }, icon), h('span', null, label));
+      return b;
+    };
+    const friends = navButton('👥', 'Friends', actions.friends);
+    friends.append(this.friendsBadge);
+    const news = h('div', { class: 'lobby-card lobby-news' }, h('h3', null, "What's new"), ...WHATS_NEW.map((n) => h('div', { class: 'lobby-news-item' }, h('b', null, n.title), h('span', null, n.text))));
+    const controls = button('❔ Controls', () => (this.controlsCard.hidden = !this.controlsCard.hidden), 'lobby-link');
 
     this.root = h(
       'div',
-      { class: 'screen main-menu' },
+      { class: 'screen main-menu lobby' },
       h(
         'header',
         { class: 'menu-header' },
@@ -119,33 +201,118 @@ export class MainMenu {
       this.partyStrip,
       h(
         'div',
-        { class: 'bots-choice' },
-        h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, '🤖 With bots'), this.botsOption(true, '👤 Without bots')),
-        this.botsNote,
+        { class: 'lobby-body' },
+        h(
+          'nav',
+          { class: 'lobby-nav', 'aria-label': 'Main menu' },
+          this.playButton,
+          changeMode,
+          navButton('🛒', 'Shop', actions.customize),
+          friends,
+          navButton('📅', 'Daily challenges', actions.daily),
+          navButton('🏆', 'Leaderboard', () => actions.leaderboard()),
+          navButton('⚙️', 'Settings', actions.settings),
+          this.status,
+        ),
+        h('div', { class: 'lobby-cards' }, this.daily, news),
       ),
-      this.tabs,
-      modes,
       h(
-        'nav',
-        { class: 'menu-actions' },
-        button('🛒 Customize & Shop', actions.customize, 'secondary'),
-        this.withBadge(button('👥 Friends', actions.friends, 'secondary friends-btn')),
-        button('🌐 Server browser', actions.browse, 'secondary'),
-        button('➕ Create room', actions.createRoom, 'secondary'),
-        button('🔑 Join with code', actions.joinCode, 'secondary'),
-        button('📅 Daily challenges', actions.daily, 'secondary'),
-        button('🏆 Leaderboard', () => actions.leaderboard(), 'secondary'),
-        button('⚙️ Settings', actions.settings, 'secondary'),
+        'footer',
+        { class: 'lobby-bottom' },
+        this.online,
+        controls,
+        h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy'),
       ),
-      this.status,
+      this.controlsCard,
       h('button', { type: 'button', class: 'scene-toggle', title: 'Hide the menu to see the scene', 'aria-label': 'Hide or show the menu', onclick: () => this.root.classList.toggle('scene-only') }, '🎬'),
-      h('footer', { class: 'controls-help' }, 'WASD move · Shift slow walk (better moving accuracy) · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Air glide / jetpack outside HvH · Mouse aim · Click shoot · Right-click zoom · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat'),
-      h('footer', { class: 'legal-links' }, h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy')),
+      this.modePanel,
     );
     container.append(this.root);
     this.refreshBots();
+    this.refreshPlay();
     const saved = storage.get(TAB_KEY);
     this.showTab(CATEGORIES.some((c) => c.id === saved) ? saved! : CATEGORIES[0]!.id);
+    this.renderDaily(null);
+
+    // Enter plays, Esc closes the mode select (when nothing else has the keyboard).
+    document.addEventListener('keydown', (e) => {
+      if (this.root.hidden || anyModalOpen() || e.repeat) return;
+      const typing = e.target instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+      if (e.key === 'Escape' && !this.modePanel.hidden) this.openModes(false);
+      else if (e.key === 'Enter' && !typing && this.modePanel.hidden && !this.playButton.disabled) {
+        e.preventDefault();
+        this.playButton.click();
+      }
+    });
+  }
+
+  private savedMode(): ModeId {
+    const saved = storage.get(MODE_KEY);
+    return saved && saved in MODES ? (saved as ModeId) : 'ffa';
+  }
+
+  /** Plays a mode (it becomes the one PLAY starts next time). */
+  private play(mode: ModeId): void {
+    this.selected = mode;
+    storage.set(MODE_KEY, mode);
+    this.refreshPlay();
+    this.openModes(false);
+    const map = storage.get(mapKey(mode));
+    this.actions.quickPlay(mode, isMapId(map) && MODES[mode].maps.includes(map) ? map : undefined, this.withoutBots);
+  }
+
+  private openModes(open: boolean): void {
+    this.modePanel.hidden = !open;
+    if (open) this.showMode(this.selected);
+  }
+
+  /** What the big PLAY says under it: your mode, its map, and bots or not. */
+  private refreshPlay(): void {
+    const m = MODES[this.selected];
+    const map = storage.get(mapKey(this.selected));
+    const mapName = isMapId(map) && m.maps.includes(map) ? MAPS[map].name : m.maps.length > 1 ? 'Any map' : MAPS[m.maps[0]!].name;
+    const bots = m.noBots || m.ranked ? 'Real players' : this.withoutBots ? 'Without bots' : 'With bots';
+    this.playMode.textContent = `${MODE_ICONS[this.selected]} ${m.name} · ${mapName} · ${bots}`;
+  }
+
+  private renderDaily(status: DailyStatus | null): void {
+    clear(this.daily);
+    const open = h('button', { type: 'button', class: 'link' }, 'Open');
+    open.addEventListener('click', () => this.actions.daily());
+    this.daily.append(h('h3', null, '📅 Today', open));
+    if (!status) {
+      this.daily.append(h('p', { class: 'muted' }, 'Loading your challenges…'));
+      return;
+    }
+    for (const c of status.challenges) {
+      this.daily.append(
+        h(
+          'div',
+          { class: `lobby-daily-row${c.done ? ' done' : ''}` },
+          h('span', null, c.done ? `✅ ${c.label}` : c.label),
+          h('span', { class: 'lobby-daily-reward' }, `🪙 ${c.reward}`),
+          h('span', { class: 'daily-bar' }, h('i', { style: `width:${Math.round((c.progress / c.goal) * 100)}%` })),
+        ),
+      );
+    }
+  }
+
+  private refreshLive(): void {
+    this.actions
+      .dailyStatus()
+      .then((s) => this.renderDaily(s))
+      .catch(() => this.renderDaily(null));
+    this.actions
+      .online()
+      .then((n) => {
+        // People in matches right now (you on this screen aren't counted yet).
+        this.online.lastChild!.textContent = n === 0 ? 'No one in a match yet: start one!' : `${n} ${n === 1 ? 'player' : 'players'} in matches now`;
+        this.online.classList.add('live');
+      })
+      .catch(() => {
+        this.online.lastChild!.textContent = 'Offline';
+        this.online.classList.remove('live');
+      });
   }
 
   private botsOption(withoutBots: boolean, label: string): HTMLButtonElement {
@@ -158,6 +325,7 @@ export class MainMenu {
     this.withoutBots = withoutBots;
     storage.set(BOTS_KEY, withoutBots ? '1' : '0');
     this.refreshBots();
+    this.refreshPlay();
   }
 
   private refreshBots(): void {
@@ -170,13 +338,8 @@ export class MainMenu {
       : 'Bots fill the empty spots, so a match starts right away.';
   }
 
-  private playButton(b: HTMLButtonElement): HTMLButtonElement {
+  private addPlayButton(b: HTMLButtonElement): HTMLButtonElement {
     this.playButtons.push(b);
-    return b;
-  }
-
-  private withBadge(b: HTMLButtonElement): HTMLButtonElement {
-    b.append(this.friendsBadge);
     return b;
   }
 
@@ -197,7 +360,10 @@ export class MainMenu {
       );
     }
     const label = !party ? 'Play' : party.isLeader ? `Play with party (${party.names.length})` : 'Leader picks';
-    for (const b of this.playButtons) b.textContent = label;
+    for (const b of this.playButtons) {
+      if (b === this.playButton) this.playLabel.textContent = label;
+      else b.textContent = label;
+    }
   }
 
   /** Shows one tab's modes. */
@@ -209,7 +375,10 @@ export class MainMenu {
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', String(on));
     }
-    for (const [mode, card] of this.cards) card.hidden = !cat.modes.includes(mode);
+    for (const [mode, card] of this.cards) {
+      card.hidden = !cat.modes.includes(mode);
+      card.classList.toggle('selected', mode === this.selected);
+    }
   }
 
   /** Shows the tab with this mode (for tests and links). */
@@ -242,5 +411,13 @@ export class MainMenu {
 
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
+    window.clearInterval(this.onlineTimer);
+    if (!visible) {
+      this.openModes(false);
+      return;
+    }
+    // While the title screen is up: today's challenges and the player count, kept fresh.
+    this.refreshLive();
+    this.onlineTimer = window.setInterval(() => this.refreshLive(), ONLINE_EVERY_MS);
   }
 }

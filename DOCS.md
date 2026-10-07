@@ -12,7 +12,7 @@ step, then a log of every mistake made along the way (what went wrong, and how i
 | C | Kill feed icons: a silhouette for every single gun, not one per gun family | Done |
 | D | Better inspect (F): longer, smoother, a different move per kind of weapon | Done |
 | E | More detailed gun shapes | Done |
-| F | Main menu: look and feel like a game, not an app, with new features; checked in the browser | Planned |
+| F | Main menu: look and feel like a game, not an app, with new features; checked in the browser | Done |
 
 Rules for every step: read the code it touches first, change as little as works, test it, look at it
 in the browser, then commit. Nothing is pushed if a test fails.
@@ -68,7 +68,22 @@ in the browser, then commit. Nothing is pushed if a test fails.
 - Checked with close-up renders of the rifle, sniper, pistol, Deagle, shotgun, SMG, knife and M9.
 - Code: [client/src/game/models/Guns.ts](client/src/game/models/Guns.ts) (`profile`, `metresToUv`).
 
-_Step F follows below when it is finished._
+### F. Main menu: a game lobby, not an app
+- The title screen is laid out like a game lobby (CS2 / Standoff style) instead of a page of cards:
+  - **Left:** a big yellow **PLAY** cut at an angle, with your mode, map and bots choice under it; then **Change mode** and a column of slanted menu bars: Shop, Friends, Daily challenges, Leaderboard, Settings. They slide in one after another and slide out on hover.
+  - **Right:** your chicken running its lap, now in the clear (the menu side of the screen is darker, the chicken side is not).
+  - **Top:** the logo, and your level, XP bar, coins and account.
+- **New features on the menu:**
+  - **PLAY remembers your mode:** one click starts the mode you played last (with its map and bots choice). **Enter** does the same.
+  - **Change mode** opens a full-screen mode picker: the mode cards by tab (your mode is highlighted), With bots / Without bots, Server browser, Create room and Join with code. Esc or ✕ closes it.
+  - **Today's challenges** with progress bars, right on the title screen (Open shows the full list).
+  - **What's new:** the latest changes. Edit `WHATS_NEW` in [client/src/ui/MainMenu.ts](client/src/ui/MainMenu.ts) to change it.
+  - **Players in matches now:** a live count with a green dot, refreshed every 20 seconds.
+  - **Menu sounds:** a soft tick on hover and a click on press.
+  - **Controls** is a small button at the bottom instead of a long line of text.
+- Everything that was on the old menu is still there (party strip, friends badge, leaderboard per mode, map picker, 🎬 to hide the menu, privacy link, the 5-tap logo shortcut).
+- Checked in the browser at 1280×720, 1920×1080 and a 390×844 phone: PLAY starts your mode, Change mode → Team Fight played it and PLAY then showed Team Fight, Enter played it, Esc closed the picker, the challenges and player count loaded, no sideways scrolling on the phone, no errors.
+- Code: [client/src/ui/MainMenu.ts](client/src/ui/MainMenu.ts), styles at the end of [client/src/style.css](client/src/style.css), `online()` in [client/src/net/Api.ts](client/src/net/Api.ts).
 
 ## Mistakes log
 
@@ -80,4 +95,8 @@ _Step F follows below when it is finished._
 - **Two new gun parts placed wrong (caught before rendering).** Checking each new outline against the old part's position showed the Deagle slide would have left a 3 cm gap before the muzzle and the knife handle would have poked out behind its pommel. Both fixed before the first render.
 - **Knife handle drawn inside out.** I listed the knife handle's outline points in the wrong order, so the shape crossed itself and rendered as a zigzag. Fixed the order.
 - **Texture grain too big on the new parts.** The outline-cut parts measure texture coordinates in metres, the box parts stretch a texture over each face, so the grain on the new parts came out several times too big (blotchy wood and plastic). Fixed by scaling their texture coordinates to match.
+- **Menu styles rejected by the shell.** I tried to add the menu styles through a shell command; the shell refused the long block (it tripped over a quote), so nothing was written. Checked that nothing had been added, then wrote the styles with the file editor. Same lesson as the DOCS.md mistake: long text goes through the editor.
+- **"0 players online" looked wrong.** The first version said "0 players online" while you were on the menu, because the server only counts people in matches. It now says "No one in a match yet: start one!" or "N players in matches now".
+- **Cards over the chicken.** At 1280×720 the "What's new" card ran into the chicken. The two cards are now stacked in a narrow column next to the menu, which stays clear of it at every size checked.
+- **A phone screenshot that looked broken but wasn't.** A full-page screenshot at phone size showed the menu missing; measuring the page showed every button in place. The capture had caught the menu mid-animation while the page scrolled. A normal screenshot showed it correctly.
 - **A slow test, not a bug.** "Knife Fight bots charge in to stab" failed once in a full run and passed three times on its own and in the next full run. It waits 4 real seconds for a bot to walk over, so a busy machine can make it miss. Nothing in this change touches bots or the server.

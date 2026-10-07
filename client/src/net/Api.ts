@@ -89,6 +89,11 @@ export class Api {
     return (await this.request<{ matches: MatchHistoryRow[] }>('GET', '/api/history')).matches;
   }
 
+  /** How many people are playing right now (people, not bots). */
+  async online(): Promise<number> {
+    return (await this.request<{ players: number }>('GET', '/api/health')).players;
+  }
+
   async daily(): Promise<DailyStatus> {
     return this.request<DailyStatus>('GET', '/api/daily');
   }

@@ -3593,3 +3593,361 @@ code {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+/* ---------------------------------------------------------------- title screen: a game lobby */
+.main-menu.lobby {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  align-items: start;
+  gap: 14px;
+  padding: 20px clamp(16px, 4vw, 52px) 16px;
+  /* Darker on the left where the menu is, clear on the right where your chicken runs. */
+  background:
+    linear-gradient(90deg, rgba(6, 8, 14, 0.78) 0%, rgba(6, 8, 14, 0.42) 34%, rgba(6, 8, 14, 0) 58%),
+    linear-gradient(0deg, rgba(6, 8, 14, 0.6) 0%, rgba(6, 8, 14, 0) 26%);
+}
+.lobby .menu-header {
+  width: 100%;
+}
+.lobby .logo {
+  margin: 0;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-size: clamp(2rem, 4.6vw, 3.2rem);
+}
+.lobby-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px 28px;
+  align-self: stretch;
+  align-content: space-between;
+}
+.lobby-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(380px, 100%);
+}
+.lobby-nav > * {
+  animation: lobby-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.lobby-nav > :nth-child(2) { animation-delay: 0.04s; }
+.lobby-nav > :nth-child(3) { animation-delay: 0.08s; }
+.lobby-nav > :nth-child(4) { animation-delay: 0.12s; }
+.lobby-nav > :nth-child(5) { animation-delay: 0.16s; }
+.lobby-nav > :nth-child(6) { animation-delay: 0.2s; }
+.lobby-nav > :nth-child(7) { animation-delay: 0.24s; }
+@keyframes lobby-in {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+
+/* PLAY: big, yellow, cut at an angle. */
+.lobby .lobby-play {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px 30px 16px 22px;
+  border: 0;
+  border-radius: 0;
+  color: #1b1405;
+  background: linear-gradient(180deg, #ffe066, #ffbf1f);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%);
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.lobby .lobby-play:hover:not(:disabled) {
+  filter: brightness(1.08) drop-shadow(0 0 18px rgba(255, 200, 40, 0.55));
+  transform: translateX(6px);
+}
+.lobby .lobby-play:active:not(:disabled) {
+  transform: translateX(6px) scale(0.98);
+}
+.lobby-play-arrow {
+  font-size: 1.9rem;
+}
+.lobby-play-text {
+  display: flex;
+  flex-direction: column;
+}
+.lobby-play-label {
+  font-size: clamp(1.8rem, 3.4vw, 2.5rem);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.lobby-play-mode {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  opacity: 0.78;
+}
+.lobby .lobby-change {
+  margin: -2px 0 8px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(10, 12, 18, 0.6);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.lobby .lobby-change:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The rest of the menu: dark slanted bars that slide out on hover. */
+.lobby .lobby-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 88%;
+  padding: 11px 22px 11px 16px;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  background: linear-gradient(90deg, rgba(18, 22, 32, 0.9), rgba(18, 22, 32, 0.55));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.lobby .lobby-btn::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transition: transform 0.12s ease;
+}
+.lobby .lobby-btn:hover:not(:disabled) {
+  transform: translateX(8px);
+  color: var(--accent);
+  background: linear-gradient(90deg, rgba(30, 34, 46, 0.95), rgba(30, 34, 46, 0.6));
+}
+.lobby .lobby-btn:hover:not(:disabled)::before {
+  transform: scaleY(1);
+}
+.lobby-btn-icon {
+  width: 1.4em;
+  text-align: center;
+}
+.lobby .lobby-btn .badge {
+  margin-left: auto;
+}
+.lobby .status {
+  min-height: 1.3em;
+  margin: 4px 0 0;
+}
+
+/* Cards: today's challenges and what is new. */
+.lobby-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(310px, 100%);
+}
+.lobby-card {
+  flex: none;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(10, 12, 18, 0.72);
+  backdrop-filter: blur(4px);
+  animation: lobby-in 0.5s 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.lobby-card h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.lobby-daily-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+.lobby-daily-row .daily-bar {
+  grid-column: 1 / -1;
+  height: 5px;
+  margin: 0;
+}
+.lobby-daily-reward {
+  color: var(--accent);
+  font-weight: 700;
+}
+.lobby-news-item {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 7px;
+  font-size: 0.82rem;
+}
+.lobby-news-item b {
+  color: var(--accent);
+}
+.lobby-news-item span {
+  color: var(--muted);
+}
+
+/* The bottom line: players online, controls, privacy. */
+.lobby-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.lobby-online {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+.lobby-online i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #8a8f99;
+}
+.lobby-online.live i {
+  background: #4cd964;
+  box-shadow: 0 0 0 0 rgba(76, 217, 100, 0.6);
+  animation: lobby-pulse 1.8s ease-out infinite;
+}
+@keyframes lobby-pulse {
+  to {
+    box-shadow: 0 0 0 9px rgba(76, 217, 100, 0);
+  }
+}
+.lobby .lobby-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.lobby .lobby-link:hover {
+  color: var(--accent);
+}
+.lobby-controls {
+  position: fixed;
+  left: clamp(16px, 4vw, 52px);
+  bottom: 48px;
+  z-index: 6;
+  max-width: min(620px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: rgba(10, 12, 18, 0.94);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.lobby-controls p {
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* Mode select: the full-screen picker behind "Change mode". */
+.mode-select {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(4, 6, 10, 0.72);
+  backdrop-filter: blur(3px);
+}
+.mode-select-window {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(1120px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(22, 26, 36, 0.98), rgba(12, 14, 20, 0.98));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  animation: mode-select-in 0.22s ease-out both;
+}
+@keyframes mode-select-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.mode-select-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.mode-select-head h2 {
+  margin: 0;
+  font-style: italic;
+  text-transform: uppercase;
+}
+.mode-select .mode-grid,
+.mode-select .menu-tabs {
+  width: 100%;
+}
+.mode-select .mode-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.mode-select-rooms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .lobby-nav {
+    width: 100%;
+  }
+  .lobby .lobby-btn {
+    width: 100%;
+  }
+  .lobby-cards {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lobby-nav > *,
+  .lobby-card,
+  .mode-select-window {
+    animation: none;
+  }
+  .lobby-online.live i {
+    animation: none;
+  }
+}
