@@ -44,6 +44,11 @@ export type SoundName =
   | 'equip';
 
 const VOLUME_KEY = 'chikengun:volume';
+const MUSIC_KEY = 'chikengun:music-volume';
+/** The title screen's music: loops while you're in the menus (the file's exact name). */
+const LOBBY_MUSIC = '/sounds/CHIKEN_HVHLOBBY.mp3';
+/** Seconds to fade the music in and out. */
+const MUSIC_FADE = 0.8;
 /** Your own sound files live in client/public/sounds/ (served from /sounds/). */
 export const JUMPSCARE_FILE = '/sounds/jumpscare.mp3';
 /**
@@ -113,6 +118,14 @@ export class AudioEngine {
   private noise: AudioBuffer | null = null;
   private listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
   private volumeValue = safeVolume(Number(storage.get(VOLUME_KEY) ?? '0.6'));
+  /** Music: its own volume (under the main volume), whether the menus want it, and what's playing. */
+  private musicVolumeValue = safeVolume(Number(storage.get(MUSIC_KEY) ?? '0.4'));
+  private musicWanted = false;
+  private musicGain: GainNode | null = null;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private musicBuffer: AudioBuffer | null = null;
+  /** The main volume, for the music (which skips the effects compressor). */
+  private musicOut: GainNode | null = null;
   private readonly voices = new WeakMap<AudioNode, Voice>();
   private activeVoices = 0;
   /** Decoded sound files by URL (null: it could not be loaded, so the built-in sound is used). */
@@ -128,6 +141,51 @@ export class AudioEngine {
     this.volumeValue = safeVolume(v);
     storage.set(VOLUME_KEY, String(this.volumeValue));
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.volumeValue, this.ctx.currentTime, 0.015);
+    if (this.musicOut && this.ctx) this.musicOut.gain.setTargetAtTime(this.volumeValue, this.ctx.currentTime, 0.015);
+  }
+
+  get musicVolume(): number {
+    return this.musicVolumeValue;
+  }
+
+  set musicVolume(v: number) {
+    this.musicVolumeValue = safeVolume(v);
+    storage.set(MUSIC_KEY, String(this.musicVolumeValue));
+    if (this.musicGain && this.ctx && this.musicSource) this.musicGain.gain.setTargetAtTime(this.musicVolumeValue, this.ctx.currentTime, 0.05);
+  }
+
+  /**
+   * The lobby music: on in the menus, off in a match. It starts as soon as the browser allows
+   * sound (your first click) and the file has loaded, fades in and out, and loops without a gap.
+   */
+  setMusic(on: boolean): void {
+    this.musicWanted = on;
+    this.syncMusic();
+  }
+
+  private syncMusic(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !this.musicGain) return;
+    const t = ctx.currentTime;
+    if (this.musicWanted && !this.musicSource && this.musicBuffer && ctx.state === 'running') {
+      const src = ctx.createBufferSource();
+      src.buffer = this.musicBuffer;
+      src.loop = true;
+      src.connect(this.musicGain);
+      this.musicGain.gain.cancelScheduledValues(t);
+      this.musicGain.gain.setValueAtTime(0, t);
+      this.musicGain.gain.linearRampToValueAtTime(this.musicVolumeValue, t + MUSIC_FADE);
+      src.start();
+      this.musicSource = src;
+    } else if (!this.musicWanted && this.musicSource) {
+      const src = this.musicSource;
+      this.musicSource = null;
+      this.musicGain.gain.cancelScheduledValues(t);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, t);
+      this.musicGain.gain.linearRampToValueAtTime(0, t + MUSIC_FADE);
+      src.stop(t + MUSIC_FADE + 0.05);
+      src.onended = () => src.disconnect();
+    }
   }
 
   /** Browsers only allow audio after a user gesture, so call this from a click handler. */
@@ -146,6 +204,19 @@ export class AudioEngine {
       compressor.release.value = 0.18;
       this.master.connect(compressor).connect(this.ctx.destination);
       this.noise = this.makeNoise();
+      // Music goes through the main volume too, but not the compressor (it would pump).
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = 0;
+      const musicOut = this.ctx.createGain();
+      musicOut.gain.value = this.volumeValue;
+      this.musicGain.connect(musicOut).connect(this.ctx.destination);
+      this.musicOut = musicOut;
+      this.ctx.addEventListener('statechange', () => this.syncMusic());
+      void this.load(LOBBY_MUSIC).then((buffer) => {
+        if (!buffer || !this.ctx) return;
+        this.musicBuffer = trimSilence(this.ctx, buffer);
+        this.syncMusic();
+      });
       void this.load(JUMPSCARE_FILE);
       for (const [name, url] of Object.entries(FILE_SOUNDS) as [SoundName, string][]) {
         void this.load(url).then((buffer) => {

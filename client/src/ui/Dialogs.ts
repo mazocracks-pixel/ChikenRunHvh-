@@ -711,5 +711,6 @@ function soundTab(audio: AudioEngine): HTMLElement {
       audio.volume = v;
       audio.play('click');
     }),
+    slider('set-music', 'Lobby music', { min: 0, max: 1, step: 0.05 }, audio.musicVolume, 2, (v) => (audio.musicVolume = v), 'The song on the title screen. 0 turns it off.'),
   );
 }

@@ -114,6 +114,7 @@ export class App {
     });
     this.game.dev = combineDevHooks(this.dev.runtime, this.classicDev.runtime);
     this.bindSecretTaps();
+    for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, () => this.game.audio.unlock(), { once: true });
     // Ctrl is crouch, and windowed (or outside Chrome / Edge) Ctrl+W can't be blocked: ask before leaving a match.
     window.addEventListener('beforeunload', (e) => {
       if (this.screen !== 'game') return;
@@ -225,6 +226,7 @@ export class App {
   private showMenu(status = '', error = false): void {
     this.clearHvhSetup();
     this.screen = 'menu';
+    this.game.audio.setMusic(true);
     this.friends.setInGame(false);
     this.shop.close();
     this.game.setPreview(null);
@@ -237,6 +239,7 @@ export class App {
 
   private showShop(): void {
     this.screen = 'shop';
+    this.game.audio.setMusic(true);
     this.menu.setVisible(false);
     this.shop.open();
     void this.api.refresh().catch(() => undefined);
@@ -294,6 +297,7 @@ export class App {
   }
 
   private startGame(join: JoinSuccess): void {
+    this.game.audio.setMusic(false);
     this.clearHvhSetup();
     this.lastRoom = { id: join.room.id, mode: join.room.mode };
     this.touch?.setBombMode(MODES[join.room.mode].bomb === true);

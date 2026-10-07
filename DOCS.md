@@ -1,7 +1,35 @@
 # DOCS: plan, progress and mistakes
 
-Working notes for the current batch of work. The plan comes first, then what was done for each
-step, then a log of every mistake made along the way (what went wrong, and how it was fixed).
+Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
+for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
+
+# Batch 2 (6 Oct): lobby music, a wider lap, a better Skeet panel
+
+## The plan
+
+| # | Step | Status |
+| --- | --- | --- |
+| G | Lobby music: `CHIKEN_HVHLOBBY` loops on the title screen, fades out when a match starts, has its own volume in Settings | Done |
+| H | The title-screen chicken's lap: wider again, still clear of every wall | Planned |
+| I | Skeet panel (C++ compiled to WebAssembly): install the exact compiler it was built with (Emscripten 4.0.22), check the unchanged source rebuilds and works, then make it better | Planned |
+
+Same rules: read first, smallest change that works, test, look at it in the browser, commit only when every test passes.
+
+## What was done (batch 2)
+
+### G. Lobby music
+- `CHIKEN_HVHLOBBY.mp3` is in `client/public/sounds/` with its exact name. It loops on the title screen and in the shop, fades in (0.8 s) and fades out when a match starts, and comes back when you return to the menu.
+- Checked before adding: the track is 36.6 s long, with 0.2 s of silence at the start, which would leave a gap every loop. It is trimmed when the file loads, so the loop is seamless. It is loud (it peaks at full volume), so it starts at 40% volume.
+- Browsers only allow sound after your first click or key press, so the music starts at that moment (any click or key on the page counts).
+- **Settings > Sound** has a new **Lobby music** slider (0 turns it off). The main Volume slider also turns it down. It skips the effects compressor, so gunshots in a match never make it "pump".
+- Checked in the browser: silent before any click; after a click it plays, looping, at 40%; in a match it stops; back on the menu it plays again; music volume 0 silences it; no errors.
+- Code: [client/src/game/Audio.ts](client/src/game/Audio.ts) (`setMusic`), [client/src/app/App.ts](client/src/app/App.ts), [client/src/ui/Dialogs.ts](client/src/ui/Dialogs.ts).
+
+## Mistakes log (batch 2)
+
+_Every mistake goes here._
+
+# Batch 1 (6 Oct): sounds, scope, kill icons, inspect, gun shapes, main menu
 
 ## The plan
 
