@@ -17,7 +17,7 @@ for each step, and a log of every mistake made along the way (what went wrong, a
 | I3 | Remove the ~20 "(unavailable)" lines that only cluttered Visuals and Misc | Done |
 | I4 | **Menu color** picker (Misc > Settings), like real Skeet: recolours ticks, sliders and the selected tab icon, and is saved with your config | Done |
 | I5 | Fixes: the Skins tab's two empty boxes, three buttons all called "Apply", bot names showing "?" (the emoji has no letter in the menu font), and the Legit tab ignoring a click | Done |
-| J | (added mid-batch) Bug: holding the Shadow Daggers makes the screen flash blue. Find the cause and fix it | Planned |
+| J | (added mid-batch) Bug: holding the Shadow Daggers makes the screen flash blue. Find the cause and fix it | Done |
 | K | (added mid-batch) **M** switches your team (Red to Blue, Blue to Red), checked by the server. Not in FaceChiken: ranked teams are random and can't be changed | Planned |
 
 Same rules: read first, smallest change that works, test, look at it in the browser, commit only when every test passes.
@@ -57,12 +57,30 @@ Same rules: read first, smallest change that works, test, look at it in the brow
   - After screenshots of every tab.
 - Code: [client/native/skeet/menu/Menu.cpp](client/native/skeet/menu/Menu.cpp), [client/native/skeet/browser.cpp](client/native/skeet/browser.cpp), [client/src/dev/skeet/NativeMenu.ts](client/src/dev/skeet/NativeMenu.ts), rebuilt [client/public/skeet-native/](client/public/skeet-native/).
 
+### J. Bug: the Shadow Daggers flashed the screen blue
+- **Reproduced first.**
+  - A test account bought and equipped the Shadow Daggers and played Knife Fight while holding attack.
+  - Software rendering (7 fps) never showed it. On the real graphics card (180 fps) on **High** quality, **8 of 30 frames were solid light blue**, with only the HUD left.
+  - The same test with the normal Knife: 0 of 30. On Medium and Low: 0 of 30. So it was the daggers, and only with High's bloom.
+- **The cause.**
+  - Scanning every weapon model for broken numbers found one problem in all 29 guns and knives: the daggers' blade had 42 points with a zero-length normal (84 for the pair).
+  - Its short, wide tip with a bevelled edge made 14 zero-area triangles. Zero-area triangles have no direction, and lighting one gives NaN, an invalid number.
+  - On High, the bloom blur spreads a single NaN pixel over the whole screen, so the screen showed only the sky colour behind it, which is the blue.
+  - Every swing (and holding attack swings again and again) brought those slivers into view: blink, blink.
+- **The fix.** The blade builder drops zero-area triangles (`dropFlatTriangles` in [client/src/game/models/Guns.ts](client/src/game/models/Guns.ts)). They are invisible anyway, so the blade looks exactly the same.
+- **Checked**
+  - The same High test, twice: 0 of 30 blue frames.
+  - All 29 models are clean.
+  - A new test checks every blade size the knives use has a proper normal on every point.
+
 ## Mistakes log (batch 2)
 
 1. **The first compile from PowerShell failed.** With `2>&1`, PowerShell 5.1 treats Emscripten's normal "sanity checks" message (printed on stderr) as an error and stops. Then `emsdk_env.bat` didn't put `em++` on PATH inside a batch file. **Fix:** a small batch file that sets `EM_CONFIG` and PATH itself and calls `em++.bat` by its full path. Written into the Skeet README.
 2. **Batch 1 broke the Skeet QA script and I didn't notice.** The lobby redesign moved **Create room** into **Change mode**, and `check-native-menu.cjs` still looked for it on the title screen. It wasn't run after the menu change. **Fix:** the script opens Change mode first. **Rule:** run that script after any main-menu change.
 3. **The new bridge test was wrong at first.** It assumed only colours are arrays, but a multi-select (brightness adjustment) is one too, so the test failed on correct code. **Fix:** treat every field whose key ends in `_0`, `_1`… as an array element.
 4. **The shell ate a backslash again.** Editing that test with `node -e` in the shell turned `/_\d$/` into `/_d$/`. **Fix:** corrected with the Edit tool. **Rule (again):** edit files with the Edit tool or a .cjs script file, never inline in the shell.
+5. **(J) My first guess at the blue flash was wrong.** I thought the slash swung the left dagger into the camera, and said so before checking. Measured, the closest it gets is 15 cm, and nothing covers the screen. **Rule:** measure before naming a cause.
+6. **(J) Too long testing at 7 fps.** Software rendering at 7 fps can't show a one-frame flash, and it only happens on High. The first test should have matched how you play: graphics card, High quality, holding attack. That test found it at once.
 
 # Batch 1 (6 Oct): sounds, scope, kill icons, inspect, gun shapes, main menu
 

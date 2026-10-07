@@ -201,10 +201,33 @@ const disc = (r: number) => geometry(`d:${r}`, () => new THREE.CircleGeometry(r,
 const ring = (r: number, t: number, arc = Math.PI * 2) => geometry(`r:${r}:${t}:${arc}`, () => new THREE.TorusGeometry(r, t, 6, 18, arc));
 const ball = (r: number) => geometry(`s:${r}`, () => new THREE.SphereGeometry(r, 10, 8));
 /**
+ * Removes zero-area triangles, which have no normal. Shaded, a zero normal gives NaN, and on High
+ * quality the bloom blurs one NaN pixel over the whole screen (the Shadow Daggers' short, wide
+ * bevelled tip made 14 of them: the screen flashed blue as they swung). They are invisible anyway.
+ */
+function dropFlatTriangles(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const normal = g.getAttribute('normal');
+  if (g.index || !normal) return g;
+  const keep: number[] = [];
+  const ok = (i: number) => Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i)) > 1e-6;
+  for (let t = 0; t < normal.count; t += 3) if (ok(t) && ok(t + 1) && ok(t + 2)) keep.push(t, t + 1, t + 2);
+  if (keep.length === normal.count) return g;
+  const out = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(g.attributes)) {
+    const size = attr.itemSize;
+    const data = new Float32Array(keep.length * size);
+    keep.forEach((v, i) => { for (let k = 0; k < size; k++) data[i * size + k] = attr.array[v * size + k]!; });
+    out.setAttribute(name, new THREE.BufferAttribute(data, size));
+  }
+  g.dispose();
+  return out;
+}
+
+/**
  * A flat blade pointing down -Z from z = 0 (the guard): edge below, spine above, sweeping up to
  * the tip. `curve` bends the whole blade upwards (a katana's curve). Thickness is along X.
  */
-const blade = (length: number, height: number, thickness: number, curve = 0) =>
+export const blade = (length: number, height: number, thickness: number, curve = 0) =>
   geometry(`bl:${length}:${height}:${thickness}:${curve}`, () => {
     const L = length;
     const h = height / 2;
@@ -217,7 +240,7 @@ const blade = (length: number, height: number, thickness: number, curve = 0) =>
     shape.quadraticCurveTo(L * 0.5, h + c, 0, h);
     shape.closePath();
     const bevel = thickness * 0.35;
-    const g = new THREE.ExtrudeGeometry(shape, { depth: thickness - bevel * 2, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 8 });
+    const g = dropFlatTriangles(new THREE.ExtrudeGeometry(shape, { depth: thickness - bevel * 2, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 8 }));
     // u along the blade (0 at the guard), v across it (0 at the edge): the blade texture's polished
     // edge and fuller then sit in the same place on every blade.
     g.computeBoundingBox();
