@@ -3,6 +3,37 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 4 (7 Oct): a better chicken, same hitboxes
+
+## The plan
+
+The hitboxes live in shared code (`HITBOX`, `buildHvhMatrix`, `CHICKEN_POSE`) and are not touched; only the drawing in [client/src/game/models/Chicken.ts](client/src/game/models/Chicken.ts) changes. The head stays exactly where its hitbox is (a test checks it), and the new parts stay inside the old outline.
+
+| # | Step | Status |
+| --- | --- | --- |
+| T | Feathers: a soft feather texture with relief, smooth shading, rounder shapes | Done |
+| U | Head: a serrated comb, an upper and a lower beak, two wattles, earlobes (same cartoon eyes) | Done |
+| V | Body: a fuller chest, wings made of layered feathers, a tail with two long sickle feathers | Done |
+| W | Legs: feathered thighs, thinner shanks, real toes (three forward, one back) | Done |
+| X | Checks: shared hitbox code unchanged, the head test passes, the new parts stay inside the old outline, screenshots | Done |
+
+## What was done (batch 4)
+
+- **Hitboxes: unchanged.** Nothing in `shared/` or `server/` changed (`HITBOX`, `buildHvhMatrix`, `CHICKEN_POSE` are as they were). The drawn head is the same sphere in the same place, and the head test still checks it sits exactly on the hit head while walking, aiming and crouching. Body, chest, wings and thighs stay inside the old outline; a wireframe of the real hitboxes over the new model matches as before.
+- **T. Feathers.** One small feather-scale texture (rows of rounded tips), used for colour and slight relief and tinted per skin, on smooth, rounder shapes. Metal skins (golden, robot, diamond) stay shiny.
+- **U. Head.** A serrated comb (one piece, hidden under hats as before), an upper and a slightly open lower beak (both take the beak cosmetic), two wattles and red earlobes. The cartoon eyes and brows stay.
+- **V. Body.** A rounder chest inside the body; wings with a shoulder and three flight feathers; the five-feather tail fan plus two long sickle feathers in the darker wing shade.
+- **W. Legs.** Feathered thighs, thinner shanks, and three toes forward plus one back instead of the box foot. Shoes still replace the feet.
+- **Cost.** The new parts are merged into a few meshes (tail, sickles, each wing, each foot), so a chicken draws about as many pieces as before (around 40).
+- **X. Checked.** A four-side turntable of four skins (white, shadow with helmet and shoes, golden, brown), the hitbox overlay, the title screen on High, and all 418 tests, the typecheck and the build pass.
+- Code: [client/src/game/models/Chicken.ts](client/src/game/models/Chicken.ts). The head test's stand-in canvas now accepts any drawing call: [client/test/chicken-pose.test.ts](client/test/chicken-pose.test.ts).
+
+## Mistakes log (batch 4)
+
+1. **First pass looked knitted.** The feather pattern was too dense and too strong. **Fix:** bigger, fainter scales and less relief.
+2. **A wing feather poked out below the body at the back, and the comb looked like a stick from the front.** **Fix:** shorter, flatter flight feathers inside the old wing outline, and a thicker comb.
+3. **Test-script slip.** I asked for a "gold" skin (it's "golden"), so the first turntable showed white twice. Fixed in the script.
+
 # Batch 3 (7 Oct): a new look for every screen (not the chicken, not the cheat menus)
 
 ## The plan

@@ -6,8 +6,9 @@ import { Chicken } from '../src/game/models/Chicken';
 
 it('rendered head stays on the shared physical bone while walking, pitching and transitioning crouch', () => {
   const oldDocument=globalThis.document;
-  Object.defineProperty(globalThis,'document',{configurable:true,value:{createElement(){return {width:0,height:0,getContext(){return {
-    createRadialGradient(){return {addColorStop(){}};},fillRect(){},fillStyle:''};}};}}});
+  // A stand-in 2D canvas: every drawing call is a no-op (the model draws its shadow and feather textures).
+  const ctx:object=new Proxy({},{get:(_t,key)=>key==='createRadialGradient'?()=>({addColorStop(){}}):()=>{},set:()=>true});
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{createElement(){return {width:0,height:0,getContext(){return ctx;}};}}});
   try {
     const chicken=new Chicken(DEFAULT_APPEARANCE),head=new THREE.Vector3(),origin={x:7,y:2,z:-4};
     let mesh:THREE.Mesh|undefined;
