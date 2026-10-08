@@ -11,7 +11,8 @@ for each step, and a log of every mistake made along the way (what went wrong, a
 
 - One flag on each remote chicken ([client/src/game/RemotePlayers.ts](client/src/game/RemotePlayers.ts)): the tag shows only when that chicken is a teammate. It follows a team switch (M) at once. The scoreboard, kill feed and chat still show every name. The cheat panels' own name ESP is unchanged.
 - Checked in a Team Fight with bots: the teammate showed a name, the 2 enemies showed none, and the same held after pressing M. In Against All, 3 enemies, no names. All tests and the build pass.
-- Mistakes: none.
+- Mistakes:
+  1. **Pushed while one test had failed.** The first full run said 417 of 418 (my test servers were still running and loading the CPU). The commit went ahead anyway: in `npm test | grep …` the exit status is grep's, not the tests'. Five reruns right after were all 418/418, so it was a timing-sensitive test under load, not this change. **Rule:** read the `fail 0` line before committing, and stop the test servers before the full run.
 
 # Batch 4 (7 Oct): a better chicken, same hitboxes
 
