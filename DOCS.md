@@ -3,6 +3,59 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 7 (7 Oct): textures and surfaces on the title screen
+
+The title screen's sky and ground are the live 3D Courtyard scene, not a flat page colour, so the sky and ground work happens in the 3D world (only on that map) and the buttons, logo and panels in CSS. The chicken is not touched: no change to its model, run, speed, size or spot, and nothing is drawn on it.
+
+**One style: hand-painted**, like the chicken (soft painted shapes, feather scallops, no outlines), not pixel art. Every texture is painted in code (canvas or tiny inline SVG), so nothing is downloaded and nothing is sharper than the chicken.
+
+## The plan
+
+| # | Step | Status |
+| --- | --- | --- |
+| AA | Sky: hand-painted puffy clouds at several distances, drifting slowly (they shift against each other as the camera moves: parallax), a fine grain in the sky so it isn't a flat smooth gradient, and a soft warm haze at the horizon. The noise clouds are off here. Reduced motion: the clouds stop | Done |
+| AB | Ground: a new "yard" ground of painted packed dirt, sand, pebbles and grass flecks, with large patches of colour across the yard so the repeat doesn't show; a worn dirt track along the chicken's lap; painted grass tufts off the track | Done |
+| AC | Buttons: painted wood signs (PLAY in yolk paint over wood grain, nail heads), a stained-plank bottom bar, wooden plaques for the menu buttons. Pressing really pushes them in | Done |
+| AD | Logo: painted letters (brush streaks inside the yolk) with a hard offset shadow; the HVH badge as a red painted plank | Done |
+| AE | Panels: Today and What's new on dark burlap with a stitched edge; the mode select on paper with fibres | Done |
+| AF | Checks: before/after screenshots with the chicken at the same spot on its lap, desktop and phone, textures well under 200 KB, smooth on phones | Done |
+
+## What was done (batch 7)
+
+- **AA. Sky** (Courtyard only: [client/src/game/Sky.ts](client/src/game/Sky.ts), [client/src/game/Yard.ts](client/src/game/Yard.ts)).
+  - Twelve painted puffy clouds (round puffs, flat cool-grey bottoms, brushed highlights) at three distances: far ones small and slow, near ones bigger and quicker, so they slide past each other as they drift (parallax).
+  - A fine grain over the sky so it isn't a flat smooth gradient, and a warm haze along the horizon.
+  - The old noise clouds are hidden on this screen but stay in the baked lighting, so everything is lit exactly as before.
+  - With reduced motion turned on, the clouds stand still (checked).
+- **AB. Ground.**
+  - A new "yard" ground ([client/src/game/textures.ts](client/src/game/textures.ts) `yardTexture`): painted packed dirt and sand, pebbles and grass flecks, in a 512 px tile.
+  - The ground's large colour patches break up the repeat. The tile repeats about every 140 m, so no repeat is visible from the title camera.
+  - A worn dirt track with ruts and kicked pebbles runs under the chicken's lap, its edges wobbling.
+  - About 240 painted grass tufts sit off the track and out of the buildings, all drawn in one call.
+- **AC. Buttons.**
+  - PLAY is a painted wooden sign: yolk paint over wood grain, two nail heads, and it sinks with a dent when pressed.
+  - The bottom bar and the line under it are dark stained planks with seams and nails.
+  - Change mode and the menu buttons are small wooden plaques: grain, a lighter top edge and a hard drop. Pressed, they sink and darken.
+- **AD. Logo.** Brush streaks of light and dark yolk painted inside the letters, the ink outline, and a hard offset shadow (no blur). The HVH badge is a red-painted plank.
+- **AE. Panels.**
+  - Today, What's new and your profile tag are dark burlap with a stitched yellow edge and a hard shadow.
+  - The mode select and its tickets are paper with faint fibres.
+- **AF. Checks.**
+  - **The chicken.** No chicken file changed (model, run, speed, size and spot), and nothing is drawn on it. To prove it, before and after were rendered with the chicken pinned at the same spot and stride, and its pixels compared inside its exact silhouette.
+    - Phone: 130,537 of 130,537 chicken pixels identical.
+    - Desktop High: 99.8% identical. Two renders of the same new scene also differ by about that much (77 pixels), so the rest is High quality's render noise in the test browser, not a change.
+  - **Size.** The CSS textures are 6 inline SVGs, 3.3 KB in total; the 3D ones are painted in code when the page loads. Nothing new is downloaded, far under 200 KB.
+  - **Cost.** 14 extra draw calls on the title screen only (12 clouds, the tufts, the track). Matches are untouched.
+  - **Contrast.** The text is unchanged and keeps its colours. The burlap, grain and fibres are faint.
+  - **Tests.** Typecheck, all 418 tests and the build pass (real exit codes, test servers stopped first).
+
+## Mistakes log (batch 7)
+
+1. **Turning off the old clouds changed the chicken's lighting.** I first set the title look's clouds to 0, which also removed them from the baked sky lighting the chicken is lit by. The pixel check caught it. **Fix:** the clouds are hidden only in the visible sky; the lighting keeps them.
+2. **Vite hung while I swapped files under it** (setting the changes aside to take "before" shots). **Fix:** stop Vite, swap, start it again.
+3. **My first chicken comparison was wrong twice.** A brightness-based mask also caught the pale sky, and the run cycle starts at a random moment. **Fix:** pin the stride, compare inside the chicken's real silhouette, and measure the renderer's own noise.
+4. **Shell edits broke again.** An inline `node -e` edit failed because the stash brought the files back with Windows line endings, and a heredoc mangled a template string. **Fix:** file editor only (the rule from batch 1).
+
 # Batch 6 (7 Oct): the menu moves to a bottom bar, and a more serious look
 
 Why the menu was on the left: the running chicken is on the right of the title screen (as asked in an earlier batch), so the menu went on the other side to stay clear of it. Your choice now: **a bar along the bottom**, with the logo top-left and the chicken staying on the right.

@@ -1,11 +1,13 @@
 import * as THREE from 'three';
+import { Yard } from './Yard';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createCollisionWorld, mulberry32, type BoxKind, type CollisionWorld, type MapBox, type MapDef } from '@game/shared';
 import { Foliage } from './Foliage';
 import { SURFACES, type Surface, type WorldLook } from './look';
 import { box, cylinder, part, solid } from './models/materials';
 import { HORIZON_COLOR, SUN_DIRECTION } from './Sky';
-import { asphaltTexture, bombSiteTexture, boxTexture, concreteTexture, containerTexture, factoryFloorTexture, grassTexture, gridTexture, pavementTexture, sandTexture, snowTexture, tiledBoxGeometry } from './textures';
+import { asphaltTexture, bombSiteTexture, boxTexture, concreteTexture, containerTexture, factoryFloorTexture, grassTexture, gridTexture, pavementTexture, sandTexture,
+  yardTexture, snowTexture, tiledBoxGeometry } from './textures';
 
 /** Much larger than the fog distance, so the ground's edge is never visible. */
 const GROUND_SIZE = 1000;
@@ -58,6 +60,8 @@ export class World {
   private foliageDetail = -1;
   private hvhNoGrass = false;
   private readonly windmillRotor = new THREE.Group();
+  /** The title screen's track, tufts and clouds (Courtyard only). */
+  private yard: Yard | null = null;
 
   constructor(scene: THREE.Scene, map: MapDef, maxAnisotropy: number) {
     this.map = map;
@@ -75,7 +79,11 @@ export class World {
       this.addFarmScenery();
     }
     // Walled maps (desert town, harbour, factory) have no fence or pine forest around them.
-    if (this.map.ground !== 'sand' && this.map.ground !== 'dock' && this.map.ground !== 'factory') {
+    if (this.map.id === 'lobby') {
+      this.yard = new Yard(this.collision, this.map.halfSize);
+      this.root.add(this.yard.root);
+    }
+    if (this.map.ground !== 'sand' && this.map.ground !== 'yard' && this.map.ground !== 'dock' && this.map.ground !== 'factory') {
       this.addFence();
       this.addTrees();
     }
@@ -85,6 +93,7 @@ export class World {
   dispose(): void {
     this.root.removeFromParent();
     this.foliage?.dispose();
+    this.yard?.dispose();
     this.sun.shadow.map?.dispose();
     for (const d of this.disposables) d.dispose();
   }
@@ -198,6 +207,7 @@ export class World {
 
   update(dt: number): void {
     this.foliage?.update(dt);
+    this.yard?.update(dt);
     this.windmillRotor.rotation.z -= dt * 0.22;
   }
 
@@ -248,6 +258,7 @@ export class World {
     // What lies around the play area: sand, snow, harbour water, concrete, or the grass field.
     const style = this.map.ground;
     const outerMaterial = (): THREE.MeshStandardMaterial => {
+      if (style === 'yard') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(yardTexture(), GROUND_SIZE / 7), roughness: 1, vertexColors: true })));
       if (style === 'sand') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(sandTexture(), GROUND_SIZE / 6), roughness: 1 })));
       if (style === 'snow') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ map: this.texture(snowTexture(), GROUND_SIZE / 6), roughness: 0.95 })));
       if (style === 'dock') return this.surface('ground', this.track(new THREE.MeshStandardMaterial({ color: 0x2c6d8c, roughness: 0.18, metalness: 0.15 })));

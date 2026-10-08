@@ -49,7 +49,8 @@ export const LOBBY: MapDef = {
   id: 'lobby',
   name: 'Courtyard',
   halfSize: 34,
-  ground: 'sand',
+  // Packed dirt and sand with grass flecks (painted, title screen only).
+  ground: 'yard',
   boxes: BOXES,
   // Never used by a mode, but a map needs somewhere to stand.
   spawns: [

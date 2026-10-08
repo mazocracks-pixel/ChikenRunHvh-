@@ -227,6 +227,47 @@ export function sandTexture(): THREE.CanvasTexture {
   });
 }
 
+/**
+ * The title screen's yard: packed dirt and sand, painted. Soft blotches of darker and lighter
+ * earth, pebbles with a shaded side, and flecks of grass. Big colour patches across the field
+ * (the ground's vertex colours) break up the repeat.
+ */
+export function yardTexture(): THREE.CanvasTexture {
+  return canvasTexture(512, (ctx, size) => {
+    ctx.fillStyle = '#c9a671';
+    ctx.fillRect(0, 0, size, size);
+    const rand = mulberry32(31);
+    const blot = (count: number, colors: string[], rx: number, ry: number) => {
+      for (let i = 0; i < count; i++) {
+        const x = rand() * size;
+        const y = rand() * size;
+        ctx.fillStyle = colors[i % colors.length]!;
+        // Drawn three times across the edges so the tile wraps cleanly.
+        for (const dx of [-size, 0, size]) for (const dy of [-size, 0, size]) {
+          ctx.beginPath();
+          ctx.ellipse(x + dx, y + dy, rx * (0.5 + rand()), ry * (0.5 + rand()), rand() * Math.PI, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    };
+    blot(46, ['rgba(160, 124, 80, 0.22)', 'rgba(222, 196, 146, 0.28)', 'rgba(140, 108, 70, 0.16)'], 46, 26);
+    blot(160, ['rgba(120, 94, 62, 0.5)', 'rgba(236, 222, 190, 0.6)'], 3.2, 2.2);
+    speckle(ctx, size, 17, 3800, 'rgba(255, 246, 220, 0.16)', 'rgba(110, 84, 52, 0.14)');
+    // Flecks of grass.
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 260; i++) {
+      const x = rand() * size;
+      const y = rand() * size;
+      ctx.strokeStyle = rand() < 0.5 ? 'rgba(98, 140, 54, 0.55)' : 'rgba(122, 160, 66, 0.5)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + (rand() - 0.5) * 5, y - 3 - rand() * 5);
+      ctx.stroke();
+    }
+  });
+}
+
 /** A ChikenBomb site marking: a red ring with the site's letter. */
 export function bombSiteTexture(letter: string): THREE.CanvasTexture {
   return canvasTexture(256, (ctx, size) => {

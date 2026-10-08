@@ -26,6 +26,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 sunDir;
   uniform float time;
   uniform float clouds;
+  uniform float grain;
+  uniform float haze;
   varying vec3 vDir;
 
   float hash(vec2 p) {
@@ -71,6 +73,10 @@ const fragmentShader = /* glsl */ `
     col += sunColor * (pow(s, 12.0) * 0.18 + pow(s, 250.0) * 0.9);
     col += sunColor * smoothstep(0.9993, 0.9997, s) * 6.0;
 
+    // Title screen: a soft warm haze along the horizon, and a fine painted grain.
+    if (haze > 0.0) col = mix(col, horizon * vec3(1.03, 0.99, 0.94), haze * (1.0 - smoothstep(-0.02, 0.2, dir.y)) * 0.7);
+    if (grain > 0.0) col += (hash(floor(gl_FragCoord.xy / 2.0)) - 0.5) * 0.035 * grain;
+
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -86,6 +92,8 @@ function skyMaterial(): THREE.ShaderMaterial {
       sunDir: { value: SUN_DIRECTION.clone() },
       time: { value: 0 },
       clouds: { value: 1 },
+      grain: { value: 0 },
+      haze: { value: 0 },
     },
     vertexShader,
     fragmentShader,
@@ -105,6 +113,8 @@ export class Sky {
   private readonly material = skyMaterial();
   private envMaterial: THREE.ShaderMaterial | null = null;
   private readonly disposables: { dispose(): void }[] = [];
+  private title = false;
+  private cloudAmount = 1;
 
   constructor(scene: THREE.Scene) {
     this.root.name = 'sky';
@@ -138,8 +148,19 @@ export class Sky {
     return scene;
   }
 
+  /** The title screen's sky: grain and horizon haze on (it has painted clouds of its own). */
+  setTitle(on: boolean): void {
+    this.title = on;
+    this.material.uniforms.grain!.value = on ? 1 : 0;
+    this.material.uniforms.haze!.value = on ? 1 : 0;
+    this.setClouds(this.cloudAmount);
+  }
+
   setClouds(amount: number): void {
-    this.material.uniforms.clouds!.value = amount;
+    this.cloudAmount = amount;
+    // The title screen paints its own clouds: the noise clouds are hidden there, but stay in the
+    // baked lighting, so everything (the chicken too) is lit exactly as before.
+    this.material.uniforms.clouds!.value = this.title ? 0 : amount;
     if (this.envMaterial) this.envMaterial.uniforms.clouds!.value = amount * 0.6;
   }
 

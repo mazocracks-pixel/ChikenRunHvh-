@@ -197,6 +197,7 @@ export class Game {
     this.applyWorldQuality();
     // Some maps have their own light (the Graveyard is a night).
     this.baseLook = id === 'night' ? nightLook() : defaultLook();
+    this.sky.setTitle(id === SHOWCASE_MAP);
     this.lookKey = '';
     this.applyLook();
   }

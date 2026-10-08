@@ -46,7 +46,7 @@ export interface FlagSpot {
   z: number;
 }
 
-export type GroundStyle = 'grass' | 'town' | 'flat' | 'sand' | 'dock' | 'snow' | 'factory';
+export type GroundStyle = 'grass' | 'town' | 'flat' | 'sand' | 'dock' | 'snow' | 'factory' | 'yard';
 
 /** A ChikenBomb plant zone: a circle on the ground. */
 export interface BombSite {

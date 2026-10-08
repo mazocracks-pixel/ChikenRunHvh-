@@ -5636,3 +5636,145 @@ code {
     top: 172px;
   }
 }
+
+/* ==========================================================================================
+   Batch 7: painted surfaces on the title screen, in the chicken's hand-painted style.
+   All textures are tiny inline SVGs (a few KB in total), low contrast so text stays clear.
+   ========================================================================================== */
+.main-menu.lobby {
+  /* Wood grain, dark on light (under yolk paint) and light on dark (stained planks). */
+  --grain-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='60' viewBox='0 0 240 60'%3E%3Cg fill='none' stroke='%235a3a12' stroke-opacity='0.2' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M0 8C40 5 80 11 120 8S200 5 240 8'/%3E%3Cpath d='M0 19C30 22 70 16 110 20S190 23 240 19'/%3E%3Cpath d='M0 31C50 28 90 34 140 30S210 28 240 31'/%3E%3Cpath d='M0 43C40 46 100 40 150 44S220 46 240 43'/%3E%3Cpath d='M0 54C60 51 110 57 170 53S230 52 240 54'/%3E%3Cpath d='M150 26C160 20 178 20 186 27C178 34 160 33 150 26Z'/%3E%3C/g%3E%3C/svg%3E");
+  --grain-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='60' viewBox='0 0 240 60'%3E%3Cg fill='none' stroke='%23ffd9a6' stroke-opacity='0.1' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M0 8C40 5 80 11 120 8S200 5 240 8'/%3E%3Cpath d='M0 19C30 22 70 16 110 20S190 23 240 19'/%3E%3Cpath d='M0 31C50 28 90 34 140 30S210 28 240 31'/%3E%3Cpath d='M0 43C40 46 100 40 150 44S220 46 240 43'/%3E%3Cpath d='M0 54C60 51 110 57 170 53S230 52 240 54'/%3E%3Cpath d='M150 26C160 20 178 20 186 27C178 34 160 33 150 26Z'/%3E%3C/g%3E%3C/svg%3E");
+  /* Stained planks for the bar: grain, a dark seam under each plank, a nail at each end. */
+  --planks: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='48' viewBox='0 0 320 48'%3E%3Cg fill='none' stroke='%23ffd9a6' stroke-opacity='0.07' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M0 9C60 6 120 12 180 9S280 6 320 9'/%3E%3Cpath d='M0 21C50 24 110 18 170 22S270 25 320 21'/%3E%3Cpath d='M0 34C70 31 130 37 200 33S290 31 320 34'/%3E%3C/g%3E%3Cpath d='M0 47H320M319 0V48' stroke='%23000' stroke-opacity='0.55' stroke-width='2'/%3E%3Cg fill='%23140b06'%3E%3Ccircle cx='10' cy='24' r='2.4'/%3E%3Ccircle cx='308' cy='24' r='2.4'/%3E%3C/g%3E%3Cg fill='%23ffe8c8' fill-opacity='0.25'%3E%3Ccircle cx='9.3' cy='23.3' r='0.9'/%3E%3Ccircle cx='307.3' cy='23.3' r='0.9'/%3E%3C/g%3E%3C/svg%3E");
+  /* Burlap weave for the info panels. */
+  --burlap: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Cpath d='M0 1.5H6M0 4.5H6' stroke='%23ffe6c0' stroke-opacity='0.07'/%3E%3Cpath d='M1.5 0V6M4.5 0V6' stroke='%23000' stroke-opacity='0.16'/%3E%3C/svg%3E");
+  /* Brush streaks in the yolk paint. */
+  --streaks: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70' viewBox='0 0 140 70'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M-5 13L60 9L145 15' stroke='%23fff3b0' stroke-opacity='0.55' stroke-width='5'/%3E%3Cpath d='M-5 33L80 37L145 32' stroke='%23e2a00c' stroke-opacity='0.4' stroke-width='6'/%3E%3Cpath d='M-5 54L50 51L145 57' stroke='%23fff3b0' stroke-opacity='0.4' stroke-width='4'/%3E%3C/g%3E%3C/svg%3E");
+  /* Paper fibres (the mode select). */
+  --paper-fibres: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cg fill='none' stroke='%237a5a3a' stroke-opacity='0.12' stroke-width='0.9' stroke-linecap='round'%3E%3Cpath d='M12 20q6-3 12 1'/%3E%3Cpath d='M60 12q4 4 10 3'/%3E%3Cpath d='M110 30q5-4 11-1'/%3E%3Cpath d='M30 70q3 5 9 6'/%3E%3Cpath d='M85 60q6 2 9-3'/%3E%3Cpath d='M140 80q-4 5-10 5'/%3E%3Cpath d='M20 120q7-1 10 4'/%3E%3Cpath d='M70 110q4-5 10-4'/%3E%3Cpath d='M120 130q5 3 11 0'/%3E%3Cpath d='M50 150q5-3 9 1'/%3E%3C/g%3E%3Cg fill='%237a5a3a' fill-opacity='0.1'%3E%3Ccircle cx='40' cy='92' r='1'/%3E%3Ccircle cx='132' cy='14' r='0.8'/%3E%3Ccircle cx='96' cy='142' r='1.1'/%3E%3Ccircle cx='8' cy='60' r='0.7'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Logo: yolk paint with brush streaks inside the letters, an ink edge, a hard drop. */
+.lobby .logo {
+  color: transparent;
+  background: var(--streaks) var(--yolk);
+  background-size: 140px 70px;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-stroke: 3px var(--ink);
+  text-shadow: none;
+  filter: drop-shadow(0 5px 0 var(--ink));
+}
+.lobby .logo .accent {
+  color: var(--paper);
+  background: var(--grain-dark) var(--barn);
+  background-size: 240px 60px;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  -webkit-text-stroke: 0;
+}
+
+/* PLAY: a painted wooden sign (yolk paint over grain), two nails, pushed in when pressed. */
+.lobby .lobby-play,
+.lobby .lobby-play:hover:not(:disabled) {
+  position: relative;
+  background: var(--grain-dark) var(--yolk);
+  background-size: 240px 60px;
+}
+.lobby .lobby-play:hover:not(:disabled) {
+  background-color: var(--yolk-hi);
+}
+.lobby .lobby-play::before,
+.lobby .lobby-play::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #4a2e12;
+  box-shadow: inset 1px 1px 0 rgba(255, 240, 200, 0.45);
+}
+.lobby .lobby-play::before {
+  left: 5px;
+}
+.lobby .lobby-play::after {
+  right: 7px;
+}
+.lobby .lobby-play:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #000, inset 0 4px 0 rgba(90, 58, 18, 0.35);
+}
+
+/* The bar and the line under it: dark stained planks. */
+.lobby .lobby-nav,
+.lobby .lobby-bottom {
+  background: var(--planks) #2b1b10;
+  background-size: 320px 48px;
+}
+.lobby .lobby-bottom {
+  background-position: 0 -20px;
+}
+
+/* Menu buttons and Change mode: small wooden plaques that sink when pressed. */
+.lobby .lobby-btn,
+.lobby .lobby-btn:hover:not(:disabled),
+.lobby .lobby-change,
+.lobby .lobby-change:hover:not(:disabled) {
+  color: var(--paper);
+  background: var(--grain-light) #6a4528;
+  background-size: 240px 60px;
+  border: 2px solid #1a0f07;
+  border-radius: 6px;
+  box-shadow: 0 3px 0 #120a05, inset 0 1px 0 rgba(255, 220, 170, 0.18);
+}
+.lobby .lobby-btn:hover:not(:disabled),
+.lobby .lobby-change:hover:not(:disabled) {
+  color: var(--yolk);
+  background-color: #7a5230;
+}
+.lobby .lobby-btn:active:not(:disabled),
+.lobby .lobby-change:active:not(:disabled) {
+  transform: translateY(3px);
+  background-color: #5b3a21;
+  box-shadow: 0 0 0 #120a05, inset 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.lobby .lobby-btn {
+  margin-left: 6px;
+}
+
+/* Info panels and the profile: dark burlap with a stitched edge. */
+.lobby .lobby-card,
+.lobby .lobby-card:nth-child(2),
+:where(#ui-layer) .main-menu .profile-chip {
+  background: var(--burlap) #36261a;
+  background-size: 6px 6px;
+  outline: 2px dashed rgba(255, 197, 51, 0.4);
+  outline-offset: -5px;
+  box-shadow: 4px 4px 0 rgba(20, 12, 6, 0.85);
+}
+.lobby .lobby-card,
+.lobby .lobby-card:nth-child(2) {
+  border-left: 0;
+  padding: 12px 14px;
+}
+
+/* The mode select: paper with fibres. */
+.mode-select .mode-select-window {
+  background: var(--paper-fibres) var(--paper);
+  background-size: 160px 160px;
+}
+.mode-select .mode-card {
+  background: var(--paper-fibres) #fffaf0;
+  background-size: 160px 160px;
+}
+.mode-select .mode-card.selected {
+  background-color: #fff1c4;
+}
+@media (max-width: 720px) {
+  .lobby .lobby-btn {
+    margin-left: 0;
+  }
+}
