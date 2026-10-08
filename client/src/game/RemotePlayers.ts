@@ -15,6 +15,8 @@ export class RemotePlayer {
   info: PlayerInfo;
   readonly chicken: Chicken;
   private tag: NameTag;
+  /** On your team: only teammates show a name above their head (enemies don't). */
+  private friendly: boolean;
   private readonly buffer: Sample[] = [];
   private readonly lastPosition = new THREE.Vector3();
   private hasRendered = false;
@@ -37,6 +39,7 @@ export class RemotePlayer {
 
   constructor(info: PlayerInfo, friendly: boolean, _hvh = false) {
     this.info = info;
+    this.friendly = friendly;
     this.chicken = new Chicken(info.appearance, info.team);
     this.tag = new NameTag(info.name, friendly || info.team === 0 ? 0xffffff : TEAM_COLORS[info.team], info.dev);
     this.chicken.root.add(this.tag.sprite);
@@ -49,6 +52,7 @@ export class RemotePlayer {
   update(info: PlayerInfo, friendly: boolean): void {
     const nameChanged = info.name !== this.info.name || info.team !== this.info.team || info.dev !== this.info.dev;
     this.info = info;
+    this.friendly = friendly;
     this.chicken.setAppearance(info.appearance);
     this.chicken.setTeam(info.team);
     if (nameChanged) {
@@ -132,7 +136,7 @@ export class RemotePlayer {
     // Otherwise the delayed, interpolated samples would briefly bring the corpse back to life.
     if (!s.alive && this.alive) this.kill();
     if (!this.chicken.isDead) root.visible = true;
-    this.tag.sprite.visible = this.alive;
+    this.tag.sprite.visible = this.alive && this.friendly;
     this.tag.animate(performance.now() / 1000);
     this.chicken.setWeapon(s.weapon as WeaponId);
     this.chicken.setJetpack(s.fuel > 0, s.jetting);

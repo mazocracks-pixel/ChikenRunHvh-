@@ -3,6 +3,16 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 5 (7 Oct): no names over enemies
+
+| # | Step | Status |
+| --- | --- | --- |
+| Y | Names above chickens: teammates keep theirs, enemies don't show one. In free-for-all modes everyone is an enemy, so no names | Done |
+
+- One flag on each remote chicken ([client/src/game/RemotePlayers.ts](client/src/game/RemotePlayers.ts)): the tag shows only when that chicken is a teammate. It follows a team switch (M) at once. The scoreboard, kill feed and chat still show every name. The cheat panels' own name ESP is unchanged.
+- Checked in a Team Fight with bots: the teammate showed a name, the 2 enemies showed none, and the same held after pressing M. In Against All, 3 enemies, no names. All tests and the build pass.
+- Mistakes: none.
+
 # Batch 4 (7 Oct): a better chicken, same hitboxes
 
 ## The plan
