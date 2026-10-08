@@ -3,6 +3,12 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 8 (7 Oct): no "No matches running"
+
+- The line under the title bar no longer says "No matches running". When nobody is in a match it is hidden; when people are playing it shows "N players in matches" (it refreshes every 20 seconds). "Offline" still shows if the server can't be reached. Code: `refreshLive` in [client/src/ui/MainMenu.ts](client/src/ui/MainMenu.ts).
+- Checked in the browser (the row shows Controls and Cookies & privacy); typecheck, all 418 tests and the build pass.
+- Mistakes: none.
+
 # Batch 7 (7 Oct): textures and surfaces on the title screen
 
 The title screen's sky and ground are the live 3D Courtyard scene, not a flat page colour, so the sky and ground work happens in the 3D world (only on that map) and the buttons, logo and panels in CSS. The chicken is not touched: no change to its model, run, speed, size or spot, and nothing is drawn on it.

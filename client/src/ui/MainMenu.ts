@@ -305,11 +305,13 @@ export class MainMenu {
     this.actions
       .online()
       .then((n) => {
-        // People in matches right now (you on this screen aren't counted yet).
-        this.online.lastChild!.textContent = n === 0 ? 'No matches running' : `${n} ${n === 1 ? 'player' : 'players'} in matches`;
+        // People in matches right now (you on this screen aren't counted yet). Hidden when there are none.
+        this.online.hidden = n === 0;
+        this.online.lastChild!.textContent = `${n} ${n === 1 ? 'player' : 'players'} in matches`;
         this.online.classList.add('live');
       })
       .catch(() => {
+        this.online.hidden = false;
         this.online.lastChild!.textContent = 'Offline';
         this.online.classList.remove('live');
       });
