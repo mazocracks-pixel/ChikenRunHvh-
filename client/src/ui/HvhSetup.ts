@@ -26,8 +26,8 @@ export class HvhSetup {
     });
     this.root = h('div', { class: 'overlay hvh-setup' },
       h('section', { class: 'panel card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'HvH setup' },
-        h('h2', null, 'Pick your panel'),
-        h('p', { class: 'muted' }, 'The match is already on. Pick, set up, jump in.'),
+        h('h2', null, 'Choose your panel'),
+        h('p', { class: 'muted' }, 'The match is in progress. Choose a panel to enter it.'),
         h('fieldset', { class: 'hvh-panel-options' }, h('legend', null, 'Panel'), ...options),
         this.status, this.configure, this.begin,
         h('button', { type: 'button', class: 'secondary', onclick: leave }, 'Leave match')));

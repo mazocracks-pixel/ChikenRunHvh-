@@ -5354,3 +5354,285 @@ code {
     font-size: 0.7rem;
   }
 }
+
+/* ==========================================================================================
+   Batch 6: the title menu is a dark bar along the bottom (PLAY + every button), a thin status
+   line under it, today's challenges and news in the free space on the left. The chicken keeps
+   the right side. Calmer: nothing tilted, no red logo shadow, darker panels.
+   ========================================================================================== */
+.main-menu.lobby {
+  --gutter: clamp(16px, 3.5vw, 48px);
+  --bar: rgba(31, 20, 13, 0.92);
+  grid-template-rows: auto auto 1fr auto auto;
+  padding: 18px var(--gutter) 0;
+  gap: 0;
+}
+.main-menu.lobby > .lobby-body {
+  display: contents;
+}
+.lobby .logo {
+  text-shadow: 0 5px 0 var(--ink);
+}
+.lobby .logo .accent {
+  transform: none;
+  box-shadow: none;
+  vertical-align: 0.38em;
+}
+:where(#ui-layer) .profile-chip {
+  color: var(--paper);
+  background: var(--bar);
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+}
+:where(#ui-layer) .profile-chip .profile-name {
+  color: var(--paper);
+}
+:where(#ui-layer) .profile-chip .record {
+  color: rgba(255, 243, 214, 0.65);
+}
+:where(#ui-layer) .profile-chip .coins {
+  color: var(--yolk);
+}
+:where(#ui-layer) .profile-chip .xp-bar {
+  background: rgba(255, 243, 214, 0.15);
+  border: 0;
+}
+:where(#ui-layer) .profile-chip .xp-bar i {
+  background: var(--yolk);
+}
+
+/* Left: today's challenges and what's new, on dark panels with a yolk edge. */
+.lobby .lobby-cards {
+  grid-row: 3;
+  align-self: center;
+  justify-self: start;
+  flex-direction: column;
+  width: min(320px, 100%);
+  gap: 10px;
+}
+.lobby .lobby-card,
+.lobby .lobby-card:nth-child(2) {
+  color: var(--paper);
+  background: var(--bar);
+  border: 0;
+  border-left: 4px solid var(--yolk);
+  border-radius: 6px;
+  transform: none;
+}
+.lobby .lobby-card h3 {
+  color: var(--yolk);
+}
+.lobby .lobby-card h3 .link {
+  color: var(--yolk);
+}
+.lobby .lobby-news-item b {
+  color: var(--paper);
+}
+.lobby .lobby-news-item span,
+.lobby .lobby-daily-row .done {
+  color: rgba(255, 243, 214, 0.65);
+}
+.lobby .lobby-daily-reward {
+  color: var(--yolk);
+}
+:where(#ui-layer) .lobby .daily-bar {
+  background: rgba(255, 243, 214, 0.15);
+  border: 0;
+}
+
+/* The bar: full width, PLAY and mode on the left, the menu on the right. */
+.lobby .lobby-nav {
+  grid-row: 4;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  margin-inline: calc(-1 * var(--gutter));
+  padding: 12px var(--gutter);
+  background: var(--bar);
+  border-top: 3px solid var(--yolk);
+}
+.lobby .lobby-nav > * {
+  animation: none;
+}
+.lobby .lobby-play,
+.lobby .lobby-play:hover:not(:disabled) {
+  width: auto;
+  min-width: 270px;
+  padding: 6px 24px 8px 8px;
+  gap: 12px;
+  transform: none;
+  box-shadow: 0 5px 0 #000;
+  border-color: #000;
+}
+.lobby .lobby-play:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #000;
+}
+.lobby .lobby-play-arrow {
+  width: 48px;
+  height: 48px;
+  font-size: 1.3rem;
+}
+.lobby .lobby-play-label {
+  font-size: clamp(2rem, 3.2vw, 2.5rem);
+}
+.lobby .lobby-play-mode {
+  margin-top: 3px;
+  font-size: 0.78rem;
+}
+.lobby .lobby-change,
+.lobby .lobby-change:hover:not(:disabled) {
+  margin: 0 0 0 10px;
+  min-height: 40px;
+  color: var(--paper);
+  background: transparent;
+  border: 2px solid rgba(255, 243, 214, 0.45);
+  box-shadow: none;
+}
+.lobby .lobby-change:hover:not(:disabled) {
+  color: var(--yolk);
+  border-color: var(--yolk);
+}
+.lobby .lobby-change + .lobby-btn {
+  margin-left: auto;
+}
+.lobby .lobby-btn,
+.lobby .lobby-btn:hover:not(:disabled),
+.lobby .lobby-btn:active:not(:disabled) {
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 12px;
+  color: var(--paper);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  transform: none;
+  font-size: 1.05rem;
+}
+.lobby .lobby-btn:hover:not(:disabled) {
+  color: var(--yolk);
+  background: rgba(255, 197, 51, 0.12);
+}
+.lobby .lobby-btn-icon {
+  color: var(--yolk);
+}
+.lobby .lobby-nav .status {
+  position: absolute;
+  left: var(--gutter);
+  bottom: calc(100% + 10px);
+  margin: 0;
+  padding: 3px 10px;
+  color: var(--paper);
+  background: var(--barn);
+  border-radius: 6px;
+}
+.lobby .lobby-nav .status:empty {
+  display: none;
+}
+/* Under the bar: who's playing, controls, privacy. */
+.lobby .lobby-bottom {
+  grid-row: 5;
+  justify-self: stretch;
+  margin: 0 calc(-1 * var(--gutter));
+  padding: 6px var(--gutter) calc(6px + env(safe-area-inset-bottom, 0px));
+  color: rgba(255, 243, 214, 0.75);
+  background: var(--bar);
+  border: 0;
+  border-top: 1px solid rgba(255, 243, 214, 0.12);
+  border-radius: 0;
+  font-size: 0.78rem;
+}
+.lobby .lobby-bottom .lobby-link {
+  color: rgba(255, 243, 214, 0.85);
+}
+.lobby .lobby-bottom .lobby-link:hover,
+.lobby .lobby-bottom button.link {
+  color: var(--yolk);
+}
+.lobby .lobby-online i {
+  border-color: rgba(255, 243, 214, 0.6);
+}
+.lobby .lobby-controls {
+  bottom: 140px;
+}
+:where(#ui-layer) .main-menu .scene-toggle {
+  top: 96px;
+  bottom: auto;
+  right: var(--gutter, 14px);
+  color: var(--paper);
+  background: var(--bar);
+  border: 0;
+  box-shadow: none;
+}
+#hud-layer .result-kicker.won {
+  transform: none;
+}
+
+@media (max-width: 720px) {
+  .main-menu.lobby {
+    --gutter: 14px;
+    grid-template-rows: auto auto 1fr auto auto;
+    padding: 12px var(--gutter) 0;
+  }
+  .lobby .lobby-nav {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    padding: 12px var(--gutter);
+  }
+  .lobby .lobby-play,
+  .lobby .lobby-play:hover:not(:disabled) {
+    width: 100%;
+    min-width: 0;
+  }
+  .lobby .lobby-change,
+  .lobby .lobby-change:hover:not(:disabled) {
+    justify-self: start;
+    margin: 0;
+  }
+  .lobby .lobby-change + .lobby-btn {
+    margin-left: 0;
+  }
+  .lobby .lobby-btn,
+  .lobby .lobby-btn:hover:not(:disabled) {
+    min-height: 52px;
+    justify-content: center;
+    padding: 0;
+    border: 2px solid rgba(255, 243, 214, 0.22);
+  }
+  .lobby .lobby-bottom {
+    margin: 0 calc(-1 * var(--gutter));
+  }
+  :where(#ui-layer) .main-menu .scene-toggle {
+    top: 136px;
+  }
+}
+/* Rows for the bar layout (the batch-3 row rules are more specific, so say it the same way). */
+.main-menu.lobby {
+  grid-template-columns: minmax(0, 1fr);
+}
+.main-menu.lobby > .menu-header { grid-row: 1; }
+.main-menu.lobby > .party-strip { grid-row: 2; }
+.main-menu.lobby .lobby-cards { grid-row: 3; }
+.main-menu.lobby .lobby-nav { grid-row: 4; }
+.main-menu.lobby > .lobby-bottom { grid-row: 5; }
+.lobby .logo,
+.lobby .lobby-change,
+.lobby .lobby-play-mode,
+.lobby .lobby-btn,
+:where(#ui-layer) .profile-chip .chip-btn {
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .lobby .logo {
+    font-size: clamp(2rem, 10.5vw, 3rem);
+  }
+  :where(#ui-layer) .main-menu .scene-toggle {
+    top: 172px;
+  }
+}

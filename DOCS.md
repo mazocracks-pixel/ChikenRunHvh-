@@ -3,6 +3,47 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 6 (7 Oct): the menu moves to a bottom bar, and a more serious look
+
+Why the menu was on the left: the running chicken is on the right of the title screen (as asked in an earlier batch), so the menu went on the other side to stay clear of it. Your choice now: **a bar along the bottom**, with the logo top-left and the chicken staying on the right.
+
+## The plan
+
+| # | Step | Status |
+| --- | --- | --- |
+| Z1 | Title screen: PLAY and every menu button in one dark bar along the bottom (full width), with the online count, controls and privacy in a thin line under it. Today's challenges and what's new move into the empty space on the left. The chicken stays where it is | Done |
+| Z2 | More serious: nothing tilted (PLAY, the HVH badge, the cards, the "wins" tag), a calmer logo shadow, darker panels on the title screen | Done |
+| Z3 | Plainer wording: "Leaderboard", "Competitive" / "Fun" tabs, "Choose a mode", "No bots", "Resume", "Enter the code", "Wrong code" and similar | Done |
+| Z4 | Phone: the same bar at the bottom (PLAY, then a row of icons); check desktop, wide screen and phone | Done |
+
+## What was done (batch 6)
+
+- **Z1. The bottom bar.**
+  - **Bar:** PLAY (with your mode, map and bots line) and Change mode on the left; Shop, Friends, Daily, Leaderboard and Settings on the right. It is full width, dark, with a yolk line along its top. A thin line under it shows who is playing, Controls, and Cookies & privacy.
+  - **Left side:** Today's challenges and What's new sit in the empty space on the left, on dark panels with a yolk edge.
+  - **The chicken** is untouched and keeps the right side. The hide-menu button moved to the top right, under your profile.
+  - **How:** the layout is CSS only (the menu's wrapper is set to `display: contents`, so PLAY, the buttons and the cards each take their own row of the title grid). No game logic changed.
+- **Z2. More serious.**
+  - **Nothing tilted:** the PLAY button, the HVH badge, the What's new card and the winner tag on the match-over screen.
+  - **Calmer logo:** a plain dark drop shadow (the red layer is gone), and the HVH badge sits flat.
+  - **Darker panels:** the profile tag and the info cards use the same dark ink as the bar. The mode select, dialogs, HUD and keypad keep the batch-3 look.
+- **Z3. Plainer wording.**
+  - **Title screen:** "Top chickens" is now Leaderboard, "Switch mode" is Change mode, and the online line reads "No matches running" / "N players in matches".
+  - **Mode select:** "Pick a fight" is now Choose a mode, "Serious" / "Silly" became Competitive / Fun, and "Humans only" is No bots.
+  - **Pause, keypad and HvH:** "Click to jump back in" is now Click to resume; the keypad says "Enter the code", "Wrong code." and "Access granted"; the HvH choice is "Choose your panel". What's new is plainer too.
+  - **Server:** its wrong-code reply and the test for it changed to match. The Skeet QA script looks for "Change mode" again.
+- **Z4. Phone.** The same dark bar at the bottom: PLAY full width, Change mode, then five big icon buttons, and the status line. The logo and HVH stay on one line. The chicken is clear in the middle.
+- **Checked:**
+  - Screenshots at 1280x720, 1920x1080 and a phone, plus the mode select. No sideways scrolling, no errors.
+  - `check-native-menu.cjs` passes.
+  - Typecheck, all 418 tests and the build pass, checked by their real exit codes with the test servers stopped first.
+- Code: the end of [client/src/style.css](client/src/style.css) ("Batch 6"), the wording in [client/src/ui/MainMenu.ts](client/src/ui/MainMenu.ts), [client/src/app/App.ts](client/src/app/App.ts), [client/src/ui/HvhSetup.ts](client/src/ui/HvhSetup.ts), [client/src/dev/passkey.ts](client/src/dev/passkey.ts), [server/src/app.ts](server/src/app.ts).
+
+## Mistakes log (batch 6)
+
+1. **First try: the status line sat beside the bar, not under it.** A batch-3 rule placing it (`.main-menu.lobby > .lobby-bottom`) was more specific than the new one, so both landed in one row and the grid grew a second column. **Fix:** the new rows use the same selectors, and the grid has exactly one column.
+2. **First try: text wrapped.** "Change mode" and the PLAY mode line broke onto two lines, and on phones "HVH" fell under the logo. **Fix:** no wrapping on those labels, and a slightly smaller phone logo.
+
 # Batch 5 (7 Oct): no names over enemies
 
 | # | Step | Status |

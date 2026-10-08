@@ -28,16 +28,16 @@ export interface MenuActions {
 /** Mode tabs. Any mode not listed lands in the last one. */
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
   { id: 'casual', label: 'Casual', modes: ['ffa', 'tdm', 'squad', 'duel'] },
-  { id: 'competitive', label: 'Serious', modes: ['face', 'bomb', 'hvh'] },
-  { id: 'fun', label: 'Silly', modes: ['zombie', 'arms', 'knife', 'ctf', 'sandbox'] },
+  { id: 'competitive', label: 'Competitive', modes: ['face', 'bomb', 'hvh'] },
+  { id: 'fun', label: 'Fun', modes: ['zombie', 'arms', 'knife', 'ctf', 'sandbox'] },
 ];
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
 
 /** "What's new" on the title screen: newest first. Edit freely. */
 const WHATS_NEW: readonly { title: string; text: string }[] = [
-  { title: 'Switch sides', text: 'Press M to hop teams. Not in FaceChiken: ranked teams stay put.' },
-  { title: 'Sniper scope', text: 'Right-click to scope, again to zoom. Sniper and Scout.' },
-  { title: 'Zombie Apocalypse', text: 'Waves, bosses, a shop between rounds. Bring friends.' },
+  { title: 'Team switch', text: 'Press M to change teams. Not in FaceChiken, where ranked teams are fixed.' },
+  { title: 'Sniper scope', text: 'Right-click to scope, again to zoom in. Sniper and Scout.' },
+  { title: 'Zombie Apocalypse', text: 'Co-op waves with bosses and a shop between rounds.' },
 ];
 
 const CONTROLS = 'WASD move · Shift slow walk · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Mouse aim · Click shoot · Right-click aim / scope · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat · M switch team · B buy menu';
@@ -153,11 +153,11 @@ export class MainMenu {
       h(
         'div',
         { class: 'mode-select-window' },
-        h('header', { class: 'mode-select-head' }, h('h2', null, 'Pick a fight'), closeModes),
+        h('header', { class: 'mode-select-head' }, h('h2', null, 'Choose a mode'), closeModes),
         h(
           'div',
           { class: 'bots-choice' },
-          h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, 'bot', 'With bots'), this.botsOption(true, 'person', 'Humans only')),
+          h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, 'bot', 'With bots'), this.botsOption(true, 'person', 'No bots')),
           this.botsNote,
         ),
         this.tabs,
@@ -178,7 +178,7 @@ export class MainMenu {
     // ---- The lobby.
     this.playButton = this.addPlayButton(button('', () => this.play(this.selected), 'lobby-play'));
     this.playButton.append(h('span', { class: 'lobby-play-arrow' }, icon('play')), h('span', { class: 'lobby-play-text' }, this.playLabel, this.playMode));
-    const changeMode = button('Switch mode', () => this.openModes(true), 'lobby-change');
+    const changeMode = button('Change mode', () => this.openModes(true), 'lobby-change');
     const navButton = (name: IconName, label: string, run: () => void) => {
       const b = button('', run, 'lobby-btn');
       b.append(icon(name, 'lobby-btn-icon'), h('span', { class: 'lobby-btn-label' }, label));
@@ -210,7 +210,7 @@ export class MainMenu {
           navButton('basket', 'Shop', actions.customize),
           friends,
           navButton('calendar', 'Daily', actions.daily),
-          navButton('trophy', 'Top chickens', () => actions.leaderboard()),
+          navButton('trophy', 'Leaderboard', () => actions.leaderboard()),
           navButton('gear', 'Settings', actions.settings),
           this.status,
         ),
@@ -306,7 +306,7 @@ export class MainMenu {
       .online()
       .then((n) => {
         // People in matches right now (you on this screen aren't counted yet).
-        this.online.lastChild!.textContent = n === 0 ? "Nobody's fighting yet. Start it!" : `${n} ${n === 1 ? 'chicken' : 'chickens'} fighting now`;
+        this.online.lastChild!.textContent = n === 0 ? 'No matches running' : `${n} ${n === 1 ? 'player' : 'players'} in matches`;
         this.online.classList.add('live');
       })
       .catch(() => {

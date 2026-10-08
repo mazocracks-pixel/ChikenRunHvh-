@@ -25,7 +25,7 @@ export function showPasskeyPrompt(unlock: (passkey: string) => Promise<DevResult
     // The real field: hidden off-screen, so the keyboard and password managers still work.
     const input = h('input', { type: 'password', class: 'pk-field', autocomplete: 'off', maxlength: 32, 'aria-label': 'Dev code', spellcheck: 'false' });
     const dots = h('span', { class: 'pk-dots', 'aria-hidden': 'true' });
-    const message = h('div', { class: 'pk-msg', role: 'status', 'aria-live': 'polite' }, 'Punch in the code');
+    const message = h('div', { class: 'pk-msg', role: 'status', 'aria-live': 'polite' }, 'Enter the code');
     const screen = h('div', { class: 'pk-screen' }, h('span', { class: 'pk-prompt', 'aria-hidden': 'true' }, '>'), dots);
     const ok = h('button', { type: 'submit', class: 'pk-key pk-ok', 'aria-label': 'Enter' }, 'OK');
     const keys = h('div', { class: 'pk-keys' });
@@ -100,14 +100,14 @@ export function showPasskeyPrompt(unlock: (passkey: string) => Promise<DevResult
         show();
         if (res.ok) {
           message.className = 'pk-msg good';
-          message.textContent = "You're in!";
+          message.textContent = 'Access granted';
           input.blur();
           card.classList.add('granted');
           window.setTimeout(() => finish(true), 650 * settings.animSpeed);
           return;
         }
         message.className = 'pk-msg bad';
-        message.textContent = res.error ?? 'Nope. Wrong code.';
+        message.textContent = res.error ?? 'Wrong code.';
         card.classList.remove('shake');
         void card.offsetWidth; // restart the animation
         card.classList.add('shake');

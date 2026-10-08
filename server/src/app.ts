@@ -277,7 +277,7 @@ function attachDevHandlers(socket: GameSocket, rooms: RoomManager, dev: DevAcces
     const result = dev.tryUnlock(socket.data.userId, socket.data.ip, passkey);
     if (result === 'ok') ack({ ok: true });
     else if (result === 'denied') ack(denied);
-    else ack({ ok: false, error: result === 'limited' ? 'Too many attempts. Wait a minute and try again.' : 'Nope. Wrong code.' });
+    else ack({ ok: false, error: result === 'limited' ? 'Too many attempts. Wait a minute and try again.' : 'Wrong code.' });
   });
 
   socket.on('devStatus', (ack) => {
