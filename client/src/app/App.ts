@@ -126,7 +126,7 @@ export class App {
     this.loading = h('div', { class: 'loading' }, h('div', { class: 'egg-spinner' }, '🥚'), h('p', null, 'Hatching…'));
     ui.append(this.loading);
 
-    const resume = h('button', { type: 'button' }, this.isTouch ? 'Resume' : 'Click to play');
+    const resume = h('button', { type: 'button' }, this.isTouch ? 'Back in' : 'Click to jump back in');
     resume.addEventListener('click', () => {
       this.touchPaused = false;
       this.game.audio.unlock();

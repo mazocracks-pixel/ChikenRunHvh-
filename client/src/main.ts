@@ -1,3 +1,4 @@
+import '@fontsource/lilita-one/latin-400.css';
 import './style.css';
 import { App } from './app/App';
 

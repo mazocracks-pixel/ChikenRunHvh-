@@ -1,6 +1,5 @@
 import { MAPS, MODES, MODE_IDS, REPORT_REASONS, rankOf, type CreateRoomRequest, type LeaderboardRow, type MapId, type ModeId, type Profile, type ReportReason, type RoomSummary } from '@game/shared';
 import { BINDS, getKeybinds, keyLabel, resetKeybinds, setKeybind, watchKeybinds, type BindId } from '../keybinds';
-import { MODE_ICONS } from './MainMenu';
 import type { AudioEngine } from '../game/Audio';
 import { getCameraMode, setCameraMode, type CameraMode } from '../game/CameraRig';
 import { exitPlayFullscreen, keyboardLockSupported } from '../fullscreen';
@@ -358,7 +357,7 @@ export async function openLeaderboard(api: Api, initial?: ModeId): Promise<void>
     }
   };
   const tab = (id: string, label: string, mode: ModeId | null) => h('button', { type: 'button', class: 'tab', role: 'tab', 'data-tab': id, onclick: () => void show(mode) }, label);
-  tabs.append(tab('all', '🌍 All modes', null), ...BOARD_MODES.map((id) => tab(id, `${MODE_ICONS[id]} ${MODES[id].name}`, id)));
+  tabs.append(tab('all', 'All modes', null), ...BOARD_MODES.map((id) => tab(id, MODES[id].name, id)));
   openModal('Leaderboard', h('div', { class: 'board-wrap' }, tabs, content), { wide: true });
   const start = initial && BOARD_MODES.includes(initial) ? initial : null;
   tabs.querySelector<HTMLElement>(`[data-tab="${start ?? 'all'}"]`)?.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -367,11 +366,11 @@ export async function openLeaderboard(api: Api, initial?: ModeId): Promise<void>
 
 type SettingsTab = 'controls' | 'keys' | 'crosshair' | 'graphics' | 'sound';
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'controls', label: '🖱️ Controls' },
-  { id: 'keys', label: '⌨️ Keys' },
-  { id: 'crosshair', label: '⌖ Crosshair' },
-  { id: 'graphics', label: '✨ Graphics' },
-  { id: 'sound', label: '🔊 Sound' },
+  { id: 'controls', label: 'Controls' },
+  { id: 'keys', label: 'Keys' },
+  { id: 'crosshair', label: 'Crosshair' },
+  { id: 'graphics', label: 'Graphics' },
+  { id: 'sound', label: 'Sound' },
 ];
 let lastSettingsTab: SettingsTab = 'controls';
 

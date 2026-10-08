@@ -1416,10 +1416,10 @@ export class GameSession {
     if (info.pid === this.selfPid && info.level !== undefined && before !== undefined && info.level !== before) {
       const weapon = WEAPONS[ARMS_LADDER[info.level]!].name;
       if (info.level > before) {
-        this.ctx.hud.toast(`⬆ Level ${info.level + 1}: ${weapon}`, 'good');
+        this.ctx.hud.toast(`Level ${info.level + 1}: ${weapon}`, 'good');
         this.ctx.audio.play('reward');
       } else {
-        this.ctx.hud.toast(`🔪 Knifed! Back to ${weapon}`, 'bad');
+        this.ctx.hud.toast(`Knifed! Back to ${weapon}`, 'bad');
         this.ctx.audio.play('empty');
       }
     }
@@ -1662,7 +1662,7 @@ export class GameSession {
     const after = levelFor(e.xpTotal);
     if (after > before) {
       const rank = rankOf(after);
-      this.ctx.hud.toast(`Level up! ${rank.icon} Level ${rank.level} · ${rank.name} · +${e.levelCoins} coins`, 'good');
+      this.ctx.hud.toast(`Level up! Level ${rank.level} · ${rank.name} · +${e.levelCoins} coins`, 'good');
     }
     this.ctx.audio.play('reward');
     this.ctx.onReward(e.total, e.xpTotal);

@@ -1,4 +1,5 @@
 import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
+import { icon as drawnIcon } from './icons';
 import { watchSettings } from '../settings';
 import { killTags, shapeSvg, tagSvg, weaponShape } from './KillIcons';
 import { gunIcon, prepareGunIcons } from './GunIcons';
@@ -7,6 +8,23 @@ import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
 
 const KILLFEED_MS = 6000;
+
+/** The end screen's score counts up (a score tick, not decoration); instant with reduced motion. */
+const drawn = (name: 'egg' | 'smoke' | 'flash') => drawnIcon(name);
+
+function countUp(el: HTMLElement, to: number): void {
+  if (to <= 0 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = to.toLocaleString();
+    return;
+  }
+  const start = performance.now();
+  const step = (now: number) => {
+    const t = Math.min(1, (now - start) / 900);
+    el.textContent = Math.round(to * (1 - (1 - t) ** 3)).toLocaleString();
+    if (t < 1 && el.isConnected) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 const CHAT_VISIBLE_MS = 10000;
 
 /** A small kill-feed icon (the markup comes from KillIcons, never from a player). */
@@ -44,7 +62,7 @@ function nameEl(name: string, team: Team, self: boolean, dev = false): HTMLEleme
 /** A player's rank badge (level 1–10). */
 function rankBadge(level: number | undefined): HTMLElement {
   const rank = rankOf(level ?? MIN_LEVEL);
-  return h('span', { class: `rank-badge r${rank.level}`, title: `Level ${rank.level} · ${rank.name}` }, rank.icon, h('b', null, rank.level));
+  return h('span', { class: `rank-badge r${rank.level}`, title: `Level ${rank.level} · ${rank.name}` }, h('b', null, rank.level));
 }
 
 /** A plain name for tables: rank badge, and rainbow for developers. */
@@ -275,7 +293,7 @@ export class Hud {
     if (key === this.lastGrenades) return;
     this.lastGrenades = key;
     clear(this.grenades);
-    this.grenades.append(h('span', { class: eggs ? '' : 'none' }, h('kbd', null, 'G'), ` 🥚 ×${eggs}`), h('span', { class: smokes ? '' : 'none' }, h('kbd', null, 'Q'), ` 💨 ×${smokes}`), h('span', { class: flashes ? '' : 'none' }, h('kbd', null, 'Z'), ` ⚡ ×${flashes}`));
+    this.grenades.append(h('span', { class: eggs ? '' : 'none', title: 'Eggs' }, h('kbd', null, 'G'), drawn('egg'), eggs), h('span', { class: smokes ? '' : 'none', title: 'Smoke' }, h('kbd', null, 'Q'), drawn('smoke'), smokes), h('span', { class: flashes ? '' : 'none', title: 'Flashbangs' }, h('kbd', null, 'Z'), drawn('flash'), flashes));
   }
 
   /** A flashbang caught you: white for about `ms`, fading back over the last part. */
@@ -574,8 +592,14 @@ export class Hud {
     let title: string;
     if (this.mode.teams) title = match.winnerTeam ? `${teamName(this.mode, match.winnerTeam)} team wins!` : "It's a draw!";
     else title = winner ? `${winner.name} wins!` : 'No winner';
-    this.results.append(h('h2', { class: selfWon ? 'won' : '' }, selfWon ? `🏆 ${title}` : title));
+    this.results.append(h('h2', { class: `result-kicker${selfWon ? ' won' : ''}` }, title));
     const self = lines.find((line) => line.self)?.info;
+    if (self) {
+      const big = h('div', { class: 'result-score' }, '0');
+      this.results.append(big, h('div', { class: 'result-score-label' }, this.mode.armsRace ? 'guns climbed' : 'your score'));
+      countUp(big, self.score);
+    }
+    this.results.append(h('div', { class: 'next-match' }), h('div', { class: 'result-leave' }, 'Esc for the menu'));
     if (self) {
       const stat = (value: number | string, label: string) => h('div', null, h('b', null, value), h('span', null, label));
       this.results.append(h('div', { class: 'result-stats' }, stat(self.kills, 'PLUCKS'), stat(self.deaths, 'DEATHS'), stat((self.kills / Math.max(1, self.deaths)).toFixed(2), 'K / D'), stat(this.feedback.bestStreak, 'BEST STREAK')));
@@ -587,12 +611,12 @@ export class Hud {
     sorted.forEach(({ info, self }, i) => {
       t.append(h('tr', { class: self ? 'self' : '', style: info.team ? `color:${hex(TEAM_COLORS[info.team])}` : undefined }, h('td', null, i + 1), h('td', null, nameText(info)), h('td', null, info.kills), h('td', null, info.deaths), h('td', null, info.score)));
     });
-    this.results.append(t, h('div', { class: 'reward' }), h('div', { class: 'next-match' }));
+    this.results.append(h('div', { class: 'reward' }), t);
   }
 
   setResultsCountdown(msLeft: number): void {
     const el = this.results.querySelector('.next-match');
-    if (el) el.textContent = `Next match in ${Math.max(0, Math.ceil(msLeft / 1000))}s`;
+    if (el) el.textContent = `Next match in ${Math.max(0, Math.ceil(msLeft / 1000))}`;
   }
 
   showReward(e: MatchRewardEvent): void {
@@ -606,8 +630,8 @@ export class Hud {
       h(
         'div',
         { class: 'rank-line' },
-        `${rank.icon} Level ${rank.level} · ${rank.name}`,
-        h('small', null, (next ? ` · ${next.xp - xpTotal} points to ${next.icon} ${next.name}` : ' · top rank!') + (e.ranked ? '' : ' · levels move in FaceChiken')),
+        `Level ${rank.level} · ${rank.name}`,
+        h('small', null, (next ? ` · ${next.xp - xpTotal} points to ${next.name}` : ' · top rank!') + (e.ranked ? '' : ' · levels move in FaceChiken')),
       ),
       h('div', { class: 'xp-bar' }, h('i', { style: `width:${Math.round(progress * 100)}%` })),
     );
@@ -626,7 +650,7 @@ export class Hud {
     this.miniKey = key;
     this.miniBoard.hidden = shown.length === 0;
     clear(this.miniBoard);
-    this.miniBoard.append(h('div', { class: 'mini-title' }, this.mode.armsRace ? '🏁 Leaders · weapon' : '🏆 Leaders'));
+    this.miniBoard.append(h('div', { class: 'mini-title' }, this.mode.armsRace ? 'Leaders · gun' : 'Leaders'));
     for (const l of shown) {
       this.miniBoard.append(
         h(

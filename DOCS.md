@@ -3,6 +3,55 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 3 (7 Oct): a new look for every screen (not the chicken, not the cheat menus)
+
+## The plan
+
+Look: the sky blue `#9fd4f5` as the base, egg-yolk yellow and barn red as accents, dark-brown "ink" outlines, and cream "paper" panels. One bold display font, **Lilita One**, self-hosted, on every title, button and big number. Buttons are chunky, with a thick outline and a hard drop that sinks when you press it. No gradients, glass, glows, soft shadows or emoji icons; icons are drawn as SVG.
+
+| # | Step | Status |
+| --- | --- | --- |
+| L | The look: colours, font, buttons and panels, scoped to the game's own screens so the Skeet / Lab / mega?dev menus can't change | Done |
+| M | Title screen: the running chicken stays exactly as it is; a huge logo, one obvious PLAY, a small menu on the left, nothing over the chicken (phone too) | Done |
+| N | Mode select (and the HvH panel choice): bold tabs, mode tickets with drawn icons | Done |
+| O | In-match HUD: smaller, tucked into the corners, nothing over the middle | Done |
+| P | Match over: a huge score first, then the next-match countdown, then the rest | Done |
+| Q | Dev code entry: a keypad with a masked display (the code is never shown) | Done |
+| R | Pause and Settings in the same style; big tap targets on phones, no zoom | Done |
+| S | Screenshots of every screen, with the chicken and the cheat menus in place | Done |
+
+Notes on the brief: this is a shooter, so the HUD shows health, ammo, kills and the timer (there is no distance). A match ends with an automatic next match, so "retry" is that countdown.
+
+## What was done (batch 3)
+
+- **L. The look.**
+  - New section at the end of [client/src/style.css](client/src/style.css) ("Barnyard"). Colours: sky `#9fd4f5`, yolk `#ffc533`, barn red `#b8362b`, ink `#2b1a10`, paper `#fff3d6`.
+  - Font: **Lilita One** (`@fontsource/lilita-one`, self-hosted, so the CSP stays `font-src 'self'`) on titles, buttons and big numbers; body text stays plain.
+  - Buttons have a 3px ink outline and a hard 4px drop that sinks on press. Panels are paper with a hard offset shadow. Icons are drawn SVG ([client/src/ui/icons.ts](client/src/ui/icons.ts)), replacing every emoji icon on these screens.
+  - Everything is scoped to the game's layers with `:where()`, so it stays low-priority there and never reaches `<body>`, where the Skeet, Lab and mega?dev menus live. dev.css is untouched apart from deleting the old passkey dialog's rules.
+- **M. Title screen.**
+  - The chicken is untouched (sprite, run, speed, position). A big yolk logo with a barn-red HVH stamp, one tilted PLAY with a red play disc, then small paper tags for the rest (Shop, Friends, Daily, Top chickens, Settings).
+  - Today's challenges and what's new are two small tickets between the menu and the chicken.
+  - On phones the logo sits on top and PLAY plus a row of five big icon buttons at the bottom; the middle stays clear for the chicken.
+- **N. Mode select ("Pick a fight")** is a paper board: bold tabs (Casual / Serious / Silly) and mode tickets with drawn icons. Ranked FaceChiken gets a barn-red top edge. The **HvH panel choice** ("Pick your panel") uses the same tiles and fits on a laptop screen.
+- **O. HUD.** Smaller, outlined text and dark ink tags in the corners: K/D and leaders top-left, timer and team chips top-centre, health bottom-left, ammo bottom-right. The middle stays clear. On phones the thumbs own the bottom, so health sits under K/D, the ammo under the corner buttons, and the kill feed below it.
+- **P. Match over.** The winner line, then your score, huge, counting up (a score tick, instant with reduced motion). Then "Next match in 8" as the retry, "Esc for the menu", then the stats, the final score, MVP, rewards and the table.
+- **Q. Dev code.** A keypad: a dark display that only shows dots (never the code), keys 0-9 with Del and OK, and "Type letters" for codes with letters (keyboard typing works too). The server still checks every code. Its wrong-code message is now "Nope. Wrong code." Both menus share one keypad (`client/src/dev/classic/passkey.ts` re-exports it).
+- **R. Pause and Settings.** Pause is a paper card with a big "Paused" and one obvious "Click to jump back in". Settings and the other dialogs are paper with yolk tabs (no emoji), and the old grey labels are readable. All taps are at least 44px, fields use 16px text (phones don't zoom), and the page already blocks pinch zoom.
+- **S. Checked.**
+  - Screenshots of every screen on desktop and phone, the Skeet and Lab menus open in place unchanged, and `check-native-menu.cjs` passes.
+  - The keypad test: taps, typing, Del, a wrong code, then the right code; the code never shows.
+  - Typecheck, all 400 tests and the build pass.
+
+## Mistakes log (batch 3)
+
+1. **The phone title covered the chicken at first.** The hidden party strip let the grid rows shift, so the menu jumped up under the logo. **Fix:** every part of the title screen has a fixed row.
+2. **My HUD corner rules broke the touch layout.** Setting bottom/right on the HUD corners fought the phone rules (which move them to the top), and the ammo box landed mid-screen. **Fix:** only the phone rules position them. (The phone HUD was already crowded before this batch; it is tidied now.)
+3. **Settings labels were grey on cream.** The old rules use the dark-theme colour variables. **Fix:** the paper panels redefine those variables, so every old rule follows. The same leftovers caused an old border on the "Match starts" banner and grey tabs in the mode select; both fixed.
+4. **I broke the Skeet QA script twice with copy changes.** "Change mode" became "Switch mode", and dropping the emoji left two buttons named exactly "Create room". **Fix:** the script looks for "Switch mode" and clicks Create room inside the dialog. **Rule:** run `check-native-menu.cjs` after any menu wording change.
+5. **A keypad bug, caught by its test.** After tapping a key, pressing Enter "clicked" that key again. **Fix:** Enter always submits.
+6. **Test-script slips (not game bugs).** My first match-over screenshot was undone by live server updates, and a wait for the keypad was too short for the slow software renderer. Fixed in the scripts.
+
 # Batch 2 (6 Oct): lobby music, a wider lap, a better Skeet panel
 
 ## The plan

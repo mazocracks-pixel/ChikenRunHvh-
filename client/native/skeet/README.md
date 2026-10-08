@@ -30,4 +30,4 @@ npm test
 npm run build
 ```
 
-`scripts/check-native-menu.cjs` uses Playwright with Edge against the development client at localhost:3001 and server at localhost:3000 (it opens **Change mode** to reach **Create room**). Install or provide an existing Playwright package via PLAYWRIGHT_PACKAGE; BASE_URL overrides the address, and QA_OUTPUT_DIR saves screenshots and a report. It checks actual canvas interaction, seven tabs, 1 ms jitter, key capture, native color pickers, config save/load, viewport fit, live visual effects, restoration and FFA isolation.
+`scripts/check-native-menu.cjs` uses Playwright with Edge against the development client at localhost:3001 and server at localhost:3000 (it opens **Switch mode** to reach **Create room**). Install or provide an existing Playwright package via PLAYWRIGHT_PACKAGE; BASE_URL overrides the address, and QA_OUTPUT_DIR saves screenshots and a report. It checks actual canvas interaction, seven tabs, 1 ms jitter, key capture, native color pickers, config save/load, viewport fit, live visual effects, restoration and FFA isolation.

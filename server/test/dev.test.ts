@@ -410,7 +410,7 @@ describe('developer socket API', () => {
     assert.deepEqual(status.mods, DEFAULT_MODS, 'mods ignored before unlocking');
     assert.equal((await call<{ ok: boolean }>((ack) => c.emit('devAction', { kind: 'refill', target: priv.ok ? priv.selfPid : 0 }, ack))).ok, false);
 
-    assert.deepEqual(await call((ack) => c.emit('devAuth', '0000', ack)), { ok: false, error: 'Invalid Passkey' });
+    assert.deepEqual(await call((ack) => c.emit('devAuth', '0000', ack)), { ok: false, error: 'Nope. Wrong code.' });
     assert.deepEqual(await call((ack) => c.emit('devAuth', '2010', ack)), { ok: true });
 
     status = await call<DevStatus>((ack) => c.emit('devMods', { infiniteAmmo: true, speed: 99 }, ack));

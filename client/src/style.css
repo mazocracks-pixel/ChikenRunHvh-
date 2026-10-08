@@ -3951,3 +3951,1406 @@ code {
     animation: none;
   }
 }
+
+/* ==========================================================================================
+   Barnyard: the game's own screens (title, mode select, HvH choice, HUD, match over, pause,
+   settings, dev code). Scoped to #ui-layer / #modal-layer / #hud-layer and .pk-*, so the
+   Skeet, Lab and mega?dev menus (on <body>, styled by dev.css) never change.
+   Sky blue base, egg yolk + barn red accents, dark-brown ink outlines, cream paper.
+   Shadows are hard offsets (things sink when pressed); no blur, no gradients, no glass.
+   ========================================================================================== */
+:root {
+  --sky: #9fd4f5;
+  --sky-deep: #4f97c9;
+  --yolk: #ffc533;
+  --yolk-hi: #ffd766;
+  --barn: #b8362b;
+  --barn-deep: #7e2017;
+  --ink: #2b1a10;
+  --ink-soft: rgba(43, 26, 16, 0.78);
+  --paper: #fff3d6;
+  --paper-2: #f3dfb0;
+  --muted-ink: #85623f;
+  --team-blue: #2f7fd0;
+  --accent: var(--yolk);
+  --accent-ink: var(--ink);
+  --display: 'Lilita One', 'Arial Black', Impact, sans-serif;
+  /* An ink outline for text sitting on the 3D scene. */
+  --outline: 0 2px 0 var(--ink), 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink);
+}
+
+/* ---- base controls inside the game's layers (low specificity: components still win) ---- */
+:where(#ui-layer, #modal-layer, #hud-layer) button {
+  min-height: 44px;
+  padding: 9px 18px;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  background: var(--yolk);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 4px 0 var(--ink);
+  transition: transform 0.06s ease-out, box-shadow 0.06s ease-out;
+}
+:where(#ui-layer, #modal-layer, #hud-layer) button:hover:not(:disabled) {
+  filter: none;
+  background: var(--yolk-hi);
+}
+:where(#ui-layer, #modal-layer, #hud-layer) button:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+:where(#ui-layer, #modal-layer, #hud-layer) button:focus-visible {
+  outline: 3px solid var(--sky-deep);
+  outline-offset: 2px;
+}
+:where(#ui-layer, #modal-layer, #hud-layer) button.secondary,
+:where(#ui-layer, #modal-layer, #hud-layer) .icon-btn {
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+}
+:where(#ui-layer, #modal-layer, #hud-layer) button.secondary:hover:not(:disabled),
+:where(#ui-layer, #modal-layer, #hud-layer) .icon-btn:hover:not(:disabled) {
+  background: #fff;
+}
+:where(#ui-layer, #modal-layer) .icon-btn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  padding: 6px;
+}
+:where(#ui-layer, #modal-layer) button.link {
+  min-height: 0;
+  padding: 0;
+  color: var(--barn);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: inherit;
+  text-decoration: underline;
+}
+:where(#ui-layer, #modal-layer) :is(input:not([type='range']):not([type='checkbox']):not([type='radio']), select) {
+  min-height: 44px;
+  font-size: 16px; /* 16px stops phones zooming in when you tap a field */
+  color: var(--ink);
+  background: #fffaf0;
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+}
+:where(#ui-layer, #modal-layer) :is(input, select):focus {
+  border-color: var(--sky-deep);
+}
+:where(#ui-layer, #modal-layer) input[type='range'] {
+  accent-color: var(--barn);
+}
+:where(#ui-layer, #modal-layer, #hud-layer) kbd {
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-bottom-width: 3px;
+  font-family: var(--display);
+  font-weight: 400;
+}
+.ico {
+  display: inline-grid;
+  place-items: center;
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+}
+.ico svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- paper panels, dark backdrops ---- */
+:where(#ui-layer, #modal-layer, #hud-layer) .panel {
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  backdrop-filter: none;
+  box-shadow: 7px 7px 0 var(--ink);
+}
+:where(#ui-layer, #modal-layer, #hud-layer) :is(.panel, .modal) .muted {
+  color: var(--muted-ink);
+}
+:where(#ui-layer, #modal-layer, #hud-layer) :is(.panel, .modal) :is(h2, h3) {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+:where(#ui-layer) .overlay,
+:where(#modal-layer) .modal-backdrop {
+  background: rgba(43, 26, 16, 0.55);
+}
+:where(#modal-layer) .modal {
+  color: var(--ink);
+  background: var(--paper);
+}
+:where(#modal-layer) .modal-body {
+  color: var(--ink);
+}
+:where(#modal-layer) .modal h2 {
+  font-size: 1.7rem;
+}
+
+/* Tabs: one row of chunky labels; the open one is yolk and sits forward. */
+:where(#ui-layer, #modal-layer) .tab {
+  min-height: 40px;
+  padding: 6px 14px;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 var(--ink);
+  font-size: 0.95rem;
+}
+:where(#ui-layer, #modal-layer) .tab.active {
+  color: var(--ink);
+  background: var(--yolk);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 var(--ink);
+}
+:where(#modal-layer) .settings-wrap .tab {
+  font-size: 0.9rem;
+}
+:where(#modal-layer) .setting,
+:where(#modal-layer) .slider-row {
+  color: var(--ink);
+}
+
+/* Cookie notice: a paper slip. */
+:where(#ui-layer, #modal-layer) .cookie-notice {
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+/* ============================== title screen ============================== */
+.main-menu.lobby {
+  background: none;
+  color: var(--ink);
+  gap: 10px;
+  padding: 18px clamp(16px, 3.5vw, 48px) 14px;
+}
+.lobby .logo {
+  font-family: var(--display);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: uppercase;
+  font-size: clamp(2.6rem, 6.4vw, 5.2rem);
+  line-height: 0.92;
+  letter-spacing: 0.01em;
+  color: var(--yolk);
+  -webkit-text-stroke: 3px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 6px 0 var(--barn), 0 6px 0 var(--barn), 3px 9px 0 var(--ink);
+}
+.lobby .logo .accent {
+  display: inline-block;
+  margin-left: 0.12em;
+  padding: 0.04em 0.18em 0.08em;
+  font-size: 0.62em;
+  vertical-align: 0.42em;
+  color: var(--paper);
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+  background: var(--barn);
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  transform: rotate(-6deg);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.lobby .menu-header {
+  align-items: flex-start;
+}
+
+/* Profile: a paper tag top-right. */
+:where(#ui-layer) .profile-chip {
+  gap: 10px;
+  padding: 5px 5px 5px 8px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+:where(#ui-layer) .profile-chip .rank-chip {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  font-family: var(--display);
+  font-size: 1.15rem;
+  color: var(--ink);
+  background: var(--yolk);
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+}
+:where(#ui-layer) .profile-chip .profile-name {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+:where(#ui-layer) .profile-chip .record {
+  color: var(--muted-ink);
+}
+:where(#ui-layer) .profile-chip .coins {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--display);
+  font-size: 1.15rem;
+  color: var(--barn);
+}
+:where(#ui-layer) .xp-bar {
+  background: var(--paper-2);
+  border: 2px solid var(--ink);
+  height: 8px;
+}
+:where(#ui-layer) .xp-bar i {
+  background: var(--barn);
+}
+:where(#ui-layer) .profile-chip .chip-btn {
+  min-height: 38px;
+  padding: 4px 12px;
+  font-size: 0.95rem;
+}
+
+/* PLAY: the one big thing next to the chicken. */
+.lobby .lobby-play {
+  gap: 14px;
+  width: min(390px, 100%);
+  min-height: 0;
+  padding: 14px 26px 16px 16px;
+  color: var(--ink);
+  background: var(--yolk);
+  clip-path: none;
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 0 8px 0 var(--ink);
+  transform: rotate(-1.5deg);
+}
+.lobby .lobby-play:hover:not(:disabled) {
+  filter: none;
+  background: var(--yolk-hi);
+  transform: rotate(-1.5deg);
+}
+.lobby .lobby-play:active:not(:disabled) {
+  transform: rotate(-1.5deg) translateY(6px);
+  box-shadow: 0 2px 0 var(--ink);
+}
+.lobby .lobby-play-arrow {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  font-size: 1.7rem;
+  color: var(--paper);
+  background: var(--barn);
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+}
+.lobby .lobby-play-label {
+  font-family: var(--display);
+  font-weight: 400;
+  font-style: normal;
+  font-size: clamp(2.6rem, 5vw, 3.6rem);
+  line-height: 0.9;
+  letter-spacing: 0.03em;
+}
+.lobby .lobby-play-mode {
+  margin-top: 6px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 800;
+  opacity: 1;
+  color: var(--barn-deep);
+}
+.lobby .lobby-change {
+  min-height: 38px;
+  margin: 8px 0 6px;
+  padding: 4px 14px;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+.lobby .lobby-change:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: #fff;
+}
+
+/* The rest of the menu: small paper tags, so PLAY stays the focal point. */
+.lobby .lobby-nav {
+  gap: 6px;
+  width: auto;
+}
+.lobby .lobby-btn {
+  width: auto;
+  min-width: 190px;
+  min-height: 42px;
+  gap: 10px;
+  padding: 6px 14px 6px 10px;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink);
+  background: var(--paper);
+  clip-path: none;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+.lobby .lobby-btn::before {
+  display: none;
+}
+.lobby .lobby-btn:hover:not(:disabled) {
+  transform: translateX(4px);
+  color: var(--ink);
+  background: var(--yolk);
+}
+.lobby .lobby-btn:active:not(:disabled) {
+  transform: translate(4px, 2px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+.lobby .lobby-btn-icon {
+  width: 1.3em;
+  height: 1.3em;
+  color: var(--barn);
+}
+.lobby .lobby-btn .badge {
+  color: var(--paper);
+  background: var(--barn);
+  border: 2px solid var(--ink);
+  font-family: var(--display);
+}
+.lobby .status {
+  color: var(--barn-deep);
+  font-weight: 800;
+  text-shadow: none;
+}
+
+/* Today + what's new: two small tickets, below the menu, never over the chicken. */
+.lobby .lobby-cards {
+  width: min(330px, 100%);
+  gap: 8px;
+  align-self: flex-end;
+}
+.lobby .lobby-card {
+  flex: 1 1 100%;
+  padding: 9px 12px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.lobby .lobby-card:nth-child(2) {
+  transform: rotate(0.8deg);
+  background: #fffaf0;
+}
+.lobby .lobby-card h3 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  color: var(--barn);
+  margin-bottom: 6px;
+}
+.lobby .lobby-daily-row {
+  font-size: 0.82rem;
+  margin-bottom: 5px;
+}
+.lobby .lobby-daily-row .done {
+  text-decoration: line-through;
+  color: var(--muted-ink);
+}
+.lobby .lobby-daily-reward {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--barn);
+  font-family: var(--display);
+  font-weight: 400;
+}
+:where(#ui-layer) .daily-bar {
+  background: var(--paper-2);
+  border: 1px solid var(--ink);
+}
+:where(#ui-layer) .daily-bar i {
+  background: var(--yolk);
+}
+.lobby .lobby-news-item {
+  margin-bottom: 4px;
+  font-size: 0.78rem;
+}
+.lobby .lobby-news-item b {
+  color: var(--ink);
+}
+.lobby .lobby-news-item span {
+  color: var(--muted-ink);
+}
+.lobby .lobby-bottom {
+  align-self: start;
+  justify-self: start;
+  padding: 4px 10px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+.lobby .lobby-online i {
+  border: 2px solid var(--ink);
+  width: 11px;
+  height: 11px;
+}
+.lobby .lobby-online.live i {
+  background: #4caf3c;
+  animation: none;
+  box-shadow: none;
+}
+.lobby .lobby-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 0;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 700;
+}
+.lobby .lobby-link:hover {
+  color: var(--barn);
+}
+.lobby .lobby-controls {
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 5px 5px 0 var(--ink);
+}
+:where(#ui-layer) .scene-toggle {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  font-size: 1.3rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: 0 3px 0 var(--ink);
+}
+:where(#ui-layer) .party-strip {
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+}
+
+/* ============================== mode select ============================== */
+.mode-select {
+  background: rgba(43, 26, 16, 0.55);
+  backdrop-filter: none;
+}
+.mode-select .mode-select-window {
+  color: var(--ink);
+  background: var(--paper);
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 9px 9px 0 var(--ink);
+  animation: none;
+}
+.mode-select .mode-select-head h2 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: none;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  color: var(--barn);
+  -webkit-text-stroke: 0;
+}
+.mode-select .bots-toggle {
+  padding: 0;
+  gap: 6px;
+  background: none;
+  border: 0;
+}
+.mode-select .bots-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px 16px;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 var(--ink);
+  font-family: var(--display);
+  font-weight: 400;
+}
+.mode-select .bots-opt.active {
+  background: var(--yolk);
+}
+.mode-select .bots-note {
+  color: var(--muted-ink);
+  background: none;
+}
+.mode-select .mode-grid {
+  gap: 12px;
+}
+.mode-select .mode-card {
+  gap: 6px;
+  padding: 12px 14px 14px;
+  color: var(--ink);
+  background: #fffaf0;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: none;
+  transition: none;
+}
+.mode-select .mode-card.selected {
+  border-color: var(--ink);
+  background: #fff1c4;
+  box-shadow: 0 0 0 3px var(--yolk) inset;
+}
+.mode-select .mode-card.ranked {
+  border-top-width: 10px;
+  border-top-color: var(--barn);
+}
+.mode-select .mode-card h3 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.45rem;
+}
+.mode-select .mode-card p {
+  color: var(--muted-ink);
+  font-size: 0.83rem;
+}
+.mode-select .mode-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  font-size: 1.6rem;
+  color: var(--ink);
+  background: var(--yolk);
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+}
+.mode-select .mode-card.ranked .mode-icon {
+  color: var(--paper);
+  background: var(--barn);
+}
+.mode-select .mode-players {
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  font-weight: 800;
+}
+.mode-select .mode-board {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 1.1rem;
+  color: var(--barn);
+  background: var(--paper);
+  border-width: 2px;
+  box-shadow: 0 2px 0 var(--ink);
+}
+.mode-select .map-pick {
+  font-weight: 700;
+}
+.mode-select .map-pick.single {
+  padding: 8px 12px;
+  border: 2px dashed var(--muted-ink);
+  border-radius: 6px;
+  color: var(--muted-ink);
+}
+.mode-select .mode-card .play {
+  font-size: 1.2rem;
+}
+.mode-select .mode-select-rooms button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mode-select .mode-select-rooms .ico {
+  color: var(--barn);
+}
+
+/* ============================== HvH panel choice ============================== */
+.hvh-setup .panel {
+  width: min(460px, 100%);
+}
+.hvh-setup h2 {
+  font-size: 2rem;
+  color: var(--barn);
+}
+.hvh-setup .hvh-panel-options {
+  border: 0;
+  padding: 0;
+  margin: 6px 0;
+}
+.hvh-setup .hvh-panel-options legend {
+  display: none;
+}
+.hvh-setup .hvh-panel-choice {
+  min-height: 48px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fffaf0;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.hvh-setup .hvh-panel-choice:has(input:checked) {
+  background: var(--yolk);
+  box-shadow: 0 3px 0 var(--ink);
+}
+.hvh-setup .hvh-panel-choice strong {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.15rem;
+}
+.hvh-setup .hvh-panel-choice input {
+  accent-color: var(--barn);
+  width: 20px;
+  height: 20px;
+}
+
+/* ============================== pause ============================== */
+.overlay.pause .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(340px, 100%);
+  padding: 20px;
+}
+.overlay.pause h2 {
+  margin-bottom: 4px;
+  font-size: 3rem;
+  line-height: 1;
+  color: var(--barn);
+}
+.overlay.pause .panel > button:first-of-type {
+  min-height: 60px;
+  font-size: 1.4rem;
+}
+
+/* ============================== in-match HUD ============================== */
+/* Small, in the corners, outlined so it reads on any map. The middle stays clear. */
+#hud-layer .hud {
+  text-shadow: none;
+}
+#hud-layer .hud-top-left {
+  top: 8px;
+  left: 10px;
+  color: #fff;
+  text-shadow: var(--outline);
+  font-size: 0.7rem;
+}
+#hud-layer .personal-score {
+  padding: 3px 9px;
+  color: var(--yolk);
+  background: var(--ink-soft);
+  border: 0;
+  border-left: 0;
+  border-radius: 6px;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-shadow: none;
+}
+#hud-layer .personal-score.on-streak {
+  color: var(--paper);
+  background: var(--barn);
+}
+#hud-layer .mini-board {
+  min-width: 140px;
+  padding: 4px 8px;
+  background: var(--ink-soft);
+  border-radius: 6px;
+  text-shadow: none;
+}
+#hud-layer .mini-title {
+  font-family: var(--display);
+  font-weight: 400;
+  color: var(--yolk);
+  letter-spacing: 0.06em;
+}
+#hud-layer .hud-top-center {
+  top: 6px;
+  gap: 3px;
+}
+#hud-layer .mode-label {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #fff;
+  text-shadow: var(--outline);
+}
+#hud-layer .match-timer {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--outline);
+}
+#hud-layer .team-scores > * {
+  min-height: 0;
+  padding: 2px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 0 2px 0 var(--ink);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.9rem;
+  text-shadow: none;
+}
+#hud-layer .team-scores > :first-child {
+  color: var(--paper);
+  background: var(--barn);
+}
+#hud-layer .team-scores > :last-child {
+  color: #fff;
+  background: var(--team-blue);
+}
+#hud-layer .team-scores b {
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+#hud-layer .mode-objective {
+  margin-top: 2px;
+  padding: 2px 8px;
+  color: var(--paper);
+  background: var(--ink-soft);
+  border-radius: 5px;
+  font-size: 0.62rem;
+}
+#hud-layer .banner {
+  top: 24%;
+  padding: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(1.6rem, 3.4vw, 2.6rem);
+  color: var(--yolk);
+  background: none;
+  border-radius: 0;
+  -webkit-text-stroke: 2px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 var(--ink);
+}
+#hud-layer .toast {
+  padding: 4px 14px;
+  color: var(--paper);
+  background: var(--ink-soft);
+  border-radius: 6px;
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+#hud-layer .toast.good {
+  color: var(--ink);
+  background: var(--yolk);
+}
+#hud-layer .toast.bad {
+  background: var(--barn);
+}
+#hud-layer .hint-bar {
+  bottom: 96px;
+  padding: 4px 12px;
+  color: var(--paper);
+  background: var(--ink-soft);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+#hud-layer .vitals .bar {
+  height: 18px;
+  background: var(--ink-soft);
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+}
+#hud-layer .vitals .bar.hp {
+  width: 210px;
+}
+#hud-layer .vitals .bar.hp .fill {
+  background: #6fcf4a;
+}
+#hud-layer .vitals .bar span {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 1px 0 var(--ink), 1px 0 0 var(--ink), -1px 0 0 var(--ink), 0 -1px 0 var(--ink);
+}
+#hud-layer .hud-bottom-right {
+  gap: 4px;
+}
+#hud-layer .weapon-panel {
+  min-width: 130px;
+  padding: 4px 10px 6px;
+  background: var(--ink-soft);
+  border-radius: 6px;
+}
+#hud-layer .weapon-name {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--yolk);
+}
+#hud-layer .ammo {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.7rem;
+  line-height: 1;
+  color: #fff;
+}
+#hud-layer .weapon-slots > * {
+  min-height: 0;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  color: var(--paper);
+  background: var(--ink-soft);
+  border: 0;
+  border-radius: 5px;
+  box-shadow: none;
+}
+#hud-layer .weapon-slots > .active {
+  color: var(--ink);
+  background: var(--yolk);
+  outline: 2px solid var(--ink);
+}
+#hud-layer .grenades {
+  gap: 8px;
+  font-family: var(--display);
+  font-size: 0.85rem;
+  color: #fff;
+  text-shadow: var(--outline);
+}
+#hud-layer .grenades > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+#hud-layer .grenades kbd {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 0.65rem;
+  text-shadow: none;
+}
+#hud-layer .chat-log > *,
+#hud-layer .killfeed > * {
+  border-radius: 5px;
+}
+#hud-layer .death-title {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  color: var(--paper);
+  -webkit-text-stroke: 2px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 var(--barn);
+}
+#hud-layer .death-timer {
+  font-family: var(--display);
+  color: #fff;
+  text-shadow: var(--outline);
+}
+#hud-layer .scoreboard.panel th {
+  font-family: var(--display);
+  font-weight: 400;
+  color: var(--barn);
+}
+#hud-layer .scoreboard.panel h3 {
+  color: var(--barn);
+}
+
+/* ============================== match over ============================== */
+/* A huge score, then the next match (your retry), then everything else. */
+#hud-layer .results.panel {
+  width: min(560px, calc(100vw - 24px));
+  padding: 16px 20px 18px;
+  text-align: center;
+}
+#hud-layer .result-kicker {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.3rem;
+  color: var(--ink);
+}
+#hud-layer .result-kicker.won {
+  display: inline-block;
+  padding: 2px 12px;
+  background: var(--yolk);
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  transform: rotate(-2deg);
+}
+#hud-layer .result-score {
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-size: clamp(5rem, 16vw, 8.5rem);
+  line-height: 0.95;
+  color: var(--yolk);
+  -webkit-text-stroke: 4px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 7px 0 var(--barn), 3px 10px 0 var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+#hud-layer .result-score-label {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-size: 1rem;
+  color: var(--muted-ink);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+#hud-layer .results .next-match {
+  margin: 12px auto 2px;
+  display: inline-block;
+  padding: 6px 18px;
+  font-family: var(--display);
+  font-size: 1.5rem;
+  color: var(--ink);
+  background: var(--yolk);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 0 4px 0 var(--ink);
+}
+#hud-layer .results .next-match:empty {
+  display: none;
+}
+#hud-layer .result-leave {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted-ink);
+}
+#hud-layer .results .result-stats {
+  margin: 12px 0 8px;
+  gap: 6px;
+}
+#hud-layer .results .result-stats > div {
+  padding: 4px;
+  background: var(--paper-2);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+}
+#hud-layer .results .result-stats b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.3rem;
+}
+#hud-layer .results .result-stats span {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--muted-ink);
+}
+#hud-layer .results .final-score {
+  font-family: var(--display);
+  font-size: 1.6rem;
+}
+#hud-layer .results .mvp,
+#hud-layer .results .reward {
+  font-size: 0.85rem;
+}
+#hud-layer .results table.scores {
+  font-size: 0.8rem;
+  text-shadow: none;
+}
+#hud-layer .results table.scores th {
+  font-family: var(--display);
+  font-weight: 400;
+  color: var(--barn);
+}
+#hud-layer .results table.scores tr.self {
+  background: #fff1c4;
+}
+
+/* ============================== dev code keypad ============================== */
+/* On <body> (like the dev menus), but it's part of the game's look, not theirs. */
+.pk-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(43, 26, 16, 0.6);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
+}
+.pk-backdrop.closing {
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.pk {
+  position: relative;
+  width: min(300px, 100%);
+  padding: 14px 16px 16px;
+  background: var(--paper);
+  border: 4px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 8px 8px 0 var(--ink);
+}
+.pk-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.pk-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.9rem;
+  color: var(--barn);
+}
+.pk-cancel,
+.pk-type,
+.pk-key {
+  font-family: var(--display);
+  font-weight: 400;
+  color: var(--ink);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.05s, box-shadow 0.05s;
+}
+.pk-cancel {
+  min-height: 36px;
+  padding: 2px 10px;
+  font-size: 0.9rem;
+  background: var(--paper-2);
+  box-shadow: 0 3px 0 var(--ink);
+}
+/* The display: a dark slot, a prompt, a dot per character. */
+.pk-screen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 14px;
+  background: var(--ink);
+  border-radius: 8px;
+  color: var(--yolk);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 1.5rem;
+  letter-spacing: 0.15em;
+  overflow: hidden;
+}
+.pk-prompt {
+  color: var(--barn);
+  font-weight: 800;
+}
+.pk-screen.empty .pk-dots::after {
+  content: '_';
+  color: rgba(255, 197, 51, 0.45);
+}
+.pk-msg {
+  min-height: 1.4em;
+  margin: 8px 2px 10px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--muted-ink);
+}
+.pk-msg.good {
+  color: #3c8a2c;
+}
+.pk-msg.bad {
+  color: var(--barn);
+}
+.pk-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.pk-key {
+  min-height: 56px;
+  font-size: 1.6rem;
+  background: #fffaf0;
+  box-shadow: 0 4px 0 var(--ink);
+}
+.pk-key:hover {
+  background: #fff;
+}
+.pk-key:active,
+.pk-cancel:active,
+.pk-type:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+.pk-del {
+  font-size: 1.05rem;
+  background: var(--paper-2);
+}
+.pk-ok {
+  font-size: 1.3rem;
+  background: var(--yolk);
+}
+.pk-ok:disabled {
+  opacity: 0.6;
+}
+.pk-type {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 10px;
+  font-size: 0.9rem;
+  background: none;
+  border-style: dashed;
+  border-width: 2px;
+}
+.pk-field {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.pk.shake {
+  animation: pk-shake 0.35s;
+}
+.pk.granted {
+  background: #e7f6d6;
+}
+@keyframes pk-shake {
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+
+/* ============================== phones ============================== */
+@media (max-width: 720px) {
+  /* The chicken runs in the middle of the screen: the logo on top, everything else at the
+     bottom, the space between left clear for it. */
+  .main-menu.lobby {
+    grid-template-rows: auto auto 1fr auto;
+    padding: 12px 14px 10px;
+  }
+  .lobby .menu-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .lobby .logo {
+    font-size: clamp(2.3rem, 12vw, 3.2rem);
+  }
+  :where(#ui-layer) .profile-chip .xp-bar,
+  :where(#ui-layer) .profile-chip .record {
+    display: none;
+  }
+  .lobby .lobby-body {
+    align-self: end;
+  }
+  .lobby .lobby-cards {
+    display: none;
+  }
+  .lobby .lobby-nav {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    width: 100%;
+  }
+  .lobby .lobby-play,
+  .lobby .lobby-change,
+  .lobby .status {
+    grid-column: 1 / -1;
+  }
+  .lobby .lobby-play {
+    width: 100%;
+    transform: none;
+  }
+  .lobby .lobby-play:hover:not(:disabled) {
+    transform: none;
+  }
+  .lobby .lobby-play:active:not(:disabled) {
+    transform: translateY(6px);
+  }
+  .lobby .lobby-change {
+    justify-self: start;
+    margin: 4px 0 2px;
+  }
+  /* The menu becomes a row of big square icons (names stay for screen readers). */
+  .lobby .lobby-btn {
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    min-height: 54px;
+    justify-content: center;
+    padding: 0;
+  }
+  .lobby .lobby-btn-icon {
+    width: 1.7em;
+    height: 1.7em;
+  }
+  .lobby .lobby-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .lobby .lobby-btn:hover:not(:disabled),
+  .lobby .lobby-btn:active:not(:disabled) {
+    transform: none;
+  }
+  .lobby .lobby-btn .badge {
+    position: absolute;
+    top: -8px;
+    right: -6px;
+  }
+  .lobby .lobby-bottom {
+    font-size: 0.72rem;
+  }
+  #hud-layer .vitals .bar.hp {
+    width: 118px;
+  }
+  #hud-layer .result-score {
+    -webkit-text-stroke-width: 3px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk.shake {
+    animation: none;
+  }
+}
+
+/* Paper panels: the older rules' text colours (written for dark panels) follow these. */
+:where(#ui-layer, #modal-layer) :is(.modal, .panel, .mode-select-window, .main-menu.lobby, .cookie-notice),
+:where(#hud-layer) :is(.results, .scoreboard) {
+  --text: var(--ink);
+  --muted: var(--muted-ink);
+  --panel: var(--paper-2);
+  --panel-solid: var(--paper);
+  --panel-border: var(--ink);
+}
+#hud-layer .banner {
+  border: 0;
+  box-shadow: none;
+}
+:where(#ui-layer) .profile-chip .rank-chip::after {
+  display: none;
+}
+.mode-select .menu-tabs .tab:not(.active) {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+/* Each part of the title screen keeps its row, whether or not the party strip shows. */
+.main-menu.lobby > .menu-header { grid-row: 1; }
+.main-menu.lobby > .party-strip { grid-row: 2; }
+.main-menu.lobby > .lobby-body { grid-row: 3; }
+.main-menu.lobby > .lobby-bottom { grid-row: 4; }
+#hud-layer .results .result-stats b {
+  color: var(--ink);
+}
+:where(#modal-layer) .settings-wrap .tabs {
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+}
+@media (max-width: 720px) {
+  /* Room for the round "hide the menu" button in the corner. */
+  .lobby .lobby-bottom {
+    margin-right: 58px;
+  }
+}
+/* HvH panel choice: compact enough for a laptop screen, scrolls if not. */
+.hvh-setup .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 16px 18px;
+  text-align: left;
+}
+.hvh-setup .panel > p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.hvh-setup .hvh-panel-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.hvh-setup .hvh-panel-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+}
+.hvh-setup .hvh-panel-choice input {
+  margin-top: 3px;
+}
+
+/* Phones: thumbs own the bottom, so ammo sits under the corner buttons and the kill feed below it. */
+@media (pointer: coarse) and (max-width: 720px) {
+  #hud-layer .hud-bottom-right {
+    top: 76px;
+    right: 10px;
+  }
+  #hud-layer .hud-top-right {
+    top: 128px;
+    right: 10px;
+  }
+  /* Top-left: K/D, health, then chat. */
+  #hud-layer .hud-bottom-left {
+    top: 44px;
+    left: 10px;
+  }
+  #hud-layer .hud-bottom-left .vitals {
+    order: -1;
+    margin-bottom: 6px;
+  }
+  #hud-layer .hud-top-left .hud-stats,
+  #hud-layer .mode-objective,
+  #hud-layer .team-scores small {
+    display: none;
+  }
+  #hud-layer .team-scores > * {
+    padding: 1px 8px;
+    white-space: nowrap;
+  }
+  #hud-layer .hud-top-right .killfeed > * {
+    font-size: 0.7rem;
+  }
+}

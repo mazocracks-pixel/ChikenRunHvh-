@@ -1,6 +1,7 @@
 import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type DailyStatus, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
 import { clear, h, storage } from './dom';
 import { anyModalOpen } from './Modal';
+import { MODE_ICON, icon, type IconName } from './icons';
 
 export interface MenuActions {
   /** `map` undefined: any map. `noBots`: the "Without bots" choice (wait for real players). */
@@ -24,21 +25,19 @@ export interface MenuActions {
   sound(kind: 'hover' | 'press'): void;
 }
 
-export const MODE_ICONS: Record<ModeId, string> = { zombie: '🧟', squad: '👥', face: '🎖️', ffa: '🐔', tdm: '⚔️', hvh: '👁️', knife: '🔪', bomb: '💣', arms: '🏁', duel: '🤺', ctf: '🚩', sandbox: '🧱' };
-
 /** Mode tabs. Any mode not listed lands in the last one. */
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
-  { id: 'casual', label: '🐔 Casual', modes: ['ffa', 'tdm', 'squad', 'duel'] },
-  { id: 'competitive', label: '🏆 Competitive', modes: ['face', 'bomb', 'hvh'] },
-  { id: 'fun', label: '🎉 Fun', modes: ['zombie', 'arms', 'knife', 'ctf', 'sandbox'] },
+  { id: 'casual', label: 'Casual', modes: ['ffa', 'tdm', 'squad', 'duel'] },
+  { id: 'competitive', label: 'Serious', modes: ['face', 'bomb', 'hvh'] },
+  { id: 'fun', label: 'Silly', modes: ['zombie', 'arms', 'knife', 'ctf', 'sandbox'] },
 ];
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
 
 /** "What's new" on the title screen: newest first. Edit freely. */
 const WHATS_NEW: readonly { title: string; text: string }[] = [
-  { title: 'Sniper scope', text: 'Right-click once to scope, again to zoom in, a third time to put it away. Sniper and Scout.' },
-  { title: 'New gun looks', text: 'Real gun shapes, metal and grip textures, and a new inspect (F) for every weapon.' },
-  { title: 'Zombie Apocalypse', text: 'Survive waves on the Graveyard. Bosses every 5 waves, a shop between waves.' },
+  { title: 'Switch sides', text: 'Press M to hop teams. Not in FaceChiken: ranked teams stay put.' },
+  { title: 'Sniper scope', text: 'Right-click to scope, again to zoom. Sniper and Scout.' },
+  { title: 'Zombie Apocalypse', text: 'Waves, bosses, a shop between rounds. Bring friends.' },
 ];
 
 const CONTROLS = 'WASD move · Shift slow walk · Space jump (hold Space to bunny hop, or tap it right as you land) · A/D + mouse turn: air strafe · Mouse aim · Click shoot · Right-click aim / scope · R reload · 1-4 guns · 5 melee · F inspect · Ctrl/C crouch · G egg · Q smoke · Z flashbang · V first/third person · Tab scores · Y chat · U team chat · M switch team · B buy menu';
@@ -110,12 +109,13 @@ export class MainMenu {
       return b;
     };
     this.accountBtn.addEventListener('click', actions.account);
+    const withIcon = (b: HTMLButtonElement, name: IconName, label: string) => (b.append(icon(name), h('span', null, label)), b);
 
     // ---- Mode select (opened by "Change mode").
     const modes = h('div', { class: 'mode-grid' });
     for (const id of MODE_IDS) {
       const m = MODES[id];
-      const picker = h('select', { class: 'map-pick', 'aria-label': `${m.name} map` }, h('option', { value: '' }, '🎲 Any map'), ...m.maps.map((map) => h('option', { value: map }, MAPS[map].name)));
+      const picker = h('select', { class: 'map-pick', 'aria-label': `${m.name} map` }, h('option', { value: '' }, 'Any map'), ...m.maps.map((map) => h('option', { value: map }, MAPS[map].name)));
       const saved = storage.get(mapKey(id));
       picker.value = saved && m.maps.includes(saved as MapId) ? saved : '';
       picker.addEventListener('change', () => {
@@ -128,13 +128,13 @@ export class MainMenu {
         h(
           'div',
           { class: 'mode-top' },
-          h('div', { class: 'mode-icon' }, MODE_ICONS[id]),
+          h('div', { class: 'mode-icon' }, icon(MODE_ICON[id])),
           h('span', { class: 'mode-players' }, playersLine(m)),
-          m.building || m.zombies ? null : h('button', { type: 'button', class: 'mode-board', title: `${m.name} leaderboard`, 'aria-label': `${m.name} leaderboard`, onclick: () => actions.leaderboard(id) }, '🏆'),
+          m.building || m.zombies ? null : h('button', { type: 'button', class: 'mode-board', title: `${m.name} leaderboard`, 'aria-label': `${m.name} leaderboard`, onclick: () => actions.leaderboard(id) }, icon('trophy')),
         ),
         h('h3', null, m.name),
         h('p', null, m.description),
-        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, `🗺️ ${MAPS[m.maps[0]!].name}`),
+        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, MAPS[m.maps[0]!].name),
         this.addPlayButton(button('Play', () => this.play(id), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
@@ -145,7 +145,7 @@ export class MainMenu {
     for (const c of CATEGORIES) {
       this.tabs.append(h('button', { type: 'button', class: 'tab', role: 'tab', 'data-tab': c.id, onclick: () => this.showTab(c.id) }, c.label));
     }
-    const closeModes = h('button', { type: 'button', class: 'icon-btn mode-select-close', 'aria-label': 'Close' }, '✕');
+    const closeModes = h('button', { type: 'button', class: 'icon-btn mode-select-close', 'aria-label': 'Close' }, icon('close'));
     closeModes.addEventListener('click', () => this.openModes(false));
     this.modePanel = h(
       'div',
@@ -153,11 +153,11 @@ export class MainMenu {
       h(
         'div',
         { class: 'mode-select-window' },
-        h('header', { class: 'mode-select-head' }, h('h2', null, 'Choose a mode'), closeModes),
+        h('header', { class: 'mode-select-head' }, h('h2', null, 'Pick a fight'), closeModes),
         h(
           'div',
           { class: 'bots-choice' },
-          h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, '🤖 With bots'), this.botsOption(true, '👤 Without bots')),
+          h('div', { class: 'bots-toggle', role: 'radiogroup', 'aria-label': 'Bots' }, this.botsOption(false, 'bot', 'With bots'), this.botsOption(true, 'person', 'Humans only')),
           this.botsNote,
         ),
         this.tabs,
@@ -165,9 +165,9 @@ export class MainMenu {
         h(
           'div',
           { class: 'mode-select-rooms' },
-          button('🌐 Server browser', actions.browse, 'secondary'),
-          button('➕ Create room', actions.createRoom, 'secondary'),
-          button('🔑 Join with code', actions.joinCode, 'secondary'),
+          withIcon(button('', actions.browse, 'secondary'), 'globe', 'Server browser'),
+          withIcon(button('', actions.createRoom, 'secondary'), 'plus', 'Create room'),
+          withIcon(button('', actions.joinCode, 'secondary'), 'key', 'Join with code'),
         ),
       ),
     );
@@ -177,17 +177,17 @@ export class MainMenu {
 
     // ---- The lobby.
     this.playButton = this.addPlayButton(button('', () => this.play(this.selected), 'lobby-play'));
-    this.playButton.append(h('span', { class: 'lobby-play-arrow' }, '▶'), h('span', { class: 'lobby-play-text' }, this.playLabel, this.playMode));
-    const changeMode = button('Change mode ▾', () => this.openModes(true), 'lobby-change');
-    const navButton = (icon: string, label: string, run: () => void) => {
+    this.playButton.append(h('span', { class: 'lobby-play-arrow' }, icon('play')), h('span', { class: 'lobby-play-text' }, this.playLabel, this.playMode));
+    const changeMode = button('Switch mode', () => this.openModes(true), 'lobby-change');
+    const navButton = (name: IconName, label: string, run: () => void) => {
       const b = button('', run, 'lobby-btn');
-      b.append(h('span', { class: 'lobby-btn-icon' }, icon), h('span', null, label));
+      b.append(icon(name, 'lobby-btn-icon'), h('span', { class: 'lobby-btn-label' }, label));
       return b;
     };
-    const friends = navButton('👥', 'Friends', actions.friends);
+    const friends = navButton('team', 'Friends', actions.friends);
     friends.append(this.friendsBadge);
     const news = h('div', { class: 'lobby-card lobby-news' }, h('h3', null, "What's new"), ...WHATS_NEW.map((n) => h('div', { class: 'lobby-news-item' }, h('b', null, n.title), h('span', null, n.text))));
-    const controls = button('❔ Controls', () => (this.controlsCard.hidden = !this.controlsCard.hidden), 'lobby-link');
+    const controls = withIcon(button('', () => (this.controlsCard.hidden = !this.controlsCard.hidden), 'lobby-link'), 'help', 'Controls');
 
     this.root = h(
       'div',
@@ -207,11 +207,11 @@ export class MainMenu {
           { class: 'lobby-nav', 'aria-label': 'Main menu' },
           this.playButton,
           changeMode,
-          navButton('🛒', 'Shop', actions.customize),
+          navButton('basket', 'Shop', actions.customize),
           friends,
-          navButton('📅', 'Daily challenges', actions.daily),
-          navButton('🏆', 'Leaderboard', () => actions.leaderboard()),
-          navButton('⚙️', 'Settings', actions.settings),
+          navButton('calendar', 'Daily', actions.daily),
+          navButton('trophy', 'Top chickens', () => actions.leaderboard()),
+          navButton('gear', 'Settings', actions.settings),
           this.status,
         ),
         h('div', { class: 'lobby-cards' }, this.daily, news),
@@ -224,7 +224,7 @@ export class MainMenu {
         h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy'),
       ),
       this.controlsCard,
-      h('button', { type: 'button', class: 'scene-toggle', title: 'Hide the menu to see the scene', 'aria-label': 'Hide or show the menu', onclick: () => this.root.classList.toggle('scene-only') }, '🎬'),
+      h('button', { type: 'button', class: 'scene-toggle', title: 'Hide the menu to see the scene', 'aria-label': 'Hide or show the menu', onclick: () => this.root.classList.toggle('scene-only') }, icon('hide')),
       this.modePanel,
     );
     container.append(this.root);
@@ -272,14 +272,14 @@ export class MainMenu {
     const map = storage.get(mapKey(this.selected));
     const mapName = isMapId(map) && m.maps.includes(map) ? MAPS[map].name : m.maps.length > 1 ? 'Any map' : MAPS[m.maps[0]!].name;
     const bots = m.noBots || m.ranked ? 'Real players' : this.withoutBots ? 'Without bots' : 'With bots';
-    this.playMode.textContent = `${MODE_ICONS[this.selected]} ${m.name} · ${mapName} · ${bots}`;
+    this.playMode.textContent = `${m.name} · ${mapName} · ${bots}`;
   }
 
   private renderDaily(status: DailyStatus | null): void {
     clear(this.daily);
     const open = h('button', { type: 'button', class: 'link' }, 'Open');
     open.addEventListener('click', () => this.actions.daily());
-    this.daily.append(h('h3', null, '📅 Today', open));
+    this.daily.append(h('h3', null, 'Today', open));
     if (!status) {
       this.daily.append(h('p', { class: 'muted' }, 'Loading your challenges…'));
       return;
@@ -289,8 +289,8 @@ export class MainMenu {
         h(
           'div',
           { class: `lobby-daily-row${c.done ? ' done' : ''}` },
-          h('span', null, c.done ? `✅ ${c.label}` : c.label),
-          h('span', { class: 'lobby-daily-reward' }, `🪙 ${c.reward}`),
+          h('span', { class: c.done ? 'done' : '' }, c.label),
+          h('span', { class: 'lobby-daily-reward' }, icon('coin'), String(c.reward)),
           h('span', { class: 'daily-bar' }, h('i', { style: `width:${Math.round((c.progress / c.goal) * 100)}%` })),
         ),
       );
@@ -306,7 +306,7 @@ export class MainMenu {
       .online()
       .then((n) => {
         // People in matches right now (you on this screen aren't counted yet).
-        this.online.lastChild!.textContent = n === 0 ? 'No one in a match yet: start one!' : `${n} ${n === 1 ? 'player' : 'players'} in matches now`;
+        this.online.lastChild!.textContent = n === 0 ? "Nobody's fighting yet. Start it!" : `${n} ${n === 1 ? 'chicken' : 'chickens'} fighting now`;
         this.online.classList.add('live');
       })
       .catch(() => {
@@ -315,8 +315,8 @@ export class MainMenu {
       });
   }
 
-  private botsOption(withoutBots: boolean, label: string): HTMLButtonElement {
-    const b = h('button', { type: 'button', class: 'bots-opt', role: 'radio', onclick: () => this.setBots(withoutBots) }, label);
+  private botsOption(withoutBots: boolean, name: IconName, label: string): HTMLButtonElement {
+    const b = h('button', { type: 'button', class: 'bots-opt', role: 'radio', onclick: () => this.setBots(withoutBots) }, icon(name), label);
     this.botsButtons.set(withoutBots, b);
     return b;
   }
@@ -354,8 +354,8 @@ export class MainMenu {
     if (party) {
       clear(this.partyStrip);
       this.partyStrip.append(
-        h('span', { class: 'party-title' }, `👥 Party · ${party.names.length}`),
-        ...party.names.map((n) => h('span', { class: 'party-chip' }, n === party.leader ? `👑 ${n}` : n)),
+        h('span', { class: 'party-title' }, `Party · ${party.names.length}`),
+        ...party.names.map((n) => h('span', { class: 'party-chip' }, n === party.leader ? `${n} (lead)` : n)),
         h('span', { class: 'muted' }, party.isLeader ? 'You pick the mode: everyone plays with you.' : `${party.leader} picks the mode.`),
       );
     }
@@ -391,12 +391,12 @@ export class MainMenu {
     this.name.textContent = p.name;
     this.name.classList.toggle('rainbow', p.developer);
     const { rank, next, progress } = rankProgress(p.xp);
-    this.rank.textContent = rank.icon;
+    this.rank.textContent = String(rank.level);
     this.rank.dataset.level = String(rank.level);
     this.rank.title = (next ? `Level ${rank.level} · ${rank.name}: ${next.xp - p.xp} rank points to ${next.name}` : `Level ${rank.level} · ${rank.name} (top rank)`) + '. Levels move in FaceChiken.';
     this.record.textContent = `Lv ${rank.level} ${rank.name} · ${p.xp} pts` + (p.stats.matches > 0 ? ` · ${p.stats.wins} wins` : '');
     this.xpFill.style.width = `${Math.round(progress * 100)}%`;
-    this.coins.textContent = `🪙 ${p.coins.toLocaleString()}`;
+    this.coins.replaceChildren(icon('coin'), p.coins.toLocaleString());
     this.accountBtn.textContent = p.username ? 'Account' : 'Save progress';
   }
 
