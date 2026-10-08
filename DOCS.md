@@ -3,6 +3,14 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 9 (7 Oct): pitch anti-aim fix
+
+- **The bug.** In the **Skeet** panel, Pitch (Look / Down / Up / Zero) did nothing once **Use state builder** was off: your head always followed your real look. The setting is stored with the state builder, and the server only read it while the builder was on. Skeet has no separate fallback pitch, so nothing applied.
+- **The fix.** One line in the shared function the server uses to choose the head pitch (`hvhPitch` in [shared/src/hvh.ts](shared/src/hvh.ts)): Skeet's Pitch now applies with the builder on or off. The Lab panel and bots are unchanged. The hit head still follows the drawn head (the head test checks Down, Look and Up).
+- **Checked live.** Two players in one HvH room; one tried every pitch with Lab, Skeet with the builder on, and Skeet with it off, while the other watched. Before the fix, Skeet with the builder off showed -0.15 (the real look) for every choice. After it, every combination is right on the server and on the other player's screen: Down -1.15, Up 0.85, Zero 0, Look the real pitch.
+- **Tests.** The pitch test now covers the builder-off case. Typecheck, all 418 tests and the build pass.
+- **Mistakes.** Two test-script slips: I asked for a map HvH doesn't use (Flat), and clicked through the setup overlay. Neither was a game bug.
+
 # Batch 8 (7 Oct): no "No matches running"
 
 - The line under the title bar no longer says "No matches running". When nobody is in a match it is hidden; when people are playing it shows "N players in matches" (it refreshes every 20 seconds). "Offline" still shows if the server can't be reached. Code: `refreshLive` in [client/src/ui/MainMenu.ts](client/src/ui/MainMenu.ts).

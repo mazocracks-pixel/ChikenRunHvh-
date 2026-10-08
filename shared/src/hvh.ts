@@ -117,7 +117,8 @@ export function sanitizeHvhLoadout(raw: unknown): HvhLoadout {
 }
 /** A physical head pose. Shot direction and the player's camera remain independent. */
 export function hvhPitch(lookPitch: number, loadout: HvhLoadout, revealed = false): number {
-  const mode = loadout.skeet?.enabled ? loadout.skeet.visualPitch : loadout.antiAim.pitch;
+  // Skeet's Pitch setting applies with or without its state builder (it has no separate fallback pitch).
+  const mode = loadout.skeet ? loadout.skeet.visualPitch : loadout.antiAim.pitch;
   const pitch = !loadout.antiAim.enabled || revealed || !mode || mode === 'look' ? lookPitch
     : mode === 'down' ? -1.15 : mode === 'up' ? 0.85 : 0;
   return clamp(Number.isFinite(pitch) ? pitch : 0, -CHICKEN_POSE.pitchLimit, CHICKEN_POSE.pitchLimit);

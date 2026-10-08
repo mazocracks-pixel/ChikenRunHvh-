@@ -36,6 +36,9 @@ it('bounded down pitch hides the head behind the torso from the rear while remai
   const loadout=defaultHvhLoadout();loadout.antiAim.enabled=true;loadout.antiAim.pitch='down';
   assert.equal(hvhPitch(0,loadout),-1.15);assert.equal(hvhPitch(0.4,loadout,true),0.4);
   loadout.skeet=defaultSkeetAntiAim();loadout.skeet.visualPitch='up';assert.equal(hvhPitch(0,loadout),0.85);
+  // Skeet's Pitch still applies with its state builder off (it used to be ignored).
+  loadout.skeet.enabled=false;loadout.skeet.visualPitch='down';assert.equal(hvhPitch(0,loadout),-1.15);
+  loadout.skeet.visualPitch='zero';assert.equal(hvhPitch(0.4,loadout),0);
 });
 
 it('resolver trusts moving public body updates, deduplicates guesses and keeps feedback decay monotonic', () => {
