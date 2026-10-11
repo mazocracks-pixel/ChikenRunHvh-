@@ -1,4 +1,4 @@
-import { MODES, levelFor, type JoinResponse, type MapId, type ModeId, type RoomSummary, type Team } from '@game/shared';
+import { MODES, levelFor, upgradeLevels, type JoinResponse, type MapId, type ModeId, type RoomSummary, type Team } from '@game/shared';
 import { REPORT_REASONS } from '@game/shared';
 import type { GameDatabase } from '../db/Database';
 import type { GameServer, GameSocket } from '../types';
@@ -158,6 +158,8 @@ export class RoomManager {
       loadout: profile.loadout,
       dev: profile.developer,
       rank: levelFor(profile.xp),
+      // Chicken upgrades from the shop (saved on the server; the room decides if they count).
+      upgrades: upgradeLevels(profile.owned),
       ...(team ? { team } : {}),
     };
     const res = room.join(socket, playerProfile);

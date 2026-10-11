@@ -11,7 +11,7 @@ export const WEAPON_IDS = [
 ] as const;
 export type WeaponId = typeof WEAPON_IDS[number];
 
-export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana' | 'revolver' | 'battle' | 'lmg' | 'crossbow' | 'launcher' | 'deagle' | 'silenced';
+export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana' | 'revolver' | 'battle' | 'lmg' | 'crossbow' | 'launcher' | 'deagle' | 'silenced' | 'scout';
 
 export interface WeaponDef {
   id: WeaponId;
@@ -89,7 +89,7 @@ const DEFS: WeaponDef[] = [
     price: 0, sound: 'shotgun', model: { length: 0.62, color: 0x5a3a22, accent: 0x2b2b2b, barrels: 2 },
   },
   {
-    id: 'sniper', name: 'Sniper', damage: 80, headshotMultiplier: 2.5, fireInterval: 1300, automatic: false,
+    id: 'sniper', name: 'Sniper', damage: 100, headshotMultiplier: 2.5, fireInterval: 1700, automatic: false,
     magazine: 5, reloadTime: 2600, pellets: 1, spread: 0.004, moveSpread: 0.08, airSpread: 0.15,
     range: 250, falloffStart: 250, minDamageScale: 1, zoom: 4, zoom2: 8, scope: true, recoil: 0.08,
     price: 0, sound: 'sniper', model: { length: 0.95, color: 0x2f3b2f, accent: 0x111111 },
@@ -170,10 +170,10 @@ const DEFS: WeaponDef[] = [
     moveSpeed: 0.85, price: 2200, sound: 'lmg', model: { length: 0.95, color: 0x3a3f35, accent: 0x8f8a6a },
   },
   {
-    id: 'scout', name: 'Scout', damage: 68, headshotMultiplier: 2.5, fireInterval: 1000, automatic: false,
+    id: 'scout', name: 'Scout', damage: 40, headshotMultiplier: 2.6, fireInterval: 1000, automatic: false,
     magazine: 8, reloadTime: 2600, pellets: 1, spread: 0.003, moveSpread: 0.012, airSpread: 0.02,
     range: 220, falloffStart: 220, minDamageScale: 1, zoom: 3.2, zoom2: 6.5, scope: true, recoil: 0.05,
-    price: 1400, sound: 'sniper', model: { length: 0.95, color: 0x3d4f3a, accent: 0x1c1e21 },
+    price: 1400, sound: 'scout', model: { length: 0.95, color: 0x3d4f3a, accent: 0x1c1e21 },
   },
   {
     id: 'crossbow', name: 'Crossbow', damage: 85, headshotMultiplier: 2, fireInterval: 1100, automatic: false,

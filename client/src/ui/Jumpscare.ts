@@ -197,14 +197,15 @@ function layer(className: string, html = ''): HTMLElement {
  * It flashes once only (never strobes) and can't be clicked, so it never gets in the way.
  * `flash` is just the white-out with ringing ears, like a flashbang.
  */
-export function showJumpscare(style: JumpscareStyle, audio: AudioEngine): void {
+export function showJumpscare(style: JumpscareStyle, audio: AudioEngine, zombie = false): void {
   if (current) {
     current.el.remove();
     for (const t of current.timers) window.clearTimeout(t);
   }
   const plan = PLANS[style];
   const el = document.createElement('div');
-  el.className = `jumpscare jumpscare-${style}`;
+  // `zombie`: the Zombie Apocalypse death scare (the chicken face gone green and rotten, a roar).
+  el.className = `jumpscare jumpscare-${style}${zombie ? ' jumpscare-zombie' : ''}`;
   el.setAttribute('aria-hidden', 'true');
   el.style.setProperty('--js-ms', `${plan.ms}ms`);
   const timers: number[] = [];
@@ -244,6 +245,11 @@ export function showJumpscare(style: JumpscareStyle, audio: AudioEngine): void {
   // are the fallback if it is missing. The white flash keeps its flashbang.
   if (style === 'flash') playBuiltIn();
   else void audio.playFile(JUMPSCARE_FILE, 1.4).then((played) => played || playBuiltIn());
+  // A zombie's own screech and roar on top.
+  if (zombie) {
+    audio.play('screech', undefined, 1.1);
+    at(120, () => audio.play('bossRoar', undefined, 1.2));
+  }
   shakeGame(plan.shake);
   at(plan.ms, () => {
     el.remove();

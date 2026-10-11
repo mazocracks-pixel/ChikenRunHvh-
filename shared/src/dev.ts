@@ -42,7 +42,11 @@ export interface DevMods {
 }
 
 /** The movement part of DevMods, used by the shared physics. */
-export type MoveMods = Pick<DevMods, 'speed' | 'jump' | 'gravity' | 'fly' | 'noclip' | 'infiniteFuel'>;
+export type MoveMods = Pick<DevMods, 'speed' | 'jump' | 'gravity' | 'fly' | 'noclip' | 'infiniteFuel'> & {
+  /** Chicken upgrades (PvE only): glide and jetpack time multiplier, and extra bunny-hop speed cap. */
+  glide?: number;
+  hop?: number;
+};
 
 export const DEFAULT_MODS: Readonly<DevMods> = {
   speed: 1,

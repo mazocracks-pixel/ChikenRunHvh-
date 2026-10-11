@@ -88,6 +88,9 @@ import {
   KILL_FLAGS,
   teamName,
   teamSwitchBlocked,
+  modeUsesUpgrades,
+  upgradeEffects,
+  type UpgradeLevels,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -136,6 +139,8 @@ export interface PlayerProfile {
   rank?: number;
   /** Team modes: put them on this team (their party is on it). */
   team?: Team;
+  /** Chicken upgrade levels; they only count in PvE modes. */
+  upgrades?: UpgradeLevels;
 }
 
 export interface MatchResult {
@@ -367,6 +372,9 @@ export class GameRoom {
     const player = new ServerPlayer(info, socket, profile.userId);
     player.hvhMode = this.mode.id === 'hvh';
     player.melee = melee;
+    // Chicken upgrades count in PvE modes only; in PvP everyone has the same stats.
+    const upgrades = profile.upgrades && !profile.bot && modeUsesUpgrades(this.mode) ? profile.upgrades : null;
+    player.upgrades = upgrades ? upgradeEffects(upgrades) : null;
     const now = performance.now();
     if (this.mode.id === 'hvh' && socket) player.hvhPreparing = true;
     else this.spawn(player, now, false);
@@ -399,6 +407,7 @@ export class GameRoom {
       flags: [],
       round: null,
       money: 0,
+      upgrades,
       ...this.joinExtras(player),
     };
   }
@@ -542,7 +551,7 @@ export class GameRoom {
       this.vehicles.drive(p, frame);
       return;
     }
-    stepPlayer(p.state, frame, SIM_DT, this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
+    stepPlayer(p.state, frame, SIM_DT, this.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
   }
 
   handleFire(p: ServerPlayer, raw: unknown): void {
@@ -831,7 +840,7 @@ export class GameRoom {
     this.enforceHvhRules(p);
     const w = WEAPONS[p.weapon];
     if (!p.alive || p.reloadUntil > 0 || p.mag >= p.magazineSize(w.id)) return;
-    p.reloadUntil = performance.now() + (p.mods?.instantReload ? 0.001 : w.reloadTime);
+    p.reloadUntil = performance.now() + (p.mods?.instantReload ? 0.001 : w.reloadTime * (p.upgrades?.reload ?? 1));
     p.aiming = false;
   }
 
@@ -917,6 +926,8 @@ export class GameRoom {
     if (cause === 'rocket' && victim.mods?.noRocketDamage) return;
     // Developer damage multiplier (bullets, rockets, eggs, buggies alike).
     if (attacker?.mods) amount *= attacker.mods.damage;
+    // Chicken upgrades (PvE only): Armor and Health both mean less of the bar per hit.
+    if (victim.upgrades) amount *= victim.upgrades.damageTaken;
     if (amount <= 0) return;
 
     let remaining = amount;
@@ -1246,12 +1257,17 @@ export class GameRoom {
     this.awardCoins(players);
   }
 
+  /** Coins for one player's match (rooms with their own economy override this). */
+  protected matchCoins(p: ServerPlayer, won: boolean): number {
+    return Math.min(COINS.max, COINS.perMatch + COINS.perKill * p.info.kills + (won ? COINS.win : 0));
+  }
+
   private awardCoins(players: ServerPlayer[]): void {
     const results: MatchResult[] = [];
     for (const p of players) {
       if (p.userId === null) continue;
       const won = this.mode.teams ? p.info.team === this.match.winnerTeam && p.info.team !== 0 : p.pid === this.match.winnerPid;
-      const coins = Math.min(COINS.max, COINS.perMatch + COINS.perKill * p.info.kills + (won ? COINS.win : 0));
+      const coins = this.matchCoins(p, won);
       results.push({ userId: p.userId, pid: p.pid, kills: p.info.kills, headshots: p.headshotKills, deaths: p.info.deaths, won, coins, xp: this.mode.ranked ? rankedPoints(p.info.kills, won) : 0 });
     }
     if (results.length === 0 || !this.hooks.onMatchEnd) return;
@@ -1318,7 +1334,7 @@ export class GameRoom {
         const held = p.state.jumpHeld;
         stepPlayer(p.state,
           { ...p.lastInput, forward: 0, right: 0, jump: held && !p.state.onGround, autoHop: false, subtickStrafe: false }, SIM_DT,
-          this.world, p.mods, hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
+          this.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
         p.state.jumpHeld = held;
       }
       p.simulationTime = now;

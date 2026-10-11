@@ -3,6 +3,144 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 14 (10 Oct): better zombies, shop + chicken upgrades, gun sounds
+
+## What was already there (explored first)
+
+- Zombie types walker / sprinter / runner / brute / boss; ZombieBrain AI; boss every 5 waves with an on-screen health bar; in-match money for the zombie shop, but coins only from the generic match formula (max 150).
+- Customize screen ([client/src/ui/Shop.ts](client/src/ui/Shop.ts)): emoji tabs, `window.confirm`. Coins and items in SQLite (`users.coins`, `inventory`), bought only through `POST /api/shop/buy` (server checks price and coins in one transaction).
+- Sniper and Scout already exist (two zoom levels, in the buy menu, Training and Arms Race). Sniper did 80 body damage (not a one-shot); both shared one 'sniper' sound.
+- All game sounds are synthesized in code (Audio.ts); there are distance falloff and muffling, but no echo, one reload sound and one empty click for every gun.
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| A1 | Smarter AI: zombies spread round you (each has its own side), "hunters" go for the survivor with the fewest zombies near them (finds campers), forced waypoint routes after getting stuck | ZombieBrain |
+| A2 | Each type unique: posture and gait, its own groan/steps, attacks (brute knocks you back, runner double-swipes, sprinter lunges) | Chicken, ZombieNight, Audio, ZombieRoom |
+| A3 | Feedback: stagger when shot (longer on headshots, head snaps back), death bursts of feathers and bits | ZombieRoom, protocol `zombieHit`, Chicken, Effects |
+| A4 | Waves: special types' share grows every wave | zombies.ts |
+| A5 | Coins: per kill, per wave survived, boss bonus (own cap) | ZombieRoom |
+| B1 | Chicken upgrades: 7 upgrades x 5 levels, prices, effects; only in PvE modes (Zombie, Training) | shared/src/upgrades.ts, modes.ts |
+| B2 | Saved on the server like items (`upgrade:<id>:<level>` in `inventory`; a level needs the one before); rarity; Gun Skins; Daily Deals (same on server and client, the server charges the deal price) | items.ts, api.ts |
+| B3 | Server applies upgrades in PvE only: speed/jump/glide (movement), max HP + armor (damage taken), reload, egg power | GameRoom, ServerPlayer, physics |
+| B4 | Client predicts the same (from the join message), HUD shows real HP | LocalPlayer, WeaponController, Hud |
+| B5 | New shop: tabs Upgrades / Skins / Guns / Knives / Gun Skins, deals strip, rarity colours, coins, try-on preview, confirm dialog, fairness note | Shop.ts, CSS |
+| B6 | Gun skins drawn on guns (third person and first person) | Guns.ts, Chicken, ViewModel |
+| C1 | Gun sounds: a voice per gun (crack, body, boom, mechanics), shared echo buses (far shots echo more), reload sequences per gun type, dry clicks | Audio.ts, GameSession |
+| C2 | Sniper: one-shot body, slower bolt; Scout: faster bolt, steadier in the air; both: long echo + bolt pull after each shot, Sniper heavier | weapons.ts, Audio.ts |
+| C3 | SOUNDS.md: every sound, where it comes from and its license | SOUNDS.md |
+| D | Tests: upgrades buy/levels/deal prices, upgrades only in PvE, zombie coins, AI spreading, stagger; sniper one-shot; browser: shop, sounds, weapons | server/test, headless Chrome |
+| E | (Asked mid-batch) A jumpscare when a zombie kills you | Jumpscare.ts, GameSession |
+
+## What was done
+
+- **A, zombies** ([ZombieBrain.ts](server/src/rooms/zombies/ZombieBrain.ts), [ZombieRoom.ts](server/src/rooms/ZombieRoom.ts), [shared/src/zombies.ts](shared/src/zombies.ts)):
+  - **Smarter.**
+    - Within 10 m, each zombie closes in from its own side (spread by golden-angle steps), so a crowd surrounds you instead of queueing.
+    - 30% are hunters: they go for the survivor with the fewest zombies near them, so the one hiding gets found.
+    - After getting stuck twice, a zombie follows waypoints only for 3.5 s. `findPath` got a `direct` flag for this; the default is unchanged.
+  - **Each type unique.**
+    - Posture and gait ([Chicken.undeadPose](client/src/game/models/Chicken.ts)):
+      - walkers limp with their arms out;
+      - sprinters crouch and twitch;
+      - runners lean far forward;
+      - brutes stomp;
+      - bosses loom.
+    - Zombies hold nothing: they claw.
+    - Each type has its own voice and footsteps ([ZombieNight VOICES](client/src/game/ZombieNight.ts)), so you can tell which is coming before you see it:
+      - walker: moan and shuffle;
+      - sprinter: hiss and skitter;
+      - runner: pant and patter;
+      - brute: roar and stomp;
+      - boss: deep rumble.
+    - Attacks:
+      - runners claw twice;
+      - brutes knock you back;
+      - sprinters lunge;
+      - bosses slam.
+    - Attack sounds: claws, or a smash for brutes and bosses.
+  - **Feedback.**
+    - A shot zombie staggers for 170 ms (480 ms after a headshot; brutes half that, bosses a quarter). It slows to 20% and can't hit back.
+    - A new `zombieHit` event makes it flinch for everyone, and a headshot snaps its head back.
+    - On death it falls apart: a burst of dark feathers, bits and grave dust, with its own death gurgle.
+  - **Harder waves:** each special type's share grows 1.2% every wave, up to a cap. The boss still comes every 5 waves, with its health bar on screen.
+  - **Coins** (account coins for the shop), paid at game over through a new `matchCoins` hook in GameRoom:
+    - 2–6 per kill, depending on the type;
+    - 10 + 2×wave to everyone standing when a wave is cleared;
+    - 100 to everyone standing for the boss;
+    - capped at 1,000 per game.
+- **B, chicken upgrades** ([shared/src/upgrades.ts](shared/src/upgrades.ts)): Health, Speed, Jump (with a higher bunny-hop cap), Glide (glide fall speed and jetpack fuel), Egg Power, Armor and Reload. Each has 5 levels at 150 / 300 / 600 / 1,000 / 1,600 coins.
+  - **Saved on the server** as inventory items `upgrade:<id>:<level>`. `POST /api/shop/buy` refuses a level unless you own the one before it, and charges the server's price (today's deal when there is one). The browser never sends prices, coins or levels.
+  - **PvE only:** the new `ModeDef.pve` is set on Zombie Apocalypse and Training only.
+    - RoomManager passes the levels in; GameRoom applies them only there and tells the client in the join message (`upgrades`, null in PvP).
+    - The client predicts exactly what the server does (`withUpgrades` for movement, `reloadScale`).
+    - Max health works as a damage share, so the health bar stays 0–100 and the HUD shows the real HP.
+- **B, new shop** ([client/src/ui/Shop.ts](client/src/ui/Shop.ts)):
+  - **Tabs:** Chicken Upgrades / Skins (feathers, hats, beaks, sneakers) / Guns / Knives / Gun Skins.
+  - **Daily Deals strip:** 4 items at 25–50% off, the same for everyone each UTC day ([shared/src/shop.ts](shared/src/shop.ts)), with a countdown to new deals.
+  - **Rarity colours** from the price: common, rare, epic, legendary.
+  - **Coins pill**, and gun pictures drawn from the real models.
+  - **Try-on:** clicking anything shows it on the chicken; a bar shows its name, rarity and Buy or Equip.
+  - **A confirm dialog before every purchase.**
+  - **Fairness note** on the upgrades tab.
+  - **9 gun skins** (new cosmetic slot `gun`, seen by everyone): they recolour the gun body in third person and first person ([Guns.ts applySkin](client/src/game/models/Guns.ts)).
+- **C, sounds** ([Audio.ts](client/src/game/Audio.ts)):
+  - Shots now echo afterwards; far shots echo more.
+  - Reloads by gun type: magazine guns, shells one by one, bolt guns.
+  - A heavier dry click for big guns.
+- **C, Sniper and Scout:** both already existed (two zoom levels, buy menu, Training B menu, Arms Race).
+  - **Sniper:** 100 body damage (a one-shot), 1.7 s bolt (was 1.3 s).
+  - **Scout:** 40 body, 104 head (a one-shot only to the head), 1 s bolt, and it stays accurate while jumping.
+  - Each has its own sound: a crack, a boom, a 3–4 tap echo, and the bolt pulled after every shot. The Sniper's is deeper and heavier.
+- **SOUNDS.md:** every sound and its source. All effects are synthesized in our own code and released as CC0.
+  - The sniper used `AWP_SOUND.mp3`. The name points at Counter-Strike, so **it is no longer used**.
+  - `SNIPER_ZOOM.mp3` and `equip_sound.mp3` have no known license and are no longer used either (the built-in sounds play).
+  - `jumpscare.mp3` and the lobby music are still used, and are flagged for the owner to confirm.
+- **E, zombie death jumpscare:** when a zombie kills you in Zombie Apocalypse, the jumpscare plays:
+  - the chicken face turned rotten green;
+  - your jumpscare.mp3, plus a zombie screech and roar;
+  - one flash only, never strobing.
+  - The Jumpscares setting (now labelled "developer pranks, zombie deaths") turns it off.
+
+## Tests
+
+- New [server/test/upgrades.test.ts](server/test/upgrades.test.ts) (14 tests):
+  - levels count only in order;
+  - prices rise;
+  - the effects at max level;
+  - only Zombie and Training use upgrades;
+  - deals are stable for a day, cheaper, and never upgrades;
+  - rarity;
+  - over the real API: in-order buying, the server price, and a browser trying to set its own coins or levels is ignored;
+  - deal prices are charged;
+  - in matches: on in Zombie and Training, and **off in every PvP mode** (stats and movement normal);
+  - less damage taken; faster reload;
+  - Sniper one-shots the body; Scout one-shots only the head.
+- Zombie tests (+3): stagger (longer after a headshot, sent to the room); different sides and hunters going for the lone survivor; coins at game over.
+- Full run: typecheck clean, **446/446 pass**, build OK.
+- Browser (headless Chrome, GPU):
+  - The shop opens with 5 tabs, 4 deals, 7 upgrade rows and the note.
+  - Buying Speed 1: confirm dialog → 250 → 100 coins, saved.
+  - Tab card counts: Skins 47, Guns 21, Knives 8, Gun Skins 9.
+  - Trying on the Gold skin shows a gold rifle on the chicken, with "Need 1,300 more".
+  - In FFA upgrades are null; in Zombie the speed is 1.03.
+  - All 16 new sounds play and free their audio nodes.
+  - Standing still in Zombie mode, a zombie kills you and the zombie jumpscare shows.
+  - No page errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | Bash heredocs failed again on long patches (quote matching). | Patch scripts written to scratchpad files and run from there. |
+| 2 | One patch went in before its follow-up edit was saved, so the zombie scare sounds only played when jumpscare.mp3 was missing. | Moved them so they always play. |
+| 3 | The old e2e test expected exactly 150 coins after buying the cap, which breaks on a day the cap is a deal; profiles now also have a `gun` slot. | The test uses `priceNow`; the expected profile includes `gun: 'none'`. |
+| 4 | A test assigned a read-only field (typecheck caught it). | Cast in the test. |
+| 5 | Shop tab row got squashed in the flex column. | `flex-shrink: 0` on the fixed parts. |
+| 6 | Browser test selectors matched two elements ("Speed" also matches "hop speed"; "Skins" also matches "Gun Skins"). | Exact selectors. |
+| 7 | Stopping the background test servers left orphan node processes again. | Killed them by PID after checking their start time. |
+
 # Batch 13 (10 Oct): darker, scarier Zombie mode on a bigger map
 
 ## Plan

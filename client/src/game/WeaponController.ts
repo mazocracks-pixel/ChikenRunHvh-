@@ -30,6 +30,8 @@ export class WeaponController {
   /** Developer modifiers confirmed by the server (null = normal rules). */
   /** Training: infinite ammo and instant reload, on top of any developer modifiers. */
   training = false;
+  /** Reload time multiple (the Reload chicken upgrade, PvE only; the server uses the same). */
+  reloadScale = 1;
   private devMods: DevMods | null = null;
   get mods(): DevMods | null {
     return this.training ? trainingMods(this.devMods) : this.devMods;
@@ -108,7 +110,7 @@ export class WeaponController {
   reload(now: number): boolean {
     if (this.reloading || this.mag >= this.magazineSize()) return false;
     this.reloadStartedAt = now;
-    this.reloadEndsAt = now + (this.mods?.instantReload ? 1 : this.def.reloadTime);
+    this.reloadEndsAt = now + (this.mods?.instantReload ? 1 : this.def.reloadTime * this.reloadScale);
     return true;
   }
 

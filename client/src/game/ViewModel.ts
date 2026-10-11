@@ -241,6 +241,8 @@ export class ViewModel {
   private gun: GunModel | null = null;
   private gunId: WeaponId | null = null;
   private readonly guns = new Map<WeaponId, GunModel>();
+  /** Your gun skin (set before the first gun is drawn). */
+  skin = 'none';
   private tint: string | null = null;
   private tintStyle = 0;
   private tintAlpha = 1;
@@ -483,7 +485,7 @@ export class ViewModel {
     if (this.gun?.magazine) this.gun.magazine.position.copy(this.magRest);
     this.gun?.group.removeFromParent();
     let gun = this.guns.get(id);
-    if (!gun) this.guns.set(id, (gun = buildGun(id)));
+    if (!gun) this.guns.set(id, (gun = buildGun(id, this.skin)));
     this.gun = gun;
     this.gunId = id;
     this.holder.add(this.gun.group);

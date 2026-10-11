@@ -165,7 +165,7 @@ function stepMovement(s: MoveState, input: InputFrame, dt: number, world: Collis
     s.jetting = false;
     s.gliding = false;
     if (input.jump) {
-      const speed = Math.hypot(velocity.x, velocity.z), limit = runSpeed * (1 + clamp(hopMax, 0, HOP.max));
+      const speed = Math.hypot(velocity.x, velocity.z), limit = runSpeed * (1 + clamp(hopMax, 0, HOP.max) + (mods?.hop ?? 0));
       if (speed > limit && speed) { velocity.x *= limit / speed; velocity.z *= limit / speed; }
       s.vy = PLAYER.jumpVelocity * (mods?.jump ?? 1);
       s.onGround = false;
@@ -181,11 +181,11 @@ function stepMovement(s: MoveState, input: InputFrame, dt: number, world: Collis
   s.jumpHeld = input.jump;
 
   if (s.jetting) {
-    s.fuel = Math.max(0, s.fuel - dt);
+    s.fuel = Math.max(0, s.fuel - dt / (mods?.glide ?? 1));
     s.vy = Math.min(s.vy + JETPACK.thrust * dt, JETPACK.maxRiseSpeed);
   } else {
     s.vy = Math.max(s.vy - gravity * dt, -MAX_FALL_SPEED);
-    if (s.gliding && s.vy < -PLAYER.glideFallSpeed) s.vy = -PLAYER.glideFallSpeed;
+    if (s.gliding && s.vy < -PLAYER.glideFallSpeed / (mods?.glide ?? 1)) s.vy = -PLAYER.glideFallSpeed / (mods?.glide ?? 1);
   }
   if (s.onGround) {
     groundFriction(velocity, dt);

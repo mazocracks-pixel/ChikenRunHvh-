@@ -1,6 +1,7 @@
 import type { RoundState } from './bomb';
 import type { FriendsState, PartyInvite, PartyState, SocialResult } from './social';
 import type { DevAction, DevMods, DevResult, DevStatus, JumpscareStyle } from './dev';
+import type { UpgradeLevels } from './upgrades';
 import type { HvhLoadout } from './hvh';
 import type { Appearance } from './items';
 import type { MapId, Team } from './maps/types';
@@ -341,6 +342,8 @@ export type JoinResponse =
       money: number;
       /** Zombie Apocalypse: the waves so far and your gun upgrades. */
       zombie?: ZombieJoin;
+      /** Your chicken upgrade levels, when they count in this mode (PvE); null in PvP. */
+      upgrades?: UpgradeLevels | null;
     }
   | { ok: false; error: string };
 
@@ -460,6 +463,8 @@ export interface ExplosionEvent {
   x: number;
   y: number;
   z: number;
+  /** Blast size multiple (Egg Power upgrade); missing = normal. */
+  scale?: number;
 }
 
 export interface SmokeEvent {
@@ -632,6 +637,8 @@ export interface ServerToClientEvents {
   zombie: (s: ZombieState) => void;
   /** Zombie Apocalypse: your gun upgrades changed. */
   zombieGear: (g: ZombieGear) => void;
+  /** Zombie Apocalypse: a zombie was hit (it flinches; a headshot snaps its head back). */
+  zombieHit: (e: { pid: number; headshot: boolean }) => void;
   blockPlaced: (block: BlockState) => void;
   blockRemoved: (blockId: number) => void;
   /** The server removed you from the room (e.g. kicked); go back to the lobby. */

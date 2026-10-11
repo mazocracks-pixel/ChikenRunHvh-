@@ -239,6 +239,9 @@ export class Chicken {
   private readonly eyeWhites: THREE.Mesh[] = [];
   private readonly pupils: THREE.Mesh[] = [];
   private hat: THREE.Group | null = null;
+  /** Gun skin from the appearance, and the one the gun in hand was built with. */
+  private gunSkin = 'none';
+  private builtSkin = 'none';
   private gun: GunModel | null = null;
   private gunId: WeaponId | null = null;
 
@@ -261,6 +264,9 @@ export class Chicken {
   private swingTime = -1;
   /** Seconds into an inspect (F), or -1. */
   private inspectTime = -1;
+  /** Seconds since a hit (zombies flinch), or -1; and whether it was in the head. */
+  private flinchTime = -1;
+  private flinchHead = false;
 
   constructor(appearance: Appearance, team: Team = 0) {
     const feather = solid(0xffffff);
@@ -427,6 +433,11 @@ export class Chicken {
       if (hasShoes) (s.children[0] as THREE.Mesh).material = solid(shoes!.color ?? 0xffffff, { metal: shoes!.metal });
     }
 
+    if ((a.gun ?? 'none') !== this.gunSkin) {
+      this.gunSkin = a.gun ?? 'none';
+      this.setWeapon(this.gunId);
+    }
+
     this.hat?.removeFromParent();
     this.hat = buildHat(a.hat);
     for (const comb of this.combs) comb.visible = !this.hat;
@@ -446,11 +457,14 @@ export class Chicken {
   }
 
   setWeapon(id: WeaponId | null): void {
-    if (id === this.gunId) return;
+    // Zombies fight with their claws: nothing in their hands.
+    if (this.undead) id = null;
+    if (id === this.gunId && this.gunSkin === this.builtSkin) return;
     this.xrayMaterial = undefined;
     this.gunId = id;
+    this.builtSkin = this.gunSkin;
     this.gun?.group.removeFromParent();
-    this.gun = id ? buildGun(id) : null;
+    this.gun = id ? buildGun(id, this.gunSkin) : null;
     // A pair (Dual Pistols, Shadow Daggers): only the right-hand one sits in the wing.
     if (this.gun?.offhand) this.gun.offhand.visible = false;
     if (this.gun) this.gunPivot.add(this.gun.group);
@@ -481,6 +495,12 @@ export class Chicken {
     this.inspectTime = -1;
   }
 
+  /** Hit (zombies): the body rocks back; a headshot snaps the head back too. */
+  flinch(headshot: boolean): void {
+    this.flinchTime = 0;
+    this.flinchHead = this.flinchHead || headshot;
+  }
+
   /** A melee swing: the weapon sweeps across in front of the chicken. */
   swing(): void {
     this.swingTime = 0;
@@ -506,6 +526,8 @@ export class Chicken {
       this.pose.position.set(0, 0, 0);
       this.pose.scale.set(1, 1, 1);
       this.headGroup.rotation.z = 0;
+      this.headGroup.rotation.x = 0;
+      this.flinchTime = -1;
       this.root.visible = true;
     }
   }
@@ -565,6 +587,7 @@ export class Chicken {
     // The right wing holds the gun, so it flaps less.
     this.wingR.rotation.z = flap * 0.4;
     this.wingR.rotation.x = -0.6;
+    if (this.undead) this.undeadPose(dt);
 
     this.recoil = damp(this.recoil, 0, 18, dt);
     let sweep = 0;
@@ -591,6 +614,53 @@ export class Chicken {
       if (this.gun.spinner) this.gun.spinner.rotation.z += dt * (4 + this.recoil * 30);
     }
     for (const f of this.flames) if (f.visible) f.scale.y = 0.8 + Math.random() * 0.5;
+  }
+
+  /**
+   * How each kind of zombie carries itself (the head stays where its hitbox is; only the body,
+   * legs and wings change). Walkers limp with their arms out, sprinters crouch and twitch,
+   * runners lean far forward, brutes stomp, bosses loom upright. A hit rocks the body back.
+   */
+  private undeadPose(dt: number): void {
+    const t = this.time;
+    const kind = this.undead!;
+    const w = this.walkBlend;
+    const lean = { walker: -0.22, sprinter: -0.38, runner: -0.5, brute: -0.12, boss: -0.05 }[kind];
+    this.bodyPivot.rotation.x = lean - 0.08 * w;
+    if (kind === 'walker') {
+      // A dragging limp: one leg swings less, the body rolls towards it.
+      this.legR.rotation.x *= 0.4;
+      this.bodyPivot.rotation.z = Math.sin(this.walkPhase) * 0.09 * w + 0.05;
+      this.headGroup.rotation.z = 0.22 + Math.sin(t * 1.3) * 0.05;
+    } else if (kind === 'sprinter') {
+      // Twitchy: small sudden jerks of the head and body.
+      const jerk = Math.sin(t * 23) * Math.sin(t * 3.1) > 0.85 ? 0.12 : 0;
+      this.headGroup.rotation.z = Math.sin(t * 7) * 0.08 + jerk;
+      this.bodyPivot.rotation.z = jerk * 0.6;
+    } else if (kind === 'runner') {
+      this.headGroup.rotation.z = Math.sin(this.walkPhase * 2) * 0.06;
+    } else {
+      // Heavy: a slow stomping bob.
+      this.bodyPivot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.1 * w;
+      this.bodyPivot.rotation.z = Math.sin(this.walkPhase) * 0.05 * w;
+    }
+    // Arms (wings) reaching forward; a swing slashes them down.
+    const reach = kind === 'runner' || kind === 'sprinter' ? -0.9 : -1.3;
+    const slash = this.swingTime >= 0 ? Math.sin(Math.min(1, this.swingTime / SWING_SECONDS) * Math.PI) * 1.4 : 0;
+    this.wingL.rotation.set(reach + slash + Math.sin(t * 2.1) * 0.06, 0, -0.25);
+    this.wingR.rotation.set(reach + slash + Math.sin(t * 2.3 + 1) * 0.06, 0, 0.25);
+    if (this.flinchTime >= 0) {
+      this.flinchTime += dt;
+      const k = Math.max(0, 1 - this.flinchTime / (this.flinchHead ? 0.45 : 0.22));
+      const kick = Math.sin(k * Math.PI * 0.5);
+      this.bodyPivot.rotation.x += 0.4 * kick;
+      if (this.flinchHead) this.headGroup.rotation.x = -0.7 * kick;
+      if (k <= 0) {
+        this.flinchTime = -1;
+        this.flinchHead = false;
+        this.headGroup.rotation.x = 0;
+      }
+    }
   }
 
   /**

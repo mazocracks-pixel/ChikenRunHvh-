@@ -81,6 +81,7 @@ import {
   teamName,
   teamSwitchBlocked,
   type TrainingGiveRequest,
+  upgradeEffects,
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
@@ -90,6 +91,7 @@ import { showJumpscare } from '../ui/Jumpscare';
 import { ZombieHud } from '../ui/ZombieHud';
 import { getKeybinds, keyLabel } from '../keybinds';
 import { ZombieNight } from './ZombieNight';
+import { emptySoundFor, reloadSoundFor } from './Audio';
 import type { AudioEngine } from './Audio';
 import { Blocks } from './Blocks';
 import { BombView, type BombMode } from './BombView';
@@ -208,6 +210,8 @@ export class GameSession {
   /** Zombie Apocalypse: the wave panel, shop and game-over screen. */
   private readonly zombieHud: ZombieHud | null;
   private night: ZombieNight | null = null;
+  /** Max health as a multiple of normal (Health upgrade); the health bar is a share of it. */
+  private maxHealth = 1;
   /** Training: the weapon menu (B). */
   private readonly trainingMenu: TrainingMenu | null;
   private zombieOver = false;
@@ -279,7 +283,13 @@ export class GameSession {
     this.weapons = new WeaponController(meInfo.loadout);
     this.weapons.tactical = this.mode.id === 'hvh';
     this.weapons.training = this.mode.training === true;
+    // Chicken upgrades: only when the server says they count here (PvE).
+    const upgrades = join.upgrades ? upgradeEffects(join.upgrades) : null;
+    this.local.upgrades = upgrades;
+    this.weapons.reloadScale = upgrades?.reload ?? 1;
+    this.maxHealth = upgrades?.maxHealth ?? 1;
     this.viewmodel = new ViewModel(ctx.overlay);
+    this.viewmodel.skin = meInfo.appearance.gun ?? 'none';
     this.viewmodel.onInspectCue = (cue) => ctx.audio.play(cue === 'in' ? 'reload' : 'click', undefined, 0.55);
     this.bombView = this.mode.bomb ? new BombView(ctx.scene) : null;
     this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root, meInfo.appearance) : null;
@@ -472,7 +482,7 @@ export class GameSession {
       const result = this.weapons.trigger(input.firing || assisted, now, assisted);
       if (result === 'fire') this.fire(aiming, assisted);
       else if (result === 'empty') {
-        audio.play('empty');
+        audio.play(emptySoundFor(this.weapons.weapon));
         this.startReload(now);
       }
       if (this.weapons.mag === 0 && !this.weapons.reloading) this.startReload(now);
@@ -551,7 +561,7 @@ export class GameSession {
     const w = this.weapons;
     hud.setStats(net.ping, fps, this.infos.size);
     hud.setPersonalScore(this.self.kills, this.self.deaths);
-    hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel);
+    hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel, this.maxHealth);
     hud.setNitro(this.local.alive && this.local.car ? this.local.car.boost : null);
     hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
     hud.setGrenades(server.eggs, server.smokes, server.flashes ?? 0);
@@ -716,7 +726,7 @@ export class GameSession {
   private startReload(now: number): void {
     if (!this.local.alive || !this.weapons.reload(now)) return;
     this.ctx.net.socket.emit('reload');
-    this.ctx.audio.play('reload');
+    this.ctx.audio.play(reloadSoundFor(this.weapons.weapon));
   }
 
   // ---------------------------------------------------------------------------
@@ -1394,6 +1404,7 @@ export class GameSession {
     this.on('round', (r) => this.onRound(r));
     this.on('money', (e) => (this.money = e.money));
     this.on('zombie', (s) => this.onZombieState(s));
+    this.on('zombieHit', (e) => this.remotes.get(e.pid)?.chicken.flinch(e.headshot));
     this.on('zombieGear', (g) => this.zombieHud?.setGear(g));
     this.on('playerLeft', (pid) => {
       this.infos.delete(pid);
@@ -1496,7 +1507,9 @@ export class GameSession {
     const def = WEAPONS[e.weapon];
     if (def.melee) {
       remote?.chicken.swing();
-      this.ctx.audio.play(def.sound, from, 0.9);
+      // A zombie claws (a brute or boss smashes) instead of swinging a knife.
+      const undead = remote?.info.undead;
+      this.ctx.audio.play(undead ? (undead === 'brute' || undead === 'boss' ? 'zsmash' : 'zclaw') : def.sound, from, 0.9);
       if (e.hits.length > 0) {
         const at = { x: e.ends[0]!, y: e.ends[1]!, z: e.ends[2]! };
         this.effects.feathers(at, 0xffffff, 5);
@@ -1557,8 +1570,14 @@ export class GameSession {
       if (remote) {
         remote.kill();
         remote.chicken.onVanish = (at) => this.vanished(at, e.victim);
-        this.effects.feathers({ x: remote.position.x, y: remote.position.y + 0.8, z: remote.position.z }, this.skinColor(e.victim), 22);
-        audio.play('death', remote.position, 0.8);
+        const at = { x: remote.position.x, y: remote.position.y + 0.8, z: remote.position.z };
+        if (remote.info.undead) {
+          this.effects.zombieBurst(at, new THREE.Color(this.skinColor(e.victim)).multiplyScalar(0.45).getHex());
+          audio.play('zdeath', remote.position, remote.info.undead === 'boss' ? 1.2 : 0.8);
+        } else {
+          this.effects.feathers(at, this.skinColor(e.victim), 22);
+          audio.play('death', remote.position, 0.8);
+        }
       }
       if (e.killer === this.selfPid) {
         audio.play('kill');
@@ -1577,6 +1596,8 @@ export class GameSession {
     this.ctx.audio.play('death');
     this.ctx.hud.showDeath(killer, cause, this.selfPid, flags, headshot);
     if (this.chatOpen) this.closeChat();
+    // Zombie Apocalypse: a zombie got you, and it jumps at your face (off with the Jumpscares setting).
+    if (this.mode.zombies && killer?.undead && getSettings().jumpscares) showJumpscare('chicken', this.ctx.audio, true);
   }
 
   /** The death animation ended: the body vanishes in a puff of feathers. */
@@ -1641,7 +1662,7 @@ export class GameSession {
       if (dist < 25) this.ctx.hud.flash(Math.round(1100 - dist * 40));
       return;
     }
-    this.effects.explosion(at, PROJECTILES[e.kind].splashRadius);
+    this.effects.explosion(at, PROJECTILES[e.kind].splashRadius * (e.scale ?? 1));
     this.ctx.audio.play('explosion', at);
     this.rig.addShake(Math.max(0, 1 - dist / 25));
   }

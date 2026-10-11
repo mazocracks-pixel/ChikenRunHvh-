@@ -75,6 +75,8 @@ export class ZombieRoom extends GameRoom {
   private bossPid = 0;
   private readonly zombies = new Map<number, Zombie>();
   private readonly upgrades = new Map<number, Record<string, number>>();
+  /** Coins each survivor has earned this game (pid → coins). */
+  private readonly coins = new Map<number, number>();
   private readonly brain: ZombieBrain;
   private readonly host: ZombieHost;
 
@@ -94,6 +96,7 @@ export class ZombieRoom extends GameRoom {
       hitBlock: (id, damage) => this.damageBlock(id, damage),
       slam: (z, now) => this.slam(z, now),
       summon: (z, now) => this.summonHelp(z, now),
+      zombies: () => this.zombies.values(),
     };
     this.brain = new ZombieBrain(this.host);
   }
@@ -180,6 +183,7 @@ export class ZombieRoom extends GameRoom {
     this.clearZombies();
     this.clearBlocks();
     this.upgrades.clear();
+    this.coins.clear();
     this.kills = 0;
     this.wave = 1;
     this.bossPid = 0;
@@ -250,11 +254,13 @@ export class ZombieRoom extends GameRoom {
 
   private clearWave(now: number): void {
     const bonus = ZOMBIE.clearBonus.base + ZOMBIE.clearBonus.perWave * this.wave;
+    const coins = ZOMBIE.coins.wave.base + ZOMBIE.coins.wave.perWave * this.wave;
     for (const p of this.survivors()) {
       p.money += bonus;
       this.emitMoney(p);
+      this.earn(p, coins);
     }
-    this.systemMessage(`✅ Wave ${this.wave} cleared! +${bonus} each. Shop (B) is open for 10 seconds.`);
+    this.systemMessage(`✅ Wave ${this.wave} cleared! +${bonus} money and +${coins} coins each. Shop (B) is open for 10 seconds.`);
     this.wave++;
     this.zphase = 'prep';
     this.prepEndsAt = now + ZOMBIE.prepMs;
@@ -348,6 +354,15 @@ export class ZombieRoom extends GameRoom {
       summoned: false,
       sprintUntil: 0,
       nextSprint: now + 1500,
+      // Spread evenly round you (golden angle steps), on the near half and the sides.
+      side: ((((p.pid * 0.618034) % 1) * 2 - 1) * 1.6),
+      hunter: kind !== 'boss' && Math.random() < ZOMBIE.smart.hunterShare,
+      targetPid: 0,
+      staggerUntil: 0,
+      stuck: 0,
+      forcePathUntil: 0,
+      followUpAt: 0,
+      lastFlinchAt: -Infinity,
       diedAt: null,
     });
     this.announcePlayer(p);
@@ -405,11 +420,47 @@ export class ZombieRoom extends GameRoom {
       // Your gun upgrades add damage; the health bar is a share of the zombie's real health.
       if (attacker && cause in WEAPONS) amount *= upgradeMultiplier(this.upgrades.get(attacker.pid)?.[cause] ?? 0);
       amount *= 100 / z.maxHp;
+      if (amount > 0 && victim.alive) this.stagger(z, headshot, now);
     } else if (attackerZombie && cause === 'knife') {
-      // A zombie's claws hurt as much as its wave says.
-      amount = this.zombies.get(attacker!.pid)?.stats.damage ?? amount;
+      // A zombie's claws hurt as much as its wave says; a brute's knock you back.
+      const z = this.zombies.get(attacker!.pid);
+      amount = z?.stats.damage ?? amount;
+      if (z?.kind === 'brute' && victim.alive) this.knockBack(victim, z.p, ZOMBIE.brute.knockback);
     }
     super.damage(victim, attacker, amount, headshot, cause, from, now, flags);
+  }
+
+  /** A zombie reels from a hit (less for big ones); everyone sees it flinch. */
+  private stagger(z: Zombie, headshot: boolean, now: number): void {
+    const s = ZOMBIE.stagger;
+    const ms = (headshot ? s.headshotMs : s.hitMs) * (z.kind === 'boss' ? s.boss : z.kind === 'brute' ? s.brute : 1);
+    z.staggerUntil = Math.max(z.staggerUntil, now + ms);
+    // Shotguns hit with many pellets at once: one flinch is enough (a headshot always shows).
+    if (headshot || now - z.lastFlinchAt > 90) {
+      z.lastFlinchAt = now;
+      this.io.to(this.channel).emit('zombieHit', { pid: z.p.pid, headshot });
+    }
+  }
+
+  /** Pushes `p` away from `from` (and a little up). */
+  private knockBack(p: ServerPlayer, from: ServerPlayer, power: number): void {
+    const dx = p.state.x - from.state.x;
+    const dz = p.state.z - from.state.z;
+    const d = Math.hypot(dx, dz) || 1;
+    p.state.vx += (dx / d) * power;
+    p.state.vz += (dz / d) * power;
+    p.state.vy = Math.max(p.state.vy, 3);
+    p.state.onGround = false;
+  }
+
+  /** Coins earned this game (paid into the account at game over). */
+  private earn(p: ServerPlayer, coins: number): void {
+    if (p.info.undead || p.userId === null) return;
+    this.coins.set(p.pid, (this.coins.get(p.pid) ?? 0) + coins);
+  }
+
+  protected override matchCoins(p: ServerPlayer): number {
+    return Math.min(ZOMBIE.coins.max, this.coins.get(p.pid) ?? 0);
   }
 
   protected override onKill(victim: ServerPlayer, attacker: ServerPlayer | null, _cause: KillCause, now: number): void {
@@ -418,6 +469,7 @@ export class ZombieRoom extends GameRoom {
     if (!z) return;
     z.diedAt = now;
     this.kills++;
+    if (attacker) this.earn(attacker, ZOMBIE.coins.perKill[z.kind]);
     // Money for the kill: all of it to who did it, a quarter to everyone else still standing.
     for (const p of this.survivors()) {
       const share = p === attacker ? z.stats.reward : Math.round(z.stats.reward * 0.25);
@@ -431,7 +483,9 @@ export class ZombieRoom extends GameRoom {
     }
     if (z.kind === 'boss') {
       this.bossPid = 0;
-      this.systemMessage(`🏆 ${victim.info.name} is dead! +${z.stats.reward} money.`);
+      // The boss pays everyone still standing.
+      for (const p of this.survivors()) this.earn(p, ZOMBIE.coins.boss);
+      this.systemMessage(`🏆 ${victim.info.name} is dead! +${z.stats.reward} money, +${ZOMBIE.coins.boss} coins each.`);
     }
     this.emitState(now);
   }

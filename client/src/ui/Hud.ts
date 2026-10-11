@@ -252,11 +252,12 @@ export class Hud {
     this.fuelFill.style.width = `${Math.round(nitro * 100)}%`;
   }
 
-  setVitals(hp: number, armor: number, fuel: number): void {
+  /** `maxHealth`: the Health upgrade's multiple (the bar is a share; the number is real health). */
+  setVitals(hp: number, armor: number, fuel: number, maxHealth = 1): void {
     const hpPct = Math.max(0, Math.min(100, (hp / PLAYER.maxHealth) * 100));
     this.hpFill.style.width = `${hpPct}%`;
     this.hpFill.classList.toggle('low', hpPct <= 30);
-    this.hpText.textContent = `${Math.ceil(hp)} HP`;
+    this.hpText.textContent = `${Math.ceil(hp * maxHealth)} HP`;
     this.armorBar.hidden = armor <= 0;
     this.armorFill.style.width = `${Math.min(100, (armor / PLAYER.maxArmor) * 100)}%`;
     this.armorText.textContent = `${Math.ceil(armor)} ARMOR`;

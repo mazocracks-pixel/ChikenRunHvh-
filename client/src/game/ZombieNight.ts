@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { AudioEngine } from './Audio';
+import type { ZombieKind } from '@game/shared';
+import type { AudioEngine, SoundName } from './Audio';
 import type { RemotePlayers } from './RemotePlayers';
 
 /** Zombie sounds are heard this far (the fog hides them sooner: you hear them first). */
@@ -10,6 +11,18 @@ const SPOT_RANGE = 18;
 /** Never two screeches or groans on top of each other (no sudden loud stacks). */
 const SCREECH_GAP = 2.5;
 const GROAN_GAP = 0.6;
+
+/**
+ * How each kind sounds, so you can tell what is coming in the dark: walkers moan and shuffle,
+ * sprinters hiss and skitter, runners pant and patter, brutes roar and stomp, bosses rumble.
+ */
+const VOICES: Record<ZombieKind, { call: SoundName; callVolume: number; every: number; spot: SoundName; spotVolume: number; step: SoundName; stepVolume: number; stepEvery: number }> = {
+  walker: { call: 'groan', callVolume: 0.6, every: 3.5, spot: 'screech', spotVolume: 0.6, step: 'zstep', stepVolume: 0.45, stepEvery: 0.5 },
+  sprinter: { call: 'hiss', callVolume: 0.55, every: 3, spot: 'screech', spotVolume: 0.75, step: 'zstepLight', stepVolume: 0.5, stepEvery: 0.24 },
+  runner: { call: 'pant', callVolume: 0.6, every: 2.5, spot: 'screech', spotVolume: 0.65, step: 'zstepLight', stepVolume: 0.45, stepEvery: 0.2 },
+  brute: { call: 'roar', callVolume: 0.8, every: 4.5, spot: 'roar', spotVolume: 1, step: 'zstepHeavy', stepVolume: 0.7, stepEvery: 0.6 },
+  boss: { call: 'bossRoar', callVolume: 0.9, every: 5, spot: 'bossRoar', spotVolume: 1.1, step: 'zstepHeavy', stepVolume: 0.9, stepEvery: 0.55 },
+};
 
 interface Heard {
   nextGroan: number;
@@ -84,22 +97,22 @@ export class ZombieNight {
       const dist = at.distanceTo(ear);
       const moved = Math.hypot(at.x - h.last.x, at.z - h.last.z);
       h.last.copy(at);
-      const big = kind === 'brute' || kind === 'boss';
+      const voice = VOICES[kind];
       if (dist < SPOT_RANGE && !h.screeched) {
         h.screeched = true;
         if (t - this.lastScreech > SCREECH_GAP) {
           this.lastScreech = t;
-          this.audio.play(big ? 'groan' : 'screech', at, big ? 1.1 : 0.7);
+          this.audio.play(voice.spot, at, voice.spotVolume);
         }
       } else if (dist > SPOT_RANGE * 1.8) h.screeched = false;
       if (dist < GROAN_RANGE && t >= h.nextGroan && t - this.lastGroan > GROAN_GAP) {
-        h.nextGroan = t + 3.5 + Math.random() * 5;
+        h.nextGroan = t + voice.every + Math.random() * voice.every;
         this.lastGroan = t;
-        this.audio.play('groan', at, big ? 0.9 : 0.6);
+        this.audio.play(voice.call, at, voice.callVolume);
       }
       if (dist < STEP_RANGE && moved > 0.01 && t >= h.nextStep) {
-        h.nextStep = t + (kind === 'sprinter' || kind === 'runner' ? 0.26 : big ? 0.62 : 0.48);
-        this.audio.play('zstep', at, big ? 0.7 : 0.45);
+        h.nextStep = t + voice.stepEvery;
+        this.audio.play(voice.step, at, voice.stepVolume);
       }
     }
     for (const pid of this.heard.keys()) if (!remotes.players.has(pid)) this.heard.delete(pid);

@@ -30,6 +30,15 @@ const TURN_SPEED = 7;
 const THINK_MS = 260;
 /** Waypoint routes are recomputed this often (ms). */
 const PATH_MS = 1500;
+/** Within this range a zombie closes in from its own side, at most this far round from you. */
+const SURROUND_RANGE = 10;
+const SURROUND_RADIUS = 2.4;
+/** Stuck twice: waypoints only, for this long. */
+const FORCE_PATH_MS = 3500;
+/** Hunters count the zombies this close to each survivor. */
+const HUNT_CROWD_RANGE = 12;
+/** A runner's second swipe comes this long after the first. */
+const RUNNER_FOLLOW_UP_MS = 170;
 
 /** One zombie: the chicken that is its body, and what the AI remembers about it. */
 export interface Zombie {
@@ -61,6 +70,20 @@ export interface Zombie {
   /** Sprinter: the burst in progress ends at `sprintUntil`; the next may start at `nextSprint`. */
   sprintUntil: number;
   nextSprint: number;
+  /** Which way round it closes in (radians from the way it came, about ±1.6). */
+  side: number;
+  /** Goes for the survivor with the fewest zombies on them (hunts the ones who hide). */
+  hunter: boolean;
+  targetPid: number;
+  /** Reeling from a hit until then (no attacks, barely moves). */
+  staggerUntil: number;
+  /** Times in a row it got stuck, and until when it only follows waypoints. */
+  stuck: number;
+  forcePathUntil: number;
+  /** Runner: the second swipe. */
+  followUpAt: number;
+  /** When everyone was last told it flinched. */
+  lastFlinchAt: number;
   /** When it died (to remove the body after a moment). */
   diedAt: number | null;
 }
@@ -80,6 +103,8 @@ export interface ZombieHost {
   slam(z: Zombie, now: number): void;
   /** Boss: calls more zombies. */
   summon(z: Zombie, now: number): void;
+  /** Every zombie in the room. */
+  zombies(): Iterable<Zombie>;
 }
 
 /**
@@ -112,14 +137,18 @@ export class ZombieBrain {
     const survivors = this.host.survivors();
     if (survivors.length === 0) return;
 
-    // The nearest survivor.
-    let target = survivors[0]!;
-    let best = Infinity;
-    for (const s of survivors) {
-      const d = Math.hypot(s.state.x - p.state.x, s.state.z - p.state.z);
-      if (d < best) {
-        best = d;
-        target = s;
+    // Hunters go for whoever has the fewest zombies on them (the one hiding away from the
+    // fight), picked again now and then; everyone else for the nearest survivor.
+    if (z.hunter && now >= z.nextThink) z.targetPid = this.loneliest(survivors, z)?.pid ?? 0;
+    let target = (z.hunter && survivors.find((s) => s.pid === z.targetPid)) || survivors[0]!;
+    if (!z.hunter) {
+      let best = Infinity;
+      for (const s of survivors) {
+        const d = Math.hypot(s.state.x - p.state.x, s.state.z - p.state.z);
+        if (d < best) {
+          best = d;
+          target = s;
+        }
       }
     }
     const dx = target.state.x - p.state.x;
@@ -132,14 +161,17 @@ export class ZombieBrain {
       frozen = this.boss(z, dist, now);
     }
     if (z.kind === 'sprinter') this.sprint(z, dist, now);
+    // Just shot: it reels for a moment (longer after a headshot), and can't hit back.
+    const staggered = now < z.staggerUntil;
 
     if (now >= z.nextThink) {
       z.nextThink = now + THINK_MS;
       z.heading = this.chooseHeading(z, target, dist, now);
     }
 
-    let moveX = frozen ? 0 : z.heading.x;
-    let moveZ = frozen ? 0 : z.heading.z;
+    const pace = staggered ? 0.2 : 1;
+    let moveX = frozen ? 0 : z.heading.x * pace;
+    let moveZ = frozen ? 0 : z.heading.z * pace;
     let jump = false;
 
     // In reach: stop and hit.
@@ -152,9 +184,15 @@ export class ZombieBrain {
       const gap = z.stats.reach * 0.7;
       moveX = dist > gap ? (dx / dist) * 0.25 : dist < gap * 0.6 ? -(dx / dist) * 0.5 : 0;
       moveZ = dist > gap ? (dz / dist) * 0.25 : dist < gap * 0.6 ? -(dz / dist) * 0.5 : 0;
-      if (now >= z.nextAttack) {
+      const dir = { x: aim.x / aimLen, y: aim.y / aimLen, z: aim.z / aimLen };
+      if (now >= z.nextAttack && !staggered) {
         z.nextAttack = now + z.stats.attackMs;
-        this.host.swing(z, { x: aim.x / aimLen, y: aim.y / aimLen, z: aim.z / aimLen }, now);
+        this.host.swing(z, dir, now);
+        // Runners claw twice in quick succession.
+        if (z.kind === 'runner') z.followUpAt = now + RUNNER_FOLLOW_UP_MS;
+      } else if (z.followUpAt > 0 && now >= z.followUpAt) {
+        z.followUpAt = 0;
+        if (!staggered) this.host.swing(z, dir, now);
       }
     }
 
@@ -186,12 +224,14 @@ export class ZombieBrain {
     // Stuck for a second: wiggle free, and pick the route again.
     if (now - z.progressAt > 1000) {
       const moved = Math.hypot(p.state.x - z.progressPos.x, p.state.z - z.progressPos.z);
-      if (moved < 0.5 && len > 0.01 && dist > z.stats.reach) {
+      if (moved < 0.5 && len > 0.01 && dist > z.stats.reach && !staggered) {
         z.jumpTicks = 10;
         z.strafe = z.strafe === 1 ? -1 : 1;
         z.nextPath = 0;
         z.nextThink = 0;
-      }
+        // Stuck twice running: stop trusting the straight line, follow the waypoints for a while.
+        if (++z.stuck >= 2) z.forcePathUntil = now + FORCE_PATH_MS;
+      } else if (moved >= 0.5) z.stuck = 0;
       z.progressAt = now;
       z.progressPos = { x: p.state.x, z: p.state.z };
     }
@@ -233,17 +273,27 @@ export class ZombieBrain {
       }
     }
 
-    // With a wall in the way, follow waypoints round it.
-    if (z.wave >= ZOMBIE.smart.pathFromWave && !walkable(from, goal, this.host.world)) {
+    // Close in from its own side (fanned round the way it came), so a crowd surrounds you
+    // instead of queueing up behind each other.
+    if (dist < SURROUND_RANGE && dist > z.stats.reach * 0.8) {
+      const a = Math.atan2(from.z - goal.z, from.x - goal.x) + z.side;
+      const r = Math.min(SURROUND_RADIUS, dist * 0.45);
+      const ring = { x: goal.x + Math.cos(a) * r, z: goal.z + Math.sin(a) * r };
+      if (walkable(from, ring, this.host.world)) goal = ring;
+    }
+
+    // With a wall in the way (or after getting stuck), follow waypoints round it.
+    const forced = now < z.forcePathUntil;
+    if (z.wave >= ZOMBIE.smart.pathFromWave && (forced || !walkable(from, goal, this.host.world))) {
       if (this.nav) {
         const moved = !z.pathTarget || Math.hypot(z.pathTarget.x - goal.x, z.pathTarget.z - goal.z) > 3;
         if (moved || now >= z.nextPath || z.path.length === 0) {
-          z.path = findPath(this.nav, from, goal, this.host.world);
+          z.path = findPath(this.nav, from, goal, this.host.world, !forced);
           z.pathTarget = goal;
           z.nextPath = now + PATH_MS;
         }
         // Reached a waypoint, or the next one is already in a straight line: on to the next.
-        while (z.path.length > 1 && (Math.hypot(z.path[0]!.x - from.x, z.path[0]!.z - from.z) < 1 || walkable(from, z.path[1]!, this.host.world))) z.path.shift();
+        while (z.path.length > 1 && (Math.hypot(z.path[0]!.x - from.x, z.path[0]!.z - from.z) < 1 || (!forced && walkable(from, z.path[1]!, this.host.world)))) z.path.shift();
         goal = z.path[0] ?? goal;
       }
     } else {
@@ -254,6 +304,25 @@ export class ZombieBrain {
     const gz = goal.z - from.z;
     const gl = Math.hypot(gx, gz) || 1;
     return { x: gx / gl, z: gz / gl };
+  }
+
+  /** The survivor with the fewest zombies near them (ties: the closest one to `z`). */
+  private loneliest(survivors: readonly ServerPlayer[], z: Zombie): ServerPlayer | undefined {
+    let best: ServerPlayer | undefined;
+    let bestScore = Infinity;
+    for (const s of survivors) {
+      let crowd = 0;
+      for (const o of this.host.zombies()) {
+        if (o !== z && o.p.alive && Math.hypot(o.p.state.x - s.state.x, o.p.state.z - s.state.z) < HUNT_CROWD_RANGE) crowd++;
+      }
+      // A zombie counts for 1000 m: the crowd decides, distance only breaks ties.
+      const score = crowd * 1000 + Math.hypot(s.state.x - z.p.state.x, s.state.z - z.p.state.z);
+      if (score < bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    return best;
   }
 
   /** Sprinter: a burst of speed now and then, when close enough to see its prey. */

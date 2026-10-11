@@ -148,7 +148,10 @@ export class ProjectileSystem {
   private detonate(p: Projectile, now: number): void {
     this.active.delete(p.id);
     const { x, y, z } = p.body;
-    this.room.io.to(this.room.channel).emit('explode', { id: p.id, kind: p.kind, x: round(x, 2), y: round(y, 2), z: round(z, 2) });
+    const owner = this.room.players.get(p.ownerPid) ?? null;
+    // Egg Power (a chicken upgrade, PvE only): thrown eggs blow up bigger.
+    const egg = p.cause === 'egg' ? (owner?.upgrades?.egg ?? 1) : 1;
+    this.room.io.to(this.room.channel).emit('explode', { id: p.id, kind: p.kind, x: round(x, 2), y: round(y, 2), z: round(z, 2), ...(egg !== 1 ? { scale: egg } : {}) });
 
     if (p.kind === 'flash') {
       this.flashAt({ x, y, z }, now);
@@ -160,7 +163,6 @@ export class ProjectileSystem {
       this.room.io.to(this.room.channel).emit('smoke', smoke);
       return;
     }
-    const owner = this.room.players.get(p.ownerPid) ?? null;
     if (p.kind === 'bolt') {
       // A crossbow bolt: no blast, just whoever it struck.
       if (p.struck) {
@@ -169,7 +171,8 @@ export class ProjectileSystem {
       }
       return;
     }
-    this.blastAt({ x, y, z }, p.def, owner, p.cause, now, p.ownerPid);
+    const def = egg === 1 ? p.def : { ...p.def, splashRadius: p.def.splashRadius * egg, damage: p.def.damage * egg };
+    this.blastAt({ x, y, z }, def, owner, p.cause, now, p.ownerPid);
   }
 
   /**

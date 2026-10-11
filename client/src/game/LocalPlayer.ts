@@ -16,6 +16,8 @@ import {
   type PlayerInfo,
   type PlayerState,
   type VehicleState,
+  withUpgrades,
+  type UpgradeEffects,
 } from '@game/shared';
 import { Chicken } from './models/Chicken';
 
@@ -53,6 +55,8 @@ export class LocalPlayer {
   eyeScale = 1;
   /** Developer movement modifiers confirmed by the server (null = normal movement). */
   mods: MoveMods | null = null;
+  /** Chicken upgrades the server applies here (PvE modes only), predicted the same way. */
+  upgrades: UpgradeEffects | null = null;
 
   constructor(scene: THREE.Scene, info: PlayerInfo, spawn: PlayerState) {
     this.server = spawn;
@@ -85,7 +89,7 @@ export class LocalPlayer {
     // A developer froze us: the server ignores our inputs, so don't predict any movement.
     if (this.server.frozen) { this.state.horizontalSpeed = 0; return; }
     if (this.car) this.drive(frame, world);
-    else stepPlayer(this.state, frame, SIM_DT, world, this.mods, hopMax, speed, this.tactical);
+    else stepPlayer(this.state, frame, SIM_DT, world, withUpgrades(this.mods, this.upgrades), hopMax, speed, this.tactical);
   }
 
   /** While driving, inputs steer the car and the chicken rides along. */

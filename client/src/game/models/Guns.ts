@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { WEAPONS, type WeaponId } from '@game/shared';
+import { WEAPONS, getItem, type WeaponId } from '@game/shared';
 
 export interface GunModel {
   group: THREE.Group;
@@ -1108,12 +1108,38 @@ function bake(group: THREE.Object3D, key: string): void {
   }
 }
 
-/** A detailed procedural gun pointing down -Z, held at the origin (the grip). */
-export function buildGun(id: WeaponId): GunModel {
+/** Gun skins: the body's material in the skin's colour (and finish), one per material and skin. */
+const skinned = new Map<string, THREE.Material>();
+function applySkin(parts: THREE.Object3D, id: WeaponId, skin: string): void {
+  const finish = getItem('gun', skin);
+  if (finish?.color === undefined || WEAPONS[id].melee) return;
+  const body = new THREE.Color(WEAPONS[id].model.color);
+  parts.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const m = mesh.material as THREE.MeshStandardMaterial | undefined;
+    if (!mesh.isMesh || Array.isArray(m) || !m?.color?.equals(body)) return;
+    const key = `${m.uuid}:${skin}`;
+    let s = skinned.get(key);
+    if (!s) {
+      const c = m.clone();
+      c.color.setHex(finish.color!);
+      if (finish.metal) {
+        c.metalness = 0.85;
+        c.roughness = 0.24;
+      }
+      skinned.set(key, (s = c));
+    }
+    mesh.material = s;
+  });
+}
+
+/** A detailed procedural gun pointing down -Z, held at the origin (the grip), in gun skin `skin`. */
+export function buildGun(id: WeaponId, skin?: string): GunModel {
   const group = new THREE.Group();
   const parts = new THREE.Group();
   const built = BUILDERS[id](parts, id);
   bake(parts, id);
+  if (skin && skin !== 'none') applySkin(parts, id, skin);
   parts.scale.setScalar(built.scale ?? 1);
   group.add(parts);
   const muzzle = new THREE.Object3D();

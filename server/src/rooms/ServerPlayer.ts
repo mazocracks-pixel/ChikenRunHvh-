@@ -13,6 +13,9 @@ import {
   type PlayerState,
   type WeaponId,
   DEFAULT_MELEE,
+  withUpgrades,
+  type MoveMods,
+  type UpgradeEffects,
 } from '@game/shared';
 import type { GameSocket } from '../types';
 import { TokenBucket } from '../util';
@@ -98,6 +101,13 @@ export class ServerPlayer {
 
   /** Developer testing modifiers; null for everyone without developer access (and bots). */
   mods: DevMods | null = null;
+  /** Chicken upgrades, in PvE modes only (null everywhere else). */
+  upgrades: UpgradeEffects | null = null;
+
+  /** Movement modifiers: developer mods with the chicken upgrades on top. */
+  moveMods(): MoveMods | null {
+    return withUpgrades(this.mods, this.upgrades);
+  }
   /** The anti-cheat caught them; they're on their way out. */
   removedForCheating = false;
   /** The melee weapon picked in the shop (knife skins replace the Knife in knife and bomb modes). */

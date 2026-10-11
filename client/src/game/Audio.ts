@@ -1,4 +1,4 @@
-import type { Vec3, WeaponSound } from '@game/shared';
+import { WEAPONS, type Vec3, type WeaponId, type WeaponSound } from '@game/shared';
 import { storage } from '../ui/dom';
 
 export type SoundName =
@@ -47,7 +47,20 @@ export type SoundName =
   | 'screech'
   | 'wind'
   | 'cluck'
-  | 'creak';
+  | 'creak'
+  | 'hiss'
+  | 'pant'
+  | 'roar'
+  | 'bossRoar'
+  | 'zstepLight'
+  | 'zstepHeavy'
+  | 'zclaw'
+  | 'zsmash'
+  | 'zdeath'
+  | 'reloadMag'
+  | 'reloadShell'
+  | 'reloadBolt'
+  | 'emptyHeavy';
 
 const VOLUME_KEY = 'chikengun:volume';
 const MUSIC_KEY = 'chikengun:music-volume';
@@ -58,17 +71,42 @@ const MUSIC_FADE = 0.8;
 /** Your own sound files live in client/public/sounds/ (served from /sounds/). */
 export const JUMPSCARE_FILE = '/sounds/jumpscare.mp3';
 /**
- * Sounds that play your own recordings (client/public/sounds/, names exactly as the files):
- * the Sniper and Scout shot, scoping in with them, and switching weapons. The built-in sound
- * plays until a file has loaded, or if it can't load.
+ * Your own recordings, played instead of a built-in sound once loaded (put the file in
+ * client/public/sounds and its licence in SOUNDS.md). Empty: every sound is built in; the old
+ * AWP_SOUND, SNIPER_ZOOM and equip_sound files have no known free licence (see SOUNDS.md).
  */
 const FILE_SOUNDS: Partial<Record<SoundName, string>> = {
-  sniper: '/sounds/AWP_SOUND.mp3',
-  sniperZoom: '/sounds/SNIPER_ZOOM.mp3',
-  equip: '/sounds/equip_sound.mp3',
 };
 /** Quieter than this (about -40 dB) counts as silence, trimmed off both ends of a file. */
 const SILENCE = 0.01;
+/** Which reload sound a gun makes (a magazine swap, shells one by one, or a bolt gun). */
+export function reloadSoundFor(id: WeaponId): SoundName {
+  if (id === 'shotgun' || id === 'autoshotgun') return 'reloadShell';
+  if (id === 'sniper' || id === 'scout') return 'reloadBolt';
+  return WEAPONS[id].projectile ? 'reload' : 'reloadMag';
+}
+
+/** The dry click: a heavier one for big guns. */
+export function emptySoundFor(id: WeaponId): SoundName {
+  return id === 'sniper' || id === 'scout' || id === 'shotgun' || id === 'autoshotgun' || id === 'revolver' || id === 'deagle' ? 'emptyHeavy' : 'empty';
+}
+
+/**
+ * The echo that follows a shot: taps `gap` seconds apart, each quieter and duller. Far shots
+ * echo more (from far away you hear the reflection more than the shot).
+ */
+const ECHO: Partial<Record<SoundName, { taps: number; gain: number; gap: number; freq: number }>> = {
+  sniper: { taps: 4, gain: 0.5, gap: 0.24, freq: 650 },
+  scout: { taps: 3, gain: 0.4, gap: 0.19, freq: 800 },
+  rifle: { taps: 2, gain: 0.22, gap: 0.15, freq: 900 },
+  battle: { taps: 2, gain: 0.26, gap: 0.16, freq: 800 },
+  shotgun: { taps: 2, gain: 0.3, gap: 0.2, freq: 700 },
+  deagle: { taps: 2, gain: 0.26, gap: 0.17, freq: 800 },
+  revolver: { taps: 2, gain: 0.22, gap: 0.16, freq: 850 },
+  lmg: { taps: 2, gain: 0.18, gap: 0.14, freq: 800 },
+  pistol: { taps: 1, gain: 0.15, gap: 0.12, freq: 1000 },
+  smg: { taps: 1, gain: 0.1, gap: 0.1, freq: 1000 },
+};
 /** Beyond this distance a sound is silent. */
 const HEARING_RANGE = 70;
 const MAX_VOICES = 64;
@@ -332,7 +370,11 @@ export class AudioEngine {
       src.connect(out);
       this.track(out, src, [src]);
       src.start();
-    } else this.synth(name, ctx, out, ctx.currentTime);
+    } else {
+      this.synth(name, ctx, out, ctx.currentTime);
+      const echo = ECHO[name];
+      if (echo) this.echo(ctx, out, ctx.currentTime, echo, distance);
+    }
     if (voice.sources === 0) voice.release();
   }
 
@@ -454,6 +496,27 @@ export class AudioEngine {
     }
   }
 
+  /** Echo taps after a shot (see ECHO). */
+  private echo(ctx: AudioContext, out: AudioNode, t: number, e: { taps: number; gain: number; gap: number; freq: number }, distance: number): void {
+    const far = 1 + Math.min(1, distance / 40);
+    for (let i = 1; i <= e.taps; i++) {
+      const g = e.gain * far * 0.55 ** (i - 1);
+      this.burst(ctx, out, t, { dur: 0.3 + i * 0.08, type: 'lowpass', freq: e.freq / (1 + i * 0.35), to: 120, gain: g, delay: e.gap * i + 0.05 });
+      this.tone(ctx, out, t, { dur: 0.22, type: 'sine', freq: 90 / (1 + i * 0.2), to: 40, gain: g * 0.4, delay: e.gap * i + 0.05 });
+    }
+  }
+
+  /** A rifle bolt being worked: lift and pull back, then forward and down (a heavy one is deeper). */
+  private bolt(ctx: AudioContext, out: AudioNode, t: number, delay: number, heavy: boolean): void {
+    const k = heavy ? 1 : 0.8;
+    this.burst(ctx, out, t, { dur: 0.04, type: 'bandpass', freq: 1500, q: 4, gain: 0.35 * k, delay });
+    this.burst(ctx, out, t, { dur: 0.12, type: 'bandpass', freq: heavy ? 700 : 900, to: 400, q: 1.5, gain: 0.3 * k, delay: delay + 0.04 });
+    this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 3200, gain: 0.25 * k, delay: delay + 0.2 });
+    this.burst(ctx, out, t, { dur: 0.07, type: 'bandpass', freq: 1100, q: 3, gain: 0.4 * k, delay: delay + 0.3 });
+    this.tone(ctx, out, t, { dur: 0.09, type: 'sine', freq: heavy ? 130 : 160, to: 70, gain: 0.3 * k, delay: delay + 0.3 });
+    this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 2600, gain: 0.3 * k, delay: delay + 0.38 });
+  }
+
   /** A throaty voice: a sawtooth through a low formant, sliding down, with a slow wobble. */
   private growl(ctx: AudioContext, out: AudioNode, t: number, o: { freq: number; end: number; dur: number; gain: number; formant: number; q?: number; wobble?: number; delay?: number }): void {
     const start = t + (o.delay ?? 0);
@@ -526,6 +589,52 @@ export class AudioEngine {
         this.squawk(ctx, out, t, { delay: 0, freq: 360 * pitch, peak: 520, end: 300, dur: 0.11, gain: 0.3 });
         this.squawk(ctx, out, t, { delay: 0.2, freq: 340 * pitch, peak: 480, end: 280, dur: 0.1, gain: 0.25 });
         break;
+      // Each kind of zombie has its own voice and feet, so you know what's coming before you see it.
+      case 'hiss':
+        // Sprinter: a raspy hiss with clicking in the throat.
+        this.burst(ctx, out, t, { dur: 0.9, type: 'bandpass', freq: 3200 * pitch, to: 1800, q: 1.4, gain: 0.22 });
+        for (let i = 0; i < 4; i++) this.burst(ctx, out, t, { dur: 0.025, type: 'bandpass', freq: 1500, q: 6, gain: 0.18, delay: 0.12 + i * 0.09 });
+        break;
+      case 'pant':
+        // Runner: fast, wet panting.
+        for (let i = 0; i < 4; i++) {
+          this.burst(ctx, out, t, { dur: 0.13, type: 'bandpass', freq: (i % 2 ? 900 : 1300) * pitch, q: 1.2, gain: 0.2, delay: i * 0.17 });
+          this.growl(ctx, out, t, { freq: 190 * pitch, end: 150, dur: 0.12, gain: 0.07, formant: 900, delay: i * 0.17 });
+        }
+        break;
+      case 'roar':
+        // Brute: a deep, long roar.
+        this.growl(ctx, out, t, { freq: 62 * pitch, end: 42, dur: 1.6, gain: 0.4, formant: 360, q: 2 });
+        this.growl(ctx, out, t, { freq: 94 * pitch, end: 60, dur: 1.4, gain: 0.16, formant: 600, delay: 0.05 });
+        this.burst(ctx, out, t, { dur: 1.2, type: 'lowpass', freq: 500, gain: 0.12 });
+        break;
+      case 'bossRoar':
+        this.growl(ctx, out, t, { freq: 48 * pitch, end: 34, dur: 2.2, gain: 0.45, formant: 300, q: 2, wobble: 4 });
+        this.growl(ctx, out, t, { freq: 72 * pitch, end: 50, dur: 2, gain: 0.2, formant: 520, delay: 0.1 });
+        this.tone(ctx, out, t, { dur: 1.8, type: 'sine', freq: 40, to: 30, gain: 0.25 });
+        break;
+      case 'zstepLight':
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 900 * pitch, q: 1.5, gain: 0.2 });
+        this.burst(ctx, out, t, { dur: 0.04, type: 'highpass', freq: 3000, gain: 0.06 });
+        break;
+      case 'zstepHeavy':
+        this.tone(ctx, out, t, { dur: 0.16, type: 'sine', freq: 58 * pitch, to: 34, gain: 0.42 });
+        this.burst(ctx, out, t, { dur: 0.14, type: 'lowpass', freq: 260, gain: 0.35 });
+        break;
+      case 'zclaw':
+        this.burst(ctx, out, t, { dur: 0.16, type: 'bandpass', freq: 2600 * pitch, to: 900, q: 1.1, gain: 0.3 });
+        this.burst(ctx, out, t, { dur: 0.08, type: 'highpass', freq: 4000, gain: 0.08, delay: 0.03 });
+        break;
+      case 'zsmash':
+        this.tone(ctx, out, t, { dur: 0.22, type: 'sine', freq: 90 * pitch, to: 40, gain: 0.45 });
+        this.burst(ctx, out, t, { dur: 0.2, type: 'lowpass', freq: 700, gain: 0.4 });
+        break;
+      case 'zdeath':
+        // A gurgling collapse, then the wet thump of it falling apart.
+        this.growl(ctx, out, t, { freq: 120 * pitch, end: 45, dur: 0.8, gain: 0.25, formant: 600, wobble: 13 });
+        this.burst(ctx, out, t, { dur: 0.25, type: 'lowpass', freq: 420, gain: 0.35, delay: 0.55 });
+        this.burst(ctx, out, t, { dur: 0.3, type: 'bandpass', freq: 1400, q: 0.8, gain: 0.12, delay: 0.58 });
+        break;
       case 'creak':
         this.growl(ctx, out, t, { freq: 58 * pitch, end: 44, dur: 0.9, gain: 0.14, formant: 950, q: 9, wobble: 9 });
         break;
@@ -558,11 +667,51 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.04, type: 'highpass', freq: 2500, gain: 0.28, delay: 0.34 });
         break;
       case 'sniper':
-        this.burst(ctx, out, t, { dur: 0.025, type: 'highpass', freq: 3700 * pitch, gain: 0.95 });
-        this.burst(ctx, out, t, { dur: 0.5, type: 'lowpass', freq: 1100 * pitch, to: 110, gain: 1.2 });
-        this.tone(ctx, out, t, { dur: 0.24, type: 'sine', freq: 100 * pitch, to: 32, gain: 1 });
-        this.burst(ctx, out, t, { dur: 0.12, type: 'bandpass', freq: 950, to: 330, q: 0.8, gain: 0.23, delay: 0.1 });
-        this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 2200, gain: 0.18, delay: 0.48 });
+        // Heavy: a sharp crack, a huge low boom, a rumbling tail, then the bolt worked.
+        this.burst(ctx, out, t, { dur: 0.02, type: 'highpass', freq: 4200 * pitch, gain: 0.9 });
+        this.burst(ctx, out, t, { dur: 0.07, type: 'bandpass', freq: 2200 * pitch, to: 700, q: 0.7, gain: 0.9 });
+        this.burst(ctx, out, t, { dur: 0.7, type: 'lowpass', freq: 900 * pitch, to: 90, gain: 1.15 });
+        this.tone(ctx, out, t, { dur: 0.4, type: 'sine', freq: 80 * pitch, to: 26, gain: 1.1 });
+        this.burst(ctx, out, t, { dur: 0.3, type: 'bandpass', freq: 500, to: 200, q: 0.8, gain: 0.25, delay: 0.1 });
+        this.bolt(ctx, out, t, 0.75, true);
+        break;
+      case 'scout':
+        // Lighter and snappier than the sniper: a bright crack, a shorter boom, a quick bolt.
+        this.burst(ctx, out, t, { dur: 0.018, type: 'highpass', freq: 4800 * pitch, gain: 0.9 });
+        this.burst(ctx, out, t, { dur: 0.06, type: 'bandpass', freq: 2600 * pitch, to: 900, q: 0.8, gain: 0.85 });
+        this.burst(ctx, out, t, { dur: 0.4, type: 'lowpass', freq: 1300 * pitch, to: 130, gain: 0.95 });
+        this.tone(ctx, out, t, { dur: 0.22, type: 'sine', freq: 110 * pitch, to: 38, gain: 0.8 });
+        this.bolt(ctx, out, t, 0.5, false);
+        break;
+      case 'reloadMag':
+        // Magazine out, magazine in, charging handle.
+        this.burst(ctx, out, t, { dur: 0.04, type: 'bandpass', freq: 1400, q: 3, gain: 0.35 });
+        this.burst(ctx, out, t, { dur: 0.08, type: 'bandpass', freq: 600, q: 1.5, gain: 0.3, delay: 0.12 });
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 1000, q: 2.5, gain: 0.45, delay: 0.55 });
+        this.tone(ctx, out, t, { dur: 0.06, type: 'sine', freq: 140, to: 80, gain: 0.25, delay: 0.55 });
+        this.burst(ctx, out, t, { dur: 0.05, type: 'highpass', freq: 2400, gain: 0.35, delay: 0.95 });
+        this.burst(ctx, out, t, { dur: 0.06, type: 'bandpass', freq: 1300, q: 3, gain: 0.4, delay: 1.05 });
+        break;
+      case 'reloadShell':
+        // Shells pushed in one by one, then the pump.
+        for (let i = 0; i < 3; i++) {
+          this.burst(ctx, out, t, { dur: 0.04, type: 'bandpass', freq: 1700 + i * 100, q: 3, gain: 0.35, delay: i * 0.3 });
+          this.tone(ctx, out, t, { dur: 0.04, type: 'triangle', freq: 300, to: 200, gain: 0.12, delay: i * 0.3 });
+        }
+        this.burst(ctx, out, t, { dur: 0.08, type: 'bandpass', freq: 800, to: 500, q: 1.5, gain: 0.4, delay: 1 });
+        this.burst(ctx, out, t, { dur: 0.07, type: 'bandpass', freq: 1100, q: 2.5, gain: 0.45, delay: 1.2 });
+        break;
+      case 'reloadBolt':
+        // Bolt up and back, rounds into the magazine, bolt forward and down.
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 1500, q: 4, gain: 0.35 });
+        this.burst(ctx, out, t, { dur: 0.1, type: 'bandpass', freq: 800, to: 400, q: 1.5, gain: 0.3, delay: 0.05 });
+        for (let i = 0; i < 3; i++) this.burst(ctx, out, t, { dur: 0.035, type: 'bandpass', freq: 2000, q: 4, gain: 0.3, delay: 0.5 + i * 0.28 });
+        this.burst(ctx, out, t, { dur: 0.08, type: 'bandpass', freq: 1100, q: 3, gain: 0.45, delay: 1.6 });
+        this.tone(ctx, out, t, { dur: 0.08, type: 'sine', freq: 140, to: 70, gain: 0.3, delay: 1.6 });
+        break;
+      case 'emptyHeavy':
+        this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 900, q: 3, gain: 0.5 });
+        this.tone(ctx, out, t, { dur: 0.05, type: 'sine', freq: 180, to: 90, gain: 0.25 });
         break;
       case 'rocket':
         this.tone(ctx, out, t, { dur: 0.12, type: 'sine', freq: 100 * pitch, to: 40, gain: 0.8 });
@@ -659,7 +808,7 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.05, type: 'bandpass', freq: 2200, gain: 0.4 });
         break;
       case 'sniperZoom':
-        // A short mechanical click-whirr (until SNIPER_ZOOM.mp3 has loaded).
+        // A short mechanical click-whirr.
         this.burst(ctx, out, t, { dur: 0.04, type: 'highpass', freq: 3500, gain: 0.35 });
         this.tone(ctx, out, t, { dur: 0.12, type: 'triangle', freq: 900, to: 1500, gain: 0.08, delay: 0.02 });
         break;

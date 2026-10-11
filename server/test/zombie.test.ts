@@ -269,6 +269,75 @@ describe('Zombie Apocalypse match', () => {
     }
   });
 
+  it('a shot zombie staggers (longer after a headshot) and everyone sees it flinch', () => {
+    const t = setup();
+    try {
+      t.run(ZOMBIE.prepMs + 1500);
+      const z = t.zombies()[0] as unknown as { p: import('../src/rooms/ServerPlayer').ServerPlayer; staggerUntil: number };
+      const before = t.events.length;
+      t.room.damage(z.p, t.me, 1, false, 'rifle', { x: 0, y: 0, z: 0 }, t.now());
+      const body = z.staggerUntil - t.now();
+      assert.ok(body > 0, 'it reels');
+      t.run(1000);
+      t.room.damage(z.p, t.me, 1, true, 'rifle', { x: 0, y: 0, z: 0 }, t.now());
+      assert.ok(z.staggerUntil - t.now() > body, 'a headshot rocks it longer');
+      assert.ok(t.events.slice(before).some((e) => e.event === 'zombieHit'), 'flinch sent to the room');
+    } finally {
+      t.room.close();
+    }
+  });
+
+  it('zombies close in from different sides, and hunters go for the survivor left alone', () => {
+    const t = setup();
+    try {
+      const mate = addPlayer(t.room, 'Camper');
+      t.run(ZOMBIE.prepMs + 4000);
+      const zs = t.zombies() as unknown as { side: number; hunter: boolean; targetPid: number }[];
+      assert.ok(new Set(zs.map((z) => z.side.toFixed(2))).size >= Math.min(5, zs.length), 'each has its own side');
+      // Everyone near the first survivor; the mate camps far away.
+      t.me.state.x = 0;
+      t.me.state.z = 8;
+      mate.state.x = 60;
+      mate.state.z = 60;
+      for (const z of t.zombies()) {
+        z.p.state.x = (Math.random() - 0.5) * 6;
+        z.p.state.z = 14 + Math.random() * 4;
+      }
+      for (const z of zs) z.hunter = true;
+      t.run(600);
+      assert.ok(zs.every((z) => z.targetPid === mate.pid), 'hunters go after the one nobody is chasing');
+    } finally {
+      t.room.close();
+    }
+  });
+
+  it('pays coins per kill, per wave cleared and for the boss, at game over', () => {
+    const t = setup();
+    try {
+      (t.me as { userId: number | null }).userId = 7;
+      const paid: number[] = [];
+      (t.room as unknown as { hooks: { onMatchEnd: (r: unknown, res: { coins: number }[]) => Map<number, unknown> } }).hooks.onMatchEnd = (_r, res) => {
+        paid.push(...res.map((x) => x.coins));
+        return new Map();
+      };
+      t.run(ZOMBIE.prepMs + 1000);
+      for (let i = 0; i < 40 && t.priv.zphase === 'wave'; i++) {
+        t.run(500);
+        t.killAll();
+      }
+      t.run(100);
+      assert.equal(t.priv.zphase, 'prep');
+      // Wave 2: let the zombies win.
+      t.run(ZOMBIE.prepMs + 500);
+      t.room.damage(t.me, null, 1000, false, 'world', { x: 0, y: 0, z: 0 }, t.now());
+      t.run(200);
+      const expected = 6 * ZOMBIE.coins.perKill.walker + ZOMBIE.coins.wave.base + ZOMBIE.coins.wave.perWave;
+      assert.deepEqual(paid, [expected]);
+    } finally {
+      t.room.close();
+    }
+  });
+
   it('when every survivor is down it is game over; Restart plays again from wave 1', () => {
     const t = setup();
     t.run(ZOMBIE.prepMs + 2000);

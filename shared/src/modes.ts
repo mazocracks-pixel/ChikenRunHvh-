@@ -59,6 +59,11 @@ export interface ModeDef {
    * B menu, infinite ammo, you can't be hurt, no clock, no score, and nothing is recorded.
    */
   training?: boolean;
+  /**
+   * Player versus environment (zombies, targets): chicken upgrades count here. In every other
+   * mode everyone has the same stats.
+   */
+  pve?: boolean;
 }
 
 const DEFS: ModeDef[] = [
@@ -81,7 +86,7 @@ const DEFS: ModeDef[] = [
   {
     id: 'zombie', name: 'Zombie Apocalypse', description: 'Survive wave after wave of zombies on a dark graveyard map. Kill them for money, then shop in the 10 seconds between waves. Bosses every 5 waves. C builds a wall that lasts 10 seconds.',
     teams: true, maxPlayers: 40, maxHumans: 4, scoreLimit: 0, timeLimitMs: 0, respawnMs: 3600_000, minPlayers: 1,
-    maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Zombies'], noDrops: true, zombies: true, noBots: true, weapons: ['pistol', 'knife'], spawnProtectionMs: 0,
+    maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Zombies'], noDrops: true, zombies: true, pve: true, noBots: true, weapons: ['pistol', 'knife'], spawnProtectionMs: 0,
   },
   {
     id: 'hvh', name: 'HvH', description: 'Red vs Blue, 5 vs 5, and everyone sees enemies through walls. First to 40 kills.',
@@ -129,7 +134,7 @@ const DEFS: ModeDef[] = [
   {
     id: 'training', name: 'Training', description: 'Just you and practice targets. Any gun or knife (press B), infinite ammo, no clock, nothing counts.',
     teams: false, maxPlayers: 12, maxHumans: 1, scoreLimit: 0, timeLimitMs: 0, respawnMs: 3000, minPlayers: 1,
-    maps: ['flat', 'farm', 'town'], building: false, vehicles: false, wallbang: true, noBots: true, noDrops: true, spawnProtectionMs: 0, training: true,
+    maps: ['flat', 'farm', 'town'], building: false, vehicles: false, wallbang: true, noBots: true, noDrops: true, spawnProtectionMs: 0, training: true, pve: true,
   },
 ];
 

@@ -45,14 +45,14 @@ export const ZOMBIE = {
   clearBonus: { base: 40, perWave: 10 },
   /** Zombies per wave (not counting the boss). */
   count: { base: 6, perWave: 2.5, cap: 60 },
-  /** Which zombies show up, and from which wave. */
-  mix: { sprinterFromWave: 2, sprinterShare: 0.18, runnerFromWave: 3, runnerShare: 0.25, bruteFromWave: 5, bruteShare: 0.12 },
+  /** Which zombies show up, from which wave, and how much their share grows every wave after that. */
+  mix: { sprinterFromWave: 2, sprinterShare: 0.18, runnerFromWave: 3, runnerShare: 0.25, bruteFromWave: 5, bruteShare: 0.12, growth: 0.012, maxShare: { sprinter: 0.3, runner: 0.35, brute: 0.22 } },
   /** Sprinters shamble, then sprint in short bursts when close (speed as a share of a player's run). */
   sprint: { speed: 1.3, burstMs: 900, restMs: [1800, 3200] as readonly [number, number], within: 30, leapWithin: 7 },
   base: {
     walker: { hp: 60, speed: 0.55, damage: 10, attackMs: 950, reach: 1.7, reward: 12 },
     sprinter: { hp: 45, speed: 0.45, damage: 9, attackMs: 800, reach: 1.6, reward: 20 },
-    runner: { hp: 35, speed: 0.95, damage: 8, attackMs: 700, reach: 1.6, reward: 18 },
+    runner: { hp: 35, speed: 0.95, damage: 6, attackMs: 700, reach: 1.6, reward: 18 },
     brute: { hp: 240, speed: 0.5, damage: 26, attackMs: 1300, reach: 2.1, reward: 45 },
     boss: { hp: 1400, speed: 0.7, damage: 36, attackMs: 1100, reach: 2.8, reward: 400 },
   } satisfies Record<ZombieKind, ZombieBase>,
@@ -67,7 +67,20 @@ export const ZOMBIE = {
     summon: { atHp: 0.5, count: 5 },
   },
   /** How smart zombies get: waypoint paths around walls, then flanking. */
-  smart: { pathFromWave: 1, flankFromWave: 6, flankShare: 0.4, flankDistance: 9, flankEndsAt: 7 },
+  smart: { pathFromWave: 1, flankFromWave: 6, flankShare: 0.4, flankDistance: 9, flankEndsAt: 7, hunterShare: 0.3 },
+  /** Shot zombies reel this long (ms); brutes and bosses shrug off most of it. */
+  stagger: { hitMs: 170, headshotMs: 480, brute: 0.5, boss: 0.25 },
+  brute: { knockback: 7 },
+  /**
+   * Coins (the account currency, for the main-menu shop) earned in a game: per kill by kind,
+   * per wave cleared by everyone standing, and for the boss to everyone standing. Paid at game over.
+   */
+  coins: {
+    perKill: { walker: 2, sprinter: 3, runner: 3, brute: 6, boss: 0 } satisfies Record<ZombieKind, number>,
+    wave: { base: 10, perWave: 2 },
+    boss: 100,
+    max: 1000,
+  },
   /** C places a wall of blocks that vanishes after `ttlMs`; zombies can break it. */
   build: { ttlMs: 10_000, width: 3, height: 2, ahead: 2.7, blockHp: 70, cooldownMs: 1200, maxBlocks: 48, kind: 'wood' as const },
   /** Gun upgrades: damage bonus per level, and what each level costs. */
@@ -92,9 +105,11 @@ export function waveCount(wave: number): number {
 export function waveKinds(wave: number): ZombieKind[] {
   const n = waveCount(wave);
   const m = ZOMBIE.mix;
-  const runners = wave >= m.runnerFromWave ? Math.round(n * m.runnerShare) : 0;
-  const brutes = wave >= m.bruteFromWave ? Math.max(1, Math.round(n * m.bruteShare)) : 0;
-  const sprinters = wave >= m.sprinterFromWave ? Math.max(1, Math.round(n * m.sprinterShare)) : 0;
+  // Each special kind gets a bigger share of the wave the longer the game goes on.
+  const share = (from: number, base: number, max: number) => Math.min(max, base + m.growth * (wave - from));
+  const runners = wave >= m.runnerFromWave ? Math.round(n * share(m.runnerFromWave, m.runnerShare, m.maxShare.runner)) : 0;
+  const brutes = wave >= m.bruteFromWave ? Math.max(1, Math.round(n * share(m.bruteFromWave, m.bruteShare, m.maxShare.brute))) : 0;
+  const sprinters = wave >= m.sprinterFromWave ? Math.max(1, Math.round(n * share(m.sprinterFromWave, m.sprinterShare, m.maxShare.sprinter))) : 0;
   const kinds: ZombieKind[] = [];
   for (let i = 0; i < n; i++) kinds.push(i < brutes ? 'brute' : i < brutes + runners ? 'runner' : i < brutes + runners + sprinters ? 'sprinter' : 'walker');
   // Shuffled in a fixed pattern, so every wave plays the same way for everyone.

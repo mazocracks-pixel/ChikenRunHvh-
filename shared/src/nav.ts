@@ -99,8 +99,8 @@ export function nearestNavPoint(graph: NavGraph, p: NavPoint, world: CollisionWo
  * Shortest route of waypoints from `from` to `to` (Dijkstra; the graphs are tiny). Ends at `to`
  * itself. Empty if there's no waypoint graph; a direct line if they can see each other.
  */
-export function findPath(graph: NavGraph, from: NavPoint, to: NavPoint, world: CollisionWorld): NavPoint[] {
-  if (graph.points.length === 0 || walkable(from, to, world)) return [to];
+export function findPath(graph: NavGraph, from: NavPoint, to: NavPoint, world: CollisionWorld, direct = true): NavPoint[] {
+  if (graph.points.length === 0 || (direct && walkable(from, to, world))) return [to];
   const start = nearestNavPoint(graph, from, world);
   const goal = nearestNavPoint(graph, to, world);
   const dist = graph.points.map(() => Infinity);

@@ -2,6 +2,9 @@ import express, { type Request, type Response } from 'express';
 import {
   DEFAULT_LOADOUT,
   ITEMS_BY_ID,
+  priceNow,
+  upgradeItemId,
+  type UpgradeId,
   LOADOUT_SIZE,
   MODE_IDS,
   NAME_MAX_LENGTH,
@@ -270,7 +273,13 @@ export function createApiRouter(db: GameDatabase, rooms: RoomManager, options: A
     const itemId = isRecord(req.body) ? req.body.itemId : undefined;
     const item = typeof itemId === 'string' ? ITEMS_BY_ID.get(itemId) : undefined;
     if (!item || item.price <= 0) return fail(res, 404, 'That item is not for sale.');
-    const result = db.buy(userId, item.id, item.price);
+    // An upgrade level needs the level before it.
+    if (item.slot === 'upgrade') {
+      const [id, level] = item.key.split(':') as [UpgradeId, string];
+      if (Number(level) > 1 && !db.owned(userId).has(upgradeItemId(id, Number(level) - 1))) return fail(res, 409, 'Buy the level before it first.');
+    }
+    // Today's Daily Deals are cheaper (the price is worked out here, never taken from the browser).
+    const result = db.buy(userId, item.id, priceNow(item.id, Date.now()) ?? item.price);
     if (result === 'owned') return fail(res, 409, 'You already own that.');
     if (result === 'insufficient') return fail(res, 402, 'Not enough coins.');
     if (result === 'missing') return fail(res, 404, 'Account not found.');

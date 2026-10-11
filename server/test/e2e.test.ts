@@ -14,6 +14,7 @@ import {
   type ServerToClientEvents,
   type WorldSnapshot,
   type MoveState,
+  priceNow,
 } from '@game/shared';
 import { startGameServer, type RunningServer } from '../src/app';
 import type { Profile } from '../src/db/Database';
@@ -76,7 +77,8 @@ describe('accounts and shop', () => {
     const buy = (itemId: string) => api('/api/shop/buy', { method: 'POST', token, body: { itemId } });
     const ok = await buy('hat:cap');
     assert.equal(ok.status, 200);
-    assert.equal(ok.body.profile.coins, 150);
+    // (The cap may be one of today's Daily Deals: it then costs less.)
+    assert.equal(ok.body.profile.coins, 250 - priceNow('hat:cap', Date.now())!);
     assert.ok(ok.body.profile.owned.includes('hat:cap'));
     assert.equal((await buy('hat:cap')).status, 409);
     assert.equal((await buy('hat:crown')).status, 402);
@@ -93,7 +95,7 @@ describe('accounts and shop', () => {
       body: { name: '  Clucky  ', appearance: { hat: 'cap', skin: 'golden', beak: 'orange' }, loadout: ['smg', 'sniper', 'sniper'] },
     });
     assert.equal(res.body.profile.name, 'Clucky');
-    assert.deepEqual(res.body.profile.appearance, { skin: 'white', hat: 'cap', beak: 'orange', shoes: 'none' });
+    assert.deepEqual(res.body.profile.appearance, { skin: 'white', hat: 'cap', beak: 'orange', shoes: 'none', gun: 'none' });
     assert.deepEqual(res.body.profile.loadout, ['sniper', 'knife'], 'unowned smg dropped; everyone gets the knife');
   });
 

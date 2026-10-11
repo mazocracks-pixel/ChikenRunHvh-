@@ -5934,3 +5934,89 @@ code {
 #hud-layer .hud.hud-zombie > :is(.hud-top-left, .hud-top-center, .hud-top-right, .hud-bottom-left, .hud-bottom-right, .scoreboard, .results, .toasts) {
   filter: brightness(0.78) saturate(0.85);
 }
+
+/* ============================== shop (Customize & Shop) ============================== */
+:where(#ui-layer) .shop-panel { width: min(640px, 100%); overflow: hidden; }
+:where(#ui-layer) .shop-coins {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
+  font-family: var(--display); font-size: 1.15rem; color: var(--ink);
+  background: var(--yolk); border: 2px solid var(--ink); border-radius: 999px;
+}
+:where(#ui-layer, #modal-layer) .coin-icon { width: 1em; height: 1em; vertical-align: -0.12em; }
+:where(#ui-layer) .shop-tabs .tab { display: inline-flex; align-items: center; gap: 6px; }
+:where(#ui-layer) .tab-icon { width: 16px; height: 16px; }
+:where(#ui-layer) .shop-body { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+:where(#ui-layer) .shop-section { margin: 6px 0 0; font-family: var(--display); font-weight: 400; font-size: 1rem; color: var(--barn); }
+:where(#ui-layer) .shop-note { margin: 0; font-size: 0.82rem; }
+:where(#ui-layer) .shop-fair {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 10px; font-size: 0.8rem;
+  background: var(--paper-2); border: 2px dashed var(--muted-ink); border-radius: 8px;
+}
+:where(#ui-layer) .fair-icon { flex: none; width: 18px; height: 18px; }
+
+/* Rarity: the card's border and a small label in its colour. */
+:where(#ui-layer) .item-card { position: relative; border: 2px solid color-mix(in srgb, var(--rarity, #9aa3ad) 70%, transparent); }
+:where(#ui-layer) .item-card.selected { box-shadow: 0 0 0 3px var(--rarity); }
+:where(#ui-layer) .item-card.equipped { border-color: var(--ink); }
+:where(#ui-layer) .rarity-tag {
+  align-self: stretch; padding: 1px 0; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #fff; background: var(--rarity); border-radius: 4px;
+}
+:where(#ui-layer) .rarity-chip { padding: 2px 8px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: #fff; background: var(--rarity); border-radius: 999px; }
+:where(#ui-layer) .deal-badge { position: absolute; top: -8px; right: -6px; padding: 2px 6px; font-size: 0.7rem; font-weight: 800; color: #fff; background: var(--barn); border-radius: 6px; }
+:where(#ui-layer) .gun-pic { display: grid; place-items: center; width: 84px; border-radius: 8px; background: var(--paper-2); border: 0; }
+:where(#ui-layer) .gun-pic img { max-width: 80px; max-height: 38px; filter: brightness(0.15); }
+:where(#ui-layer) .gun-pic svg, :where(#ui-layer) .swatch.none svg, :where(#ui-layer) .swatch svg { width: 22px; height: 22px; }
+:where(#ui-layer) .swatch.none { display: grid; place-items: center; background: var(--paper-2); }
+:where(#ui-layer) .swatch.gun-skin { border-radius: 10px; width: 54px; height: 30px; }
+
+/* Daily Deals */
+:where(#ui-layer) .shop-deals { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--paper-2); border: 2px solid var(--ink); border-radius: 10px; }
+:where(#ui-layer) .shop-deals-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.8rem; }
+:where(#ui-layer) .shop-deals-head b { font-family: var(--display); font-weight: 400; font-size: 1rem; color: var(--barn); }
+:where(#ui-layer) .shop-deals-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+:where(#ui-layer) .deal-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px 6px;
+  font-size: 0.72rem; color: var(--ink); background: var(--paper); border: 2px solid var(--rarity); border-radius: 8px;
+}
+:where(#ui-layer) .deal-card .swatch { width: 30px; height: 30px; }
+:where(#ui-layer) .deal-card .gun-pic { width: 60px; height: 30px; }
+:where(#ui-layer) .deal-card .gun-pic img { max-width: 56px; max-height: 24px; }
+:where(#ui-layer) .deal-card.owned { opacity: 0.6; }
+:where(#ui-layer) .deal-off { position: absolute; top: -7px; left: -5px; padding: 1px 5px; font-weight: 800; color: #fff; background: var(--barn); border-radius: 5px; }
+:where(#ui-layer) .deal-card s, :where(#ui-layer) .item-card s { opacity: 0.55; }
+
+/* Chicken upgrades */
+:where(#ui-layer) .upgrade-list { display: flex; flex-direction: column; gap: 6px; }
+:where(#ui-layer) .upgrade-row {
+  display: grid; grid-template-columns: 1.1fr 1.3fr auto; gap: 10px; align-items: center; padding: 8px 10px;
+  background: var(--paper); border: 2px solid var(--ink); border-left: 6px solid var(--rarity); border-radius: 8px;
+}
+:where(#ui-layer) .upgrade-info, :where(#ui-layer) .upgrade-next { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 0.78rem; }
+:where(#ui-layer) .upgrade-info b { font-family: var(--display); font-weight: 400; font-size: 1rem; }
+:where(#ui-layer) .upgrade-pips { display: flex; gap: 3px; margin-top: 2px; }
+:where(#ui-layer) .upgrade-pips i { width: 14px; height: 7px; border-radius: 2px; background: var(--paper-2); border: 1px solid var(--muted-ink); }
+:where(#ui-layer) .upgrade-pips i.on { background: var(--yolk); border-color: var(--ink); }
+:where(#ui-layer) .upgrade-row button { white-space: nowrap; }
+
+/* The picked item: name, rarity, and Buy / Equip */
+:where(#ui-layer) .shop-detail {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px;
+  background: var(--paper-2); border: 2px solid var(--ink); border-radius: 10px;
+}
+:where(#ui-layer) .shop-detail[hidden] { display: none; }
+:where(#ui-layer) .shop-detail-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+:where(#modal-layer) .confirm-buy p { margin: 0 0 8px; }
+:where(#modal-layer) .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+@media (max-width: 640px) {
+  :where(#ui-layer) .shop-deals-row { grid-template-columns: repeat(2, 1fr); }
+  :where(#ui-layer) .upgrade-row { grid-template-columns: 1fr; }
+}
+
+/* Zombie Apocalypse death scare: the chicken face rotten green, darker, with the blood. */
+.jumpscare-zombie .jumpscare-face svg {
+  filter: hue-rotate(75deg) saturate(0.7) brightness(0.75) contrast(1.2);
+}
+:where(#ui-layer) .shop-panel > :is(header, .name-row, .shop-deals, .shop-tabs, .shop-detail, .status) { flex-shrink: 0; }
+:where(#ui-layer) .shop-tabs { padding-bottom: 4px; }

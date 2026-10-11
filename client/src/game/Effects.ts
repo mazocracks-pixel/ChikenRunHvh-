@@ -207,6 +207,20 @@ export class Effects {
     }
   }
 
+  /** A zombie falling apart: a burst of dark feathers, bits flying off, a puff of grave dust. */
+  zombieBurst(at: Vec3, color: number): void {
+    this.feathers(at, color, 30);
+    for (let i = 0; i < 10; i++) {
+      const v = rand3(4.5);
+      v.y = Math.abs(v.y) + 2;
+      this.particle(at, v, i % 2 ? 0x3b2a22 : 0x5a1712, 0.09 + Math.random() * 0.07, 0.9 + Math.random() * 0.5, 14, 0.8);
+    }
+    for (let i = 0; i < 4; i++) {
+      const p = { x: at.x + (Math.random() - 0.5) * 0.7, y: at.y - 0.4 + Math.random() * 0.4, z: at.z + (Math.random() - 0.5) * 0.7 };
+      this.spawnSprite(p, { color: 0x3a3d33, life: 0.7 + Math.random() * 0.3, startScale: 0.5, endScale: 1.8, opacity: 0.55, vy: 0.4 });
+    }
+  }
+
   /** A dead chicken vanishing: a white puff with feathers flying out of it. */
   poof(at: Vec3, color: number): void {
     for (let i = 0; i < 6; i++) {

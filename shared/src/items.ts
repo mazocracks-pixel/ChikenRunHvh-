@@ -1,7 +1,10 @@
+import { UPGRADES, UPGRADE_MAX_LEVEL, UPGRADE_PRICES, upgradeItemId } from './upgrades';
 import { DEFAULT_MELEE, WEAPONS, WEAPON_IDS, isMelee, type WeaponId } from './weapons';
 
-export type CosmeticSlot = 'skin' | 'hat' | 'beak' | 'shoes';
-export type ItemSlot = CosmeticSlot | 'weapon';
+/** `gun`: a gun skin (the finish on every gun you hold). */
+export type CosmeticSlot = 'skin' | 'hat' | 'beak' | 'shoes' | 'gun';
+/** `upgrade`: one level of a chicken upgrade (see upgrades.ts). */
+export type ItemSlot = CosmeticSlot | 'weapon' | 'upgrade';
 
 export interface ItemDef {
   /** Globally unique, prefixed with the slot: `hat:crown`, `weapon:smg`. */
@@ -72,7 +75,22 @@ const COSMETICS: ItemDef[] = [
   cosmetic('shoes', 'pink', 'Pink Sneakers', 250, 0xf06292),
   cosmetic('shoes', 'gold', 'Gold Sneakers', 600, 0xffc107, true),
   cosmetic('shoes', 'diamond', 'Diamond Sneakers', 1000, 0x7ee8ff, true),
+
+  // Gun skins: the colour is the finish on the gun's body.
+  cosmetic('gun', 'none', 'Factory', 0),
+  cosmetic('gun', 'desert', 'Desert Tan', 150, 0xb89a6a),
+  cosmetic('gun', 'forest', 'Forest Camo', 250, 0x4b5e3a),
+  cosmetic('gun', 'arctic', 'Arctic', 350, 0xdfe7ec),
+  cosmetic('gun', 'carbon', 'Carbon', 500, 0x23262b, true),
+  cosmetic('gun', 'ruby', 'Ruby', 750, 0xa3122a, true),
+  cosmetic('gun', 'neon', 'Neon', 900, 0x39ff88),
+  cosmetic('gun', 'gold', 'Gold', 1400, 0xf2c14e, true),
+  cosmetic('gun', 'diamond', 'Diamond', 2200, 0x7ee8ff, true),
 ];
+
+const UPGRADE_ITEMS: ItemDef[] = UPGRADES.flatMap((u) =>
+  Array.from({ length: UPGRADE_MAX_LEVEL }, (_, i): ItemDef => ({ id: upgradeItemId(u.id, i + 1), slot: 'upgrade', key: `${u.id}:${i + 1}`, name: `${u.name} ${i + 1}`, price: UPGRADE_PRICES[i]! })),
+);
 
 const WEAPON_ITEMS: ItemDef[] = WEAPON_IDS.map((id) => ({
   id: `weapon:${id}`,
@@ -82,7 +100,7 @@ const WEAPON_ITEMS: ItemDef[] = WEAPON_IDS.map((id) => ({
   price: WEAPONS[id].price,
 }));
 
-export const ITEMS: readonly ItemDef[] = [...COSMETICS, ...WEAPON_ITEMS];
+export const ITEMS: readonly ItemDef[] = [...COSMETICS, ...WEAPON_ITEMS, ...UPGRADE_ITEMS];
 export const ITEMS_BY_ID: ReadonlyMap<string, ItemDef> = new Map(ITEMS.map((item) => [item.id, item]));
 
 export function itemId(slot: ItemSlot, key: string): string {
@@ -98,10 +116,12 @@ export interface Appearance {
   hat: string;
   beak: string;
   shoes: string;
+  /** Gun skin (missing = the factory finish). */
+  gun?: string;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { skin: 'white', hat: 'none', beak: 'orange', shoes: 'none' };
-export const COSMETIC_SLOTS: readonly CosmeticSlot[] = ['skin', 'hat', 'beak', 'shoes'];
+export const DEFAULT_APPEARANCE: Appearance = { skin: 'white', hat: 'none', beak: 'orange', shoes: 'none', gun: 'none' };
+export const COSMETIC_SLOTS: readonly CosmeticSlot[] = ['skin', 'hat', 'beak', 'shoes', 'gun'];
 
 /**
  * Keeps only items that exist and that the player owns (free items are always owned);
