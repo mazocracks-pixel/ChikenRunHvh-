@@ -37,6 +37,8 @@ export interface HuntHost {
   message(text: string): void;
   /** Everyone's running speed for the event (the speed-ups), 1 = normal. */
   setSpeed(multiplier: number): void;
+  /** Someone took a purple crystal. */
+  onCrystal?(p: ServerPlayer): void;
 }
 
 /** One running event's own extras (each event file adds its own on top of the hunt). */
@@ -295,6 +297,7 @@ export class CrystalHunt {
         }
         // Every so many crystals: everyone runs faster, and so do the monkeys.
         this.collected++;
+        this.host.onCrystal?.(p);
         const up = CRYSTAL_HUNT.speedUp;
         if (this.collected % up.every === 0 && this.speedLevel < up.maxLevel) {
           this.speedLevel++;

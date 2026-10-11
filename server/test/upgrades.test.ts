@@ -53,9 +53,9 @@ describe('chicken upgrades: the rules', () => {
     assert.equal(withUpgrades(null, null), null, 'no upgrades: normal movement');
   });
 
-  it('only PvE modes use them (Zombie Apocalypse, Training); every PvP mode is fair', () => {
+  it('only PvE modes use them (Zombie Apocalypse, the Backrooms, Training); every PvP mode is fair', () => {
     const pve = MODE_IDS.filter((id) => modeUsesUpgrades(MODES[id]));
-    assert.deepEqual(pve.sort(), ['training', 'zombie']);
+    assert.deepEqual(pve.sort(), ['backrooms', 'training', 'zombie']);
   });
 
   it('daily deals: the same 4 cheaper items all day, different another day', () => {

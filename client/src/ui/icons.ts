@@ -52,5 +52,5 @@ export function icon(name: IconName, cls = ''): HTMLElement {
 
 export const MODE_ICON: Record<ModeId, IconName> = {
   ffa: 'chicken', tdm: 'swords', squad: 'team', duel: 'duel', face: 'medal', bomb: 'bomb', hvh: 'eye',
-  arms: 'ladder', knife: 'knife', ctf: 'flag', sandbox: 'bricks', zombie: 'skull', training: 'target',
+  arms: 'ladder', knife: 'knife', ctf: 'flag', sandbox: 'bricks', zombie: 'skull', backrooms: 'eye', training: 'target',
 };

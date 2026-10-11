@@ -104,6 +104,9 @@ export interface HuntEventDef {
   redCrystals?: number;
 }
 
+/** The Backrooms game mode (the event as a whole run): coins per crystal and for getting out. */
+export const BACKROOMS_MODE = { coinsPerCrystal: 1, escapeBonus: 400, maxCoins: 1500 } as const;
+
 /** A quicker run of an event for testing (dev: /backrooms small). */
 export const SMALL_TEST = { crystals: 4, monkeys: 3, timeMs: 180_000 } as const;
 

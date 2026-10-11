@@ -1,7 +1,8 @@
+import type { HuntEventId } from './events';
 import type { MapId, Team } from './maps/types';
 import type { WeaponId } from './weapons';
 
-export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face' | 'squad' | 'zombie' | 'training';
+export type ModeId = 'ffa' | 'tdm' | 'duel' | 'ctf' | 'sandbox' | 'hvh' | 'knife' | 'bomb' | 'arms' | 'face' | 'squad' | 'zombie' | 'backrooms' | 'training';
 
 export interface ModeDef {
   id: ModeId;
@@ -64,6 +65,11 @@ export interface ModeDef {
    * mode everyone has the same stats.
    */
   pve?: boolean;
+  /**
+   * A Zombie Apocalypse room that is just one story event (the Backrooms mode): it starts inside
+   * the event, there are no waves, and the event's end is the end of the run.
+   */
+  huntOnly?: HuntEventId;
 }
 
 const DEFS: ModeDef[] = [
@@ -87,6 +93,11 @@ const DEFS: ModeDef[] = [
     id: 'zombie', name: 'Zombie Apocalypse', description: 'Survive wave after wave of zombies on a dark graveyard map. Kill them for money, then shop in the 10 seconds between waves. Bosses every 5 waves. C builds a wall that lasts 10 seconds.',
     teams: true, maxPlayers: 40, maxHumans: 4, scoreLimit: 0, timeLimitMs: 0, respawnMs: 3600_000, minPlayers: 1,
     maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Zombies'], noDrops: true, zombies: true, pve: true, noBots: true, weapons: ['pistol', 'knife'], spawnProtectionMs: 0,
+  },
+  {
+    id: 'backrooms', name: 'The Backrooms', description: 'Lost in endless yellow rooms. Find all 500 purple crystals with your phone map, then escape through the portal. The monkeys hear you, hunt in packs and get faster every 50 crystals. Red crystals show them through walls. Up to 4 together.',
+    teams: true, maxPlayers: 40, maxHumans: 4, scoreLimit: 0, timeLimitMs: 0, respawnMs: 3600_000, minPlayers: 1,
+    maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Monkeys'], noDrops: true, zombies: true, pve: true, noBots: true, weapons: ['rifle', 'pistol', 'knife'], spawnProtectionMs: 0, huntOnly: 'backrooms',
   },
   {
     id: 'hvh', name: 'HvH', description: 'Red vs Blue, 5 vs 5, and everyone sees enemies through walls. First to 40 kills.',

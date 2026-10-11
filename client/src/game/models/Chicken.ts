@@ -4,6 +4,7 @@ import { CHICKEN_POSE, chickenHeadPose, bodyScale, PLAYER, TEAM_COLORS, clamp, d
 import { buildGun, type GunModel } from './Guns';
 import { buildHat } from './Hats';
 import { animateMonkey, buildMonkey, type MonkeyModel } from './Monkey';
+import { CLASSIC_MONKEY_SKIN } from '@game/shared';
 import { box, cone, cylinder, part, solid, sphere } from './materials';
 
 /** How long a third-person melee swing takes. */
@@ -441,7 +442,8 @@ export class Chicken {
     // Event monkeys are a different animal altogether (on the same hitbox).
     const monkey = undead === 'monkey';
     if (monkey && !this.monkey) {
-      this.monkey = buildMonkey();
+      // The first design is still about (its skin tells it apart); the stalker is the main one.
+      this.monkey = buildMonkey(a.skin === CLASSIC_MONKEY_SKIN ? 'classic' : 'stalker');
       this.pose.add(this.monkey.root);
     }
     if (this.monkey) this.monkey.root.visible = monkey;
@@ -676,7 +678,8 @@ export class Chicken {
     const kind = this.undead!;
     const w = this.walkBlend;
     if (kind === 'monkey') {
-      if (this.monkey) animateMonkey(this.monkey, this.walkPhase, this.walkBlend, t);
+      const bite = this.swingTime >= 0 ? Math.sin(Math.min(1, this.swingTime / SWING_SECONDS) * Math.PI) : 0;
+      if (this.monkey) animateMonkey(this.monkey, this.walkPhase, this.walkBlend, t, bite);
       return;
     }
     const lean = { walker: -0.22, sprinter: -0.38, runner: -0.5, brute: -0.12, exploder: -0.08, monkey: 0, boss: -0.05 }[kind];

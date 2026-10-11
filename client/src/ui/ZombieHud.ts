@@ -22,6 +22,8 @@ export interface ZombieShopView {
  * open between waves) and the game-over panel with Restart. Pure DOM; the session feeds it.
  */
 export class ZombieHud {
+  /** The Backrooms mode (a single story event, no waves). */
+  huntOnly = false;
   readonly root = h('div', { class: 'zb-root' });
   private readonly wave = h('div', { class: 'zb-wave' });
   private readonly sub = h('div', { class: 'zb-sub' });
@@ -118,6 +120,11 @@ export class ZombieHud {
       this.sub.textContent = `${s.left} ${s.left === 1 ? 'zombie' : 'zombies'} left · ${s.kills} killed`;
       this.timer.hidden = true;
       this.root.dataset.phase = 'wave';
+    } else if (s.phase === 'event' && this.huntOnly) {
+      this.wave.textContent = 'The Backrooms';
+      this.sub.textContent = 'Find the crystals (your phone shows them), then the portal';
+      this.timer.hidden = true;
+      this.root.dataset.phase = 'event';
     } else if (s.phase === 'event') {
       this.wave.textContent = `Story event · Wave ${s.wave}`;
       this.sub.textContent = `Find every crystal (your phone shows them) · ${s.lives} ${s.lives === 1 ? 'life' : 'lives'} left`;
@@ -190,12 +197,29 @@ export class ZombieHud {
       this.overKey = '';
       return;
     }
-    const key = `${s.wave}|${s.kills}`;
+    const key = `${s.wave}|${s.kills}|${s.result?.ms ?? ''}`;
     if (key === this.overKey) return;
     this.overKey = key;
     const restart = h('button', { type: 'button', class: 'play' }, '↻ Restart');
     restart.addEventListener('click', () => this.onRestart?.());
     clear(this.over);
+    // The Backrooms mode: out or lost, crystals found, how long it took.
+    const r = s.result;
+    if (r) {
+      const secs = Math.round(r.ms / 1000);
+      this.over.append(
+        h(
+          'div',
+          { class: `zb-over-card${r.success ? ' escaped' : ''}`, role: 'dialog', 'aria-label': r.success ? 'Escaped' : 'Lost' },
+          h('h2', null, r.success ? 'You escaped!' : 'Lost in the Backrooms'),
+          h('p', { class: 'muted' }, r.reason),
+          h('div', { class: 'zb-over-stats' }, h('div', null, h('b', null, `${r.crystals}/${r.total}`), h('span', null, 'Crystals')), h('div', null, h('b', null, `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`), h('span', null, 'Time'))),
+          restart,
+          h('small', { class: 'muted' }, 'Coins for every crystal (and a bonus for getting out) go to your account.'),
+        ),
+      );
+      return;
+    }
     this.over.append(
       h(
         'div',

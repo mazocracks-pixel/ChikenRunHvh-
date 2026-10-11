@@ -20,6 +20,7 @@ export function createRoom(io: GameServer, options: RoomOptions, hooks: RoomHook
     case 'sandbox':
       return new SandboxRoom(io, options, hooks);
     case 'zombie':
+    case 'backrooms':
       return new ZombieRoom(io, options, hooks);
     case 'training':
       return new TrainingRoom(io, options, hooks);

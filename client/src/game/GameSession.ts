@@ -316,6 +316,7 @@ export class GameSession {
       this.trainingMenu.onGrenade = (grenade) => this.trainingRequest({ grenade }, 'Refilled');
     }
     this.zombieHud = this.mode.zombies ? new ZombieHud(ctx.hud.root) : null;
+    if (this.zombieHud) this.zombieHud.huntOnly = this.mode.huntOnly !== undefined;
     if (this.zombieHud) {
       ctx.input.zombieMode = true;
       this.zombieHud.onBuy = (item) => this.zombieBuy(item.id);
@@ -608,7 +609,7 @@ export class GameSession {
     else hud.setBombProgress(null, 0);
     hud.setMoney(this.round || this.mode.zombies ? this.money : null);
     this.updateZombieHud();
-    if (!this.local.alive && this.mode.zombies && this.match.phase === 'playing') hud.setDeathWaiting('You’re back when the next wave starts');
+    if (!this.local.alive && this.mode.zombies && this.match.phase === 'playing') hud.setDeathWaiting(this.mode.huntOnly ? 'Down. Your team can still get out' : 'You’re back when the next wave starts');
     else if (!this.local.alive && this.round && this.match.phase === 'playing' && this.round.phase !== 'warmup') hud.setDeathWaiting('You’re back when the next round starts');
     else if (!this.local.alive) hud.setDeathTimer(this.respawnAt - now);
     hud.setHint(this.hintText());

@@ -26,6 +26,13 @@ export interface ZombieBase {
   reward: number;
 }
 
+/**
+ * The first monkey design is still about (one monkey in `CLASSIC_MONKEY_EVERY`): the server gives
+ * those this skin, which tells the game to draw the classic model.
+ */
+export const CLASSIC_MONKEY_SKIN = 'black';
+export const CLASSIC_MONKEY_EVERY = 4;
+
 export const ZOMBIE = {
   /** Survivors in one room (zombies are extra). */
   maxHumans: 4,
@@ -243,6 +250,8 @@ export interface ZombieState {
   instaKillUntil: number | null;
   /** Team lives left for story events (see CRYSTAL_HUNT.lives). */
   lives: number;
+  /** The Backrooms mode's run, once it's over: out or not, crystals found, how long it took. */
+  result: { success: boolean; crystals: number; total: number; ms: number; reason: string } | null;
   /** The boss of this wave: its health is in the normal player state (hp 0-100 = its share of health). */
   boss: { pid: number; name: string } | null;
   /** This wave (or the one the shop is counting down to) is a Blood Moon. */

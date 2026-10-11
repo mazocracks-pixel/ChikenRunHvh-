@@ -3,6 +3,61 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 20 (11 Oct): The Backrooms as its own game mode; a better monkey
+
+The user's message was cut off after "and". Read as: the Backrooms as a game mode of its own (the wave-7 event stays in Zombie Apocalypse), and a better monkey with the old design kept as a second version.
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Mode `backrooms` (Fun tab, eye icon): the Zombie Apocalypse room with `huntOnly: 'backrooms'`. It starts in the maze with the hunt on; no waves; escape or fail ends the run; result screen; Restart | shared/src/modes.ts, server/src/rooms/modes.ts, ZombieRoom |
+| 2 | Coins: 1 per crystal, +400 for escaping, max 1500 (`BACKROOMS_MODE`) | events.ts, ZombieRoom |
+| 3 | Loadout rifle + pistol + knife (no shop in this mode) | modes.ts |
+| 4 | New "stalker" monkey design; the old one kept as "classic" for 1 monkey in 4 | Monkey.ts, Chicken.ts, ZombieRoom (`CLASSIC_MONKEY_EVERY`) |
+
+## What was done
+
+- **Mode:**
+  - You spawn at the maze entrance.
+  - The HUD reads "The Backrooms · Find the crystals...".
+  - Dying shows "Down. Your team can still get out".
+  - At the end, the card shows "You escaped!" or "Lost in the Backrooms", with crystals x/500, the time, and Restart.
+  - Everything else is the Batch 18–19 event: 500 crystals, speed-ups, red crystals, the monkeys, the phone, co-op for up to 4.
+- **Stalker monkey:**
+  - Gaunt, with ribs showing and matted fur with sore patches.
+  - Long jointed arms ending in 3 claws, digitigrade legs, a ragged spine, a torn ear.
+  - Burning orange eyes in deep sockets; a jaw with teeth that drops open when it attacks.
+  - A breathing chest and a long tail.
+
+## Tests
+
+- New [server/test/backrooms-mode.test.ts](server/test/backrooms-mode.test.ts) (5 tests):
+  - the mode's settings;
+  - it starts in the maze with only monkeys;
+  - some classic monkeys;
+  - escaping gives the result, coins = crystals + bonus, the match ends, and Restart gives a new run;
+  - time up ends it as lost.
+- The upgrades test now lists the mode as PvE.
+- The fuzz test covers the new mode by itself (it plays every mode).
+- Full run: **465/465 pass**, build OK.
+- Browser:
+  - the card is in Fun ("Co-op survival · up to 4");
+  - Play puts you in the maze with the right HUD;
+  - 20 monkeys (5 classic);
+  - both designs checked side by side;
+  - no errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The browser showed 39 monkeys, not 20: starting the run inside the match-start hook let each monkey that joined re-check the match and start it again (40 full hunt states in 6 s). My server test missed it by calling `startNow()`. | The run starts on the next tick; found with a real socket against the test server. |
+| 2 | The dev jump then started a small run and the pending start replaced it with a full one. | The dev jump cancels the pending start, and the pending start is checked first. |
+| 3 | The stalker's glowing eyes were hidden (first by the brow, then by the snout). | Moved up and forward. |
+| 4 | The mode card said "Graveyard" (the map file the maze lives in). | The card shows the mode's name. |
+| 5 | A background restart ran from the wrong folder. | Ran it with the full path. |
+
 # Batch 19 (11 Oct): Backrooms about 6x the first one, 500 crystals, speed-ups, red crystals
 
 The user cut the big 7-step brief down to this (from "20x" to "6x", and about 500 crystals).

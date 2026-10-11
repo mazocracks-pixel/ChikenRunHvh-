@@ -31,7 +31,7 @@ export interface MenuActions {
 const CATEGORIES: { id: string; label: string; modes: ModeId[] }[] = [
   { id: 'casual', label: 'Casual', modes: ['ffa', 'tdm', 'squad', 'duel', 'training'] },
   { id: 'competitive', label: 'Competitive', modes: ['face', 'bomb', 'hvh'] },
-  { id: 'fun', label: 'Fun', modes: ['zombie', 'arms', 'knife', 'ctf', 'sandbox'] },
+  { id: 'fun', label: 'Fun', modes: ['zombie', 'backrooms', 'arms', 'knife', 'ctf', 'sandbox'] },
 ];
 for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CATEGORIES.at(-1)!.modes.push(id);
 
@@ -135,7 +135,8 @@ export class MainMenu {
         ),
         h('h3', null, m.name),
         h('p', null, m.description),
-        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, MAPS[m.maps[0]!].name),
+        // (The Backrooms mode lives inside the Graveyard map's file, but it's its own place.)
+        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, m.huntOnly ? m.name : MAPS[m.maps[0]!].name),
         this.addPlayButton(button('Play', () => this.play(id), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
@@ -270,7 +271,7 @@ export class MainMenu {
   private refreshPlay(): void {
     const m = MODES[this.selected];
     const map = storage.get(mapKey(this.selected));
-    const mapName = isMapId(map) && m.maps.includes(map) ? MAPS[map].name : m.maps.length > 1 ? 'Any map' : MAPS[m.maps[0]!].name;
+    const mapName = m.huntOnly ? m.name : isMapId(map) && m.maps.includes(map) ? MAPS[map].name : m.maps.length > 1 ? 'Any map' : MAPS[m.maps[0]!].name;
     const bots = m.noBots || m.ranked ? 'Real players' : this.withoutBots ? 'Without bots' : 'With bots';
     this.playMode.textContent = `${m.name} · ${mapName} · ${bots}`;
   }

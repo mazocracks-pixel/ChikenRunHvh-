@@ -35,8 +35,12 @@ import {
   PROJECTILES,
   round,
   type PowerUpKind,
+  BACKROOMS_MODE,
+  CLASSIC_MONKEY_EVERY,
+  CLASSIC_MONKEY_SKIN,
   CRYSTAL_HUNT,
   MONKEYS,
+  type SpawnPoint,
   createMoveState,
   huntEventAt,
   type HuntEventId,
@@ -99,6 +103,7 @@ export class ZombieRoom extends GameRoom {
   private bossPid = 0;
   private readonly zombies = new Map<number, Zombie>();
   private readonly upgrades = new Map<number, Record<string, number>>();
+  private monkeysMade = 0;
   /** Coins each survivor has earned this game (pid → coins). */
   private readonly coins = new Map<number, number>();
   /** Insta-Kill power-up: on until then (server clock). */
@@ -130,7 +135,14 @@ export class ZombieRoom extends GameRoom {
     setSpeed: (multiplier) => {
       for (const p of this.humans()) p.eventSpeed = multiplier;
     },
+    // The Backrooms mode: every crystal is a coin.
+    onCrystal: (p) => {
+      if (this.mode.huntOnly) this.earn(p, BACKROOMS_MODE.coinsPerCrystal);
+    },
   };
+  /** The Backrooms mode's run, once over; and a run waiting to start on the next tick. */
+  private result: ZombieState['result'] = null;
+  private runPending = false;
   /** The Nuke is killing everything (its kills drop no more power-ups). */
   private nuking = false;
   private readonly brain: ZombieBrain;
@@ -213,6 +225,7 @@ export class ZombieRoom extends GameRoom {
       boss: boss?.alive ? { pid: boss.pid, name: boss.info.name } : null,
       bloodMoon: this.bloodMoon,
       lives: this.lives,
+      result: this.result,
     };
   }
 
@@ -280,6 +293,14 @@ export class ZombieRoom extends GameRoom {
       this.emitMoney(p);
       p.socket?.emit('zombieGear', this.gearOf(p));
     }
+    this.result = null;
+    // The Backrooms mode: straight into the event, no waves. (On the next tick, not in here: the
+    // monkeys joining would re-check the match from inside its own start.)
+    if (this.mode.huntOnly) {
+      this.zphase = 'event';
+      this.runPending = true;
+      return;
+    }
     this.emitState(now);
     this.systemMessage('🧟 Zombie Apocalypse: wave 1 starts in 10 seconds. B opens the shop, C builds a wall that lasts 10 seconds.');
   }
@@ -298,6 +319,10 @@ export class ZombieRoom extends GameRoom {
     if (this.phase !== 'playing') return;
     this.updateBlocks(now);
 
+    if (this.runPending && this.mode.huntOnly) {
+      this.runPending = false;
+      return this.startHunt(HUNT_EVENTS[this.mode.huntOnly], now);
+    }
     if (this.zphase === 'prep') {
       if (now >= this.prepEndsAt) this.startWave(now);
       return;
@@ -358,6 +383,7 @@ export class ZombieRoom extends GameRoom {
     this.hunt = null;
     this.huntsDone.add(def.id);
     this.clearZombies();
+    if (this.mode.huntOnly) return this.endRun(hunt, success, reason, now);
     for (const p of this.humans()) this.spawn(p, now, true);
     if (success) {
       const r = def.reward;
@@ -390,6 +416,17 @@ export class ZombieRoom extends GameRoom {
     this.emitState(now);
   }
 
+  /** The Backrooms mode: the run is over (out through the portal, or lost). */
+  private endRun(hunt: CrystalHunt, success: boolean, reason: string, now: number): void {
+    this.result = { success, crystals: hunt.collected, total: hunt.state().total, ms: Math.round(now - hunt.startedAt), reason };
+    if (success) for (const p of this.humans()) this.earn(p, BACKROOMS_MODE.escapeBonus);
+    this.systemMessage(success ? `🌀 You escaped the Backrooms with ${hunt.collected} crystals! ${reason}` : `💀 Lost in the Backrooms: ${reason} (${hunt.collected} crystals)`);
+    this.zphase = 'over';
+    this.clearBlocks();
+    this.emitState(now);
+    this.endMatch(now);
+  }
+
   /** Puts a survivor at (x, z), alive (back from the dead if need be), and tells everyone. */
   private place(p: ServerPlayer, x: number, z: number, now: number): void {
     const yaw = p.yaw;
@@ -406,6 +443,7 @@ export class ZombieRoom extends GameRoom {
   /** Developer shortcut (dev action, private rooms only): go straight to the shop before `wave`. */
   devSetWave(wave: number, variant: HuntVariant = 'full'): void {
     this.huntVariant = variant;
+    this.runPending = false;
     const now = performance.now();
     if (this.phase !== 'playing') return;
     if (this.hunt) this.io.to(this.channel).emit('hunt', null);
@@ -508,7 +546,9 @@ export class ZombieRoom extends GameRoom {
     const stats = this.bloodMoon ? { ...base, speed: base.speed * b.speed, hp: Math.round(base.hp * b.hp) } : base;
     const boss = kind === 'boss';
     const title = boss ? `☠️ ${BOSS_NAMES[(bossNumber(this.wave) - 1) % BOSS_NAMES.length]}` : kind === 'brute' ? '🧟 Brute' : kind === 'runner' ? '🧟 Runner' : kind === 'sprinter' ? '🧟 Sprinter' : kind === 'exploder' ? '🧟 Exploder' : kind === 'monkey' ? '🐒 Monkey' : '🧟 Zombie';
-    const res = this.join(null, { userId: null, name: title, appearance: LOOKS[kind], loadout: ['knife'], bot: true, team: 2, rank: 1 });
+    // (One monkey in a few keeps the first design: its skin tells the game which model.)
+    const look = kind === 'monkey' && ++this.monkeysMade % CLASSIC_MONKEY_EVERY === 0 ? { ...LOOKS.monkey, skin: CLASSIC_MONKEY_SKIN } : LOOKS[kind];
+    const res = this.join(null, { userId: null, name: title, appearance: look, loadout: ['knife'], bot: true, team: 2, rank: 1 });
     if (!res.ok) return null;
     const p = this.players.get(res.selfPid)!;
     const at = near ? { x: near.x + (Math.random() - 0.5) * 5, z: near.z + (Math.random() - 0.5) * 5 } : this.zombieSpawn();
@@ -696,7 +736,13 @@ export class ZombieRoom extends GameRoom {
   }
 
   protected override matchCoins(p: ServerPlayer): number {
-    return Math.min(ZOMBIE.coins.max, this.coins.get(p.pid) ?? 0);
+    return Math.min(this.mode.huntOnly ? BACKROOMS_MODE.maxCoins : ZOMBIE.coins.max, this.coins.get(p.pid) ?? 0);
+  }
+
+  /** The Backrooms mode: everyone (re)appears at the event level's entrance. */
+  protected override pickSpawn(p: ServerPlayer): SpawnPoint {
+    const zone = this.mode.huntOnly ? this.map.zones?.find((z) => z.id === CRYSTAL_HUNT.events[this.mode.huntOnly!].zone) : undefined;
+    return zone && !p.info.undead ? { x: zone.start.x, z: zone.start.z, team: 1 } : super.pickSpawn(p);
   }
 
   protected override onKill(victim: ServerPlayer, attacker: ServerPlayer | null, _cause: KillCause, now: number): void {
