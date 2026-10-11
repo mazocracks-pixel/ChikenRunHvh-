@@ -221,6 +221,7 @@ export class GameSession {
   private night: ZombieNight | null = null;
   /** Story events (Crystal Hunt): crystals, portal, the phone. */
   private hunt: HuntView | null = null;
+  private huntSpeedLevel = 0;
   /** Max health as a multiple of normal (Health upgrade); the health bar is a share of it. */
   private maxHealth = 1;
   /** Training: the weapon menu (B). */
@@ -437,11 +438,18 @@ export class GameSession {
     this.remotes.render(renderTime, dt);
     this.night?.update(dt, this.remotes);
     if (this.hunt?.active) {
-      const mates = [...this.remotes.players.values()].filter((r) => !r.info.undead && r.alive).map((r) => r.position);
-      this.ctx.world.blackout = this.hunt.update(dt, this.local.position, this.ctx.input.yaw, mates, this.serverNow());
+      const players = [...this.remotes.players.values()];
+      const mates = players.filter((r) => !r.info.undead && r.alive).map((r) => r.position);
+      const now = this.serverNow();
+      // A red crystal: every monkey through walls (and on the phone).
+      const reveal = this.hunt.revealing(now);
+      const monkeys = players.filter((r) => r.info.undead === 'monkey' && r.alive);
+      for (const m of monkeys) m.chicken.setMonkeyXray(reveal);
+      this.ctx.world.blackout = this.hunt.update(dt, this.local.position, this.ctx.input.yaw, mates, monkeys.map((m) => m.position), now);
     } else if (this.hunt) {
-      this.hunt.update(dt, this.local.position, 0, [], 0);
+      this.hunt.update(dt, this.local.position, 0, [], [], 0);
       this.ctx.world.blackout = false;
+      if (this.local.eventSpeed !== 1) this.local.eventSpeed = 1;
     }
     for (const r of this.remotes.players.values()) {
       const v = r.latest?.vehicle;
@@ -1449,7 +1457,17 @@ export class GameSession {
     this.on('money', (e) => (this.money = e.money));
     this.on('zombie', (s) => this.onZombieState(s));
     this.on('zombieHit', (e) => this.remotes.get(e.pid)?.chicken.flinch(e.headshot));
-    this.on('hunt', (s) => this.hunt?.setState(s));
+    this.on('hunt', (s) => {
+      const before = this.huntSpeedLevel;
+      this.hunt?.setState(s);
+      // Speed-ups: you run faster (predicted like the server does it)... and so do the monkeys.
+      this.huntSpeedLevel = s?.speedLevel ?? 0;
+      this.local.eventSpeed = 1 + CRYSTAL_HUNT.speedUp.player * this.huntSpeedLevel;
+      if (s && this.huntSpeedLevel > before) {
+        this.ctx.hud.announce(`SPEED LEVEL ${this.huntSpeedLevel}`, "You're faster... so are the monkeys", 'bad');
+        this.ctx.audio.play('monkeyShriek', undefined, 0.7);
+      }
+    });
     this.on('crystal', (e) => this.hunt?.collect(e));
     // A monkey screeching to its pack: you hear where it is.
     this.on('zombieAlert', (e) => {

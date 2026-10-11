@@ -127,6 +127,9 @@ export class ZombieRoom extends GameRoom {
     broadcast: (event, payload) => (this.io.to(this.channel) as unknown as { emit(e: string, p: unknown): void }).emit(event, payload),
     scare: (p, kind) => p.socket?.emit('huntScare', { kind }),
     message: (text) => this.systemMessage(text),
+    setSpeed: (multiplier) => {
+      for (const p of this.humans()) p.eventSpeed = multiplier;
+    },
   };
   /** The Nuke is killing everything (its kills drop no more power-ups). */
   private nuking = false;
@@ -158,6 +161,7 @@ export class ZombieRoom extends GameRoom {
         survivors: () => this.survivors(),
         monkeys: () => [...this.zombies.values()].filter((z) => z.kind === 'monkey'),
         noises: () => this.hunt?.noises() ?? [],
+        speedBoost: () => this.hunt?.monkeySpeed ?? 1,
         spotted: (_z, target) => this.hunt?.onSpotted(target),
         screech: (z) => this.io.to(this.channel).emit('zombieAlert', { pid: z.p.pid }),
       }),
@@ -237,7 +241,7 @@ export class ZombieRoom extends GameRoom {
     return {
       blocks: [...this.blocks.values()].map((b) => ({ ...b.state, ttl: Math.max(0, Math.round(b.expiresAt - now)) })),
       money: player.money,
-      zombie: { state: this.publicState(), gear: this.gearOf(player), hunt: this.hunt?.state() ?? null },
+      zombie: { state: this.publicState(), gear: this.gearOf(player), hunt: this.hunt?.state(true) ?? null },
     };
   }
 
@@ -406,6 +410,7 @@ export class ZombieRoom extends GameRoom {
     if (this.phase !== 'playing') return;
     if (this.hunt) this.io.to(this.channel).emit('hunt', null);
     this.hunt = null;
+    for (const p of this.humans()) p.eventSpeed = 1;
     this.clearZombies();
     this.clearBlocks();
     this.queue = [];

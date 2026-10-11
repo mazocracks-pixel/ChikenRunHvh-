@@ -450,7 +450,7 @@ describe('Zombie Apocalypse match', () => {
   });
 
   describe('story events (Crystal Hunt)', () => {
-    type Hunt = { zone: { id: string; minX: number; maxX: number; minZ: number; maxZ: number; exit: { x: number; z: number } }; state(): { crystals: { x: number; z: number }[]; portal: unknown; total: number }; result: unknown } | null;
+    type Hunt = { zone: { id: string; minX: number; maxX: number; minZ: number; maxZ: number; exit: { x: number; z: number } }; state(full?: boolean): { crystals?: { x: number; z: number; red?: boolean }[]; portal: unknown; total: number; left: number }; result: unknown } | null;
     const hunt = (t: ReturnType<typeof setup>) => (t.room as unknown as { hunt: Hunt }).hunt;
     const inside = (h: NonNullable<Hunt>, x: number, z: number) => x > h.zone.minX && x < h.zone.maxX && z > h.zone.minZ && z < h.zone.maxZ;
     const toWave = (t: ReturnType<typeof setup>, wave: number) => {
@@ -467,7 +467,7 @@ describe('Zombie Apocalypse match', () => {
       t.me.hp = 100;
     };
 
-    it('wave 7: into the big Backrooms with 18 crystals spread out and a scaled pack; collect them all, portal out, then wave 8', () => {
+    it('wave 7: into the big Backrooms with 500 crystals spread out and a scaled pack; collect them all, portal out, then wave 8', () => {
       const t = setup();
       try {
         (t.me as { userId: number | null }).userId = 5;
@@ -475,11 +475,11 @@ describe('Zombie Apocalypse match', () => {
         assert.equal(t.priv.zphase, 'event');
         const h = hunt(t)!;
         assert.equal(h.zone.id, 'backrooms');
-        assert.ok(h.zone.maxX - h.zone.minX >= 96 && h.zone.maxZ - h.zone.minZ >= 96, '4x the old 48 m level');
+        assert.ok((h.zone.maxX - h.zone.minX) * (h.zone.maxZ - h.zone.minZ) >= 6 * 48 * 48, 'about 6x the first 48 m level');
         assert.ok(inside(h, t.me.state.x, t.me.state.z), 'taken into the Backrooms');
-        const s = h.state();
+        const s = h.state(true);
         assert.equal(s.total, CRYSTAL_HUNT.events.backrooms.crystals);
-        const far = s.crystals.filter((c) => Math.hypot(c.x - t.me.state.x, c.z - t.me.state.z) > 55).length;
+        const far = s.crystals!.filter((c) => Math.hypot(c.x - t.me.state.x, c.z - t.me.state.z) > 55).length;
         assert.ok(far >= 4, `some far from the start (${far})`);
         const monkeys = t.zombies().filter((z) => z.kind === 'monkey') as unknown as { p: { state: { x: number; y: number; z: number } }; monkey: { state: string } }[];
         assert.ok(monkeys.length >= 12, `the pack scales with the level (${monkeys.length})`);
@@ -492,8 +492,8 @@ describe('Zombie Apocalypse match', () => {
         t.room.handleZombieBuild(t.me);
         assert.equal(t.priv.blocks.size, 0, 'no building');
         const money = t.me.money;
-        for (const c of [...s.crystals]) walkTo(t, c.x, c.z);
-        assert.equal(h.state().crystals.length, 0);
+        for (const c of s.crystals!.filter((c) => !c.red)) walkTo(t, c.x, c.z);
+        assert.equal(h.state().left, 0);
         assert.ok(h.state().portal, 'the portal opened');
         walkTo(t, h.zone.exit.x, h.zone.exit.z);
         assert.equal(hunt(t), null, 'over');
@@ -585,6 +585,41 @@ describe('Zombie Apocalypse match', () => {
       }
     });
 
+    it('every 50 crystals: everyone runs faster, and so do the monkeys', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const h = hunt(t)! as unknown as { state(full?: boolean): { crystals?: { x: number; z: number; red?: boolean }[] }; speedLevel: number; monkeySpeed: number };
+        const purple = h.state(true).crystals!.filter((c) => !c.red);
+        const up = CRYSTAL_HUNT.speedUp;
+        for (const c of purple.slice(0, up.every - 1)) walkTo(t, c.x, c.z);
+        assert.equal(h.speedLevel, 0);
+        walkTo(t, purple[up.every - 1]!.x, purple[up.every - 1]!.z);
+        assert.equal(h.speedLevel, 1, 'level 1 at 50');
+        assert.ok(Math.abs(t.me.eventSpeed - (1 + up.player)) < 1e-9, 'you run faster');
+        assert.equal(t.me.moveMods()!.speed, 1 + up.player);
+        assert.ok(Math.abs(h.monkeySpeed - (1 + up.monkey)) < 1e-9, 'the monkeys too');
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('a red crystal shows every monkey through walls for 1:30', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const h = hunt(t)! as unknown as { state(full?: boolean): { crystals?: { x: number; z: number; red?: boolean }[] }; revealUntil: number };
+        const reds = h.state(true).crystals!.filter((c) => c.red);
+        assert.equal(reds.length, CRYSTAL_HUNT.events.backrooms.redCrystals);
+        walkTo(t, reds[0]!.x, reds[0]!.z);
+        const left = h.revealUntil - t.now();
+        assert.ok(left > CRYSTAL_HUNT.redRevealMs - 500 && left <= CRYSTAL_HUNT.redRevealMs, `${Math.round(left)} ms of reveal`);
+        assert.ok(t.events.some((e) => e.event === 'crystal' && (e.args[0] as { red: boolean }).red));
+      } finally {
+        t.room.close();
+      }
+    });
+
     it('dev "backrooms small": a quick run with a few crystals near the entrance and a few monkeys', () => {
       const t = setup();
       try {
@@ -630,11 +665,12 @@ describe('Zombie Apocalypse match', () => {
         const b = CRYSTAL_HUNT.events.backrooms;
         const p = CRYSTAL_HUNT.events.phoneMission;
         assert.equal(h.zone.id, 'facility');
-        assert.ok(p.crystals > b.crystals && p.timeMs < b.timeMs);
+        // (Harder by its clock: far less time; the Backrooms is the big one now, with 500 crystals.)
+        assert.ok(p.timeMs < b.timeMs && p.extraScareAt !== null);
         assert.ok(t.zombies().length > (b.enemies.monkey ?? 0), 'more monsters');
         t.run(p.timeMs * 0.5 + 300);
         assert.ok((h as unknown as { blackoutUntil: number }).blackoutUntil > 0, 'the power went out half way');
-        for (const c of [...h.state().crystals]) walkTo(t, c.x, c.z);
+        for (const c of h.state(true).crystals!.filter((c) => !c.red)) walkTo(t, c.x, c.z);
         walkTo(t, h.zone.exit.x, h.zone.exit.z);
         assert.equal(hunt(t), null);
         assert.equal(t.priv.wave, 10, 'still wave 10');

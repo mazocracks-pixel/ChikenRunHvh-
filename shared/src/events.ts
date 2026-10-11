@@ -14,23 +14,23 @@ export type HuntEventId = 'backrooms' | 'phoneMission';
  * and both build the same new level).
  */
 export const BACKROOMS_LEVEL = {
-  /** Rooms across and down, and how big each room is (metres): 16 x 16 x 6 m = 96 m square. */
-  gridWidth: 16,
-  gridHeight: 16,
+  /** Rooms across and down, and how big each room is (metres): 20 x 20 x 6 m = 120 m square. */
+  gridWidth: 20,
+  gridHeight: 20,
   roomSize: 6,
   wallHeight: 3,
   seed: 707,
   /** Share of the maze's walls knocked out afterwards (loops). */
   extraOpen: 0.14,
   /** Big open halls with pillars, long straight hallways, a ring hallway that loops. */
-  halls: { count: 4, size: 3 },
-  hallways: 4,
-  loop: { w: 5, h: 4 },
+  halls: { count: 6, size: 3 },
+  hallways: 6,
+  loop: { w: 6, h: 5 },
   /** The "wrong" spots: a flooded section, and a room in a sickly pink light. */
-  flood: { w: 4, h: 3 },
-  wrongRoom: { w: 2, h: 2, color: 0xff3a78 },
+  flood: { w: 5, h: 4 },
+  wrongRoom: { w: 3, h: 2, color: 0xff3a78 },
   /** Holes in the ceiling where monkeys wait to drop on you. */
-  ceilingGaps: 7,
+  ceilingGaps: 10,
 };
 
 /** How monkeys hunt (both events). Speeds are shares of a player's running speed. */
@@ -100,6 +100,8 @@ export interface HuntEventDef {
   pack?: { perRoom: number; respawnMs: number; cap: number; sleepShare: number; ceiling: number };
   /** Some crystals this far (metres) or more from the entrance. */
   farCrystals?: { share: number; distance: number };
+  /** Red crystals (in dangerous spots): taking one shows every monkey through walls for a while. */
+  redCrystals?: number;
 }
 
 /** A quicker run of an event for testing (dev: /backrooms small). */
@@ -119,21 +121,29 @@ export const CRYSTAL_HUNT = {
   spotRange: 11,
   /** How long the power stays out on the extra scare. */
   blackoutMs: 5000,
+  /**
+   * Every `every` crystals the team picks up, everyone runs faster (`player` more of their speed
+   * each level), and so do the monkeys (`monkey` more), up to `maxLevel` levels.
+   */
+  speedUp: { every: 50, player: 0.03, monkey: 0.025, maxLevel: 10 },
+  /** A red crystal shows every monkey through walls (and on the phone) for this long. */
+  redRevealMs: 90_000,
   events: {
     backrooms: {
       id: 'backrooms',
       name: 'The Backrooms',
       wave: 7,
       zone: 'backrooms',
-      crystals: 18,
-      timeMs: 540_000,
+      crystals: 500,
+      timeMs: 1_500_000,
       enemies: { monkey: 0 },
       smart: true,
       then: 'next',
-      reward: { money: 900, heal: true, freeUpgrade: true },
+      reward: { money: 1500, heal: true, freeUpgrade: true },
       extraScareAt: null,
-      pack: { perRoom: 0.05, respawnMs: 30_000, cap: 24, sleepShare: 0.3, ceiling: 5 },
-      farCrystals: { share: 0.35, distance: 55 },
+      pack: { perRoom: 0.05, respawnMs: 30_000, cap: 32, sleepShare: 0.02, ceiling: 7 },
+      farCrystals: { share: 0.3, distance: 70 },
+      redCrystals: 6,
     },
     phoneMission: {
       id: 'phoneMission',
@@ -161,6 +171,8 @@ export interface CrystalState {
   x: number;
   y: number;
   z: number;
+  /** A red one: it shows the monkeys through walls. */
+  red?: boolean;
 }
 
 /** What everyone sees of a running event. */
@@ -171,8 +183,17 @@ export interface HuntState {
   /** When the time runs out (server clock, ms). */
   endsAt: number;
   total: number;
-  /** The crystals still to find. */
-  crystals: CrystalState[];
+  /** Crystals still to find (purple ones; red ones don't count). */
+  left: number;
+  /**
+   * Every crystal still lying about: sent when the event starts (and to anyone joining); after
+   * that the `crystal` events take them away one by one, so it's left out.
+   */
+  crystals?: CrystalState[];
+  /** Speed-up levels so far (see CRYSTAL_HUNT.speedUp). */
+  speedLevel: number;
+  /** Every monkey shows through walls until then (a red crystal), or 0. */
+  revealUntil: number;
   /** The exit, once every crystal is taken. */
   portal: { x: number; z: number } | null;
   /** The power is out until then (the extra scare), or 0. */

@@ -13,6 +13,7 @@ import {
   type PlayerState,
   type WeaponId,
   DEFAULT_MELEE,
+  DEFAULT_MODS,
   withUpgrades,
   type MoveMods,
   type UpgradeEffects,
@@ -104,9 +105,15 @@ export class ServerPlayer {
   /** Chicken upgrades, in PvE modes only (null everywhere else). */
   upgrades: UpgradeEffects | null = null;
 
-  /** Movement modifiers: developer mods with the chicken upgrades on top. */
+  /** A story event's speed-ups (1 = normal). */
+  eventSpeed = 1;
+
+  /** Movement modifiers: developer mods with the chicken upgrades (and event speed-ups) on top. */
   moveMods(): MoveMods | null {
-    return withUpgrades(this.mods, this.upgrades);
+    const mods = withUpgrades(this.mods, this.upgrades);
+    if (this.eventSpeed === 1) return mods;
+    const base = mods ?? DEFAULT_MODS;
+    return { ...base, speed: base.speed * this.eventSpeed };
   }
   /** The anti-cheat caught them; they're on their way out. */
   removedForCheating = false;

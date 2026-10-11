@@ -16,7 +16,21 @@ const PHONE_PX = 220;
  */
 export class HuntView {
   private readonly root = new THREE.Group();
-  private readonly crystals = new Map<number, THREE.Group>();
+  /** Every crystal still lying about (purple and red), by id. */
+  private readonly crystals = new Map<number, CrystalState>();
+  /**
+   * Hundreds of crystals: one instanced mesh for the purple gems, one for the red ones, and one
+   * point cloud for all the glows. Three draw calls, however many there are.
+   */
+  private purple: THREE.InstancedMesh | null = null;
+  private red: THREE.InstancedMesh | null = null;
+  private halos: THREE.Points | null = null;
+  private dirty = true;
+  private readonly matrix = new THREE.Matrix4();
+  private readonly quat = new THREE.Quaternion();
+  private readonly pos = new THREE.Vector3();
+  private readonly scl = new THREE.Vector3(1, 1.6, 1);
+  private readonly up = new THREE.Vector3(0, 1, 0);
   private portal: THREE.Group | null = null;
   private state: HuntState | null = null;
   private zone: MapZone | null = null;
@@ -37,6 +51,11 @@ export class HuntView {
   private readonly layer = Object.assign(document.createElement('canvas'), { width: PHONE_PX, height: PHONE_PX });
   private readonly crystalGeo = new THREE.OctahedronGeometry(0.28, 0);
   private readonly crystalMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(PURPLE).multiplyScalar(1.5), fog: false });
+  private readonly redMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a2a).multiplyScalar(1.6), fog: false });
+  private readonly pointsMat: THREE.PointsMaterial;
+  /** Red crystal reveal: "Monkeys visible 1:12", and speed-up level. */
+  private readonly revealBar = h('div', { class: 'hunt-reveal', hidden: true });
+  private readonly speed = h('span', { class: 'hunt-speed' });
   private readonly haloMat: THREE.SpriteMaterial;
 
   constructor(
@@ -49,7 +68,8 @@ export class HuntView {
   ) {
     scene.add(this.root);
     this.phone.append(
-      h('div', { class: 'hunt-phone-top' }, this.title, this.timer),
+      h('div', { class: 'hunt-phone-top' }, this.title, this.speed, this.timer),
+      this.revealBar,
       this.canvas,
       h('div', { class: 'hunt-phone-bottom' }, this.counter, h('small', null, `${keyLabel(getKeybinds().phone)}: bigger · +/-: zoom`)),
     );
@@ -63,7 +83,14 @@ export class HuntView {
     grad.addColorStop(1, 'rgba(160, 60, 255, 0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
-    this.haloMat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending });
+    const glow = new THREE.CanvasTexture(c);
+    this.haloMat = new THREE.SpriteMaterial({ map: glow, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending });
+    this.pointsMat = new THREE.PointsMaterial({ map: glow, size: 1.6, sizeAttenuation: true, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, vertexColors: true });
+  }
+
+  /** The red crystal's reveal is on (every monkey shows through walls). */
+  revealing(serverNow: number): boolean {
+    return this.state !== null && serverNow < this.state.revealUntil;
   }
 
   get active(): boolean {
@@ -95,9 +122,13 @@ export class HuntView {
     }
     this.zone = zone;
     this.title.textContent = s.name;
-    const ids = new Set(s.crystals.map((c) => c.id));
-    for (const [id, g] of this.crystals) if (!ids.has(id)) this.removeCrystal(id, g);
-    for (const c of s.crystals) if (!this.crystals.has(c.id)) this.addCrystal(c);
+    this.speed.textContent = s.speedLevel > 0 ? `Speed Lv ${s.speedLevel}` : '';
+    // The full list comes at the start (and when you join); after that, only what's taken.
+    if (s.crystals) {
+      this.crystals.clear();
+      for (const c of s.crystals) this.crystals.set(c.id, c);
+      this.dirty = true;
+    }
     if (s.portal && !this.portal) {
       this.portal = this.buildPortal(s.portal);
       if (was) this.audio.play('portal', { x: s.portal.x, y: 1, z: s.portal.z }, 1);
@@ -105,10 +136,9 @@ export class HuntView {
   }
 
   /** A crystal was taken: a sparkle and a chime where it was. */
-  collect(e: { id: number; x: number; y: number; z: number }): void {
-    const g = this.crystals.get(e.id);
-    if (g) this.removeCrystal(e.id, g);
-    this.effects.feathers({ x: e.x, y: e.y, z: e.z }, PURPLE, 24);
+  collect(e: { id: number; x: number; y: number; z: number; red?: boolean }): void {
+    if (this.crystals.delete(e.id)) this.dirty = true;
+    this.effects.feathers({ x: e.x, y: e.y, z: e.z }, e.red ? 0xff3030 : PURPLE, e.red ? 40 : 24);
     this.audio.play('crystal', { x: e.x, y: e.y, z: e.z }, 1);
   }
 
@@ -123,20 +153,20 @@ export class HuntView {
   }
 
   /** Every frame: spin the crystals, swirl the portal, draw the phone. */
-  update(dt: number, me: THREE.Vector3, yaw: number, mates: readonly THREE.Vector3[], serverNow: number): boolean {
+  update(dt: number, me: THREE.Vector3, yaw: number, mates: readonly THREE.Vector3[], monkeys: readonly THREE.Vector3[], serverNow: number): boolean {
     this.time += dt;
-    for (const g of this.crystals.values()) {
-      g.children[0]!.rotation.y += dt * 1.6;
-      g.position.y = g.userData.y + Math.sin(this.time * 2 + g.userData.y * 7) * 0.08;
-    }
+    this.drawCrystals();
     if (this.portal) this.portal.children[1]!.rotation.z -= dt * 2.4;
     const s = this.state;
     if (!s) return false;
     const left = Math.max(0, Math.ceil((s.endsAt - serverNow) / 1000));
     this.timer.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
     this.timer.classList.toggle('urgent', left <= 30);
-    this.counter.textContent = s.portal ? 'Portal open: get out!' : `Crystals ${s.total - s.crystals.length}/${s.total}`;
-    this.drawPhone(me, yaw, mates);
+    this.counter.textContent = s.portal ? 'Portal open: get out!' : `Crystals ${s.total - s.left}/${s.total}`;
+    const seen = Math.max(0, Math.ceil((s.revealUntil - serverNow) / 1000));
+    this.revealBar.hidden = seen <= 0;
+    if (seen > 0) this.revealBar.textContent = `Monkeys visible ${Math.floor(seen / 60)}:${String(seen % 60).padStart(2, '0')}`;
+    this.drawPhone(me, yaw, mates, seen > 0 ? monkeys : []);
     return serverNow < s.blackoutUntil;
   }
 
@@ -147,28 +177,69 @@ export class HuntView {
     this.pulse.remove();
     this.crystalGeo.dispose();
     this.crystalMat.dispose();
+    this.redMat.dispose();
+    this.pointsMat.dispose();
     this.haloMat.map?.dispose();
     this.haloMat.dispose();
   }
 
   // ---------------------------------------------------------------------------
 
-  private addCrystal(c: CrystalState): void {
-    const g = new THREE.Group();
-    const gem = new THREE.Mesh(this.crystalGeo, this.crystalMat);
-    gem.scale.set(1, 1.6, 1);
-    const halo = new THREE.Sprite(this.haloMat);
-    halo.scale.setScalar(1.6);
-    g.add(gem, halo);
-    g.position.set(c.x, c.y, c.z);
-    g.userData.y = c.y;
-    this.root.add(g);
-    this.crystals.set(c.id, g);
+  /** Rebuilds the instance lists when crystals come or go, and spins them all every frame. */
+  private drawCrystals(): void {
+    const list = [...this.crystals.values()];
+    const purple = list.filter((c) => !c.red);
+    const red = list.filter((c) => c.red);
+    if (this.dirty) {
+      this.dirty = false;
+      this.purple = this.instances(this.purple, this.crystalMat, purple.length);
+      this.red = this.instances(this.red, this.redMat, red.length);
+      if (this.halos) {
+        this.halos.removeFromParent();
+        this.halos.geometry.dispose();
+      }
+      const positions = new Float32Array(list.length * 3);
+      const colors = new Float32Array(list.length * 3);
+      list.forEach((c, i) => {
+        positions.set([c.x, c.y, c.z], i * 3);
+        colors.set(c.red ? [1, 0.25, 0.25] : [0.75, 0.45, 1], i * 3);
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      this.halos = new THREE.Points(geo, this.pointsMat);
+      this.halos.frustumCulled = false;
+      this.root.add(this.halos);
+    }
+    const spin = this.time * 1.6;
+    const place = (mesh: THREE.InstancedMesh | null, items: CrystalState[], big: number) => {
+      if (!mesh) return;
+      items.forEach((c, i) => {
+        this.quat.setFromAxisAngle(this.up, spin + c.id);
+        this.pos.set(c.x, c.y + Math.sin(this.time * 2 + c.id) * 0.08, c.z);
+        this.scl.set(big, 1.6 * big, big);
+        mesh.setMatrixAt(i, this.matrix.compose(this.pos, this.quat, this.scl));
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+    place(this.purple, purple, 1);
+    place(this.red, red, 1.3);
   }
 
-  private removeCrystal(id: number, g: THREE.Group): void {
-    g.removeFromParent();
-    this.crystals.delete(id);
+  private instances(old: THREE.InstancedMesh | null, material: THREE.Material, count: number): THREE.InstancedMesh | null {
+    if (old && old.count >= count && count > 0) {
+      old.count = count;
+      return old;
+    }
+    if (old) {
+      old.removeFromParent();
+      old.dispose();
+    }
+    if (count === 0) return null;
+    const mesh = new THREE.InstancedMesh(this.crystalGeo, material, count);
+    mesh.frustumCulled = false;
+    this.root.add(mesh);
+    return mesh;
   }
 
   private buildPortal(at: { x: number; z: number }): THREE.Group {
@@ -184,7 +255,18 @@ export class HuntView {
   }
 
   private clear(): void {
-    for (const [id, g] of this.crystals) this.removeCrystal(id, g);
+    this.crystals.clear();
+    for (const m of [this.purple, this.red]) {
+      m?.removeFromParent();
+      m?.dispose();
+    }
+    this.purple = this.red = null;
+    if (this.halos) {
+      this.halos.removeFromParent();
+      this.halos.geometry.dispose();
+      this.halos = null;
+    }
+    this.dirty = true;
     if (this.portal) {
       this.portal.removeFromParent();
       for (const o of this.portal.children) {
@@ -246,7 +328,7 @@ export class HuntView {
     return Math.floor((x - zone.minX) / zone.roomSize) * 1000 + Math.floor((z - zone.minZ) / zone.roomSize);
   }
 
-  private drawPhone(me: THREE.Vector3, yaw: number, mates: readonly THREE.Vector3[]): void {
+  private drawPhone(me: THREE.Vector3, yaw: number, mates: readonly THREE.Vector3[], monkeys: readonly THREE.Vector3[]): void {
     const zone = this.zone;
     const s = this.state;
     if (!zone || !s) return;
@@ -277,10 +359,10 @@ export class HuntView {
     g.drawImage(layer, ox, oz, w, w);
     // Crystals: the ones in rooms you've seen, and any close enough for the phone to pick up.
     const beat = 3 + Math.sin(this.time * 5) * 1;
-    g.fillStyle = '#c070ff';
-    for (const c of s.crystals) {
+    for (const c of this.crystals.values()) {
       const close = Math.hypot(c.x - me.x, c.z - me.z) < PHONE.detectRange;
       if (!close && !this.rooms.has(this.roomOf(zone, c.x, c.z))) continue;
+      g.fillStyle = c.red ? '#ff4b4b' : '#c070ff';
       g.beginPath();
       g.arc(px(c.x), pz(c.z), beat, 0, Math.PI * 2);
       g.fill();
@@ -291,6 +373,13 @@ export class HuntView {
       g.beginPath();
       g.arc(px(s.portal.x), pz(s.portal.z), 6 + Math.sin(this.time * 4) * 1.5, 0, Math.PI * 2);
       g.stroke();
+    }
+    // A red crystal's reveal: every monkey on the map.
+    g.fillStyle = '#ff2a2a';
+    for (const m of monkeys) {
+      g.beginPath();
+      g.arc(px(m.x), pz(m.z), 3.5, 0, Math.PI * 2);
+      g.fill();
     }
     g.fillStyle = '#66dd77';
     for (const m of mates) {

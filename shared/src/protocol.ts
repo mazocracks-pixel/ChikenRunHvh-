@@ -649,7 +649,7 @@ export interface ServerToClientEvents {
   /** A monkey screeched (it has seen you; the pack is coming). */
   zombieAlert: (e: { pid: number }) => void;
   /** A crystal was taken (`pid` took it). */
-  crystal: (e: { id: number; pid: number; x: number; y: number; z: number }) => void;
+  crystal: (e: { id: number; pid: number; x: number; y: number; z: number; red: boolean }) => void;
   /** A scare noise for you (a monster saw you, the last crystal, the power going out). */
   huntScare: (e: { kind: HuntScare }) => void;
   /** The event is over: it worked, or it failed (time ran out / everyone died). */

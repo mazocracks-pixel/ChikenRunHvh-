@@ -35,6 +35,8 @@ export interface HuntHost {
   broadcast<E extends 'hunt' | 'crystal' | 'huntEnd'>(event: E, payload: unknown): void;
   scare(p: ServerPlayer, kind: HuntScare): void;
   message(text: string): void;
+  /** Everyone's running speed for the event (the speed-ups), 1 = normal. */
+  setSpeed(multiplier: number): void;
 }
 
 /** One running event's own extras (each event file adds its own on top of the hunt). */
@@ -73,6 +75,11 @@ export class CrystalHunt {
   private nextStep = 0;
   private nextReinforcement = 0;
   blackoutUntil = 0;
+  /** A red crystal: every monkey shows through walls until then. */
+  revealUntil = 0;
+  /** Crystals the team has picked up, and the speed-up level that bought (CRYSTAL_HUNT.speedUp). */
+  collected = 0;
+  speedLevel = 0;
   /** Set when it's over: why. */
   result: { success: boolean; reason: string } | null = null;
 
@@ -92,6 +99,7 @@ export class CrystalHunt {
     host.humans().forEach((p, i) => host.place(p, zone.start.x + (i % 2) * 1.2 - 0.6, zone.start.z + Math.floor(i / 2) * 1.2, now));
 
     const rooms = this.placeCrystals(small ? SMALL_TEST.crystals : event.def.crystals, small);
+    if (!small) this.placeRedCrystals(event.def.redCrystals ?? 0);
     const fromStart = (c: NavPoint) => Math.hypot(c.x - zone.start.x, c.z - zone.start.z);
 
     if (small) {
@@ -101,7 +109,7 @@ export class CrystalHunt {
       let left = total;
       // Asleep by some of the crystals (take one and it may wake).
       const sleepers = Math.min(left, Math.round(this.crystals.size * pack.sleepShare));
-      [...this.crystals.values()].slice(0, sleepers).forEach((c) => {
+      [...this.crystals.values()].filter((c) => !c.red).slice(0, sleepers).forEach((c) => {
         this.spawn('monkey', { x: c.x + 1.3, z: c.z }, now, 'sleep', { x: c.x, z: c.z });
         left--;
       });
@@ -127,12 +135,13 @@ export class CrystalHunt {
       }
     }
     event.onStart?.(this, now);
-    host.message(`📱 ${event.def.name}: find all ${this.crystals.size} purple crystals with your phone map, then get to the portal. ${Math.round((this.endsAt - now) / 60000)} minutes!${small ? ' (small test)' : ''}`);
-    this.emit();
+    host.setSpeed(1);
+    host.message(`📱 ${event.def.name}: find all ${this.left()} purple crystals with your phone map, then get to the portal. ${Math.round((this.endsAt - now) / 60000)} minutes!${small ? ' (small test)' : ''}`);
+    this.emit(true);
   }
 
   /**
-   * Crystals one per room, spread over the whole level: a share of them far from the entrance,
+   * Crystals spread, spread over the whole level: a share of them far from the entrance,
    * the rest anywhere (never the entrance or the exit). A small test keeps them close.
    */
   private placeCrystals(count: number, small: boolean): NavPoint[] {
@@ -141,6 +150,36 @@ export class CrystalHunt {
     const ok = (c: NavPoint) => fromStart(c) > 4 && Math.hypot(c.x - zone.exit.x, c.z - zone.exit.z) > 2;
     let rooms = shuffle(zone.cells.filter(ok));
     if (small) rooms = rooms.sort((a, b) => fromStart(a) - fromStart(b)).slice(0, Math.max(count, 8));
+    // Up to five spots a room (the middle and four round it, clear of pillars and walls), so a big
+    // level can hold hundreds.
+    const o = Math.min(1.6, zone.roomSize * 0.27);
+    const spots = rooms.flatMap((c) => [[0, 0], [o, 0], [-o, 0], [0, o], [0, -o]].map(([dx, dz]) => ({ x: c.x + dx!, z: c.z + dz! })));
+    const placed = this.pick(spots, count, small);
+    placed.forEach((s, i) => this.crystals.set(i + 1, { id: i + 1, x: round(s.x, 2), y: 0.9, z: round(s.z, 2) }));
+    return rooms;
+  }
+
+  /** Red crystals: in the dangerous places (dead ends far out, under ceiling holes). */
+  private placeRedCrystals(count: number): void {
+    const zone = this.zone;
+    const fromStart = (c: NavPoint) => Math.hypot(c.x - zone.start.x, c.z - zone.start.z);
+    const risky = shuffle([...zone.gaps, ...zone.corners.filter((c) => fromStart(c) > 35)]);
+    const taken = new Set([...this.crystals.values()].map((c) => `${Math.round(c.x)},${Math.round(c.z)}`));
+    let id = this.crystals.size + 1;
+    for (const c of risky) {
+      if (count <= 0) break;
+      if (taken.has(`${Math.round(c.x)},${Math.round(c.z)}`)) continue;
+      this.crystals.set(id, { id, x: round(c.x, 2), y: 0.9, z: round(c.z, 2), red: true });
+      id++;
+      count--;
+    }
+  }
+
+  /** `count` spots spread over the level: a share of them far from the entrance, the rest apart. */
+  private pick(spots: NavPoint[], count: number, small: boolean): NavPoint[] {
+    const zone = this.zone;
+    const fromStart = (c: NavPoint) => Math.hypot(c.x - zone.start.x, c.z - zone.start.z);
+    const rooms = spots;
     const farCfg = small ? undefined : this.def.farCrystals;
     const far = farCfg ? rooms.filter((c) => fromStart(c) >= farCfg.distance) : [];
     const wantFar = farCfg ? Math.min(far.length, Math.ceil(count * farCfg.share)) : 0;
@@ -160,8 +199,7 @@ export class CrystalHunt {
       }
       chosen.push(pool.splice(best, 1)[0]!);
     }
-    chosen.forEach((room, i) => this.crystals.set(i + 1, { id: i + 1, x: round(room.x, 2), y: 0.9, z: round(room.z, 2) }));
-    return rooms;
+    return chosen;
   }
 
   private spawn(kind: ZombieKind, at: NavPoint, now: number, state: MonkeyState | null, spot: NavPoint | null = null, y = 0): void {
@@ -175,24 +213,35 @@ export class CrystalHunt {
     }
   }
 
-  state(): HuntState {
+  /** `full`: with every crystal still lying about (at the start, and for anyone joining). */
+  state(full = false): HuntState {
     return {
       id: this.def.id,
       name: this.def.name,
       zone: this.zone.id,
       endsAt: this.endsAt,
       total: this.total,
-      crystals: [...this.crystals.values()],
+      left: this.left(),
+      ...(full ? { crystals: [...this.crystals.values()] } : {}),
       portal: this.portal,
       blackoutUntil: this.blackoutUntil,
+      speedLevel: this.speedLevel,
+      revealUntil: this.revealUntil,
     };
   }
 
   private total = 0;
 
-  emit(): void {
-    this.total ||= this.crystals.size;
-    this.host.broadcast('hunt', this.state());
+  /** Purple crystals still to find. */
+  private left(): number {
+    let n = 0;
+    for (const c of this.crystals.values()) if (!c.red) n++;
+    return n;
+  }
+
+  emit(full = false): void {
+    this.total ||= this.left();
+    this.host.broadcast('hunt', this.state(full));
   }
 
   /** Sounds the monkeys can hear right now. */
@@ -236,7 +285,22 @@ export class CrystalHunt {
       for (const c of this.crystals.values()) {
         if (Math.hypot(p.state.x - c.x, p.state.z - c.z) > r || Math.abs(p.state.y + 0.9 - c.y) > 1.6) continue;
         this.crystals.delete(c.id);
-        this.host.broadcast('crystal', { id: c.id, pid: p.pid, x: c.x, y: c.y, z: c.z });
+        this.host.broadcast('crystal', { id: c.id, pid: p.pid, x: c.x, y: c.y, z: c.z, red: c.red === true });
+        if (c.red) {
+          // Every monkey shows through walls for a while (for the whole team).
+          this.revealUntil = now + CRYSTAL_HUNT.redRevealMs;
+          this.host.message(`🔴 ${p.info.name} took a red crystal: every monkey shows through walls for ${Math.round(CRYSTAL_HUNT.redRevealMs / 1000)} s!`);
+          this.emit();
+          continue;
+        }
+        // Every so many crystals: everyone runs faster, and so do the monkeys.
+        this.collected++;
+        const up = CRYSTAL_HUNT.speedUp;
+        if (this.collected % up.every === 0 && this.speedLevel < up.maxLevel) {
+          this.speedLevel++;
+          this.host.setSpeed(1 + up.player * this.speedLevel);
+          this.host.message(`⚡ ${this.collected} crystals: speed level ${this.speedLevel}! You're faster... and so are the monkeys.`);
+        }
         // Taking a crystal right next to a sleeping monkey wakes it.
         for (const m of this.host.monsters()) {
           if (m.monkey?.state === 'sleep' && Math.hypot(m.p.state.x - c.x, m.p.state.z - c.z) < 4) {
@@ -244,7 +308,7 @@ export class CrystalHunt {
             m.monkey.goal = { x: c.x, z: c.z };
           }
         }
-        if (this.crystals.size === 0) {
+        if (this.left() === 0 && !this.portal) {
           this.portal = { ...this.zone.exit };
           for (const s of this.host.humans()) this.host.scare(s, 'lastCrystal');
           this.host.message('🌀 The last crystal! The exit portal is open: get to it!');
@@ -295,8 +359,14 @@ export class CrystalHunt {
     return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ;
   }
 
+  /** How much faster the monkeys are now (the speed-ups). */
+  get monkeySpeed(): number {
+    return 1 + CRYSTAL_HUNT.speedUp.monkey * this.speedLevel;
+  }
+
   private end(success: boolean, reason: string): void {
     this.result = { success, reason };
+    this.host.setSpeed(1);
     this.host.broadcast('huntEnd', { success, reason });
     this.host.broadcast('hunt', null);
   }

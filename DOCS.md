@@ -3,6 +3,37 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 19 (11 Oct): Backrooms about 6x the first one, 500 crystals, speed-ups, red crystals
+
+The user cut the big 7-step brief down to this (from "20x" to "6x", and about 500 crystals).
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Level 20 x 20 rooms of 6 m = 120 m (6.25x the first 48 m one): more halls, hallways, ceiling holes, a bigger flood | events.ts `BACKROOMS_LEVEL` |
+| 2 | 500 crystals (up to 5 a room, spread, 30% at least 70 m out), 25 min timer | events.ts, CrystalHunt.placeCrystals / pick |
+| 3 | Every 50 crystals (team count): everyone runs 3% faster, monkeys 2.5% faster, up to 10 levels; banner | `CRYSTAL_HUNT.speedUp`, ServerPlayer.eventSpeed, LocalPlayer.eventSpeed, MonkeyMind.speedBoost |
+| 4 | 6 red crystals in dangerous spots (under ceiling holes, far dead ends): every monkey through walls (and on the phone) for 1:30, with a countdown | `redCrystals`, `redRevealMs`, HuntView, Chicken.setMonkeyXray |
+| 5 | Performance: all crystals drawn as one instanced mesh per colour plus one point cloud of glows (3 draw calls); after the start, only pickups go over the network (not the 500-crystal list) | HuntView, CrystalHunt.state(full) |
+
+## Tests
+
+- 2 new tests:
+  - at 50 crystals, speed level 1, and you and the monkeys are faster;
+  - a red crystal gives 90 s of reveal.
+- The full run collects all 500.
+- The Phone Mission is now harder by its clock (200 s, a blackout) rather than by crystals.
+- Full run: **460/460 pass**, build OK.
+- Browser: 506 crystals (500 + 6 red), 20 monkeys, 180 fps; a red crystal gives "Monkeys visible 1:30", red monkeys through walls and red dots on the phone; no errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The countdown element had the same name as the fog-of-war method (typecheck caught it). | Renamed it. |
+| 2 | The old test "the Phone Mission has more crystals than the Backrooms" can't hold with 500. | It checks the shorter timer and the blackout. |
+
 # Batch 18 (11 Oct): bigger Backrooms, aggressive monkeys
 
 ## Plan

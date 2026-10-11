@@ -6053,3 +6053,8 @@ code {
 .hunt-pulse { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 7; box-shadow: inset 0 0 18vmin rgba(200, 0, 0, 0.85); }
 .hunt-pulse.on { animation: hunt-pulse 0.9s ease-out; }
 @keyframes hunt-pulse { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Red crystal reveal countdown, and the speed-up level, on the phone. */
+.hunt-reveal { margin: 0 8px 6px; padding: 3px 8px; font-weight: 800; color: #fff; background: rgba(190, 20, 20, 0.85); border-radius: 6px; text-align: center; }
+.hunt-reveal[hidden] { display: none; }
+.hunt-speed { font-weight: 800; color: #ffd166; }

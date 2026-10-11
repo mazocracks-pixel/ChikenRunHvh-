@@ -184,6 +184,9 @@ export function setBloodMoonEyes(on: boolean): void {
 }
 let bloodEyes = false;
 
+/** A monkey seen through walls (red crystal): flat red, drawn over everything. */
+const MONKEY_XRAY = new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false, fog: false });
+
 const flameMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa726).multiplyScalar(2.5), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
 
 /** A soft dark spot under the feet, used when real shadows are turned off. */
@@ -251,6 +254,8 @@ export class Chicken {
   private hat: THREE.Group | null = null;
   /** Built the first time this chicken is an event monkey. */
   private monkey: MonkeyModel | null = null;
+  private monkeyXray = false;
+  private readonly monkeyGhosts: THREE.Mesh[] = [];
   /** Gun skin from the appearance, and the one the gun in hand was built with. */
   private gunSkin = 'none';
   private builtSkin = 'none';
@@ -515,6 +520,24 @@ export class Chicken {
   kick(): void {
     this.recoil = 1;
     this.inspectTime = -1;
+  }
+
+  /** Red crystal (story events): this monkey shows through walls, in red. */
+  setMonkeyXray(on: boolean): void {
+    if (!this.monkey || on === this.monkeyXray) return;
+    this.monkeyXray = on;
+    if (on && this.monkeyGhosts.length === 0) {
+      this.monkey.root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || m.userData.ghost) return;
+        const ghost = new THREE.Mesh(m.geometry, MONKEY_XRAY);
+        ghost.userData.ghost = true;
+        ghost.renderOrder = 999;
+        m.add(ghost);
+        this.monkeyGhosts.push(ghost);
+      });
+    }
+    for (const g of this.monkeyGhosts) g.visible = on;
   }
 
   /** Exploder: its fuse is lit (it swells and shakes until it bursts). */

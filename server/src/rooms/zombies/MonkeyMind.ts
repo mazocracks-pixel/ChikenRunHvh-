@@ -37,6 +37,8 @@ export interface MonkeyHost {
   survivors(): ServerPlayer[];
   monkeys(): Iterable<Zombie>;
   noises(): readonly Noise[];
+  /** The event's speed-ups make them faster too (1 = normal). */
+  speedBoost(): number;
   /** It saw you (the first time is a scare), and it screeched to the pack. */
   spotted(z: Zombie, target: ServerPlayer): void;
   screech(z: Zombie): void;
@@ -81,7 +83,7 @@ export class MonkeyMind {
       this.think(z, m, target, dist, now);
     }
     // Speed: patrolling is slow, anything with a purpose is a run.
-    const speed = m.state === 'chase' || m.state === 'investigate' || m.state === 'search' ? MONKEYS.chaseSpeed : MONKEYS.walkSpeed;
+    const speed = (m.state === 'chase' || m.state === 'investigate' || m.state === 'search' ? MONKEYS.chaseSpeed : MONKEYS.walkSpeed) * this.host.speedBoost();
     if (p.mods?.speed !== speed) p.mods = sanitizeMods({ speed }, DEFAULT_MODS);
     if (m.state === 'chase') {
       this.leap(z, m, target, dist, now);

@@ -17,6 +17,7 @@ import {
   type PlayerState,
   type VehicleState,
   withUpgrades,
+  DEFAULT_MODS,
   type UpgradeEffects,
 } from '@game/shared';
 import { Chicken } from './models/Chicken';
@@ -57,6 +58,8 @@ export class LocalPlayer {
   mods: MoveMods | null = null;
   /** Chicken upgrades the server applies here (PvE modes only), predicted the same way. */
   upgrades: UpgradeEffects | null = null;
+  /** A story event's speed-ups (1 = normal), as the server applies them. */
+  eventSpeed = 1;
 
   constructor(scene: THREE.Scene, info: PlayerInfo, spawn: PlayerState) {
     this.server = spawn;
@@ -89,7 +92,14 @@ export class LocalPlayer {
     // A developer froze us: the server ignores our inputs, so don't predict any movement.
     if (this.server.frozen) { this.state.horizontalSpeed = 0; return; }
     if (this.car) this.drive(frame, world);
-    else stepPlayer(this.state, frame, SIM_DT, world, withUpgrades(this.mods, this.upgrades), hopMax, speed, this.tactical);
+    else stepPlayer(this.state, frame, SIM_DT, world, this.moveMods(), hopMax, speed, this.tactical);
+  }
+
+  private moveMods(): MoveMods | null {
+    const mods = withUpgrades(this.mods, this.upgrades);
+    if (this.eventSpeed === 1) return mods;
+    const base = mods ?? DEFAULT_MODS;
+    return { ...base, speed: base.speed * this.eventSpeed };
   }
 
   /** While driving, inputs steer the car and the chicken rides along. */
