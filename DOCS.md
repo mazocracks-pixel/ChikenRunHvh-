@@ -3,6 +3,53 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 16 (11 Oct): Zombie power-ups and the Exploder
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Power-ups: Nuke, Max Ammo, Insta-Kill (15 s), First Aid. 5% of zombies drop one, bosses always; they work for the whole team. Reuse the kill-drop system (new `PowerUpKind`, the old pickups untouched) | shared/src/pickups.ts, LootSystem, ZombieRoom |
+| 2 | Exploder: a new zombie from wave 4. It lights a fuse next to you and bursts. Shot first, its blast is the shooter's and hurts zombies (chain kills) | zombies.ts, ZombieBrain, ZombieRoom |
+| 3 | Client: glowing tokens seen through fog, announcement + sounds, Insta-Kill countdown; Exploder bloated pose that swells when lit, gurgle, fuse sound | Pickups.ts, LootView, GameSession, ZombieHud, Chicken, ZombieNight, Audio |
+| 4 | Tests and browser check | zombie.test.ts |
+
+## What was done
+
+- **Power-ups.**
+  - Drops: `LootSystem.dropAt` (the old `dropBonus` now uses it). Power-ups go through a new `GameRoom.applyPowerUp` hook; only ZombieRoom does anything with them, so other modes are unchanged.
+  - The four power-ups:
+    - **Nuke:** kills every zombie except the boss, and pays the kills. Its kills drop no more power-ups.
+    - **Max Ammo:** full magazines and eggs for everyone.
+    - **Insta-Kill:** any survivor hit kills, for 15 s (the countdown is on the HUD).
+    - **First Aid:** everyone back to full health.
+  - The settings (chance, lifetime, weights, Insta-Kill length) are in `ZOMBIE.powerUps`.
+  - The dev ESP keeps showing only the normal pickups.
+- **Exploder** (`ZOMBIE.exploder`, base stats in `ZOMBIE.base.exploder`):
+  - It appears from wave 4, about 10% of a wave, growing like the other specials.
+  - It has no claws. Within reach it lights a 0.75 s fuse (everyone hears it, and it swells and shakes), then bursts: 55 damage, 3.8 m.
+  - Killed before that, it still bursts, but the blast belongs to the shooter, so it hurts zombies, not survivors.
+  - It pays 4 coins.
+
+## Tests
+
+- 3 new zombie tests:
+  - Max Ammo, First Aid, Insta-Kill and Nuke each work for the whole team, and the Nuke drops nothing;
+  - a power-up on the ground is picked up by walking over it;
+  - the Exploder lights its fuse, bursts and hurts you;
+  - shot first next to a walker, its blast hurts the walker and not you.
+- Full run: **450/450 pass**, build OK.
+- Browser: all four tokens glow in the dark with their signs (Nuke, ammo, skull, cross); the announcement shows; no errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | In the power-up models, a three.js `position` was set with `Object.assign` (it's read-only); caught before running. | A small helper that calls `position.set`. |
+| 2 | Signs on the back of the spinning tokens were invisible (back faces culled). | Sign materials are double-sided. |
+| 3 | The first Exploder test killed every zombie, which ended the wave, so the zombie AI stopped. | The test keeps one zombie queued that never spawns. |
+| 4 | Orphan test server processes again. | Killed by PID. |
+
 # Batch 15 (11 Oct): something unique for Zombie mode, the Blood Moon
 
 ## Plan

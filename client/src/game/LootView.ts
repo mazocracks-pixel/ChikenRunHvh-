@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { BONUS, LOOT, PICKUP_INFO, rayAabb, type DropState, type LootState, type MapDef, type PickupKind, type Ray } from '@game/shared';
+import { BONUS, LOOT, dropInfo, isPowerUp, rayAabb, type DropState, type LootState, type MapDef, type PickupKind, type Ray } from '@game/shared';
 import type { Effects } from './Effects';
-import { buildMysteryBox, buildPickup } from './models/Pickups';
+import { buildMysteryBox, buildPickup, buildPowerUp } from './models/Pickups';
 
 interface Spot {
   group: THREE.Group;
@@ -43,7 +43,7 @@ export class LootView {
 
   /** Where every loot spot and bonus is and what it holds (developer ESP). */
   markers(): { x: number; y: number; z: number; phase: LootState['phase']; pickup: PickupKind | null }[] {
-    const drops = [...this.drops.values()].map(({ state: d }) => ({ x: d.x, y: d.y + BONUS.hover, z: d.z, phase: 1 as const, pickup: d.kind }));
+    const drops = [...this.drops.values()].flatMap(({ state: d }) => (isPowerUp(d.kind) ? [] : [{ x: d.x, y: d.y + BONUS.hover, z: d.z, phase: 1 as const, pickup: d.kind }]));
     return [...this.spots.map((s) => ({ x: s.x, y: s.y, z: s.z, phase: s.state.phase, pickup: s.state.pickup })), ...drops];
   }
 
@@ -52,9 +52,9 @@ export class LootView {
     if (this.drops.has(d.id)) return;
     const group = new THREE.Group();
     group.position.set(d.x, d.y, d.z);
-    const item = buildPickup(d.kind);
+    const item = isPowerUp(d.kind) ? buildPowerUp(d.kind) : buildPickup(d.kind);
     item.scale.setScalar(0.8);
-    const ring = new THREE.Mesh(RING, new THREE.MeshBasicMaterial({ color: PICKUP_INFO[d.kind].color, transparent: true, opacity: 0.55, depthWrite: false }));
+    const ring = new THREE.Mesh(RING, new THREE.MeshBasicMaterial({ color: dropInfo(d.kind).color, transparent: true, opacity: 0.55, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
     group.add(item, ring);

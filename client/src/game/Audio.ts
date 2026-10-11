@@ -61,7 +61,11 @@ export type SoundName =
   | 'reloadShell'
   | 'reloadBolt'
   | 'emptyHeavy'
-  | 'bloodMoon';
+  | 'bloodMoon'
+  | 'gurgle'
+  | 'fuse'
+  | 'powerUp'
+  | 'nuke';
 
 const VOLUME_KEY = 'chikengun:volume';
 const MUSIC_KEY = 'chikengun:music-volume';
@@ -683,6 +687,25 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.4, type: 'lowpass', freq: 1300 * pitch, to: 130, gain: 0.95 });
         this.tone(ctx, out, t, { dur: 0.22, type: 'sine', freq: 110 * pitch, to: 38, gain: 0.8 });
         this.bolt(ctx, out, t, 0.5, false);
+        break;
+      case 'gurgle':
+        // Exploder: wet bubbling in a swollen belly.
+        for (let i = 0; i < 5; i++) this.tone(ctx, out, t, { dur: 0.09, type: 'sine', freq: (140 + Math.random() * 90) * pitch, to: 260, gain: 0.16, delay: i * 0.11 + Math.random() * 0.04 });
+        this.burst(ctx, out, t, { dur: 0.6, type: 'lowpass', freq: 380, gain: 0.18 });
+        break;
+      case 'fuse':
+        // The fuse: a hiss rising in pitch, faster and faster beeps (about 3/4 of a second).
+        this.burst(ctx, out, t, { dur: 0.75, type: 'bandpass', freq: 1800, to: 5200, q: 2, gain: 0.25 });
+        for (const d of [0, 0.25, 0.42, 0.55, 0.64, 0.7]) this.tone(ctx, out, t, { dur: 0.05, type: 'square', freq: 1500, gain: 0.08, delay: d });
+        break;
+      case 'powerUp':
+        // A bright rising chime.
+        for (const [d, f] of [[0, 660], [0.09, 880], [0.18, 1320]] as const) this.tone(ctx, out, t, { dur: 0.35, type: 'triangle', freq: f, gain: 0.22, delay: d });
+        break;
+      case 'nuke':
+        // A deep far-off blast rolling away.
+        this.tone(ctx, out, t, { dur: 1.6, type: 'sine', freq: 60, to: 24, gain: 0.7 });
+        this.burst(ctx, out, t, { dur: 2.2, type: 'lowpass', freq: 600, to: 60, gain: 0.8 });
         break;
       case 'bloodMoon':
         // A distant bell tolling twice over a low swell (soft: it builds dread, it doesn't startle).

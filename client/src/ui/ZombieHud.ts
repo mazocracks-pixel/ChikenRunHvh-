@@ -26,6 +26,8 @@ export class ZombieHud {
   private readonly wave = h('div', { class: 'zb-wave' });
   private readonly sub = h('div', { class: 'zb-sub' });
   private readonly timer = h('div', { class: 'zb-timer' });
+  /** Insta-Kill countdown (a power-up). */
+  private readonly power = h('div', { class: 'zb-power', hidden: true });
   private readonly bossName = h('span', { class: 'zb-boss-name' });
   private readonly bossFill = h('i');
   private readonly boss = h('div', { class: 'zb-boss', hidden: true }, this.bossName, h('div', { class: 'zb-boss-bar' }, this.bossFill));
@@ -58,7 +60,7 @@ export class ZombieHud {
     this.shop.addEventListener('click', (e) => {
       if (e.target === this.shop) this.onShopClose?.();
     });
-    this.root.append(h('div', { class: 'zb-top' }, this.wave, this.sub, this.timer), this.boss, this.shop, this.over);
+    this.root.append(h('div', { class: 'zb-top' }, this.wave, this.sub, this.timer), this.power, this.boss, this.shop, this.over);
     container.append(this.root);
   }
 
@@ -124,6 +126,9 @@ export class ZombieHud {
     }
 
     this.root.classList.toggle('blood-moon', s.bloodMoon && s.phase !== 'over');
+    const insta = s.instaKillUntil === null ? 0 : Math.ceil((s.instaKillUntil - now) / 1000);
+    this.power.hidden = insta <= 0;
+    if (insta > 0) this.power.textContent = `INSTA-KILL ${insta}`;
     const boss = s.boss;
     this.boss.hidden = !boss || bossHealth === null;
     if (boss && bossHealth !== null) {

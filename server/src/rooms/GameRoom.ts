@@ -89,6 +89,7 @@ import {
   teamName,
   teamSwitchBlocked,
   modeUsesUpgrades,
+  type PowerUpKind,
   upgradeEffects,
   type UpgradeLevels,
 } from '@game/shared';
@@ -1256,6 +1257,9 @@ export class GameRoom {
     this.io.to(this.channel).emit('match', this.match);
     this.awardCoins(players);
   }
+
+  /** A power-up was picked up (only Zombie Apocalypse drops them). */
+  applyPowerUp(_kind: PowerUpKind, _p: ServerPlayer, _now: number): void {}
 
   /** Coins for one player's match (rooms with their own economy override this). */
   protected matchCoins(p: ServerPlayer, won: boolean): number {

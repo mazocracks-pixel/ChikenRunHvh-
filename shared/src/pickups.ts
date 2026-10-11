@@ -1,5 +1,26 @@
 export type PickupKind = 'medkit' | 'armor' | 'fuel' | 'eggs';
 
+/** Zombie Apocalypse power-ups: dropped by zombies now and then, they help the whole team. */
+export type PowerUpKind = 'nuke' | 'maxAmmo' | 'instaKill' | 'firstAid';
+/** Anything that can lie on the ground to be picked up. */
+export type DropKind = PickupKind | PowerUpKind;
+
+export const POWER_UP_INFO: Record<PowerUpKind, { name: string; color: number; text: string }> = {
+  nuke: { name: 'Nuke', color: 0xffa726, text: 'Every zombie on the map is dead' },
+  maxAmmo: { name: 'Max Ammo', color: 0x66bb6a, text: 'Everyone has full ammo and eggs' },
+  instaKill: { name: 'Insta-Kill', color: 0xef5350, text: 'Every hit kills, for a few seconds' },
+  firstAid: { name: 'First Aid', color: 0x42a5f5, text: 'Everyone back to full health' },
+};
+
+export function isPowerUp(kind: DropKind): kind is PowerUpKind {
+  return kind in POWER_UP_INFO;
+}
+
+/** Name and colour of anything on the ground. */
+export function dropInfo(kind: DropKind): { name: string; color: number } {
+  return isPowerUp(kind) ? POWER_UP_INFO[kind] : PICKUP_INFO[kind];
+}
+
 export const PICKUP_INFO: Record<PickupKind, { name: string; color: number }> = {
   medkit: { name: 'Medkit', color: 0xe53935 },
   armor: { name: 'Armor', color: 0x42a5f5 },

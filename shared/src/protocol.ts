@@ -8,7 +8,7 @@ import type { MapId, Team } from './maps/types';
 import { round } from './math';
 import type { ModeId } from './modes';
 import type { InputFrame, MoveState } from './physics';
-import type { LootPhase, PickupKind } from './pickups';
+import type { LootPhase, DropKind, PickupKind, PowerUpKind } from './pickups';
 import type { ProjectileKind } from './projectiles';
 import { weaponAt, weaponIndex, type WeaponId } from './weapons';
 import type { ZombieGear, ZombieJoin, ZombieKind, ZombieState } from './zombies';
@@ -296,7 +296,7 @@ export interface LootState {
 /** A bonus pickup dropped by a kill. `y` is the ground it lies on. */
 export interface DropState {
   id: number;
-  kind: PickupKind;
+  kind: DropKind;
   x: number;
   y: number;
   z: number;
@@ -479,7 +479,7 @@ export interface PickupEvent {
   /** Loot box id, or -1 for a kill bonus. */
   lootId: number;
   pid: number;
-  pickup: PickupKind;
+  pickup: DropKind;
 }
 
 /** [pid, kills, deaths, score] */
@@ -639,6 +639,10 @@ export interface ServerToClientEvents {
   zombieGear: (g: ZombieGear) => void;
   /** Zombie Apocalypse: a zombie was hit (it flinches; a headshot snaps its head back). */
   zombieHit: (e: { pid: number; headshot: boolean }) => void;
+  /** Zombie Apocalypse: an Exploder lit its fuse (it bursts in a moment). */
+  zombieFuse: (e: { pid: number }) => void;
+  /** Zombie Apocalypse: someone picked up a power-up (it works for the whole team). */
+  zombiePower: (e: { kind: PowerUpKind; pid: number }) => void;
   blockPlaced: (block: BlockState) => void;
   blockRemoved: (blockId: number) => void;
   /** The server removed you from the room (e.g. kicked); go back to the lobby. */

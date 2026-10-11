@@ -21,6 +21,7 @@ const VOICES: Record<ZombieKind, { call: SoundName; callVolume: number; every: n
   walker: { call: 'groan', callVolume: 0.6, every: 3.5, spot: 'screech', spotVolume: 0.6, step: 'zstep', stepVolume: 0.45, stepEvery: 0.5 },
   sprinter: { call: 'hiss', callVolume: 0.55, every: 3, spot: 'screech', spotVolume: 0.75, step: 'zstepLight', stepVolume: 0.5, stepEvery: 0.24 },
   runner: { call: 'pant', callVolume: 0.6, every: 2.5, spot: 'screech', spotVolume: 0.65, step: 'zstepLight', stepVolume: 0.45, stepEvery: 0.2 },
+  exploder: { call: 'gurgle', callVolume: 0.6, every: 2.5, spot: 'gurgle', spotVolume: 0.8, step: 'zstep', stepVolume: 0.5, stepEvery: 0.36 },
   brute: { call: 'roar', callVolume: 0.8, every: 4.5, spot: 'roar', spotVolume: 1, step: 'zstepHeavy', stepVolume: 0.7, stepEvery: 0.6 },
   boss: { call: 'bossRoar', callVolume: 0.9, every: 5, spot: 'bossRoar', spotVolume: 1.1, step: 'zstepHeavy', stepVolume: 0.9, stepEvery: 0.55 },
 };

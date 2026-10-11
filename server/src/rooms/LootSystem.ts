@@ -7,6 +7,8 @@ import {
   makeRay,
   rayAabb,
   raycastWorld,
+  isPowerUp,
+  type DropKind,
   type DropState,
   type LootPhase,
   type LootState,
@@ -82,10 +84,15 @@ export class LootSystem {
 
   /** A kill: a random pickup falls to the ground where the victim was. */
   dropBonus(at: Vec3, now: number): void {
+    this.dropAt(at, randomPickup(!this.room.mode.weapons), now, BONUS.lifetimeMs);
+  }
+
+  /** Drops `kind` where `at` is (it lands on whatever is below), for `lifetimeMs`. */
+  dropAt(at: Vec3, kind: DropKind, now: number, lifetimeMs: number): void {
     // Land on whatever is below (a roof, a crate, or the ground).
     const below = raycastWorld(makeRay({ x: at.x, y: at.y + 0.5, z: at.z }, { x: 0, y: -1, z: 0 }), this.room.world, at.y + 1);
     const y = below ? Math.max(0, at.y + 0.5 - below.t) : 0;
-    const drop = { id: this.nextDropId++, kind: randomPickup(!this.room.mode.weapons), x: at.x, y, z: at.z, until: now + BONUS.lifetimeMs };
+    const drop = { id: this.nextDropId++, kind, x: at.x, y, z: at.z, until: now + lifetimeMs };
     this.drops.set(drop.id, drop);
     while (this.drops.size > BONUS.max) this.removeDrop([...this.drops.keys()][0]!, 0);
     this.room.io.to(this.room.channel).emit('drop', { id: drop.id, kind: drop.kind, x: drop.x, y: drop.y, z: drop.z });
@@ -138,8 +145,11 @@ export class LootSystem {
         continue;
       }
       for (const p of this.room.players.values()) {
-        if (!p.alive || p.vehicle || !this.inReach({ x: d.x, z: d.z, floor: d.y }, p) || !this.useful(d.kind, p)) continue;
-        this.apply(d.kind, p);
+        // Power-ups are for survivors only, and the room decides what they do.
+        if (!p.alive || p.vehicle || p.info.undead || !this.inReach({ x: d.x, z: d.z, floor: d.y }, p)) continue;
+        if (isPowerUp(d.kind)) this.room.applyPowerUp(d.kind, p, now);
+        else if (!this.useful(d.kind, p)) continue;
+        else this.apply(d.kind, p);
         this.room.io.to(this.room.channel).emit('pickup', { lootId: -1, pid: p.pid, pickup: d.kind });
         this.removeDrop(d.id, p.pid);
         break;

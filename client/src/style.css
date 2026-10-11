@@ -6025,3 +6025,10 @@ code {
 .zb-top { transition: background-color 2s ease, box-shadow 2s ease; }
 .blood-moon .zb-top { background-color: rgba(70, 6, 8, 0.85); box-shadow: 0 0 24px rgba(200, 20, 20, 0.35); }
 .blood-moon .zb-top, .blood-moon .zb-top * { color: #ffd2cc; }
+
+/* Insta-Kill power-up countdown, under the wave banner. */
+.zb-power {
+  align-self: center; margin-top: 6px; padding: 3px 12px; font-family: var(--display); font-size: 1rem; letter-spacing: 0.06em;
+  color: #fff; background: rgba(170, 30, 30, 0.85); border: 2px solid #1a0d0d; border-radius: 999px;
+}
+.zb-power[hidden] { display: none; }

@@ -84,6 +84,9 @@ export interface Zombie {
   followUpAt: number;
   /** When everyone was last told it flinched. */
   lastFlinchAt: number;
+  /** Exploder: when its lit fuse runs out (0 = not lit), and whether it has burst. */
+  fuseAt: number;
+  burst?: boolean;
   /** When it died (to remove the body after a moment). */
   diedAt: number | null;
 }
@@ -105,6 +108,10 @@ export interface ZombieHost {
   summon(z: Zombie, now: number): void;
   /** Every zombie in the room. */
   zombies(): Iterable<Zombie>;
+  /** Exploder: the fuse is lit (everyone hears it). */
+  fuse(z: Zombie): void;
+  /** Exploder: it bursts. */
+  burst(z: Zombie, now: number): void;
 }
 
 /**
@@ -161,6 +168,16 @@ export class ZombieBrain {
       frozen = this.boss(z, dist, now);
     }
     if (z.kind === 'sprinter') this.sprint(z, dist, now);
+    // Exploder: in reach, it lights its fuse; when the fuse runs out, it bursts.
+    if (z.kind === 'exploder') {
+      if (z.fuseAt === 0 && dist <= z.stats.reach + 0.4) {
+        z.fuseAt = now + ZOMBIE.exploder.fuseMs;
+        this.host.fuse(z);
+      } else if (z.fuseAt > 0 && now >= z.fuseAt) {
+        this.host.burst(z, now);
+        return;
+      }
+    }
     // Just shot: it reels for a moment (longer after a headshot), and can't hit back.
     const staggered = now < z.staggerUntil;
 
@@ -185,7 +202,7 @@ export class ZombieBrain {
       moveX = dist > gap ? (dx / dist) * 0.25 : dist < gap * 0.6 ? -(dx / dist) * 0.5 : 0;
       moveZ = dist > gap ? (dz / dist) * 0.25 : dist < gap * 0.6 ? -(dz / dist) * 0.5 : 0;
       const dir = { x: aim.x / aimLen, y: aim.y / aimLen, z: aim.z / aimLen };
-      if (now >= z.nextAttack && !staggered) {
+      if (now >= z.nextAttack && !staggered && z.kind !== 'exploder') {
         z.nextAttack = now + z.stats.attackMs;
         this.host.swing(z, dir, now);
         // Runners claw twice in quick succession.

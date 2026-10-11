@@ -82,6 +82,8 @@ import {
   teamSwitchBlocked,
   type TrainingGiveRequest,
   upgradeEffects,
+  POWER_UP_INFO,
+  isPowerUp,
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { getSettings } from '../settings';
@@ -1410,6 +1412,18 @@ export class GameSession {
     this.on('money', (e) => (this.money = e.money));
     this.on('zombie', (s) => this.onZombieState(s));
     this.on('zombieHit', (e) => this.remotes.get(e.pid)?.chicken.flinch(e.headshot));
+    this.on('zombieFuse', (e) => {
+      const r = this.remotes.get(e.pid);
+      r?.chicken.fuse();
+      if (r) this.ctx.audio.play('fuse', r.position, 1);
+    });
+    this.on('zombiePower', (e) => {
+      const info = POWER_UP_INFO[e.kind];
+      const who = e.pid === this.selfPid ? 'You' : (this.infos.get(e.pid)?.name ?? 'Someone');
+      this.ctx.hud.announce(info.name.toUpperCase(), `${who}: ${info.text}`, 'good');
+      this.ctx.audio.play(e.kind === 'nuke' ? 'nuke' : 'powerUp', undefined, 0.9);
+      if (e.kind === 'nuke') this.rig.addShake(0.6);
+    });
     this.on('zombieGear', (g) => this.zombieHud?.setGear(g));
     this.on('playerLeft', (pid) => {
       this.infos.delete(pid);
@@ -1682,7 +1696,8 @@ export class GameSession {
   }
 
   private onPickup(e: PickupEvent): void {
-    if (e.pid !== this.selfPid) return;
+    // Power-ups are announced to everyone (zombiePower).
+    if (e.pid !== this.selfPid || isPowerUp(e.pickup)) return;
     const text = PICKUP_TEXT[e.pickup] ?? 'Pickup!';
     this.ctx.hud.toast(e.lootId === -1 ? `Kill bonus: ${text}` : text, 'good');
     this.ctx.audio.play('pickup');

@@ -31,6 +31,10 @@ import {
   type ZombieKind,
   type ZombiePhase,
   type ZombieState,
+  POWER_UP_INFO,
+  PROJECTILES,
+  round,
+  type PowerUpKind,
 } from '@game/shared';
 import { GameRoom, type PlayerProfile } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
@@ -42,12 +46,22 @@ function overlaps(a: Aabb, b: Aabb): boolean {
   return a.minX < b.maxX - EPS && a.maxX > b.minX + EPS && a.minY < b.maxY - EPS && a.maxY > b.minY + EPS && a.minZ < b.maxZ - EPS && a.maxZ > b.minZ + EPS;
 }
 
+/** A random power-up, by ZOMBIE.powerUps.weights. */
+function randomPowerUp(): PowerUpKind {
+  const w = ZOMBIE.powerUps.weights;
+  const kinds = Object.keys(w) as PowerUpKind[];
+  let r = Math.random() * kinds.reduce((sum, k) => sum + w[k], 0);
+  for (const k of kinds) if ((r -= w[k]) < 0) return k;
+  return 'maxAmmo';
+}
+
 const BOSS_NAMES = ['Rotten King', 'The Gravedigger', 'Mother Hen', 'Lord Drumstick', 'The Plague Rooster'];
 
 /** How each kind of zombie looks (the chicken skin and hat). */
 const LOOKS: Record<ZombieKind, Appearance> = {
   walker: { skin: 'zombie', hat: 'none', beak: 'black', shoes: 'none' },
   sprinter: { skin: 'shadow', hat: 'none', beak: 'red', shoes: 'none' },
+  exploder: { skin: 'fire', hat: 'none', beak: 'red', shoes: 'none' },
   runner: { skin: 'mint', hat: 'none', beak: 'red', shoes: 'none' },
   brute: { skin: 'shadow', hat: 'helmet', beak: 'black', shoes: 'black' },
   boss: { skin: 'lava', hat: 'devil', beak: 'black', shoes: 'black' },
@@ -78,6 +92,10 @@ export class ZombieRoom extends GameRoom {
   private readonly upgrades = new Map<number, Record<string, number>>();
   /** Coins each survivor has earned this game (pid → coins). */
   private readonly coins = new Map<number, number>();
+  /** Insta-Kill power-up: on until then (server clock). */
+  private instaKillUntil = 0;
+  /** The Nuke is killing everything (its kills drop no more power-ups). */
+  private nuking = false;
   private readonly brain: ZombieBrain;
   private readonly host: ZombieHost;
 
@@ -98,6 +116,8 @@ export class ZombieRoom extends GameRoom {
       slam: (z, now) => this.slam(z, now),
       summon: (z, now) => this.summonHelp(z, now),
       zombies: () => this.zombies.values(),
+      fuse: (z) => this.io.to(this.channel).emit('zombieFuse', { pid: z.p.pid }),
+      burst: (z, now) => this.burst(z, z.p, now),
     };
     this.brain = new ZombieBrain(this.host);
   }
@@ -142,6 +162,7 @@ export class ZombieRoom extends GameRoom {
       alive: this.aliveZombies(),
       left: this.queue.length + this.aliveZombies(),
       kills: this.kills,
+      instaKillUntil: this.instaKillUntil > performance.now() ? this.instaKillUntil : null,
       boss: boss?.alive ? { pid: boss.pid, name: boss.info.name } : null,
       bloodMoon: this.bloodMoon,
     };
@@ -191,6 +212,8 @@ export class ZombieRoom extends GameRoom {
     this.clearBlocks();
     this.upgrades.clear();
     this.coins.clear();
+    this.instaKillUntil = 0;
+    this.loot.reset();
     this.kills = 0;
     this.wave = 1;
     this.bossPid = 0;
@@ -325,7 +348,7 @@ export class ZombieRoom extends GameRoom {
     const b = ZOMBIE.bloodMoon;
     const stats = this.bloodMoon ? { ...base, speed: base.speed * b.speed, hp: Math.round(base.hp * b.hp) } : base;
     const boss = kind === 'boss';
-    const title = boss ? `☠️ ${BOSS_NAMES[(bossNumber(this.wave) - 1) % BOSS_NAMES.length]}` : kind === 'brute' ? '🧟 Brute' : kind === 'runner' ? '🧟 Runner' : kind === 'sprinter' ? '🧟 Sprinter' : '🧟 Zombie';
+    const title = boss ? `☠️ ${BOSS_NAMES[(bossNumber(this.wave) - 1) % BOSS_NAMES.length]}` : kind === 'brute' ? '🧟 Brute' : kind === 'runner' ? '🧟 Runner' : kind === 'sprinter' ? '🧟 Sprinter' : kind === 'exploder' ? '🧟 Exploder' : '🧟 Zombie';
     const res = this.join(null, { userId: null, name: title, appearance: LOOKS[kind], loadout: ['knife'], bot: true, team: 2, rank: 1 });
     if (!res.ok) return null;
     const p = this.players.get(res.selfPid)!;
@@ -361,6 +384,7 @@ export class ZombieRoom extends GameRoom {
       jumpTicks: 0,
       nextSlam: now + ZOMBIE.boss.slam.everyMs,
       slamAt: 0,
+      fuseAt: 0,
       summoned: false,
       sprintUntil: 0,
       nextSprint: now + 1500,
@@ -430,6 +454,8 @@ export class ZombieRoom extends GameRoom {
       // Your gun upgrades add damage; the health bar is a share of the zombie's real health.
       if (attacker && cause in WEAPONS) amount *= upgradeMultiplier(this.upgrades.get(attacker.pid)?.[cause] ?? 0);
       amount *= 100 / z.maxHp;
+      // Insta-Kill power-up: any survivor's hit finishes it.
+      if (attacker && !attackerZombie && performance.now() < this.instaKillUntil) amount = 1e6;
       if (amount > 0 && victim.alive) this.stagger(z, headshot, now);
     } else if (attackerZombie && cause === 'knife') {
       // A zombie's claws hurt as much as its wave says; a brute's knock you back.
@@ -438,6 +464,42 @@ export class ZombieRoom extends GameRoom {
       if (z?.kind === 'brute' && victim.alive) this.knockBack(victim, z.p, ZOMBIE.brute.knockback);
     }
     super.damage(victim, attacker, amount, headshot, cause, from, now, flags);
+  }
+
+  /**
+   * An Exploder bursts. The blast is `owner`'s: the Exploder's own (it hurts survivors), or the
+   * survivor who shot it (it hurts zombies).
+   */
+  private burst(z: Zombie, owner: ServerPlayer, now: number): void {
+    if (z.burst) return;
+    z.burst = true;
+    const e = ZOMBIE.exploder;
+    const at = { x: z.p.state.x, y: z.p.state.y + 0.8, z: z.p.state.z };
+    this.io.to(this.channel).emit('explode', { id: 0, kind: 'egg', x: round(at.x, 2), y: round(at.y, 2), z: round(at.z, 2), scale: e.radius / PROJECTILES.egg.splashRadius });
+    this.projectiles.blastAt(at, { ...PROJECTILES.egg, damage: e.damage, splashRadius: e.radius, knockback: e.knockback, selfDamageScale: 0 }, owner, 'egg', now);
+    if (z.p.alive) this.kill(z.p, null, 'egg', false, now);
+  }
+
+  /** A power-up: it works for everyone still standing. */
+  override applyPowerUp(kind: PowerUpKind, p: ServerPlayer, now: number): void {
+    if (p.info.undead) return;
+    if (kind === 'nuke') {
+      this.nuking = true;
+      for (const z of [...this.zombies.values()]) if (z.p.alive && z.kind !== 'boss') this.damage(z.p, p, 1e6, false, 'egg', z.p.state, now);
+      this.nuking = false;
+    } else if (kind === 'maxAmmo') {
+      for (const s of this.survivors()) {
+        for (const id of s.info.loadout) s.mags.set(id, s.magazineSize(id));
+        s.eggs = Math.max(s.eggs, PLAYER.maxEggs);
+      }
+    } else if (kind === 'instaKill') {
+      this.instaKillUntil = now + ZOMBIE.powerUps.instaKillMs;
+    } else {
+      for (const s of this.survivors()) s.hp = PLAYER.maxHealth;
+    }
+    this.io.to(this.channel).emit('zombiePower', { kind, pid: p.pid });
+    this.systemMessage(`${p.info.name} picked up ${POWER_UP_INFO[kind].name}: ${POWER_UP_INFO[kind].text.toLowerCase()}!`);
+    this.emitState(now);
   }
 
   /** A zombie reels from a hit (less for big ones); everyone sees it flinch. */
@@ -482,6 +544,12 @@ export class ZombieRoom extends GameRoom {
     z.diedAt = now;
     this.kills++;
     if (attacker) this.earn(attacker, ZOMBIE.coins.perKill[z.kind]);
+    // An Exploder shot dead still bursts: the shooter's blast, so it hurts zombies round it.
+    if (z.kind === 'exploder' && !z.burst) this.burst(z, attacker && !attacker.info.undead ? attacker : z.p, now);
+    // Now and then a power-up falls out (a boss always drops one); none from the Nuke's own kills.
+    if (!this.nuking && (z.kind === 'boss' || Math.random() < ZOMBIE.powerUps.chance)) {
+      this.loot.dropAt({ x: victim.state.x, y: victim.state.y, z: victim.state.z }, randomPowerUp(), now, ZOMBIE.powerUps.lifetimeMs);
+    }
     // Money for the kill: all of it to who did it, a quarter to everyone else still standing.
     for (const p of this.survivors()) {
       const share = p === attacker ? z.stats.reward : Math.round(z.stats.reward * 0.25);

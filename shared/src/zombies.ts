@@ -7,7 +7,7 @@ import type { WeaponId } from './weapons';
  * client only shows them.
  */
 
-export type ZombieKind = 'walker' | 'sprinter' | 'runner' | 'brute' | 'boss';
+export type ZombieKind = 'walker' | 'sprinter' | 'runner' | 'brute' | 'exploder' | 'boss';
 
 export interface ZombieBase {
   /** Health at wave 1 (a boss: before the boss-number bonus). */
@@ -46,12 +46,25 @@ export const ZOMBIE = {
   /** Zombies per wave (not counting the boss). */
   count: { base: 6, perWave: 2.5, cap: 60 },
   /** Which zombies show up, from which wave, and how much their share grows every wave after that. */
-  mix: { sprinterFromWave: 2, sprinterShare: 0.18, runnerFromWave: 3, runnerShare: 0.25, bruteFromWave: 5, bruteShare: 0.12, growth: 0.012, maxShare: { sprinter: 0.3, runner: 0.35, brute: 0.22 } },
+  mix: { sprinterFromWave: 2, sprinterShare: 0.18, runnerFromWave: 3, runnerShare: 0.25, bruteFromWave: 5, bruteShare: 0.12, exploderFromWave: 4, exploderShare: 0.1, growth: 0.012, maxShare: { sprinter: 0.3, runner: 0.35, brute: 0.22, exploder: 0.2 } },
+  /**
+   * Exploder: close enough, it lights a fuse (`fuseMs`), then bursts: a blast that hurts
+   * survivors. Shot dead first, it bursts anyway, but the blast is the shooter's: it hurts the
+   * zombies round it instead.
+   */
+  exploder: { fuseMs: 750, damage: 55, radius: 3.8, knockback: 11 },
+  /**
+   * Power-ups a zombie may drop when it dies (bosses always drop one): picked up by walking
+   * over them, and they work for every survivor. `weights` sets how common each one is.
+   */
+  powerUps: { chance: 0.05, lifetimeMs: 20_000, instaKillMs: 15_000, weights: { nuke: 1, maxAmmo: 3, instaKill: 2, firstAid: 3 } },
   /** Sprinters shamble, then sprint in short bursts when close (speed as a share of a player's run). */
   sprint: { speed: 1.3, burstMs: 900, restMs: [1800, 3200] as readonly [number, number], within: 30, leapWithin: 7 },
   base: {
     walker: { hp: 60, speed: 0.55, damage: 10, attackMs: 950, reach: 1.7, reward: 12 },
     sprinter: { hp: 45, speed: 0.45, damage: 9, attackMs: 800, reach: 1.6, reward: 20 },
+    // Exploder: no claws; it runs up, lights its fuse and bursts (see `exploder` below).
+    exploder: { hp: 40, speed: 0.72, damage: 0, attackMs: 1000, reach: 1.9, reward: 22 },
     runner: { hp: 35, speed: 0.95, damage: 6, attackMs: 700, reach: 1.6, reward: 18 },
     brute: { hp: 240, speed: 0.5, damage: 26, attackMs: 1300, reach: 2.1, reward: 45 },
     boss: { hp: 1400, speed: 0.7, damage: 36, attackMs: 1100, reach: 2.8, reward: 400 },
@@ -76,7 +89,7 @@ export const ZOMBIE = {
    * per wave cleared by everyone standing, and for the boss to everyone standing. Paid at game over.
    */
   coins: {
-    perKill: { walker: 2, sprinter: 3, runner: 3, brute: 6, boss: 0 } satisfies Record<ZombieKind, number>,
+    perKill: { walker: 2, sprinter: 3, runner: 3, brute: 6, exploder: 4, boss: 0 } satisfies Record<ZombieKind, number>,
     wave: { base: 10, perWave: 2 },
     boss: 100,
     max: 1000,
@@ -121,8 +134,13 @@ export function waveKinds(wave: number): ZombieKind[] {
   const runners = wave >= m.runnerFromWave ? Math.round(n * share(m.runnerFromWave, m.runnerShare, m.maxShare.runner)) : 0;
   const brutes = wave >= m.bruteFromWave ? Math.max(1, Math.round(n * share(m.bruteFromWave, m.bruteShare, m.maxShare.brute))) : 0;
   const sprinters = wave >= m.sprinterFromWave ? Math.max(1, Math.round(n * share(m.sprinterFromWave, m.sprinterShare, m.maxShare.sprinter))) : 0;
+  const exploders = wave >= m.exploderFromWave ? Math.max(1, Math.round(n * share(m.exploderFromWave, m.exploderShare, m.maxShare.exploder))) : 0;
   const kinds: ZombieKind[] = [];
-  for (let i = 0; i < n; i++) kinds.push(i < brutes ? 'brute' : i < brutes + runners ? 'runner' : i < brutes + runners + sprinters ? 'sprinter' : 'walker');
+  for (let i = 0; i < n; i++) {
+    let k = i;
+    const kind: ZombieKind = (k -= brutes) < 0 ? 'brute' : (k -= runners) < 0 ? 'runner' : (k -= sprinters) < 0 ? 'sprinter' : (k -= exploders) < 0 ? 'exploder' : 'walker';
+    kinds.push(kind);
+  }
   // Shuffled in a fixed pattern, so every wave plays the same way for everyone.
   const mixed = kinds.map((kind, i) => ({ kind, order: (i * 7919 + wave * 104729) % 1009 })).sort((a, b) => a.order - b.order).map((x) => x.kind);
   if (isBossWave(wave)) mixed.push('boss');
@@ -215,6 +233,8 @@ export interface ZombieState {
   left: number;
   /** Zombies the survivors have killed. */
   kills: number;
+  /** Insta-Kill power-up: on until then (server clock, ms), or null. */
+  instaKillUntil: number | null;
   /** The boss of this wave: its health is in the normal player state (hp 0-100 = its share of health). */
   boss: { pid: number; name: string } | null;
   /** This wave (or the one the shop is counting down to) is a Blood Moon. */

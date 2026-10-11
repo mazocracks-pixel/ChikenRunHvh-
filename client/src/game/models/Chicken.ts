@@ -275,6 +275,8 @@ export class Chicken {
   private inspectTime = -1;
   /** Seconds since a hit (zombies flinch), or -1; and whether it was in the head. */
   private flinchTime = -1;
+  /** Seconds since an Exploder's fuse was lit, or -1. */
+  private fuseTime = -1;
   private flinchHead = false;
 
   constructor(appearance: Appearance, team: Team = 0) {
@@ -504,6 +506,11 @@ export class Chicken {
     this.inspectTime = -1;
   }
 
+  /** Exploder: its fuse is lit (it swells and shakes until it bursts). */
+  fuse(): void {
+    this.fuseTime = 0;
+  }
+
   /** Hit (zombies): the body rocks back; a headshot snaps the head back too. */
   flinch(headshot: boolean): void {
     this.flinchTime = 0;
@@ -634,7 +641,7 @@ export class Chicken {
     const t = this.time;
     const kind = this.undead!;
     const w = this.walkBlend;
-    const lean = { walker: -0.22, sprinter: -0.38, runner: -0.5, brute: -0.12, boss: -0.05 }[kind];
+    const lean = { walker: -0.22, sprinter: -0.38, runner: -0.5, brute: -0.12, exploder: -0.08, boss: -0.05 }[kind];
     this.bodyPivot.rotation.x = lean - 0.08 * w;
     if (kind === 'walker') {
       // A dragging limp: one leg swings less, the body rolls towards it.
@@ -646,6 +653,12 @@ export class Chicken {
       const jerk = Math.sin(t * 23) * Math.sin(t * 3.1) > 0.85 ? 0.12 : 0;
       this.headGroup.rotation.z = Math.sin(t * 7) * 0.08 + jerk;
       this.bodyPivot.rotation.z = jerk * 0.6;
+    } else if (kind === 'exploder') {
+      // Bloated and throbbing; once its fuse is lit, it swells and shakes faster and faster.
+      const lit = this.fuseTime >= 0 ? (this.fuseTime += dt) : 0;
+      const beat = Math.sin(t * (lit > 0 ? 18 + lit * 30 : 3.2)) * (lit > 0 ? 0.05 : 0.03);
+      this.bodyPivot.scale.setScalar(1.12 + beat + Math.min(0.2, lit * 0.25));
+      this.bodyPivot.rotation.z = lit > 0 ? Math.sin(t * 40) * 0.05 : 0;
     } else if (kind === 'runner') {
       this.headGroup.rotation.z = Math.sin(this.walkPhase * 2) * 0.06;
     } else {

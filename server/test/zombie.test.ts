@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { MAPS, MODES, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
+import { MAPS, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
 import type { GameRoom } from '../src/rooms/GameRoom';
 import { createRoom } from '../src/rooms/modes';
 import type { ZombieRoom } from '../src/rooms/ZombieRoom';
@@ -354,6 +354,95 @@ describe('Zombie Apocalypse match', () => {
       const earn = (t.room as unknown as { earn(p: unknown, c: number): void; coins: Map<number, number> });
       earn.earn(t.me, 5);
       assert.equal(earn.coins.get(t.me.pid), 5 * ZOMBIE.bloodMoon.coins, 'double coins');
+    } finally {
+      t.room.close();
+    }
+  });
+
+  it('power-ups: bosses always drop one; Nuke, Max Ammo, Insta-Kill and First Aid work for everyone', () => {
+    const t = setup();
+    try {
+      const mate = addPlayer(t.room, 'Mate');
+      t.run(ZOMBIE.prepMs + 3000);
+      const zs = t.zombies().filter((z) => z.p.alive);
+      assert.ok(zs.length >= 3);
+      // Max Ammo: empty guns and no eggs, then full.
+      t.me.mags.set('pistol', 0);
+      mate.eggs = 0;
+      t.room.applyPowerUp('maxAmmo', t.me, t.now());
+      assert.equal(t.me.mags.get('pistol'), t.me.magazineSize('pistol'));
+      assert.equal(mate.eggs, PLAYER.maxEggs, 'the whole team');
+      // First Aid.
+      t.me.hp = 10;
+      mate.hp = 40;
+      t.room.applyPowerUp('firstAid', mate, t.now());
+      assert.equal(t.me.hp, PLAYER.maxHealth);
+      assert.equal(mate.hp, PLAYER.maxHealth);
+      // Insta-Kill: one hit kills.
+      t.room.applyPowerUp('instaKill', t.me, t.now());
+      t.room.damage(zs[0]!.p, mate, 1, false, 'pistol', { x: 0, y: 0, z: 0 }, t.now());
+      assert.equal(zs[0]!.p.alive, false, 'one pistol hit');
+      assert.ok((t.room as unknown as { publicState(): { instaKillUntil: number | null } }).publicState().instaKillUntil !== null, 'the HUD is told');
+      // Nuke: every zombie dead (no extra drops from its own kills).
+      const dropsBefore = t.events.filter((e) => e.event === 'drop').length;
+      t.room.applyPowerUp('nuke', t.me, t.now());
+      assert.equal(t.zombies().filter((z) => z.p.alive).length, 0);
+      assert.equal(t.events.filter((e) => e.event === 'drop').length, dropsBefore, 'the Nuke drops nothing');
+      assert.ok(t.events.some((e) => e.event === 'zombiePower'));
+    } finally {
+      t.room.close();
+    }
+  });
+
+  it('a power-up on the ground is picked up by walking over it', () => {
+    const t = setup();
+    try {
+      t.run(ZOMBIE.prepMs + 500);
+      t.me.hp = 20;
+      t.room.loot.dropAt({ x: t.me.state.x, y: 0, z: t.me.state.z }, 'firstAid', t.now(), 5000);
+      t.run(100);
+      assert.equal(t.me.hp, PLAYER.maxHealth);
+    } finally {
+      t.room.close();
+    }
+  });
+
+  it('Exploder: lights its fuse next to you and bursts; shot first, its blast hurts the zombies instead', () => {
+    const t = setup();
+    try {
+      t.priv.wave = 4;
+      const spawnZombie = (t.room as unknown as { spawnZombie(kind: string, now: number, near?: { x: number; y: number; z: number }): unknown }).spawnZombie.bind(t.room);
+      assert.ok(waveKinds(4).includes('exploder'), 'from wave 4');
+      t.run(ZOMBIE.prepMs + 100);
+      // Keep the wave going (one zombie still to come that never does), with nobody else about.
+      t.priv.queue.length = 0;
+      t.priv.queue.push('walker');
+      (t.room as unknown as { nextSpawnAt: number }).nextSpawnAt = Infinity;
+      for (const z of t.zombies()) t.room.damage(z.p, t.me, 1e6, false, 'rifle', { x: 0, y: 0, z: 0 }, t.now());
+      t.run(ZOMBIE.corpseMs + 200);
+      // 1. It reaches you and bursts.
+      spawnZombie('exploder', t.now(), { x: t.me.state.x, y: 0, z: t.me.state.z + 6 });
+      const e = t.zombies().find((z) => z.kind === 'exploder')!;
+      let fused = false;
+      for (let i = 0; i < 60 && e.p.alive; i++) {
+        t.run(100);
+        fused ||= t.events.some((ev) => ev.event === 'zombieFuse');
+      }
+      assert.ok(fused, 'everyone hears the fuse');
+      assert.equal(e.p.alive, false, 'it burst');
+      assert.ok(t.me.hp < 100, `the blast hurt you (hp ${t.me.hp})`);
+      // 2. Shot dead first, next to a walker: the walker gets hurt, you don't.
+      t.me.hp = 100;
+      t.run(ZOMBIE.corpseMs + 200);
+      spawnZombie('exploder', t.now(), { x: t.me.state.x + 20, y: 0, z: t.me.state.z });
+      spawnZombie('walker', t.now(), { x: t.me.state.x + 20, y: 0, z: t.me.state.z });
+      const ex = t.zombies().find((z) => z.kind === 'exploder' && z.p.alive)!;
+      const walker = t.zombies().find((z) => z.kind === 'walker' && z.p.alive)!;
+      walker.p.state.x = ex.p.state.x + 1;
+      walker.p.state.z = ex.p.state.z;
+      t.room.damage(ex.p, t.me, 1e6, false, 'rifle', { x: 0, y: 0, z: 0 }, t.now());
+      assert.ok(walker.p.hp < 100 || !walker.p.alive, 'the walker took the blast');
+      assert.equal(t.me.hp, 100, 'you were far away');
     } finally {
       t.room.close();
     }
