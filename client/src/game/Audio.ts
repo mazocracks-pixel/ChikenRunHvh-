@@ -60,7 +60,8 @@ export type SoundName =
   | 'reloadMag'
   | 'reloadShell'
   | 'reloadBolt'
-  | 'emptyHeavy';
+  | 'emptyHeavy'
+  | 'bloodMoon';
 
 const VOLUME_KEY = 'chikengun:volume';
 const MUSIC_KEY = 'chikengun:music-volume';
@@ -682,6 +683,14 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.4, type: 'lowpass', freq: 1300 * pitch, to: 130, gain: 0.95 });
         this.tone(ctx, out, t, { dur: 0.22, type: 'sine', freq: 110 * pitch, to: 38, gain: 0.8 });
         this.bolt(ctx, out, t, 0.5, false);
+        break;
+      case 'bloodMoon':
+        // A distant bell tolling twice over a low swell (soft: it builds dread, it doesn't startle).
+        for (const d of [0, 1.6]) {
+          this.tone(ctx, out, t, { dur: 2.4, type: 'sine', freq: 196, to: 192, gain: 0.18, delay: d });
+          this.tone(ctx, out, t, { dur: 2, type: 'sine', freq: 466, to: 460, gain: 0.06, delay: d });
+        }
+        this.swell(ctx, out, t, { dur: 4.5, freq: 160, to: 90, q: 1, gain: 0.35 });
         break;
       case 'reloadMag':
         // Magazine out, magazine in, charging handle.

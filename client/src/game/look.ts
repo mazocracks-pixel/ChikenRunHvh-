@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 /**
  * How the level looks: colour tints for every surface, sky, fog and light. Purely visual and
  * local (the developer menu's World tab edits it); white tints mean "unchanged".
@@ -92,5 +93,22 @@ export function defaultLook(): WorldLook {
     ambient: 1,
     exposure: 1.15,
     wireframe: false,
+  };
+}
+
+/**
+ * The Blood Moon (Zombie Apocalypse): the night bled crimson. `amount` 0 to 1 blends from `look`
+ * (it rises slowly, never flashing).
+ */
+export function bloodMoonLook(look: WorldLook, amount: number): WorldLook {
+  const mix = (a: string, b: string) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), amount).getHexString();
+  return {
+    ...look,
+    zenith: mix(look.zenith, '#1a0204'),
+    horizon: mix(look.horizon, '#3a0a0c'),
+    sunColor: mix(look.sunColor, '#ff3a2a'),
+    sunIntensity: look.sunIntensity + 0.25 * amount,
+    grass: mix(look.grass, '#7a4a44'),
+    ground: mix(look.ground, '#6e4442'),
   };
 }

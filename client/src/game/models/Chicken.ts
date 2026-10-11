@@ -170,9 +170,18 @@ const zombieEyes = new Map<string, THREE.MeshBasicMaterial>();
 function zombieEye(kind: ZombieKind): THREE.MeshBasicMaterial {
   const color = kind === 'walker' || kind === 'runner' ? 0xaaff00 : 0xff2200;
   let m = zombieEyes.get(kind);
-  if (!m) zombieEyes.set(kind, (m = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2), fog: false })));
+  if (!m) zombieEyes.set(kind, (m = new THREE.MeshBasicMaterial({ color: new THREE.Color(bloodEyes ? 0xff1a10 : color).multiplyScalar(2.2), fog: false })));
   return m;
 }
+
+/** Blood Moon: every zombie's eyes burn red (and back to their own colour after). */
+export function setBloodMoonEyes(on: boolean): void {
+  for (const [kind, m] of zombieEyes) {
+    m.color.setHex(on ? 0xff1a10 : kind === 'walker' || kind === 'runner' ? 0xaaff00 : 0xff2200).multiplyScalar(2.2);
+  }
+  bloodEyes = on;
+}
+let bloodEyes = false;
 
 const flameMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa726).multiplyScalar(2.5), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
 

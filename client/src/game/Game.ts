@@ -14,7 +14,7 @@ import { baseFov } from './CameraRig';
 import { GameSession, type DevHooks } from './GameSession';
 import { Input } from './Input';
 import { Chicken } from './models/Chicken';
-import { defaultLook, nightLook, type WorldLook } from './look';
+import { defaultLook, nightLook, type WorldLook, bloodMoonLook } from './look';
 import { SUN_DIRECTION, Sky } from './Sky';
 import { World } from './World';
 
@@ -88,6 +88,8 @@ export class Game {
   /** What the developer World tab set (white tints = unchanged), and what the map looks like by itself. */
   private userLook: WorldLook = defaultLook();
   private baseLook: WorldLook = defaultLook();
+  /** Zombie Apocalypse Blood Moon: 0 (normal night) to 1 (crimson). */
+  private bloodMoon = 0;
   private lookKey = '';
   private skyKey = '';
   private rebakeTimer: number | undefined;
@@ -163,11 +165,20 @@ export class Game {
       hud: this.hud,
       join,
       dev: this.dev ?? undefined,
+      setBloodMoon: (amount) => {
+        if (Math.abs(amount - this.bloodMoon) < 0.004 && amount !== 0) return;
+        this.bloodMoon = amount;
+        this.applyLook();
+      },
       ...callbacks,
     });
   }
 
   endSession(): void {
+    if (this.bloodMoon > 0) {
+      this.bloodMoon = 0;
+      this.applyLook();
+    }
     this.session?.dispose();
     this.session = null;
     this.camera.fov = baseFov();
@@ -280,7 +291,8 @@ export class Game {
 
   private applyLook(): void {
     // An untouched World tab means "the map's own look".
-    const look = JSON.stringify(this.userLook) === DEFAULT_LOOK_KEY ? this.baseLook : this.userLook;
+    const own = JSON.stringify(this.userLook) === DEFAULT_LOOK_KEY ? this.baseLook : this.userLook;
+    const look = this.bloodMoon > 0 ? bloodMoonLook(own, this.bloodMoon) : own;
     const lookKey = JSON.stringify(look);
     if (lookKey === this.lookKey) return;
     this.lookKey = lookKey;

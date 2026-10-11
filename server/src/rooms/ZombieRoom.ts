@@ -10,6 +10,7 @@ import {
   bossNumber,
   cellKey,
   heightOf,
+  isBloodMoon,
   isBossWave,
   isKnifeSkin,
   isMelee,
@@ -142,7 +143,13 @@ export class ZombieRoom extends GameRoom {
       left: this.queue.length + this.aliveZombies(),
       kills: this.kills,
       boss: boss?.alive ? { pid: boss.pid, name: boss.info.name } : null,
+      bloodMoon: this.bloodMoon,
     };
+  }
+
+  /** The current wave (or the one coming) is a Blood Moon. */
+  private get bloodMoon(): boolean {
+    return this.zphase !== 'over' && isBloodMoon(this.wave);
   }
 
   private emitState(now: number): void {
@@ -248,7 +255,7 @@ export class ZombieRoom extends GameRoom {
       this.queue.splice(Math.min(3, this.queue.length), 0, 'boss');
     }
     this.nextSpawnAt = now;
-    this.systemMessage(`🧟 Wave ${this.wave}${isBossWave(this.wave) ? ': a BOSS is coming!' : ''}`);
+    this.systemMessage(`🧟 Wave ${this.wave}${isBossWave(this.wave) ? ': a BOSS is coming!' : this.bloodMoon ? ': BLOOD MOON! Faster zombies, double coins.' : ''}`);
     this.emitState(now);
   }
 
@@ -260,7 +267,7 @@ export class ZombieRoom extends GameRoom {
       this.emitMoney(p);
       this.earn(p, coins);
     }
-    this.systemMessage(`✅ Wave ${this.wave} cleared! +${bonus} money and +${coins} coins each. Shop (B) is open for 10 seconds.`);
+    this.systemMessage(`✅ Wave ${this.wave} cleared! +${bonus} money and +${coins * (this.bloodMoon ? ZOMBIE.bloodMoon.coins : 1)} coins each. Shop (B) is open for 10 seconds.`);
     this.wave++;
     this.zphase = 'prep';
     this.prepEndsAt = now + ZOMBIE.prepMs;
@@ -313,7 +320,10 @@ export class ZombieRoom extends GameRoom {
   }
 
   private spawnZombie(kind: ZombieKind, now: number, near?: Vec3): ServerPlayer | null {
-    const stats = zombieStats(kind, this.wave);
+    const base = zombieStats(kind, this.wave);
+    // Blood Moon: faster and tougher.
+    const b = ZOMBIE.bloodMoon;
+    const stats = this.bloodMoon ? { ...base, speed: base.speed * b.speed, hp: Math.round(base.hp * b.hp) } : base;
     const boss = kind === 'boss';
     const title = boss ? `☠️ ${BOSS_NAMES[(bossNumber(this.wave) - 1) % BOSS_NAMES.length]}` : kind === 'brute' ? '🧟 Brute' : kind === 'runner' ? '🧟 Runner' : kind === 'sprinter' ? '🧟 Sprinter' : '🧟 Zombie';
     const res = this.join(null, { userId: null, name: title, appearance: LOOKS[kind], loadout: ['knife'], bot: true, team: 2, rank: 1 });
@@ -456,6 +466,8 @@ export class ZombieRoom extends GameRoom {
   /** Coins earned this game (paid into the account at game over). */
   private earn(p: ServerPlayer, coins: number): void {
     if (p.info.undead || p.userId === null) return;
+    // Blood Moon waves pay double.
+    if (this.bloodMoon) coins *= ZOMBIE.bloodMoon.coins;
     this.coins.set(p.pid, (this.coins.get(p.pid) ?? 0) + coins);
   }
 

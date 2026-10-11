@@ -3,6 +3,50 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 15 (11 Oct): something unique for Zombie mode, the Blood Moon
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Schedule (server): waves 3, 7, 11... (every 4th from 3, never a boss wave); in the zombie state | shared/src/zombies.ts, ZombieRoom |
+| 2 | Effect (server): zombies x1.25 speed, x1.15 health; every coin that wave counts double | ZombieRoom |
+| 3 | Look (client): the night turns crimson over 3 s during the shop countdown before it; a big cratered red moon; every zombie's eyes burn red | Game.ts, look.ts, ZombieNight, Chicken |
+| 4 | Sound and HUD: a distant bell tolling twice over a low swell; "The Blood Moon rises…" and "Blood Moon · Wave N" on a red banner; announcement | Audio.ts, ZombieHud, GameSession, CSS |
+| 5 | Test, browser check | zombie.test.ts, headless Chrome |
+
+## What was done
+
+- The server decides (`isBloodMoon`), so everyone in the room sees the same Blood Moon. `ZombieState.bloodMoon` is true from the shop countdown before the wave, so it rises while you get ready.
+- The tint blends the map's own look ([bloodMoonLook](client/src/game/look.ts)): sky, fog, moonlight and ground move towards red.
+  - It changes slowly (3 s up, 3 s down) and never flashes.
+  - It is reset when you leave the match, so other maps are untouched.
+- The moon is a canvas-textured plane inside the view distance that moves with you (low in the east). Its eye colours go back when the Blood Moon ends.
+
+## Tests
+
+- New zombie test:
+  - the schedule (3, 7, 11; never a boss wave);
+  - the room tells everyone;
+  - zombies are faster and tougher;
+  - coins are doubled.
+- Full run: **447/447 pass**, build OK.
+- Browser (GPU), with the state forced on:
+  - the tint rises half-way in 1.5 s and fully by 3 s;
+  - fog `#0b0f17` → `#3a0a0c`;
+  - the red HUD banner shows;
+  - the moon renders (cratered, glowing);
+  - it goes back to normal when the state ends;
+  - no errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The first browser check forced the Blood Moon once, but the real server's next update (wave 1: no Blood Moon) turned it back off, which looked like a bug. | The test forces the flag on every update. |
+| 2 | The first moon was a flat orange disc. | Canvas texture: red gradient, dark craters, soft halo. |
+| 3 | Orphan test server processes again after stopping the background tasks. | Killed by PID (start time checked). |
+
 # Batch 14 (10 Oct): better zombies, shop + chicken upgrades, gun sounds
 
 ## What was already there (explored first)

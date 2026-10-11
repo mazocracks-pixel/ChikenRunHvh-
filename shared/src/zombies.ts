@@ -83,12 +83,23 @@ export const ZOMBIE = {
   },
   /** C places a wall of blocks that vanishes after `ttlMs`; zombies can break it. */
   build: { ttlMs: 10_000, width: 3, height: 2, ahead: 2.7, blockHp: 70, cooldownMs: 1200, maxBlocks: 48, kind: 'wood' as const },
+  /**
+   * Blood Moon: from `first`, every `every` waves (never a boss wave) the moon rises red during
+   * the shop countdown. That wave's zombies are faster and tougher, and its coins count double.
+   */
+  bloodMoon: { first: 3, every: 4, speed: 1.25, hp: 1.15, coins: 2 },
   /** Gun upgrades: damage bonus per level, and what each level costs. */
   upgrade: { max: 5, perLevel: 0.25, prices: [150, 250, 400, 600, 900] as readonly number[] },
 } as const;
 
 export function isBossWave(wave: number): boolean {
   return wave > 0 && wave % ZOMBIE.bossEvery === 0;
+}
+
+/** True for a Blood Moon wave (see ZOMBIE.bloodMoon). */
+export function isBloodMoon(wave: number): boolean {
+  const b = ZOMBIE.bloodMoon;
+  return wave >= b.first && (wave - b.first) % b.every === 0 && !isBossWave(wave);
 }
 
 /** 1 for the first boss, 2 for the second... (0 on waves with no boss). */
@@ -206,6 +217,8 @@ export interface ZombieState {
   kills: number;
   /** The boss of this wave: its health is in the normal player state (hp 0-100 = its share of health). */
   boss: { pid: number; name: string } | null;
+  /** This wave (or the one the shop is counting down to) is a Blood Moon. */
+  bloodMoon: boolean;
 }
 
 /** Each survivor's own gun upgrades (weapon id → level). */

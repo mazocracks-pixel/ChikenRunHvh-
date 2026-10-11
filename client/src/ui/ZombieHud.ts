@@ -105,14 +105,14 @@ export class ZombieHud {
       this.timer.hidden = true;
       this.root.dataset.phase = 'prep';
     } else if (s.phase === 'prep') {
-      this.wave.textContent = s.wave === 1 ? '🧟 Get ready!' : `✅ Wave ${s.wave - 1} cleared`;
-      this.sub.textContent = `Wave ${s.wave} starts in`;
+      this.wave.textContent = s.bloodMoon ? 'The Blood Moon rises…' : s.wave === 1 ? '🧟 Get ready!' : `✅ Wave ${s.wave - 1} cleared`;
+      this.sub.textContent = s.bloodMoon ? `Blood Moon wave ${s.wave} in` : `Wave ${s.wave} starts in`;
       this.timer.textContent = String(secondsLeft);
       this.timer.hidden = false;
       this.timer.classList.toggle('urgent', secondsLeft <= 3);
       this.root.dataset.phase = 'prep';
     } else if (s.phase === 'wave') {
-      this.wave.textContent = `🧟 Wave ${s.wave}`;
+      this.wave.textContent = s.bloodMoon ? `Blood Moon · Wave ${s.wave}` : `🧟 Wave ${s.wave}`;
       this.sub.textContent = `${s.left} ${s.left === 1 ? 'zombie' : 'zombies'} left · ${s.kills} killed`;
       this.timer.hidden = true;
       this.root.dataset.phase = 'wave';
@@ -123,6 +123,7 @@ export class ZombieHud {
       this.root.dataset.phase = 'over';
     }
 
+    this.root.classList.toggle('blood-moon', s.bloodMoon && s.phase !== 'over');
     const boss = s.boss;
     this.boss.hidden = !boss || bossHealth === null;
     if (boss && bossHealth !== null) {

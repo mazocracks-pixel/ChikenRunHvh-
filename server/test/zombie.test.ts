@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { MAPS, MODES, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
+import { MAPS, MODES, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
 import type { GameRoom } from '../src/rooms/GameRoom';
 import { createRoom } from '../src/rooms/modes';
 import type { ZombieRoom } from '../src/rooms/ZombieRoom';
@@ -333,6 +333,27 @@ describe('Zombie Apocalypse match', () => {
       t.run(200);
       const expected = 6 * ZOMBIE.coins.perKill.walker + ZOMBIE.coins.wave.base + ZOMBIE.coins.wave.perWave;
       assert.deepEqual(paid, [expected]);
+    } finally {
+      t.room.close();
+    }
+  });
+
+  it('Blood Moon: waves 3, 7, 11... (never a boss wave), faster tougher zombies, double coins', () => {
+    assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 11, 15].filter(isBloodMoon), [3, 7, 11]);
+    for (let w = 1; w < 60; w++) if (isBloodMoon(w)) assert.equal(isBossWave(w), false);
+    const t = setup();
+    try {
+      t.priv.wave = 3;
+      t.run(ZOMBIE.prepMs + 1500);
+      const state = (t.room as unknown as { publicState(): { bloodMoon: boolean } }).publicState();
+      assert.equal(state.bloodMoon, true, 'everyone is told');
+      const z = t.zombies()[0] as unknown as { stats: { speed: number; hp: number }; kind: 'walker' };
+      assert.ok(Math.abs(z.stats.speed - zombieStats('walker', 3).speed * ZOMBIE.bloodMoon.speed) < 1e-9, 'faster');
+      assert.ok(z.stats.hp > zombieStats('walker', 3).hp, 'tougher');
+      (t.me as { userId: number | null }).userId = 9;
+      const earn = (t.room as unknown as { earn(p: unknown, c: number): void; coins: Map<number, number> });
+      earn.earn(t.me, 5);
+      assert.equal(earn.coins.get(t.me.pid), 5 * ZOMBIE.bloodMoon.coins, 'double coins');
     } finally {
       t.room.close();
     }

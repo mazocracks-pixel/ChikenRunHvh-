@@ -133,6 +133,8 @@ export interface SessionContext {
   onClosed: (reason: string) => void;
   /** Developer tools, if loaded. */
   dev?: DevHooks;
+  /** Zombie Apocalypse Blood Moon: tints the night (0 normal to 1 crimson). */
+  setBloodMoon?: (amount: number) => void;
 }
 
 /** How the developer system plugs into a match. Every hook is optional behaviour on top of normal play. */
@@ -320,7 +322,8 @@ export class GameSession {
       ctx.hud.toast(`🧟 Survive! B opens the shop between waves, C builds a wall that lasts 10 seconds. Ctrl crouches. ${keyLabel(getKeybinds().flashlight)} switches your flashlight.`, 'info');
       // A darker HUD for the night, the flashlight and the sounds of the dark.
       ctx.hud.root.classList.add('hud-zombie');
-      this.night = new ZombieNight(ctx.scene, ctx.camera, ctx.audio);
+      this.night = new ZombieNight(ctx.scene, ctx.camera, ctx.audio, ctx.setBloodMoon);
+      if (join.zombie) this.night.setBloodMoon(join.zombie.state.bloodMoon);
     }
     ctx.input.yaw = me.yaw;
     ctx.input.pitch = -0.15;
@@ -1032,6 +1035,7 @@ export class GameSession {
     const previous = this.zombieState;
     this.zombieState = s;
     this.zombieHud?.setState(s);
+    this.night?.setBloodMoon(s.bloodMoon);
     if (s.phase === 'over' && previous?.phase !== 'over') {
       this.zombieOver = true;
       this.ctx.audio.play('death');
@@ -1045,7 +1049,8 @@ export class GameSession {
     }
     if (previous && previous.phase !== 'wave' && s.phase === 'wave') {
       this.ctx.audio.play(s.boss ? 'bigBoom' : 'countdown');
-      this.ctx.hud.announce(s.boss ? '☠️ BOSS WAVE' : `Wave ${s.wave}`, s.boss ? 'Kill it before it kills you' : 'Here they come!', 'bad');
+      if (s.bloodMoon) this.ctx.hud.announce('BLOOD MOON', `Wave ${s.wave}: faster zombies, double coins`, 'bad');
+      else this.ctx.hud.announce(s.boss ? '☠️ BOSS WAVE' : `Wave ${s.wave}`, s.boss ? 'Kill it before it kills you' : 'Here they come!', 'bad');
     }
     if (previous && previous.phase === 'wave' && s.phase === 'prep') {
       this.ctx.audio.play('reward');
