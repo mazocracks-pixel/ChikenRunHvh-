@@ -118,6 +118,11 @@ export class ZombieHud {
       this.sub.textContent = `${s.left} ${s.left === 1 ? 'zombie' : 'zombies'} left · ${s.kills} killed`;
       this.timer.hidden = true;
       this.root.dataset.phase = 'wave';
+    } else if (s.phase === 'event') {
+      this.wave.textContent = `Story event · Wave ${s.wave}`;
+      this.sub.textContent = `Find every crystal (your phone shows them) · ${s.lives} ${s.lives === 1 ? 'life' : 'lives'} left`;
+      this.timer.hidden = true;
+      this.root.dataset.phase = 'event';
     } else {
       this.wave.textContent = '💀 Game over';
       this.sub.textContent = '';

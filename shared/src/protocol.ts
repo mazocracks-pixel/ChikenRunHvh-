@@ -1,3 +1,4 @@
+import type { HuntScare, HuntState } from './events';
 import type { RoundState } from './bomb';
 import type { FriendsState, PartyInvite, PartyState, SocialResult } from './social';
 import type { DevAction, DevMods, DevResult, DevStatus, JumpscareStyle } from './dev';
@@ -643,6 +644,14 @@ export interface ServerToClientEvents {
   zombieFuse: (e: { pid: number }) => void;
   /** Zombie Apocalypse: someone picked up a power-up (it works for the whole team). */
   zombiePower: (e: { kind: PowerUpKind; pid: number }) => void;
+  /** Zombie Apocalypse story event (Crystal Hunt): its state changed, or it ended (null). */
+  hunt: (s: HuntState | null) => void;
+  /** A crystal was taken (`pid` took it). */
+  crystal: (e: { id: number; pid: number; x: number; y: number; z: number }) => void;
+  /** A scare noise for you (a monster saw you, the last crystal, the power going out). */
+  huntScare: (e: { kind: HuntScare }) => void;
+  /** The event is over: it worked, or it failed (time ran out / everyone died). */
+  huntEnd: (e: { success: boolean; reason: string }) => void;
   blockPlaced: (block: BlockState) => void;
   blockRemoved: (blockId: number) => void;
   /** The server removed you from the room (e.g. kicked); go back to the lobby. */

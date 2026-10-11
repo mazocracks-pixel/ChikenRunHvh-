@@ -76,6 +76,10 @@ export interface MapDef {
   nav?: readonly { x: number; z: number }[];
   /** Lights in the level (looks only): lanterns at height `y`, or a campfire. */
   lamps?: readonly MapLamp[];
+  /** Sealed event levels inside the map (Zombie Apocalypse Crystal Hunt). */
+  zones?: readonly MapZone[];
+  /** Grass grows only inside this half-size (the playable part; default the whole map). */
+  grassHalf?: number;
 }
 
 export interface MapLamp {
@@ -84,6 +88,30 @@ export interface MapLamp {
   z: number;
   color: number;
   fire?: boolean;
+  /** A ceiling light panel instead of a lantern. */
+  panel?: boolean;
+  /** Fluorescent: now and then it stutters dim for a moment (never a strobe). */
+  flicker?: boolean;
+}
+
+export type ZoneId = 'backrooms' | 'facility';
+
+/** A sealed event level: its bounds, floor, where you arrive and leave, and how it looks. */
+export interface MapZone {
+  id: ZoneId;
+  name: string;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  floorColor: number;
+  start: { x: number; z: number };
+  exit: { x: number; z: number };
+  /** Every room's centre, and the dead ends (hiding spots). */
+  cells: readonly { x: number; z: number }[];
+  corners: readonly { x: number; z: number }[];
+  /** The light inside (fog colour and density, ambient light...). */
+  look: { horizon: string; zenith: string; fog: number; ambient: number; sunIntensity: number; exposure: number };
 }
 
 export function boxToAabb(box: MapBox): Aabb {

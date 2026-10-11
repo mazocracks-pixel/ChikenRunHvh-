@@ -3,6 +3,108 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 17 (11 Oct): story events, Crystal Hunt (Backrooms at wave 7, Phone Mission at wave 10)
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Event levels as sealed areas of the Graveyard map (outside the playable part, which gets an outer wall): a generated Backrooms maze and a generated dark facility, with their own floors, ceilings, lights and waypoints | shared/src/maps/zones.ts, night.ts |
+| 2 | Config in one object (wave numbers, crystals, timers, enemies, rewards, onFail, lives, build flag) and the hunt state for clients | shared/src/events.ts |
+| 3 | Shared Crystal Hunt module (server): teleport in, crystals, collect, portal, timer, fail/success, rewards, scares, clean-up | server/src/rooms/zombies/CrystalHunt.ts |
+| 4 | The two events, in their own files, using it | server/src/rooms/zombies/events/backrooms.ts, phoneMission.ts |
+| 5 | Monkeys: a new zombie kind that lurks at corners and ambushes; smarter in the second event | ZombieBrain, zombies.ts |
+| 6 | Wave flow: the event replaces wave 7 (then wave 8) / comes before boss wave 10; C off during events (flag); dev `/wave N` | ZombieRoom, dev action |
+| 7 | Client: crystals, portal, phone with minimap and counter, event looks (buzzing flickering fluorescents / dark facility), monkey model, scare sting (swappable placeholder) with shake and red pulse, HUD timer | client |
+| 8 | Tests and browser checks | server/test, headless Chrome |
+
+## Choices made (asked to choose)
+
+- **Wave 7 Backrooms replaces wave 7:** after it, the shop, then wave 8 (`then: 'next'`).
+- **Wave 10 Phone Mission comes before the boss wave:** after it, the shop, then wave 10 with its boss (`then: 'same'`). A boss guarding the exit would have trapped the timer behind a boss fight.
+- **Failing** (time up, or every survivor down) costs one of 2 team lives (`onFail: 'loseLife'`, `lives: 2`); at 0 lives it's game over. `onFail: 'gameOver'` ends the game at once.
+- **Scares:** a sting, a shake and one red pulse at the screen edge, never a white flash (the earlier "no flashing" rule).
+- **The phone key is N** (H, J, K, L and P are HvH Lab/Skeet hotkeys).
+- **An event wave is never a Blood Moon too.**
+
+## What was done
+
+- **The levels** ([shared/src/maps/zones.ts](shared/src/maps/zones.ts)): generated from a seed (the server and every client build the same walls).
+  - **Backrooms:** 8×8 rooms of 6 m with yellow walls, a tiled ceiling, carpet, and fluorescent panels that stutter now and then.
+  - **Facility:** 6×6 rooms of 10 m with doorways, concrete, crate piles and red emergency lights.
+  - Both are sealed areas east of the graveyard. The Graveyard map is now 340 m wide, with a stone wall round the old 176 m playable part, so nobody can walk out.
+  - Each level has its own waypoints, dead ends (monkey lairs), entrance and exit.
+  - Grass grows only in the playable part.
+- **Config** ([shared/src/events.ts](shared/src/events.ts) `CRYSTAL_HUNT`): wave numbers (7, 10), crystals (12 / 16), time (4 / 3:20 min), enemies (6 monkeys / 10 monkeys + 4 sprinters), smart, then, rewards (600 / 1000 money + full health + a free gun upgrade), the extra scare (half way, event 2), `onFail`, `lives`, and `buildDuringEvents` (false).
+- **Shared module** ([CrystalHunt.ts](server/src/rooms/zombies/CrystalHunt.ts)):
+  - teleports everyone in;
+  - scatters the crystals one per room (never the entrance or exit);
+  - puts the monsters in the dead ends;
+  - collection by walking in, then the portal at the last crystal, and the scares;
+  - timer, fail and success.
+- **The two events** ([events/backrooms.ts](server/src/rooms/zombies/events/backrooms.ts), [events/phoneMission.ts](server/src/rooms/zombies/events/phoneMission.ts)): the second adds the half-way blackout.
+- **The room** ([ZombieRoom.ts](server/src/rooms/ZombieRoom.ts)):
+  - a new phase `event`; the waves pause;
+  - C does nothing (flag);
+  - on success, money, heal and a free gun upgrade;
+  - on failure, a life or game over;
+  - on either ending, back to the graveyard and the shop;
+  - clean-up of monsters and state on end, restart and dev jump.
+- **Monkeys** (new zombie kind, events only): faster than any zombie.
+  - They lurk in their dead end until a survivor comes into sight within 11 m (or they're shot), then charge.
+  - The first one to see you is a scare.
+  - In the Phone Mission, half of them hunt you from the start.
+  - Original model ([Monkey.ts](client/src/game/models/Monkey.ts)): hunched, long arms, pale scarred face, big ears, fangs, glowing yellow eyes. It sits on the chicken hitbox.
+- **Client:**
+  - [HuntView.ts](client/src/game/HuntView.ts): glowing purple crystals and the portal; the phone (map of the level, you, your team, the crystals, the portal, "Crystals 3/12", time), N makes it big; the scare.
+  - Each level's own light (Game zone look).
+  - The Backrooms buzz, and creaks in the facility.
+  - The blackout turns every light out except your flashlight.
+  - New synthesized sounds: crystal, portal, hoot, monkey shriek, buzz, power-down, and `scareSting`. `scareSting` is a placeholder: map a file to it in `FILE_SOUNDS` to swap it.
+- **Dev shortcut:** type `/wave 7` or `/wave 10` in chat (Zombie Apocalypse, private room, dev passkey unlocked). It goes to the shop 3 s before that wave. It's a new dev action, checked on the server like every other dev tool.
+
+## How to test each event
+
+1. Start a private Zombie Apocalypse room and unlock the dev passkey (mega?dev, L).
+2. Type `/wave 7` in chat (Y): 3 s later you're in the Backrooms.
+   - The phone is on the right, and N enlarges it.
+   - Walk into the purple crystals; the counter goes up.
+   - At the last crystal, a scare plays and the portal opens at the far corner of the map.
+   - Walk into it: "ESCAPED", +600 money, full health, a gun upgrade, then the shop, then wave 8.
+3. Type `/wave 10`: the Phone Mission in the facility (16 crystals, more monkeys and sprinters).
+   - Half way through the time, the power cuts out with a scare.
+   - Escape: the shop, then boss wave 10.
+4. To test failure, wait for the timer: "EVENT FAILED", one life lost (shown in the wave banner), and the game goes on. Set `CRYSTAL_HUNT.onFail = 'gameOver'` to make failure end the game.
+
+## Tests
+
+- 4 new server tests:
+  - **Wave 7 in full:** teleported in; 12 crystals and 6 monkeys inside; no wave zombies; C builds nothing; collecting every crystal opens the portal; the portal brings you back with the money; the monkeys are gone; the next wave is 8.
+  - **Spotting:** a monkey that sees you charges, and the scare is kept once.
+  - **Failure:** time up costs a life and the game goes on; with `gameOver` the game ends.
+  - **Wave 10:** more crystals, more monsters, less time, the blackout half way, then wave 10 with the boss.
+- The map tests now check each sealed level separately (every waypoint reaches every other inside its own area).
+- Full run: **454/454 pass**, build OK.
+- Browser (GPU, test server with a throwaway passkey and database):
+  - `/wave 7` typed in chat gives the Backrooms: yellow fog, 6 monkeys, "Crystals 0/12", the phone and its big view.
+  - Walking onto a crystal gives "Crystals 1/12".
+  - A monkey attacks you in its room.
+  - The monkey model looks right.
+  - `/wave 10` gives the facility: 16 crystals, 10 monkeys.
+  - No page errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The new map broke the "every waypoint reaches every other" tests (sealed levels are separate on purpose). | Both tests check each area on its own. |
+| 2 | The phone key H clashed with an HvH Lab hotkey (a test caught it). | The phone is N; its hint shows the bound key. |
+| 3 | Event tests got cut short when monkeys killed the test player. | The test player is untouchable in those tests. |
+| 4 | A patch script stopped half way (a CSS comment had already changed). | Re-ran the rest. |
+| 5 | First looks: the hint still said "C · Build a wall" in events; the phone covered the chat; the facility was pitch black. | Event hint; the phone moved to the right; more emergency lights and a little more ambient light. |
+| 6 | A browser-test teleport landed inside a wall and the physics pushed the player onto the ceiling (test only). | The test teleports to room centres. |
+| 7 | Orphan test server processes again. | Killed by PID; the throwaway test database deleted. |
+
 # Batch 16 (11 Oct): Zombie power-ups and the Exploder
 
 ## Plan

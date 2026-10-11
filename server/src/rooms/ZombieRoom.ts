@@ -35,10 +35,16 @@ import {
   PROJECTILES,
   round,
   type PowerUpKind,
+  CRYSTAL_HUNT,
+  createMoveState,
+  huntEventAt,
+  type HuntEventId,
 } from '@game/shared';
 import { GameRoom, type PlayerProfile } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 import { ZombieBrain, type Zombie, type ZombieHost } from './zombies/ZombieBrain';
+import { CrystalHunt, type HuntEvent, type HuntHost } from './zombies/CrystalHunt';
+import { HUNT_EVENTS } from './zombies/events';
 
 const EPS = 1e-4;
 
@@ -62,6 +68,7 @@ const LOOKS: Record<ZombieKind, Appearance> = {
   walker: { skin: 'zombie', hat: 'none', beak: 'black', shoes: 'none' },
   sprinter: { skin: 'shadow', hat: 'none', beak: 'red', shoes: 'none' },
   exploder: { skin: 'fire', hat: 'none', beak: 'red', shoes: 'none' },
+  monkey: { skin: 'brown', hat: 'none', beak: 'black', shoes: 'none' },
   runner: { skin: 'mint', hat: 'none', beak: 'red', shoes: 'none' },
   brute: { skin: 'shadow', hat: 'helmet', beak: 'black', shoes: 'black' },
   boss: { skin: 'lava', hat: 'devil', beak: 'black', shoes: 'black' },
@@ -94,6 +101,27 @@ export class ZombieRoom extends GameRoom {
   private readonly coins = new Map<number, number>();
   /** Insta-Kill power-up: on until then (server clock). */
   private instaKillUntil = 0;
+  /** A story event (Crystal Hunt) that's on, the team's lives for them, and the ones done this game. */
+  private hunt: CrystalHunt | null = null;
+  private lives: number = CRYSTAL_HUNT.lives;
+  private readonly huntsDone = new Set<HuntEventId>();
+  private readonly huntHost: HuntHost = {
+    zones: this.map.zones ?? [],
+    survivors: () => this.survivors(),
+    humans: () => this.humans(),
+    place: (p, x, z, now) => this.place(p, x, z, now),
+    spawnMonster: (kind, at, now) => {
+      const p = this.spawnZombie(kind, now, { x: at.x, y: 0, z: at.z });
+      if (!p) return null;
+      // Exactly there (not scattered round it like a horde): the lair is a narrow dead end.
+      p.state = createMoveState(at.x, 0, at.z);
+      p.history.clear();
+      return this.zombies.get(p.pid) ?? null;
+    },
+    broadcast: (event, payload) => (this.io.to(this.channel) as unknown as { emit(e: string, p: unknown): void }).emit(event, payload),
+    scare: (p, kind) => p.socket?.emit('huntScare', { kind }),
+    message: (text) => this.systemMessage(text),
+  };
   /** The Nuke is killing everything (its kills drop no more power-ups). */
   private nuking = false;
   private readonly brain: ZombieBrain;
@@ -118,6 +146,7 @@ export class ZombieRoom extends GameRoom {
       zombies: () => this.zombies.values(),
       fuse: (z) => this.io.to(this.channel).emit('zombieFuse', { pid: z.p.pid }),
       burst: (z, now) => this.burst(z, z.p, now),
+      spotted: (_z, target) => this.hunt?.onSpotted(target),
     };
     this.brain = new ZombieBrain(this.host);
   }
@@ -165,12 +194,14 @@ export class ZombieRoom extends GameRoom {
       instaKillUntil: this.instaKillUntil > performance.now() ? this.instaKillUntil : null,
       boss: boss?.alive ? { pid: boss.pid, name: boss.info.name } : null,
       bloodMoon: this.bloodMoon,
+      lives: this.lives,
     };
   }
 
   /** The current wave (or the one coming) is a Blood Moon. */
   private get bloodMoon(): boolean {
-    return this.zphase !== 'over' && isBloodMoon(this.wave);
+    // (A story event's wave is never a Blood Moon too.)
+    return this.zphase !== 'over' && isBloodMoon(this.wave) && !huntEventAt(this.wave);
   }
 
   private emitState(now: number): void {
@@ -192,7 +223,7 @@ export class ZombieRoom extends GameRoom {
     return {
       blocks: [...this.blocks.values()].map((b) => ({ ...b.state, ttl: Math.max(0, Math.round(b.expiresAt - now)) })),
       money: player.money,
-      zombie: { state: this.publicState(), gear: this.gearOf(player) },
+      zombie: { state: this.publicState(), gear: this.gearOf(player), hunt: this.hunt?.state() ?? null },
     };
   }
 
@@ -213,6 +244,10 @@ export class ZombieRoom extends GameRoom {
     this.upgrades.clear();
     this.coins.clear();
     this.instaKillUntil = 0;
+    if (this.hunt) this.io.to(this.channel).emit('hunt', null);
+    this.hunt = null;
+    this.lives = CRYSTAL_HUNT.lives;
+    this.huntsDone.clear();
     this.loot.reset();
     this.kills = 0;
     this.wave = 1;
@@ -249,6 +284,7 @@ export class ZombieRoom extends GameRoom {
       if (now >= this.prepEndsAt) this.startWave(now);
       return;
     }
+    if (this.zphase === 'event') return this.updateHunt(now);
     if (this.zphase !== 'wave') return;
 
     // Zombies come out a few at a time.
@@ -256,6 +292,14 @@ export class ZombieRoom extends GameRoom {
       this.nextSpawnAt = now + ZOMBIE.spawnEveryMs;
       this.spawnZombie(this.queue.shift()!, now);
     }
+    this.updateZombies(now);
+    if (this.survivors().length === 0) return this.gameOver(now);
+    if (this.queue.length === 0 && this.aliveZombies() === 0) return this.clearWave(now);
+    if (now >= this.nextStateAt) this.emitState(now);
+  }
+
+  /** The zombies' AI, and taking away the bodies. */
+  private updateZombies(now: number): void {
     for (const z of this.zombies.values()) {
       if (z.p.alive) this.brain.update(z, now);
       else if (z.diedAt !== null && now - z.diedAt > ZOMBIE.corpseMs) {
@@ -263,12 +307,105 @@ export class ZombieRoom extends GameRoom {
         this.removePlayer(z.p);
       }
     }
-    if (this.survivors().length === 0) return this.gameOver(now);
-    if (this.queue.length === 0 && this.aliveZombies() === 0) return this.clearWave(now);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Story events (Crystal Hunt): see CrystalHunt.ts and zombies/events/
+  // ---------------------------------------------------------------------------
+
+  private startHunt(event: HuntEvent, now: number): void {
+    this.clearZombies();
+    this.clearBlocks();
+    this.queue = [];
+    this.zphase = 'event';
+    this.hunt = new CrystalHunt(this.huntHost, event, now);
+    this.emitState(now);
+  }
+
+  private updateHunt(now: number): void {
+    const hunt = this.hunt;
+    if (!hunt) return;
+    this.updateZombies(now);
+    hunt.update(now);
+    if (hunt.result) return this.finishHunt(hunt, now);
     if (now >= this.nextStateAt) this.emitState(now);
   }
 
+  /** Back to the graveyard. Success pays; failure costs a life (or the game). Then the shop. */
+  private finishHunt(hunt: CrystalHunt, now: number): void {
+    const { success, reason } = hunt.result!;
+    const def = hunt.def;
+    this.hunt = null;
+    this.huntsDone.add(def.id);
+    this.clearZombies();
+    for (const p of this.humans()) this.spawn(p, now, true);
+    if (success) {
+      const r = def.reward;
+      for (const p of this.humans()) {
+        p.money += r.money;
+        if (r.heal) p.hp = PLAYER.maxHealth;
+        if (r.freeUpgrade) {
+          const gun = isMelee(p.weapon) ? p.info.loadout.find((w) => !isMelee(w)) : p.weapon;
+          const ups = this.upgrades.get(p.pid) ?? {};
+          if (gun && (ups[gun] ?? 0) < ZOMBIE.upgrade.max) ups[gun] = (ups[gun] ?? 0) + 1;
+          this.upgrades.set(p.pid, ups);
+          p.socket?.emit('zombieGear', this.gearOf(p));
+        }
+        this.emitMoney(p);
+      }
+      this.systemMessage(`🌀 ${def.name} survived! ${reason} +${r.money} money each${r.freeUpgrade ? ', a free gun upgrade' : ''}${r.heal ? ' and full health' : ''}.`);
+    } else {
+      if (CRYSTAL_HUNT.onFail === 'gameOver' || this.lives <= 1) {
+        this.lives = 0;
+        this.systemMessage(`💀 ${def.name} failed: ${reason}`);
+        return this.gameOver(now);
+      }
+      this.lives--;
+      this.systemMessage(`💔 ${def.name} failed: ${reason} You lose a life (${this.lives} left).`);
+    }
+    // 'next': the event was this wave (the next one comes after the shop); 'same': this wave is next.
+    if (def.then === 'next') this.wave++;
+    this.zphase = 'prep';
+    this.prepEndsAt = now + ZOMBIE.prepMs;
+    this.emitState(now);
+  }
+
+  /** Puts a survivor at (x, z), alive (back from the dead if need be), and tells everyone. */
+  private place(p: ServerPlayer, x: number, z: number, now: number): void {
+    const yaw = p.yaw;
+    if (!p.alive) p.respawn(x, z, yaw, now, 0);
+    else {
+      const fuel = p.state.fuel;
+      p.state = createMoveState(x, 0, z);
+      p.state.fuel = fuel;
+      p.history.clear();
+    }
+    this.io.to(this.channel).emit('spawn', { pid: p.pid, x, y: 0, z, yaw: p.yaw });
+  }
+
+  /** Developer shortcut (dev action, private rooms only): go straight to the shop before `wave`. */
+  devSetWave(wave: number): void {
+    const now = performance.now();
+    if (this.phase !== 'playing') return;
+    if (this.hunt) this.io.to(this.channel).emit('hunt', null);
+    this.hunt = null;
+    this.clearZombies();
+    this.clearBlocks();
+    this.queue = [];
+    this.wave = Math.max(1, Math.min(99, Math.floor(wave)));
+    const ev = huntEventAt(this.wave);
+    if (ev) this.huntsDone.delete(ev.id);
+    for (const p of this.humans()) this.spawn(p, now, true);
+    this.zphase = 'prep';
+    this.prepEndsAt = now + 3000;
+    this.systemMessage(`🛠 Developer: wave ${this.wave} in 3 seconds.`);
+    this.emitState(now);
+  }
+
   private startWave(now: number): void {
+    // A story event at this wave (once per game) comes first.
+    const ev = huntEventAt(this.wave);
+    if (ev && !this.huntsDone.has(ev.id)) return this.startHunt(HUNT_EVENTS[ev.id], now);
     this.zphase = 'wave';
     this.queue = waveKinds(this.wave);
     // The boss walks out a little way into the horde.
@@ -348,7 +485,7 @@ export class ZombieRoom extends GameRoom {
     const b = ZOMBIE.bloodMoon;
     const stats = this.bloodMoon ? { ...base, speed: base.speed * b.speed, hp: Math.round(base.hp * b.hp) } : base;
     const boss = kind === 'boss';
-    const title = boss ? `☠️ ${BOSS_NAMES[(bossNumber(this.wave) - 1) % BOSS_NAMES.length]}` : kind === 'brute' ? '🧟 Brute' : kind === 'runner' ? '🧟 Runner' : kind === 'sprinter' ? '🧟 Sprinter' : kind === 'exploder' ? '🧟 Exploder' : '🧟 Zombie';
+    const title = boss ? `☠️ ${BOSS_NAMES[(bossNumber(this.wave) - 1) % BOSS_NAMES.length]}` : kind === 'brute' ? '🧟 Brute' : kind === 'runner' ? '🧟 Runner' : kind === 'sprinter' ? '🧟 Sprinter' : kind === 'exploder' ? '🧟 Exploder' : kind === 'monkey' ? '🐒 Monkey' : '🧟 Zombie';
     const res = this.join(null, { userId: null, name: title, appearance: LOOKS[kind], loadout: ['knife'], bot: true, team: 2, rank: 1 });
     if (!res.ok) return null;
     const p = this.players.get(res.selfPid)!;
@@ -646,6 +783,8 @@ export class ZombieRoom extends GameRoom {
 
   handleZombieBuild(p: ServerPlayer): void {
     if (p.info.undead || !p.alive || this.phase !== 'playing' || this.zphase === 'over') return;
+    // No building during a story event (CRYSTAL_HUNT.buildDuringEvents turns it back on).
+    if (this.zphase === 'event' && !CRYSTAL_HUNT.buildDuringEvents) return;
     const now = performance.now();
     if (now - (this.lastBuildAt.get(p.pid) ?? -Infinity) < ZOMBIE.build.cooldownMs) return;
     this.lastBuildAt.set(p.pid, now);

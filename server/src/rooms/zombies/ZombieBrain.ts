@@ -1,5 +1,6 @@
 import {
   BLOCK_ID_BASE,
+  CRYSTAL_HUNT,
   DEFAULT_MODS,
   SIM_DT,
   ZOMBIE,
@@ -87,6 +88,9 @@ export interface Zombie {
   /** Exploder: when its lit fuse runs out (0 = not lit), and whether it has burst. */
   fuseAt: number;
   burst?: boolean;
+  /** Monkey (story events): where it lurks, and whether it has seen you and charges. */
+  lair?: { x: number; z: number };
+  alerted?: boolean;
   /** When it died (to remove the body after a moment). */
   diedAt: number | null;
 }
@@ -112,6 +116,8 @@ export interface ZombieHost {
   fuse(z: Zombie): void;
   /** Exploder: it bursts. */
   burst(z: Zombie, now: number): void;
+  /** A monster has `target` in sight (story events: the first time is a scare). */
+  spotted?(z: Zombie, target: ServerPlayer): void;
 }
 
 /**
@@ -180,10 +186,21 @@ export class ZombieBrain {
     }
     // Just shot: it reels for a moment (longer after a headshot), and can't hit back.
     const staggered = now < z.staggerUntil;
+    // Monkeys wait in their lair until a survivor comes into sight, close, then charge (being
+    // shot wakes them too). Whenever one has you in sight, the room hears about it.
+    let lurkAt: NavPoint | null = null;
+    if (z.kind === 'monkey') {
+      const sees = now >= z.nextThink && dist < CRYSTAL_HUNT.spotRange && this.canSee(p, target);
+      if (sees || staggered) z.alerted = true;
+      if (sees) this.host.spotted?.(z, target);
+      if (!z.alerted && z.lair) lurkAt = z.lair;
+    }
 
     if (now >= z.nextThink) {
       z.nextThink = now + THINK_MS;
-      z.heading = this.chooseHeading(z, target, dist, now);
+      if (!lurkAt) z.heading = this.chooseHeading(z, target, dist, now);
+      // Lurking: back to the lair if it wandered off, then still (it turns to the noise only).
+      else z.heading = Math.hypot(lurkAt.x - p.state.x, lurkAt.z - p.state.z) > 1 ? this.chooseHeading(z, target, dist, now, lurkAt) : { x: 0, z: 0 };
     }
 
     const pace = staggered ? 0.2 : 1;
@@ -275,13 +292,15 @@ export class ZombieBrain {
   // ---------------------------------------------------------------------------
 
   /** Which way to walk (a unit vector), decided a few times a second. */
-  private chooseHeading(z: Zombie, target: ServerPlayer, dist: number, now: number): { x: number; z: number } {
+  /** `goalAt`: walk there instead of at the target (a monkey going back to its lair). */
+  private chooseHeading(z: Zombie, target: ServerPlayer, dist: number, now: number, goalAt?: NavPoint): { x: number; z: number } {
     const p = z.p;
     const from = { x: p.state.x, z: p.state.z };
-    let goal: NavPoint = { x: target.state.x, z: target.state.z };
+    let goal: NavPoint = goalAt ?? { x: target.state.x, z: target.state.z };
+    if (goalAt) dist = Infinity;
 
     // Late waves: some zombies circle round to the side before closing in.
-    if (z.flank !== 0 && z.flanking) {
+    if (z.flank !== 0 && z.flanking && !goalAt) {
       if (dist < ZOMBIE.smart.flankDistance * 0.7) z.flanking = false;
       else {
         const ux = (from.x - goal.x) / dist;
@@ -321,6 +340,16 @@ export class ZombieBrain {
     const gz = goal.z - from.z;
     const gl = Math.hypot(gx, gz) || 1;
     return { x: gx / gl, z: gz / gl };
+  }
+
+  /** A clear line from its eyes to the target's (walls block it). */
+  private canSee(p: ServerPlayer, target: ServerPlayer): boolean {
+    const eye = { x: p.state.x, y: p.state.y + 1.2, z: p.state.z };
+    const dx = target.state.x - eye.x;
+    const dy = target.state.y + 1.2 - eye.y;
+    const dz = target.state.z - eye.z;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    return !raycastWorld(makeRay(eye, { x: dx / d, y: dy / d, z: dz / d }), this.host.world, d);
   }
 
   /** The survivor with the fewest zombies near them (ties: the closest one to `z`). */

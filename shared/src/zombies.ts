@@ -1,3 +1,4 @@
+import type { HuntState } from './events';
 import { PLAYER } from './constants';
 import type { WeaponId } from './weapons';
 
@@ -7,7 +8,8 @@ import type { WeaponId } from './weapons';
  * client only shows them.
  */
 
-export type ZombieKind = 'walker' | 'sprinter' | 'runner' | 'brute' | 'exploder' | 'boss';
+/** `monkey`: only in the Crystal Hunt events (see events.ts), never in the normal waves. */
+export type ZombieKind = 'walker' | 'sprinter' | 'runner' | 'brute' | 'exploder' | 'monkey' | 'boss';
 
 export interface ZombieBase {
   /** Health at wave 1 (a boss: before the boss-number bonus). */
@@ -65,6 +67,8 @@ export const ZOMBIE = {
     sprinter: { hp: 45, speed: 0.45, damage: 9, attackMs: 800, reach: 1.6, reward: 20 },
     // Exploder: no claws; it runs up, lights its fuse and bursts (see `exploder` below).
     exploder: { hp: 40, speed: 0.72, damage: 0, attackMs: 1000, reach: 1.9, reward: 22 },
+    // Monkey (events only): faster than any zombie, lurks at corners, then charges.
+    monkey: { hp: 55, speed: 1.02, damage: 11, attackMs: 650, reach: 1.7, reward: 25 },
     runner: { hp: 35, speed: 0.95, damage: 6, attackMs: 700, reach: 1.6, reward: 18 },
     brute: { hp: 240, speed: 0.5, damage: 26, attackMs: 1300, reach: 2.1, reward: 45 },
     boss: { hp: 1400, speed: 0.7, damage: 36, attackMs: 1100, reach: 2.8, reward: 400 },
@@ -89,7 +93,7 @@ export const ZOMBIE = {
    * per wave cleared by everyone standing, and for the boss to everyone standing. Paid at game over.
    */
   coins: {
-    perKill: { walker: 2, sprinter: 3, runner: 3, brute: 6, exploder: 4, boss: 0 } satisfies Record<ZombieKind, number>,
+    perKill: { walker: 2, sprinter: 3, runner: 3, brute: 6, exploder: 4, monkey: 4, boss: 0 } satisfies Record<ZombieKind, number>,
     wave: { base: 10, perWave: 2 },
     boss: 100,
     max: 1000,
@@ -220,7 +224,8 @@ export function upgradePrice(level: number): number | null {
 // What the server tells the clients
 // ---------------------------------------------------------------------------
 
-export type ZombiePhase = 'prep' | 'wave' | 'over';
+/** `event`: a Crystal Hunt story event is on (the waves wait). */
+export type ZombiePhase = 'prep' | 'wave' | 'event' | 'over';
 
 export interface ZombieState {
   phase: ZombiePhase;
@@ -235,6 +240,8 @@ export interface ZombieState {
   kills: number;
   /** Insta-Kill power-up: on until then (server clock, ms), or null. */
   instaKillUntil: number | null;
+  /** Team lives left for story events (see CRYSTAL_HUNT.lives). */
+  lives: number;
   /** The boss of this wave: its health is in the normal player state (hp 0-100 = its share of health). */
   boss: { pid: number; name: string } | null;
   /** This wave (or the one the shop is counting down to) is a Blood Moon. */
@@ -249,4 +256,6 @@ export interface ZombieGear {
 export interface ZombieJoin {
   state: ZombieState;
   gear: ZombieGear;
+  /** A story event that's on right now. */
+  hunt: HuntState | null;
 }

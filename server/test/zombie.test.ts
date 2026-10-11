@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { MAPS, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
+import { CRYSTAL_HUNT, MAPS, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
 import type { GameRoom } from '../src/rooms/GameRoom';
 import { createRoom } from '../src/rooms/modes';
 import type { ZombieRoom } from '../src/rooms/ZombieRoom';
@@ -196,7 +196,8 @@ describe('Zombie Apocalypse match', () => {
     const map = MAPS.night;
     assert.ok(map.halfSize >= 88, 'at least twice the old 44 m');
     const graph = buildNavGraph(map.nav!, createCollisionWorld(map));
-    assert.equal(reachableCount(graph), map.nav!.length, 'every waypoint (indoors too) reaches every other');
+    const main = map.nav!.filter((p) => Math.max(Math.abs(p.x), Math.abs(p.z)) < 88).length;
+    assert.equal(reachableCount(graph), main, 'every waypoint of the graveyard (indoors too) reaches every other');
     const t = setup();
     try {
       const spawn = (t.room as unknown as { zombieSpawn(): { x: number; z: number } }).zombieSpawn.bind(t.room);
@@ -446,6 +447,129 @@ describe('Zombie Apocalypse match', () => {
     } finally {
       t.room.close();
     }
+  });
+
+  describe('story events (Crystal Hunt)', () => {
+    type Hunt = { zone: { id: string; minX: number; maxX: number; minZ: number; maxZ: number; exit: { x: number; z: number } }; state(): { crystals: { x: number; z: number }[]; portal: unknown; total: number }; result: unknown } | null;
+    const hunt = (t: ReturnType<typeof setup>) => (t.room as unknown as { hunt: Hunt }).hunt;
+    const inside = (h: NonNullable<Hunt>, x: number, z: number) => x > h.zone.minX && x < h.zone.maxX && z > h.zone.minZ && z < h.zone.maxZ;
+    const toWave = (t: ReturnType<typeof setup>, wave: number) => {
+      t.run(ZOMBIE.prepMs + 100);
+      (t.room as unknown as { devSetWave(w: number): void }).devSetWave(wave);
+      t.run(3200);
+      // (Untouchable, so the timed tests aren't cut short by a monkey.)
+      t.me.shieldUntil = Infinity;
+    };
+    const walkTo = (t: ReturnType<typeof setup>, x: number, z: number) => {
+      t.me.state.x = x;
+      t.me.state.z = z;
+      t.run(50);
+      t.me.hp = 100;
+    };
+
+    it('wave 7: into the Backrooms with 12 crystals and lurking monkeys; collect them all, portal out, then wave 8', () => {
+      const t = setup();
+      try {
+        (t.me as { userId: number | null }).userId = 5;
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        assert.equal(t.priv.zphase, 'event');
+        const h = hunt(t)!;
+        assert.equal(h.zone.id, 'backrooms');
+        assert.ok(inside(h, t.me.state.x, t.me.state.z), 'taken into the Backrooms');
+        const s = h.state();
+        assert.equal(s.total, 12);
+        assert.equal(s.crystals.length, 12);
+        const monkeys = t.zombies().filter((z) => z.kind === 'monkey');
+        assert.equal(monkeys.length, CRYSTAL_HUNT.events.backrooms.enemies.monkey);
+        assert.ok(monkeys.every((m) => inside(h, m.p.state.x, m.p.state.z)), 'monkeys in there too');
+        assert.equal(t.zombies().filter((z) => z.kind !== 'monkey').length, 0, 'no wave zombies');
+        // C does nothing during the event.
+        t.room.handleZombieBuild(t.me);
+        assert.equal(t.priv.blocks.size, 0, 'no building');
+        // Crystals: walk into each.
+        const money = t.me.money;
+        for (const c of [...s.crystals]) walkTo(t, c.x, c.z);
+        assert.equal(h.state().crystals.length, 0);
+        assert.ok(h.state().portal, 'the portal opened');
+        assert.ok(t.events.some((e) => e.event === 'crystal'));
+        walkTo(t, h.zone.exit.x, h.zone.exit.z);
+        assert.equal(hunt(t), null, 'over');
+        assert.ok(!inside(h, t.me.state.x, t.me.state.z), 'back in the graveyard');
+        assert.equal(t.me.money, money + CRYSTAL_HUNT.events.backrooms.reward.money);
+        assert.equal(t.zombies().filter((z) => z.p.alive).length, 0, 'monkeys gone');
+        assert.equal(t.priv.zphase, 'prep');
+        assert.equal(t.priv.wave, 8, 'the event was wave 7: next is wave 8');
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('a monkey that sees you scares you once', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const m = t.zombies().find((z) => z.kind === 'monkey')!;
+        const before = t.events.length;
+        // Stand right next to it, in its room.
+        walkTo(t, m.p.state.x + 1.5, m.p.state.z);
+        t.run(600);
+        assert.equal((m as unknown as { alerted: boolean }).alerted, true, 'it charges');
+        walkTo(t, m.p.state.x + 1.5, m.p.state.z);
+        t.run(600);
+        // (The scare goes to your socket; here the room has no sockets, so check the hunt kept it once.)
+        assert.ok((hunt(t) as unknown as { spotted: Set<number> }).spotted.has(t.me.pid));
+        assert.ok(t.events.length >= before);
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('time running out costs a life (the game goes on); with onFail gameOver it ends the game', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        t.run(CRYSTAL_HUNT.events.backrooms.timeMs + 500);
+        assert.equal(hunt(t), null);
+        assert.equal((t.room as unknown as { lives: number }).lives, CRYSTAL_HUNT.lives - 1);
+        assert.notEqual(t.priv.zphase, 'over');
+        const was = CRYSTAL_HUNT.onFail;
+        CRYSTAL_HUNT.onFail = 'gameOver';
+        try {
+          toWave(t, CRYSTAL_HUNT.events.phoneMission.wave);
+          assert.equal(t.priv.zphase, 'event');
+          t.run(CRYSTAL_HUNT.events.phoneMission.timeMs + 500);
+          assert.equal(t.priv.zphase, 'over');
+        } finally {
+          CRYSTAL_HUNT.onFail = was;
+        }
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('wave 10: the Phone Mission (more crystals, more monsters, less time, a blackout), then the boss wave', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.phoneMission.wave);
+        const h = hunt(t)!;
+        const b = CRYSTAL_HUNT.events.backrooms;
+        const p = CRYSTAL_HUNT.events.phoneMission;
+        assert.equal(h.zone.id, 'facility');
+        assert.ok(p.crystals > b.crystals && p.timeMs < b.timeMs);
+        assert.ok(t.zombies().length > (b.enemies.monkey ?? 0), 'more monsters');
+        t.run(p.timeMs * 0.5 + 300);
+        assert.ok((h as unknown as { blackoutUntil: number }).blackoutUntil > 0, 'the power went out half way');
+        for (const c of [...h.state().crystals]) walkTo(t, c.x, c.z);
+        walkTo(t, h.zone.exit.x, h.zone.exit.z);
+        assert.equal(hunt(t), null);
+        assert.equal(t.priv.wave, 10, 'still wave 10');
+        t.run(ZOMBIE.prepMs + 300);
+        assert.equal(t.priv.zphase, 'wave');
+        assert.ok(t.priv.queue.includes('boss') || t.zombies().some((z) => z.kind === 'boss'), 'and the boss comes');
+      } finally {
+        t.room.close();
+      }
+    });
   });
 
   it('when every survivor is down it is game over; Restart plays again from wave 1', () => {

@@ -145,7 +145,9 @@ export type DevAction =
   | { kind: 'removeWeapon'; target: number; weapon: WeaponId }
   | { kind: 'refill'; target: number }
   /** A prank: a scary face and a scream on that player's screen (people only, not bots; public rooms too). */
-  | { kind: 'jumpscare'; target: number; style: JumpscareStyle };
+  | { kind: 'jumpscare'; target: number; style: JumpscareStyle }
+  /** Zombie Apocalypse: straight to the shop before this wave (chat: /wave 7). */
+  | { kind: 'zombieWave'; wave: number };
 
 /** The jumpscares mega?dev can send. */
 export const JUMPSCARE_STYLES = ['chicken', 'ghost', 'glitch', 'flash', 'funnyChiken'] as const;
@@ -176,7 +178,7 @@ export interface DevStatus {
 /** Loadouts can grow beyond the normal four slots in developer testing, up to this. */
 export const DEV_MAX_LOADOUT = 8;
 
-const ACTION_KINDS = ['teleportToPlayer', 'bringPlayer', 'teleport', 'freeze', 'respawn', 'health', 'armor', 'giveWeapon', 'removeWeapon', 'refill', 'jumpscare'] as const;
+const ACTION_KINDS = ['teleportToPlayer', 'bringPlayer', 'teleport', 'freeze', 'respawn', 'health', 'armor', 'giveWeapon', 'removeWeapon', 'refill', 'jumpscare', 'zombieWave'] as const;
 
 /** Validates the shape of an untrusted DevAction (the server still checks targets and permissions). */
 export function parseDevAction(raw: unknown): DevAction | null {
@@ -197,6 +199,8 @@ export function parseDevAction(raw: unknown): DevAction | null {
       return target !== null && num(r.value) ? { kind, target, value: r.value as number } : null;
     case 'jumpscare':
       return target !== null && JUMPSCARE_STYLES.includes(r.style as JumpscareStyle) ? { kind, target, style: r.style as JumpscareStyle } : null;
+    case 'zombieWave':
+      return Number.isSafeInteger(r.wave) && (r.wave as number) >= 1 && (r.wave as number) <= 99 ? { kind, wave: r.wave as number } : null;
     case 'giveWeapon':
     case 'removeWeapon':
       return target !== null && isWeaponId(r.weapon) ? { kind, target, weapon: r.weapon } : null;

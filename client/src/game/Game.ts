@@ -1,3 +1,4 @@
+import type { MapZone } from '@game/shared';
 import * as THREE from 'three';
 import { nativeOn } from '../dev/skeet/visualValues';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -90,6 +91,8 @@ export class Game {
   private baseLook: WorldLook = defaultLook();
   /** Zombie Apocalypse Blood Moon: 0 (normal night) to 1 (crimson). */
   private bloodMoon = 0;
+  /** Inside a story event level: its own light (null: the map's). */
+  private zoneLook: MapZone['look'] | null = null;
   private lookKey = '';
   private skyKey = '';
   private rebakeTimer: number | undefined;
@@ -165,6 +168,10 @@ export class Game {
       hud: this.hud,
       join,
       dev: this.dev ?? undefined,
+      setZoneLook: (look) => {
+        this.zoneLook = look;
+        this.applyLook();
+      },
       setBloodMoon: (amount) => {
         if (Math.abs(amount - this.bloodMoon) < 0.004 && amount !== 0) return;
         this.bloodMoon = amount;
@@ -175,8 +182,9 @@ export class Game {
   }
 
   endSession(): void {
-    if (this.bloodMoon > 0) {
+    if (this.bloodMoon > 0 || this.zoneLook) {
       this.bloodMoon = 0;
+      this.zoneLook = null;
       this.applyLook();
     }
     this.session?.dispose();
@@ -292,7 +300,8 @@ export class Game {
   private applyLook(): void {
     // An untouched World tab means "the map's own look".
     const own = JSON.stringify(this.userLook) === DEFAULT_LOOK_KEY ? this.baseLook : this.userLook;
-    const look = this.bloodMoon > 0 ? bloodMoonLook(own, this.bloodMoon) : own;
+    const tinted = this.bloodMoon > 0 ? bloodMoonLook(own, this.bloodMoon) : own;
+    const look = this.zoneLook ? { ...tinted, ...this.zoneLook } : tinted;
     const lookKey = JSON.stringify(look);
     if (lookKey === this.lookKey) return;
     this.lookKey = lookKey;

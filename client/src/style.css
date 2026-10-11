@@ -6032,3 +6032,24 @@ code {
   color: #fff; background: rgba(170, 30, 30, 0.85); border: 2px solid #1a0d0d; border-radius: 999px;
 }
 .zb-power[hidden] { display: none; }
+
+/* ============================== story events (Crystal Hunt) ============================== */
+/* The phone: bottom right, above your gun; its key (N) makes it big in the middle. */
+.hunt-phone {
+  position: absolute; right: 16px; bottom: 150px; width: 232px; padding: 10px 6px 8px; z-index: 6;
+  background: #101318; border: 3px solid #2a2f38; border-radius: 22px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  color: #dfe6f2; font-size: 0.75rem; transition: transform 0.25s ease, left 0.25s ease, bottom 0.25s ease;
+}
+.hunt-phone[hidden] { display: none; }
+.hunt-phone.big { right: 50%; bottom: 50%; transform: translate(50%, 50%) scale(2); }
+.hunt-phone-top, .hunt-phone-bottom { display: flex; justify-content: space-between; align-items: center; padding: 0 8px 6px; }
+.hunt-phone-bottom { padding: 6px 8px 0; }
+.hunt-phone small { opacity: 0.55; }
+.hunt-map { display: block; width: 220px; height: 220px; border-radius: 10px; }
+.hunt-count { font-weight: 800; color: #d59bff; }
+.hunt-time { font-variant-numeric: tabular-nums; font-weight: 800; }
+.hunt-time.urgent { color: #ff6b6b; }
+/* The scare: one red pulse round the edge of the screen (never a strobe). */
+.hunt-pulse { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 7; box-shadow: inset 0 0 18vmin rgba(200, 0, 0, 0.85); }
+.hunt-pulse.on { animation: hunt-pulse 0.9s ease-out; }
+@keyframes hunt-pulse { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }

@@ -82,6 +82,7 @@ import {
   teamSwitchBlocked,
   type TrainingGiveRequest,
   upgradeEffects,
+  type MapZone,
   POWER_UP_INFO,
   isPowerUp,
 } from '@game/shared';
@@ -93,6 +94,7 @@ import { showJumpscare } from '../ui/Jumpscare';
 import { ZombieHud } from '../ui/ZombieHud';
 import { getKeybinds, keyLabel } from '../keybinds';
 import { ZombieNight } from './ZombieNight';
+import { HuntView } from './HuntView';
 import { emptySoundFor, reloadSoundFor } from './Audio';
 import type { AudioEngine } from './Audio';
 import { Blocks } from './Blocks';
@@ -137,6 +139,8 @@ export interface SessionContext {
   dev?: DevHooks;
   /** Zombie Apocalypse Blood Moon: tints the night (0 normal to 1 crimson). */
   setBloodMoon?: (amount: number) => void;
+  /** Inside a story event level: its own light (null: back to the map's). */
+  setZoneLook?: (look: MapZone['look'] | null) => void;
 }
 
 /** How the developer system plugs into a match. Every hook is optional behaviour on top of normal play. */
@@ -214,6 +218,8 @@ export class GameSession {
   /** Zombie Apocalypse: the wave panel, shop and game-over screen. */
   private readonly zombieHud: ZombieHud | null;
   private night: ZombieNight | null = null;
+  /** Story events (Crystal Hunt): crystals, portal, the phone. */
+  private hunt: HuntView | null = null;
   /** Max health as a multiple of normal (Health upgrade); the health bar is a share of it. */
   private maxHealth = 1;
   /** Training: the weapon menu (B). */
@@ -324,7 +330,9 @@ export class GameSession {
       ctx.hud.toast(`🧟 Survive! B opens the shop between waves, C builds a wall that lasts 10 seconds. Ctrl crouches. ${keyLabel(getKeybinds().flashlight)} switches your flashlight.`, 'info');
       // A darker HUD for the night, the flashlight and the sounds of the dark.
       ctx.hud.root.classList.add('hud-zombie');
-      this.night = new ZombieNight(ctx.scene, ctx.camera, ctx.audio, ctx.setBloodMoon);
+      this.night = new ZombieNight(ctx.scene, ctx.camera, ctx.audio, ctx.setBloodMoon, ctx.world.map.zones ?? [], ctx.setZoneLook);
+      this.hunt = new HuntView(ctx.scene, ctx.hud.root, ctx.audio, this.effects, ctx.world.map, (a) => this.rig.addShake(a));
+      if (join.zombie?.hunt) this.hunt.setState(join.zombie.hunt);
       if (join.zombie) this.night.setBloodMoon(join.zombie.state.bloodMoon);
     }
     ctx.input.yaw = me.yaw;
@@ -427,6 +435,13 @@ export class GameSession {
     this.local.render(this.accumulator / SIM_DT, dt, body?.yaw ?? input.yaw, body?.pitch ?? input.pitch, seat);
     this.remotes.render(renderTime, dt);
     this.night?.update(dt, this.remotes);
+    if (this.hunt?.active) {
+      const mates = [...this.remotes.players.values()].filter((r) => !r.info.undead && r.alive).map((r) => r.position);
+      this.ctx.world.blackout = this.hunt.update(dt, this.local.position, this.ctx.input.yaw, mates, this.serverNow());
+    } else if (this.hunt) {
+      this.hunt.update(dt, this.local.position, 0, [], 0);
+      this.ctx.world.blackout = false;
+    }
     for (const r of this.remotes.players.values()) {
       const v = r.latest?.vehicle;
       const remoteSeat = v ? this.vehicles.seatOf(v, new THREE.Vector3()) : null;
@@ -626,6 +641,9 @@ export class GameSession {
         break;
       case 'flashlight':
         this.night?.toggleFlashlight();
+        break;
+      case 'phone':
+        this.hunt?.togglePhone();
         break;
       case 'slot1':
       case 'slot2':
@@ -947,6 +965,7 @@ export class GameSession {
     if (bomb) return bomb;
     if (this.local.car) return 'Driving · Shoot with the mouse · Space drift · Shift nitro · E to get out';
     if (this.trainingMenu) return this.trainingMenu.open ? null : 'B · Weapons · Esc · Back to lobby';
+    if (this.zombieHud && this.zombieState?.phase === 'event') return `${keyLabel(getKeybinds().phone)} · Bigger phone map · ${keyLabel(getKeybinds().flashlight)} · Flashlight · find the purple crystals`;
     if (this.zombieHud) return this.zombieHud.shopOpen ? null : this.zombieState?.phase === 'prep' ? 'B · Shop (open now!) · C · Build a wall' : 'C · Build a wall (gone in 10 s) · Ctrl · Crouch';
     if (this.building) {
       const kind = BLOCK_KINDS[this.blockIndex]!;
@@ -1371,7 +1390,10 @@ export class GameSession {
       e.stopPropagation();
       if (e.key === 'Enter') {
         const text = input.value.trim();
-        if (text) this.ctx.net.socket.emit('chat', text, this.chatTeamOnly);
+        const wave = /^\/wave\s+(\d{1,2})$/i.exec(text);
+        // Developer shortcut (Zombie Apocalypse, private room, passkey unlocked): /wave 7.
+        if (wave) this.ctx.net.socket.emit('devAction', { kind: 'zombieWave', wave: Number(wave[1]) }, (res) => this.ctx.hud.toast(res.ok ? `Wave ${wave[1]} in 3 seconds` : (res.error ?? 'Not allowed.'), res.ok ? 'good' : 'bad'));
+        else if (text) this.ctx.net.socket.emit('chat', text, this.chatTeamOnly);
         this.closeChat();
       } else if (e.key === 'Escape') {
         this.closeChat();
@@ -1412,6 +1434,13 @@ export class GameSession {
     this.on('money', (e) => (this.money = e.money));
     this.on('zombie', (s) => this.onZombieState(s));
     this.on('zombieHit', (e) => this.remotes.get(e.pid)?.chicken.flinch(e.headshot));
+    this.on('hunt', (s) => this.hunt?.setState(s));
+    this.on('crystal', (e) => this.hunt?.collect(e));
+    this.on('huntScare', (e) => this.hunt?.scare(e.kind));
+    this.on('huntEnd', (e) => {
+      this.ctx.hud.announce(e.success ? 'ESCAPED' : 'EVENT FAILED', e.reason, e.success ? 'good' : 'bad');
+      this.ctx.audio.play(e.success ? 'reward' : 'death', undefined, 0.9);
+    });
     this.on('zombieFuse', (e) => {
       const r = this.remotes.get(e.pid);
       r?.chicken.fuse();
@@ -1783,6 +1812,8 @@ export class GameSession {
     this.buyMenu?.dispose();
     this.zombieHud?.dispose();
     this.night?.dispose();
+    this.hunt?.dispose();
+    this.ctx.world.blackout = false;
     this.ctx.hud.root.classList.remove('hud-zombie');
     this.trainingMenu?.dispose();
     this.ctx.input.zombieMode = false;

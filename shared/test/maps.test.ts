@@ -61,7 +61,13 @@ for (const id of MAP_IDS) {
       if (!map.nav) return;
       for (const p of map.nav) assert.ok(isSpaceFree(p.x, 0, p.z, world), `waypoint ${p.x},${p.z} is blocked`);
       const graph = buildNavGraph(map.nav, world);
-      assert.equal(reachableCount(graph), map.nav.length, 'every waypoint reaches every other');
+      // Sealed event levels (zones) are their own little worlds: every waypoint reaches every
+      // other in the same area.
+      const area = (p: { x: number; z: number }) => map.zones?.find((z) => p.x > z.minX && p.x < z.maxX && p.z > z.minZ && p.z < z.maxZ)?.id ?? 'main';
+      for (const name of new Set(map.nav.map(area))) {
+        const members: number[] = map.nav.map((p, i) => (area(p) === name ? i : -1)).filter((i) => i >= 0);
+        assert.equal(reachableCount(graph, members[0]), members.length, `every waypoint reaches every other (${name})`);
+      }
       for (const spot of [...map.spawns, ...(map.bombSites ?? [])]) {
         assert.ok(map.nav.some((p) => walkable(spot, p, world)), `${spot.x},${spot.z} can't walk to any waypoint`);
       }

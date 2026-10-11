@@ -1,5 +1,6 @@
 import { mulberry32 } from '../rng';
 import { boxToAabb, crate, hut, mirrored, type BoxKind, type MapBox, type MapDef } from './types';
+import { BACKROOMS_SPEC, FACILITY_SPEC, buildZone } from './zones';
 
 /**
  * Graveyard (Zombie Apocalypse): a walled night cemetery with a merchant's hut in the middle
@@ -9,7 +10,12 @@ import { boxToAabb, crate, hut, mirrored, type BoxKind, type MapBox, type MapDef
  * meadow with a campfire (south-east). Zombies come from anywhere. North is -Z.
  */
 
+/** The playable part (a stone wall all round); the event levels lie sealed beyond it. */
 const HALF = 88;
+/** The whole map, event levels included. */
+const MAP_HALF = 170;
+const BACKROOMS = buildZone(BACKROOMS_SPEC);
+const FACILITY = buildZone(FACILITY_SPEC);
 /** The cemetery wall, with a gate in each side (the choke points into the middle). */
 const WALL = 42;
 const GATE = 5;
@@ -159,6 +165,16 @@ function woods(): MapBox[] {
   return out;
 }
 
+/** The wall round the playable part (north and south run corner to corner). */
+function outerWall(): MapBox[] {
+  const t = 1;
+  const color = 0x3b3e44;
+  return [-1, 1].flatMap((s): MapBox[] => [
+    { kind: 'stone', x: 0, z: s * (HALF + t / 2), w: 2 * HALF + 2 * t, h: 5, d: t, color },
+    { kind: 'stone', x: s * (HALF + t / 2), z: 0, w: t, h: 5, d: 2 * HALF, color },
+  ]);
+}
+
 const BOXES: MapBox[] = [
   // The merchant's hut in the middle: doors on every side.
   ...house(0, 0, 7, 6, 3.2, ['n', 's', 'e', 'w'], 'wood'),
@@ -173,6 +189,9 @@ const BOXES: MapBox[] = [
   ...village(),
   ...SOUTH,
   ...woods(),
+  ...outerWall(),
+  ...BACKROOMS.boxes,
+  ...FACILITY.boxes,
 ];
 
 /** Waypoints on an 8 m grid, wherever nothing is standing: zombies find their way round walls by them. */
@@ -195,7 +214,8 @@ const NAV = navGrid(HALF);
 export const NIGHT: MapDef = {
   id: 'night',
   name: 'Graveyard',
-  halfSize: HALF,
+  halfSize: MAP_HALF,
+  grassHalf: HALF,
   ground: 'grass',
   boxes: BOXES,
   spawns: [
@@ -212,7 +232,8 @@ export const NIGHT: MapDef = {
   loot: [],
   vehicles: [],
   flags: [],
-  nav: NAV,
+  nav: [...NAV, ...BACKROOMS.nav, ...FACILITY.nav],
+  zones: [BACKROOMS.zone, FACILITY.zone],
   // Lanterns on walls, and the campfire.
   lamps: [
     { x: 0, y: 2.6, z: 3.25, color: 0xffa040 },
@@ -227,5 +248,7 @@ export const NIGHT: MapDef = {
     { x: -45.25, y: 2.6, z: 56, color: 0xc0281c },
     { x: -63, y: 2.6, z: 77.25, color: 0xff8a30 },
     { x: 66, y: 0.3, z: 66, color: 0xff7a20, fire: true },
+    ...BACKROOMS.lamps,
+    ...FACILITY.lamps,
   ],
 };

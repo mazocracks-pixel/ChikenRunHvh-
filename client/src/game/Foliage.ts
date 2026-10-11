@@ -26,7 +26,9 @@ export class Foliage {
     const tufts: THREE.Vector3[] = [];
     const flowers: THREE.Vector3[] = [];
     const rocks: THREE.Vector3[] = [];
-    const inner = map.halfSize;
+    const inner = map.grassHalf ?? map.halfSize;
+    const zones = map.zones ?? [];
+    const inZone = (x: number, z: number) => zones.some((b) => x > b.minX - 1 && x < b.maxX + 1 && z > b.minZ - 1 && z < b.maxZ + 1);
     const insideAllowed = map.ground === 'grass';
     const blocked = (x: number, z: number) => {
       for (const b of collision.query(x - 0.2, z - 0.2, x + 0.2, z + 0.2, scratch)) {
@@ -45,6 +47,7 @@ export class Foliage {
           i--;
           continue;
         }
+        if (inZone(x, z)) continue;
         const outside = Math.abs(x) > inner || Math.abs(z) > inner;
         if (!outside && (!insideAllowed || blocked(x, z))) continue;
         const r = rand();

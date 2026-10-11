@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ZombieKind } from '@game/shared';
+import type { MapZone, ZombieKind } from '@game/shared';
 import type { AudioEngine, SoundName } from './Audio';
 import { setBloodMoonEyes } from './models/Chicken';
 import type { RemotePlayers } from './RemotePlayers';
@@ -22,6 +22,7 @@ const VOICES: Record<ZombieKind, { call: SoundName; callVolume: number; every: n
   sprinter: { call: 'hiss', callVolume: 0.55, every: 3, spot: 'screech', spotVolume: 0.75, step: 'zstepLight', stepVolume: 0.5, stepEvery: 0.24 },
   runner: { call: 'pant', callVolume: 0.6, every: 2.5, spot: 'screech', spotVolume: 0.65, step: 'zstepLight', stepVolume: 0.45, stepEvery: 0.2 },
   exploder: { call: 'gurgle', callVolume: 0.6, every: 2.5, spot: 'gurgle', spotVolume: 0.8, step: 'zstep', stepVolume: 0.5, stepEvery: 0.36 },
+  monkey: { call: 'hoot', callVolume: 0.55, every: 3, spot: 'monkeyShriek', spotVolume: 0.8, step: 'zstepLight', stepVolume: 0.55, stepEvery: 0.18 },
   brute: { call: 'roar', callVolume: 0.8, every: 4.5, spot: 'roar', spotVolume: 1, step: 'zstepHeavy', stepVolume: 0.7, stepEvery: 0.6 },
   boss: { call: 'bossRoar', callVolume: 0.9, every: 5, spot: 'bossRoar', spotVolume: 1.1, step: 'zstepHeavy', stepVolume: 0.9, stepEvery: 0.55 },
 };
@@ -55,12 +56,16 @@ export class ZombieNight {
   private blood = 0;
   private readonly moon: THREE.Mesh;
   private readonly moonTexture: THREE.Texture;
+  /** The story event level the camera is in (null: the graveyard). */
+  private zone: MapZone | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
     private readonly camera: THREE.Camera,
     private readonly audio: AudioEngine,
     private readonly tint?: (amount: number) => void,
+    private readonly zones: readonly MapZone[] = [],
+    private readonly zoneLook?: (look: MapZone['look'] | null) => void,
   ) {
     // A big red moon low in the east, always just inside the view distance (it moves with you).
     // A blood-red disc with dark craters, inside a soft red glow (all one canvas texture).
@@ -141,8 +146,16 @@ export class ZombieNight {
       this.moon.lookAt(cam.position);
     }
 
+    // Inside a story event level: its own light and sounds instead of the night's.
+    const zone = this.zones.find((z) => cam.position.x > z.minX && cam.position.x < z.maxX && cam.position.z > z.minZ && cam.position.z < z.maxZ) ?? null;
+    if (zone !== this.zone) {
+      this.zone = zone;
+      this.zoneLook?.(zone?.look ?? null);
+    }
+
     this.zombieSounds(remotes);
-    this.ambience();
+    if (this.zone) this.zoneAmbience(this.zone);
+    else this.ambience();
   }
 
   private zombieSounds(remotes: RemotePlayers): void {
@@ -182,6 +195,20 @@ export class ZombieNight {
     for (const pid of this.heard.keys()) if (!remotes.players.has(pid)) this.heard.delete(pid);
   }
 
+  /** Backrooms: the fluorescent buzz never stops. The facility: distant metal groans. */
+  private zoneAmbience(zone: MapZone): void {
+    const t = this.time;
+    if (t < this.nextWind) return;
+    if (zone.id === 'backrooms') {
+      this.nextWind = t + 2;
+      this.audio.play('buzz', undefined, 0.5);
+    } else {
+      this.nextWind = t + 6 + Math.random() * 6;
+      const a = Math.random() * Math.PI * 2;
+      this.audio.play('creak', { x: this.camera.position.x + Math.cos(a) * 15, y: 2, z: this.camera.position.z + Math.sin(a) * 15 }, 0.9);
+    }
+  }
+
   /** Wind all the time; now and then a cluck far away or wood creaking somewhere near. */
   private ambience(): void {
     const t = this.time;
@@ -213,5 +240,6 @@ export class ZombieNight {
     this.moonTexture.dispose();
     setBloodMoonEyes(false);
     this.tint?.(0);
+    this.zoneLook?.(null);
   }
 }

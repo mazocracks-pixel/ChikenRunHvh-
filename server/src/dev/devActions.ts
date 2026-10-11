@@ -20,6 +20,12 @@ export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAct
   // rooms; everything that changes the game stays in private test rooms.
   if (!room.info.private && action.kind !== 'jumpscare') return fail('Player administration only works in private test rooms.');
   const now = performance.now();
+  if (action.kind === 'zombieWave') {
+    const zombies = room as unknown as { devSetWave?: (wave: number) => void };
+    if (!zombies.devSetWave) return fail('Only in Zombie Apocalypse.');
+    zombies.devSetWave(action.wave);
+    return ok;
+  }
   if (action.kind === 'teleport') {
     if (!actor.alive) return fail('You are dead.');
     const limit = room.map.halfSize - PLAYER.radius;

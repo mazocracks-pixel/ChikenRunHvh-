@@ -77,6 +77,7 @@ export class World {
     this.addGround();
     this.addBoxes();
     this.addLamps();
+    this.addZoneFloors();
     if (this.map.id === 'farm') {
       this.addArenaMarkings();
       this.addFarmScenery();
@@ -220,10 +221,51 @@ export class World {
   // the lanterns nearest the camera. They flicker slowly and only a little (never a strobe).
   // ---------------------------------------------------------------------------
 
-  private readonly lamps: { at: THREE.Vector3; color: number; fire: boolean; phase: number }[] = [];
+  private readonly lamps: {
+    at: THREE.Vector3;
+    color: number;
+    fire: boolean;
+    phase: number;
+    panel: boolean;
+    /** Fluorescent stutter: dim until `dimUntil`, the next one at `nextDim` (seconds). */
+    flicker: boolean;
+    dimUntil: number;
+    nextDim: number;
+    glow: THREE.MeshBasicMaterial;
+    base: THREE.Color;
+  }[] = [];
+  /** Story event blackout: every light out (except the flashlight). */
+  blackout = false;
   private readonly lampLights: { light: THREE.PointLight; lamp: number; fade: number }[] = [];
   private lampTime = 0;
   private lampCheck = 0;
+
+  /** Story event levels: their own floor (Backrooms carpet, facility concrete), over the grass. */
+  private addZoneFloors(): void {
+    for (const z of this.map.zones ?? []) {
+      const w = z.maxX - z.minX;
+      const d = z.maxZ - z.minZ;
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, 64, 64);
+      // Speckles: carpet fibres, or stains on concrete.
+      for (let i = 0; i < 260; i++) {
+        g.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.12})`;
+        g.fillRect(Math.random() * 64, Math.random() * 64, 1 + Math.random() * 2, 1 + Math.random() * 2);
+      }
+      const tex = this.track(new THREE.CanvasTexture(c));
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(w / 2, d / 2);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const m = this.track(new THREE.MeshStandardMaterial({ color: z.floorColor, map: tex, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }));
+      const floor = new THREE.Mesh(this.track(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2)), m);
+      floor.position.set((z.minX + z.maxX) / 2, 0.01, (z.minZ + z.maxZ) / 2);
+      floor.receiveShadow = true;
+      this.root.add(floor);
+    }
+  }
 
   private addLamps(): void {
     const lamps = this.map.lamps ?? [];
@@ -231,10 +273,15 @@ export class World {
     const lantern = this.track(new THREE.BoxGeometry(0.2, 0.28, 0.2));
     const cap = this.track(new THREE.BoxGeometry(0.28, 0.06, 0.28));
     const flame = this.track(new THREE.ConeGeometry(0.32, 0.75, 7));
+    const panel = this.track(new THREE.BoxGeometry(1.4, 0.04, 0.6));
     const iron = this.track(new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.7 }));
     lamps.forEach((l, i) => {
       const glow = this.track(new THREE.MeshBasicMaterial({ color: new THREE.Color(l.color).multiplyScalar(l.fire ? 1.6 : 1.3), fog: false }));
-      if (l.fire) {
+      if (l.panel) {
+        const p = new THREE.Mesh(panel, glow);
+        p.position.set(l.x, l.y, l.z);
+        this.root.add(p);
+      } else if (l.fire) {
         for (const [dx, dz, s] of [[0, 0, 1], [0.18, 0.1, 0.65], [-0.15, -0.12, 0.7]] as const) {
           const f = new THREE.Mesh(flame, glow);
           f.position.set(l.x + dx, l.y + 0.3 * s, l.z + dz);
@@ -248,7 +295,18 @@ export class World {
         top.position.set(l.x, l.y + 0.17, l.z);
         this.root.add(glass, top);
       }
-      this.lamps.push({ at: new THREE.Vector3(l.x, l.y + (l.fire ? 0.6 : 0), l.z), color: l.color, fire: !!l.fire, phase: i * 2.17 });
+      this.lamps.push({
+        at: new THREE.Vector3(l.x, l.y + (l.fire ? 0.6 : l.panel ? -0.3 : 0), l.z),
+        color: l.color,
+        fire: !!l.fire,
+        phase: i * 2.17,
+        panel: !!l.panel,
+        flicker: !!l.flicker,
+        dimUntil: 0,
+        nextDim: 1 + ((i * 1.37) % 5),
+        glow,
+        base: glow.color.clone(),
+      });
     });
     for (let i = 0; i < Math.min(LAMP_LIGHTS, lamps.length); i++) {
       const light = new THREE.PointLight(0xffffff, 0, 13, 2);
@@ -275,13 +333,23 @@ export class World {
       }
     }
     const t = this.lampTime;
+    // Fluorescent panels stutter now and then: dim for a moment, every few seconds (never a strobe).
+    for (const lamp of this.lamps) {
+      if (lamp.flicker && t >= lamp.nextDim) {
+        lamp.dimUntil = t + 0.12 + Math.random() * 0.1;
+        lamp.nextDim = t + 2.5 + Math.random() * 4;
+      }
+      const level = this.blackout ? 0.04 : t < lamp.dimUntil ? 0.35 : 1;
+      lamp.glow.color.copy(lamp.base).multiplyScalar(level);
+    }
     for (const s of this.lampLights) {
       const lamp = this.lamps[s.lamp];
       if (!lamp) continue;
       s.fade = Math.min(1, s.fade + dt * 2);
       // Two slow waves (under half a flicker a second), at most a fifth dimmer: a soft waver.
       const waver = 0.88 + 0.08 * Math.sin(t * (lamp.fire ? 2.6 : 1.7) + lamp.phase) + 0.04 * Math.sin(t * 2.9 + lamp.phase * 1.7);
-      s.light.intensity = (lamp.fire ? 14 : 9) * waver * s.fade;
+      const level = this.blackout ? 0 : t < lamp.dimUntil ? 0.35 : lamp.flicker ? 1 / waver : 1;
+      s.light.intensity = (lamp.fire ? 14 : lamp.panel ? 11 : 9) * waver * level * s.fade;
     }
   }
 

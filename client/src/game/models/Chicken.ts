@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHICKEN_POSE, chickenHeadPose, bodyScale, PLAYER, TEAM_COLORS, clamp, damp, getItem, type Appearance, type Team, type WeaponId, type ZombieKind } from '@game/shared';
 import { buildGun, type GunModel } from './Guns';
 import { buildHat } from './Hats';
+import { animateMonkey, buildMonkey, type MonkeyModel } from './Monkey';
 import { box, cone, cylinder, part, solid, sphere } from './materials';
 
 /** How long a third-person melee swing takes. */
@@ -248,6 +249,8 @@ export class Chicken {
   private readonly eyeWhites: THREE.Mesh[] = [];
   private readonly pupils: THREE.Mesh[] = [];
   private hat: THREE.Group | null = null;
+  /** Built the first time this chicken is an event monkey. */
+  private monkey: MonkeyModel | null = null;
   /** Gun skin from the appearance, and the one the gun in hand was built with. */
   private gunSkin = 'none';
   private builtSkin = 'none';
@@ -430,6 +433,14 @@ export class Chicken {
       });
     }
     this.undead = undead;
+    // Event monkeys are a different animal altogether (on the same hitbox).
+    const monkey = undead === 'monkey';
+    if (monkey && !this.monkey) {
+      this.monkey = buildMonkey();
+      this.pose.add(this.monkey.root);
+    }
+    if (this.monkey) this.monkey.root.visible = monkey;
+    for (const o of [this.bodyPivot, this.headGroup, this.legL, this.legR]) o.visible = !monkey;
     this.setTeam(this.team);
 
     const beak = getItem('beak', a.beak) ?? getItem('beak', 'orange')!;
@@ -641,7 +652,11 @@ export class Chicken {
     const t = this.time;
     const kind = this.undead!;
     const w = this.walkBlend;
-    const lean = { walker: -0.22, sprinter: -0.38, runner: -0.5, brute: -0.12, exploder: -0.08, boss: -0.05 }[kind];
+    if (kind === 'monkey') {
+      if (this.monkey) animateMonkey(this.monkey, this.walkPhase, this.walkBlend, t);
+      return;
+    }
+    const lean = { walker: -0.22, sprinter: -0.38, runner: -0.5, brute: -0.12, exploder: -0.08, monkey: 0, boss: -0.05 }[kind];
     this.bodyPivot.rotation.x = lean - 0.08 * w;
     if (kind === 'walker') {
       // A dragging limp: one leg swings less, the body rolls towards it.

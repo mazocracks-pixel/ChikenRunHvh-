@@ -38,4 +38,5 @@ export * from './hvh/shotTiming';
 export * from './zombies';
 export * from './training';
 export * from './upgrades';
+export * from './events';
 export * from './shop';

@@ -65,7 +65,14 @@ export type SoundName =
   | 'gurgle'
   | 'fuse'
   | 'powerUp'
-  | 'nuke';
+  | 'nuke'
+  | 'hoot'
+  | 'monkeyShriek'
+  | 'crystal'
+  | 'portal'
+  | 'scareSting'
+  | 'buzz'
+  | 'powerDown';
 
 const VOLUME_KEY = 'chikengun:volume';
 const MUSIC_KEY = 'chikengun:music-volume';
@@ -81,6 +88,8 @@ export const JUMPSCARE_FILE = '/sounds/jumpscare.mp3';
  * AWP_SOUND, SNIPER_ZOOM and equip_sound files have no known free licence (see SOUNDS.md).
  */
 const FILE_SOUNDS: Partial<Record<SoundName, string>> = {
+  // The story-event scare: built in; to use your own, put the file in client/public/sounds and
+  // add (for example) `scareSting: '/sounds/scare_sting.mp3',` here.
 };
 /** Quieter than this (about -40 dB) counts as silence, trimmed off both ends of a file. */
 const SILENCE = 0.01;
@@ -687,6 +696,46 @@ export class AudioEngine {
         this.burst(ctx, out, t, { dur: 0.4, type: 'lowpass', freq: 1300 * pitch, to: 130, gain: 0.95 });
         this.tone(ctx, out, t, { dur: 0.22, type: 'sine', freq: 110 * pitch, to: 38, gain: 0.8 });
         this.bolt(ctx, out, t, 0.5, false);
+        break;
+      // Story events (Crystal Hunt).
+      case 'hoot':
+        // Monkey: rising hoots, then chatter.
+        for (const [d, f] of [[0, 380], [0.18, 470], [0.34, 560]] as const) this.squawk(ctx, out, t, { delay: d, freq: f * pitch, peak: f * 1.5, end: f, dur: 0.15, gain: 0.25 });
+        for (let i = 0; i < 4; i++) this.burst(ctx, out, t, { dur: 0.03, type: 'bandpass', freq: 2200, q: 5, gain: 0.15, delay: 0.55 + i * 0.06 });
+        break;
+      case 'monkeyShriek':
+        // It has seen you: a piercing shriek.
+        this.squawk(ctx, out, t, { delay: 0, freq: 900 * pitch, peak: 1900, end: 1300, dur: 0.55, gain: 0.3 });
+        this.squawk(ctx, out, t, { delay: 0.05, freq: 1100 * pitch, peak: 2300, end: 1500, dur: 0.45, gain: 0.15 });
+        break;
+      case 'crystal':
+        // A glassy chime with a shimmer.
+        for (const [d, f] of [[0, 1047], [0.06, 1568], [0.12, 2093]] as const) this.tone(ctx, out, t, { dur: 0.6, type: 'sine', freq: f, gain: 0.18, delay: d });
+        this.burst(ctx, out, t, { dur: 0.4, type: 'highpass', freq: 6000, gain: 0.05 });
+        break;
+      case 'portal':
+        // A deep hum swelling, a rising whoosh.
+        this.tone(ctx, out, t, { dur: 2, type: 'sine', freq: 70, to: 140, gain: 0.35 });
+        this.swell(ctx, out, t, { dur: 2, freq: 300, to: 2200, q: 1.5, gain: 0.4 });
+        break;
+      case 'scareSting':
+        // The scare: a sudden dissonant orchestra-like hit and a screech over it. A placeholder you
+        // can swap for a file (see FILE_SOUNDS).
+        for (const f of [196, 207.7, 277.2, 293.7]) this.tone(ctx, out, t, { dur: 1.4, type: 'sawtooth', freq: f, to: f * 0.97, gain: 0.12 });
+        this.burst(ctx, out, t, { dur: 0.5, type: 'lowpass', freq: 900, to: 120, gain: 0.7 });
+        this.tone(ctx, out, t, { dur: 0.6, type: 'sine', freq: 55, to: 30, gain: 0.6 });
+        this.squawk(ctx, out, t, { delay: 0.02, freq: 1400, peak: 2600, end: 1800, dur: 0.9, gain: 0.16 });
+        break;
+      case 'buzz':
+        // Fluorescent hum: mains buzz with a crackle (played over and over in the Backrooms).
+        this.tone(ctx, out, t, { dur: 2.2, type: 'sawtooth', freq: 120, gain: 0.05 });
+        this.tone(ctx, out, t, { dur: 2.2, type: 'square', freq: 240, gain: 0.015 });
+        for (let i = 0; i < 3; i++) this.burst(ctx, out, t, { dur: 0.02, type: 'highpass', freq: 5000, gain: 0.04, delay: Math.random() * 2 });
+        break;
+      case 'powerDown':
+        // The power cutting out: everything winding down.
+        this.tone(ctx, out, t, { dur: 1.3, type: 'sawtooth', freq: 240, to: 30, gain: 0.25 });
+        this.burst(ctx, out, t, { dur: 0.15, type: 'bandpass', freq: 1600, q: 2, gain: 0.3 });
         break;
       case 'gurgle':
         // Exploder: wet bubbling in a swollen belly.
