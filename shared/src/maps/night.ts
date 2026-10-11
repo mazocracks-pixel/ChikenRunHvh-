@@ -12,10 +12,10 @@ import { BACKROOMS_SPEC, FACILITY_SPEC, buildZone } from './zones';
 
 /** The playable part (a stone wall all round); the event levels lie sealed beyond it. */
 const HALF = 88;
-/** The whole map, event levels included. */
-const MAP_HALF = 170;
 const BACKROOMS = buildZone(BACKROOMS_SPEC);
 const FACILITY = buildZone(FACILITY_SPEC);
+/** The whole map: big enough for the event levels (their size is in the config). */
+const MAP_HALF = Math.ceil(Math.max(...[BACKROOMS.zone, FACILITY.zone].flatMap((z) => [z.maxX, -z.minX, z.maxZ, -z.minZ])) + 6);
 /** The cemetery wall, with a gate in each side (the choke points into the middle). */
 const WALL = 42;
 const GATE = 5;

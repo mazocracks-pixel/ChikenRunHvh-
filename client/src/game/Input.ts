@@ -38,6 +38,8 @@ export type Action =
   | 'nextBlock'
   | 'flashlight'
   | 'phone'
+  | 'phoneZoomIn'
+  | 'phoneZoomOut'
   | 'inspect';
 
 /** Keys that always do the same thing (the rest come from Settings > Keys, see keybinds.ts). */
@@ -52,6 +54,11 @@ const FIXED_ACTIONS: Record<string, Action> = {
   Digit8: 'slot8',
   Digit9: 'slot9',
   Enter: 'chat',
+  // The story events' phone map: zoom in and out.
+  Equal: 'phoneZoomIn',
+  NumpadAdd: 'phoneZoomIn',
+  Minus: 'phoneZoomOut',
+  NumpadSubtract: 'phoneZoomOut',
 };
 
 /** The keys for each thing the chicken does, from the player's key settings. */

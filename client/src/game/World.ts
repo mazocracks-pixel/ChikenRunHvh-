@@ -26,6 +26,12 @@ const FOG_NEAR = 60;
 const FOG_FAR = 175;
 /** Real lights shared by the map's lanterns (the nearest ones get them). */
 const LAMP_LIGHTS = 3;
+/** Lamps farther than this (metres, each way) from the camera aren't looked after. */
+const LAMP_NEAR = 45;
+/** Fluorescent panels dimming at the same moment, at most. */
+const MAX_STUTTERS = 3;
+/** Event levels are drawn in squares this big (metres), so far ones can be skipped. */
+const CHUNK = 24;
 const WINDOW = { width: 1.0, height: 0.95, sill: 1.3, spacing: 2.6, frame: 0.07 };
 
 export interface ShadowOptions {
@@ -264,6 +270,16 @@ export class World {
       floor.position.set((z.minX + z.maxX) / 2, 0.01, (z.minZ + z.maxZ) / 2);
       floor.receiveShadow = true;
       this.root.add(floor);
+      // The flooded section: murky water over the carpet.
+      if (z.flood) {
+        const f = z.flood;
+        const water = new THREE.Mesh(
+          this.track(new THREE.PlaneGeometry(f.maxX - f.minX, f.maxZ - f.minZ).rotateX(-Math.PI / 2)),
+          this.track(new THREE.MeshStandardMaterial({ color: 0x3f4a2a, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.72, polygonOffset: true, polygonOffsetFactor: -4 })),
+        );
+        water.position.set((f.minX + f.maxX) / 2, 0.06, (f.minZ + f.maxZ) / 2);
+        this.root.add(water);
+      }
     }
   }
 
@@ -333,11 +349,18 @@ export class World {
       }
     }
     const t = this.lampTime;
-    // Fluorescent panels stutter now and then: dim for a moment, every few seconds (never a strobe).
+    // Fluorescent panels stutter now and then: dim for a moment, every few seconds (never a
+    // strobe). Only the lamps near you are looked after, and only a few stutter at once.
+    let stuttering = 0;
+    for (const lamp of this.lamps) if (t < lamp.dimUntil) stuttering++;
     for (const lamp of this.lamps) {
+      if (Math.abs(lamp.at.x - camera.x) > LAMP_NEAR || Math.abs(lamp.at.z - camera.z) > LAMP_NEAR) continue;
       if (lamp.flicker && t >= lamp.nextDim) {
-        lamp.dimUntil = t + 0.12 + Math.random() * 0.1;
         lamp.nextDim = t + 2.5 + Math.random() * 4;
+        if (stuttering < MAX_STUTTERS) {
+          lamp.dimUntil = t + 0.12 + Math.random() * 0.1;
+          stuttering++;
+        }
       }
       const level = this.blackout ? 0.04 : t < lamp.dimUntil ? 0.35 : 1;
       lamp.glow.color.copy(lamp.base).multiplyScalar(level);
@@ -491,22 +514,37 @@ export class World {
           accents.push(stripe);
         }
       }
-      const key = b.color === undefined ? b.kind : `${b.kind}|${b.color}`;
+      // Inside an event level, one mesh per chunk (24 m): far chunks are skipped when drawing.
+      const zone = this.map.zones?.find((z) => b.x > z.minX - 1 && b.x < z.maxX + 1 && b.z > z.minZ - 1 && b.z < z.maxZ + 1);
+      const chunk = zone ? `|${Math.floor((b.x - zone.minX) / CHUNK)},${Math.floor((b.z - zone.minZ) / CHUNK)}` : '';
+      const key = `${b.kind}|${b.color ?? ''}${chunk}`;
       const list = byKind.get(key) ?? [];
       list.push(geometry);
       byKind.set(key, list);
     }
+    // (Chunks of one kind and colour share their material.)
+    const materials = new Map<string, THREE.MeshStandardMaterial>();
     for (const [key, geometries] of byKind) {
       const merged = this.track(mergeGeometries(geometries)!);
       for (const g of geometries) g.dispose();
-      const [kindName, color] = key.split('|');
+      const [kindName, rawColor] = key.split('|');
+      const color = rawColor ? rawColor : undefined;
       const kind = kindName as BoxKind;
+      const shared = materials.get(`${kindName}|${rawColor}`);
+      if (shared) {
+        const mesh = new THREE.Mesh(merged, shared);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.root.add(mesh);
+        continue;
+      }
       // Coloured metal (containers, machines) uses a neutral texture so its own colour shows.
       const texture = color !== undefined && kind === 'metal' ? containerTexture() : boxTexture(kind).texture;
       const raw = new THREE.MeshStandardMaterial({ map: this.texture(texture), roughness: kind === 'metal' ? 0.45 : 0.9, metalness: kind === 'metal' ? 0.3 : 0 });
       // A box's own colour tints its texture (containers, ice); set before surface() records it.
       if (color !== undefined) raw.color.setHex(Number(color)).multiplyScalar(kind === 'metal' ? 1.15 : 1.6);
       const material = this.surface(kind as Surface, this.track(raw));
+      materials.set(`${kindName}|${rawColor}`, material);
       const mesh = new THREE.Mesh(merged, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;

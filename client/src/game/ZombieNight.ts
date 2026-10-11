@@ -58,6 +58,8 @@ export class ZombieNight {
   private readonly moonTexture: THREE.Texture;
   /** The story event level the camera is in (null: the graveyard). */
   private zone: MapZone | null = null;
+  private readonly lastCam = new THREE.Vector3();
+  private nextSplash = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -156,6 +158,16 @@ export class ZombieNight {
     this.zombieSounds(remotes);
     if (this.zone) this.zoneAmbience(this.zone);
     else this.ambience();
+    // Splashing through the flooded section (the monkeys hear it too).
+    const f = this.zone?.flood;
+    if (f && cam.position.x > f.minX && cam.position.x < f.maxX && cam.position.z > f.minZ && cam.position.z < f.maxZ) {
+      const moved = cam.position.distanceTo(this.lastCam);
+      if (moved > dt * 1.5 && this.time >= this.nextSplash) {
+        this.nextSplash = this.time + 0.32;
+        this.audio.play('splash', { x: cam.position.x, y: 0, z: cam.position.z }, 0.7);
+      }
+    }
+    this.lastCam.copy(cam.position);
   }
 
   private zombieSounds(remotes: RemotePlayers): void {

@@ -21,9 +21,9 @@ export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAct
   if (!room.info.private && action.kind !== 'jumpscare') return fail('Player administration only works in private test rooms.');
   const now = performance.now();
   if (action.kind === 'zombieWave') {
-    const zombies = room as unknown as { devSetWave?: (wave: number) => void };
+    const zombies = room as unknown as { devSetWave?: (wave: number, variant?: 'small' | 'full') => void };
     if (!zombies.devSetWave) return fail('Only in Zombie Apocalypse.');
-    zombies.devSetWave(action.wave);
+    zombies.devSetWave(action.wave, action.variant);
     return ok;
   }
   if (action.kind === 'teleport') {

@@ -182,8 +182,10 @@ describe('spread spawns', () => {
       for (const s of spots) assert.ok(isSpaceFree(s.x, 0, s.z, world), `${id}: ${s.x},${s.z} is blocked`);
       const xs = spots.map((s) => s.x);
       const zs = spots.map((s) => s.z);
-      assert.ok(Math.max(...xs) - Math.min(...xs) > map.halfSize, `${id}: spread east-west`);
-      assert.ok(Math.max(...zs) - Math.min(...zs) > map.halfSize, `${id}: spread north-south`);
+      // (The playable part: the Graveyard's event levels lie sealed beyond it.)
+      const half = map.grassHalf ?? map.halfSize;
+      assert.ok(Math.max(...xs) - Math.min(...xs) > half, `${id}: spread east-west`);
+      assert.ok(Math.max(...zs) - Math.min(...zs) > half, `${id}: spread north-south`);
     }
   });
 });

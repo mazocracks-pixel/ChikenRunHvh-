@@ -1,4 +1,4 @@
-import type { HuntState } from './events';
+import { MONKEYS, type HuntState } from './events';
 import { PLAYER } from './constants';
 import type { WeaponId } from './weapons';
 
@@ -68,7 +68,8 @@ export const ZOMBIE = {
     // Exploder: no claws; it runs up, lights its fuse and bursts (see `exploder` below).
     exploder: { hp: 40, speed: 0.72, damage: 0, attackMs: 1000, reach: 1.9, reward: 22 },
     // Monkey (events only): faster than any zombie, lurks at corners, then charges.
-    monkey: { hp: 55, speed: 1.02, damage: 11, attackMs: 650, reach: 1.7, reward: 25 },
+    // (speed: MONKEYS sets walk/chase; attackMs: MONKEYS.attackMs.)
+    monkey: { hp: 90, speed: MONKEYS.chaseSpeed, damage: 10, attackMs: MONKEYS.attackMs, reach: 1.8, reward: 25 },
     runner: { hp: 35, speed: 0.95, damage: 6, attackMs: 700, reach: 1.6, reward: 18 },
     brute: { hp: 240, speed: 0.5, damage: 26, attackMs: 1300, reach: 2.1, reward: 45 },
     boss: { hp: 1400, speed: 0.7, damage: 36, attackMs: 1100, reach: 2.8, reward: 400 },

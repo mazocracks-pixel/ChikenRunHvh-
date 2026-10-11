@@ -547,7 +547,7 @@ export class GameRoom {
     p.lastInput = frame;
     this.updateHvhPose(p, performance.now());
     // Dead chickens don't move, but we still acknowledge the input so the client can drop it.
-    if (!p.alive || p.frozen) { p.state.horizontalSpeed = 0; return; }
+    if (!p.alive || p.immobile) { p.state.horizontalSpeed = 0; return; }
     if (p.vehicle && this.vehicles) {
       this.vehicles.drive(p, frame);
       return;
@@ -1333,7 +1333,7 @@ export class GameRoom {
       const command = p.commands.next();
       if (command) this.applyInput(p, command);
       // Missing commands cannot invent presses or run assistance without new input.
-      else if (p.alive && !p.frozen && !p.vehicle && p.lastInput) {
+      else if (p.alive && !p.immobile && !p.vehicle && p.lastInput) {
         // A held key is remembered, but a missing command never makes the chicken hop on landing.
         const held = p.state.jumpHeld;
         stepPlayer(p.state,

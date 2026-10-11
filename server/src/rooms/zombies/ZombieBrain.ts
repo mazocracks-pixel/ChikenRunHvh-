@@ -1,6 +1,6 @@
 import {
   BLOCK_ID_BASE,
-  CRYSTAL_HUNT,
+  MONKEYS,
   DEFAULT_MODS,
   SIM_DT,
   ZOMBIE,
@@ -24,6 +24,7 @@ import {
   type ZombieStats,
 } from '@game/shared';
 import type { ServerPlayer } from '../ServerPlayer';
+import type { MonkeyData, MonkeyMind } from './MonkeyMind';
 
 /** How fast a zombie turns to face what it is chasing (radians per second). */
 const TURN_SPEED = 7;
@@ -88,9 +89,8 @@ export interface Zombie {
   /** Exploder: when its lit fuse runs out (0 = not lit), and whether it has burst. */
   fuseAt: number;
   burst?: boolean;
-  /** Monkey (story events): where it lurks, and whether it has seen you and charges. */
-  lair?: { x: number; z: number };
-  alerted?: boolean;
+  /** Monkey (story events): what it's doing (see MonkeyMind). */
+  monkey?: MonkeyData;
   /** When it died (to remove the body after a moment). */
   diedAt: number | null;
 }
@@ -116,8 +116,8 @@ export interface ZombieHost {
   fuse(z: Zombie): void;
   /** Exploder: it bursts. */
   burst(z: Zombie, now: number): void;
-  /** A monster has `target` in sight (story events: the first time is a scare). */
-  spotted?(z: Zombie, target: ServerPlayer): void;
+  /** Monkeys (story events): where they go and how fast (MonkeyMind). */
+  monkeyMind?: MonkeyMind;
 }
 
 /**
@@ -140,8 +140,16 @@ function navGraph(map: MapDef): NavGraph | null {
 export class ZombieBrain {
   private readonly nav: NavGraph | null;
 
+  /** Routes still allowed this tick (see beginTick). */
+  private pathBudget: number = MONKEYS.pathsPerTick;
+
   constructor(private readonly host: ZombieHost) {
     this.nav = navGraph(host.map);
+  }
+
+  /** Once per server tick, before the zombies think. */
+  beginTick(): void {
+    this.pathBudget = MONKEYS.pathsPerTick;
   }
 
   update(z: Zombie, now: number): void {
@@ -186,21 +194,17 @@ export class ZombieBrain {
     }
     // Just shot: it reels for a moment (longer after a headshot), and can't hit back.
     const staggered = now < z.staggerUntil;
-    // Monkeys wait in their lair until a survivor comes into sight, close, then charge (being
-    // shot wakes them too). Whenever one has you in sight, the room hears about it.
-    let lurkAt: NavPoint | null = null;
-    if (z.kind === 'monkey') {
-      const sees = now >= z.nextThink && dist < CRYSTAL_HUNT.spotRange && this.canSee(p, target);
-      if (sees || staggered) z.alerted = true;
-      if (sees) this.host.spotted?.(z, target);
-      if (!z.alerted && z.lair) lurkAt = z.lair;
-    }
+    // Monkeys: MonkeyMind decides where they go (null: straight for you, with the pack's flanking).
+    const lurkAt: NavPoint | null = z.kind === 'monkey' && this.host.monkeyMind ? this.host.monkeyMind.update(z, target, dist, now, now >= z.nextThink, staggered) : null;
 
     if (now >= z.nextThink) {
       z.nextThink = now + THINK_MS;
+      const away = lurkAt ? Math.hypot(lurkAt.x - p.state.x, lurkAt.z - p.state.z) : 0;
       if (!lurkAt) z.heading = this.chooseHeading(z, target, dist, now);
-      // Lurking: back to the lair if it wandered off, then still (it turns to the noise only).
-      else z.heading = Math.hypot(lurkAt.x - p.state.x, lurkAt.z - p.state.z) > 1 ? this.chooseHeading(z, target, dist, now, lurkAt) : { x: 0, z: 0 };
+      else if (away <= 1) z.heading = { x: 0, z: 0 };
+      // Up in the ceiling: straight over the tiles to the hole (the waypoints are down below).
+      else if (z.monkey?.state === 'ceiling') z.heading = { x: (lurkAt.x - p.state.x) / away, z: (lurkAt.z - p.state.z) / away };
+      else z.heading = this.chooseHeading(z, target, dist, now, lurkAt);
     }
 
     const pace = staggered ? 0.2 : 1;
@@ -323,7 +327,9 @@ export class ZombieBrain {
     if (z.wave >= ZOMBIE.smart.pathFromWave && (forced || !walkable(from, goal, this.host.world))) {
       if (this.nav) {
         const moved = !z.pathTarget || Math.hypot(z.pathTarget.x - goal.x, z.pathTarget.z - goal.z) > 3;
-        if (moved || now >= z.nextPath || z.path.length === 0) {
+        // Only a few routes are worked out per tick (all zombies together); the rest wait a tick.
+        if ((moved || now >= z.nextPath || z.path.length === 0) && this.pathBudget > 0) {
+          this.pathBudget--;
           z.path = findPath(this.nav, from, goal, this.host.world, !forced);
           z.pathTarget = goal;
           z.nextPath = now + PATH_MS;
@@ -340,16 +346,6 @@ export class ZombieBrain {
     const gz = goal.z - from.z;
     const gl = Math.hypot(gx, gz) || 1;
     return { x: gx / gl, z: gz / gl };
-  }
-
-  /** A clear line from its eyes to the target's (walls block it). */
-  private canSee(p: ServerPlayer, target: ServerPlayer): boolean {
-    const eye = { x: p.state.x, y: p.state.y + 1.2, z: p.state.z };
-    const dx = target.state.x - eye.x;
-    const dy = target.state.y + 1.2 - eye.y;
-    const dz = target.state.z - eye.z;
-    const d = Math.hypot(dx, dy, dz) || 1;
-    return !raycastWorld(makeRay(eye, { x: dx / d, y: dy / d, z: dz / d }), this.host.world, d);
   }
 
   /** The survivor with the fewest zombies near them (ties: the closest one to `z`). */

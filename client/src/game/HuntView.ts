@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { boxToAabb, type CrystalState, type HuntScare, type HuntState, type MapDef, type MapZone } from '@game/shared';
+import { PHONE, boxToAabb, type CrystalState, type HuntScare, type HuntState, type MapDef, type MapZone } from '@game/shared';
 import { getKeybinds, keyLabel } from '../keybinds';
 import { h } from '../ui/dom';
 import type { AudioEngine } from './Audio';
@@ -23,12 +23,18 @@ export class HuntView {
   private time = 0;
   /** The level's walls drawn once per level (top-down), for the phone. */
   private readonly maps = new Map<string, HTMLCanvasElement>();
+  /** Fog of war: the map shows only where you've been (a mask, the same size as the map). */
+  private seen: HTMLCanvasElement | null = null;
+  private readonly rooms = new Set<number>();
+  private zoomLevel = 0;
   private readonly canvas = h('canvas', { class: 'hunt-map', width: PHONE_PX, height: PHONE_PX });
   private readonly title = h('b');
   private readonly counter = h('span', { class: 'hunt-count' });
   private readonly timer = h('span', { class: 'hunt-time' });
   private readonly phone = h('div', { class: 'hunt-phone', hidden: true });
   private readonly pulse = h('div', { class: 'hunt-pulse' });
+  /** Scratch canvas: the walls cut down to what's been seen. */
+  private readonly layer = Object.assign(document.createElement('canvas'), { width: PHONE_PX, height: PHONE_PX });
   private readonly crystalGeo = new THREE.OctahedronGeometry(0.28, 0);
   private readonly crystalMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(PURPLE).multiplyScalar(1.5), fog: false });
   private readonly haloMat: THREE.SpriteMaterial;
@@ -45,7 +51,7 @@ export class HuntView {
     this.phone.append(
       h('div', { class: 'hunt-phone-top' }, this.title, this.timer),
       this.canvas,
-      h('div', { class: 'hunt-phone-bottom' }, this.counter, h('small', null, `${keyLabel(getKeybinds().phone)}: bigger map`)),
+      h('div', { class: 'hunt-phone-bottom' }, this.counter, h('small', null, `${keyLabel(getKeybinds().phone)}: bigger · +/-: zoom`)),
     );
     hudRoot.append(this.phone, this.pulse);
     // A soft purple glow round each crystal, so they show from across a dark room.
@@ -68,6 +74,11 @@ export class HuntView {
     if (this.state) this.phone.classList.toggle('big');
   }
 
+  /** + / -: closer in, or out to the whole level. */
+  zoom(step: 1 | -1): void {
+    this.zoomLevel = Math.max(0, Math.min(PHONE.zooms.length - 1, this.zoomLevel - step));
+  }
+
   setState(s: HuntState | null): void {
     const was = this.state;
     this.state = s;
@@ -76,7 +87,13 @@ export class HuntView {
       this.clear();
       return;
     }
-    this.zone = this.map.zones?.find((z) => z.id === s.zone) ?? null;
+    const zone = this.map.zones?.find((z) => z.id === s.zone) ?? null;
+    if (zone !== this.zone) {
+      this.seen = null;
+      this.rooms.clear();
+      this.zoomLevel = 0;
+    }
+    this.zone = zone;
     this.title.textContent = s.name;
     const ids = new Set(s.crystals.map((c) => c.id));
     for (const [id, g] of this.crystals) if (!ids.has(id)) this.removeCrystal(id, g);
@@ -203,19 +220,67 @@ export class HuntView {
     return c;
   }
 
+  /** Where you (and your team) are and have been: uncovered on the fog-of-war mask. */
+  private reveal(zone: MapZone, points: readonly THREE.Vector3[]): HTMLCanvasElement {
+    if (!this.seen) {
+      this.seen = document.createElement('canvas');
+      this.seen.width = this.seen.height = PHONE_PX;
+    }
+    const k = PHONE_PX / Math.max(zone.maxX - zone.minX, zone.maxZ - zone.minZ);
+    const g = this.seen.getContext('2d')!;
+    g.fillStyle = '#fff';
+    const r = PHONE.revealRadius;
+    for (const p of points) {
+      // The rooms seen, too (crystals in them show on the map).
+      for (let x = p.x - r; x <= p.x + r; x += zone.roomSize / 2) for (let z = p.z - r; z <= p.z + r; z += zone.roomSize / 2) {
+        if (Math.hypot(x - p.x, z - p.z) <= r) this.rooms.add(this.roomOf(zone, x, z));
+      }
+      g.beginPath();
+      g.arc((p.x - zone.minX) * k, (p.z - zone.minZ) * k, PHONE.revealRadius * k, 0, Math.PI * 2);
+      g.fill();
+    }
+    return this.seen;
+  }
+
+  private roomOf(zone: MapZone, x: number, z: number): number {
+    return Math.floor((x - zone.minX) / zone.roomSize) * 1000 + Math.floor((z - zone.minZ) / zone.roomSize);
+  }
+
   private drawPhone(me: THREE.Vector3, yaw: number, mates: readonly THREE.Vector3[]): void {
     const zone = this.zone;
     const s = this.state;
     if (!zone || !s) return;
     const g = this.canvas.getContext('2d')!;
-    g.drawImage(this.wallsOf(zone), 0, 0);
-    const k = PHONE_PX / Math.max(zone.maxX - zone.minX, zone.maxZ - zone.minZ);
-    const px = (x: number) => (x - zone.minX) * k;
-    const pz = (z: number) => (z - zone.minZ) * k;
-    // Crystals left (they pulse), the portal once open.
+    const size = Math.max(zone.maxX - zone.minX, zone.maxZ - zone.minZ);
+    // The whole level, or a window round you (metres across).
+    const span = PHONE.zooms[this.zoomLevel] || size;
+    const scale = size / span;
+    const k = (PHONE_PX / size) * scale;
+    const cx = span >= size ? zone.minX + size / 2 : me.x;
+    const cz = span >= size ? zone.minZ + size / 2 : me.z;
+    const px = (x: number) => (x - cx) * k + PHONE_PX / 2;
+    const pz = (z: number) => (z - cz) * k + PHONE_PX / 2;
+    // Walls, only where someone has been (the rest is dark).
+    const seen = this.reveal(zone, [me, ...mates]);
+    const ox = px(zone.minX);
+    const oz = pz(zone.minZ);
+    const w = PHONE_PX * scale;
+    g.fillStyle = '#05070c';
+    g.fillRect(0, 0, PHONE_PX, PHONE_PX);
+    const layer = this.layer;
+    const lg = layer.getContext('2d')!;
+    lg.globalCompositeOperation = 'source-over';
+    lg.clearRect(0, 0, PHONE_PX, PHONE_PX);
+    lg.drawImage(this.wallsOf(zone), 0, 0);
+    lg.globalCompositeOperation = 'destination-in';
+    lg.drawImage(seen, 0, 0);
+    g.drawImage(layer, ox, oz, w, w);
+    // Crystals: the ones in rooms you've seen, and any close enough for the phone to pick up.
     const beat = 3 + Math.sin(this.time * 5) * 1;
     g.fillStyle = '#c070ff';
     for (const c of s.crystals) {
+      const close = Math.hypot(c.x - me.x, c.z - me.z) < PHONE.detectRange;
+      if (!close && !this.rooms.has(this.roomOf(zone, c.x, c.z))) continue;
       g.beginPath();
       g.arc(px(c.x), pz(c.z), beat, 0, Math.PI * 2);
       g.fill();

@@ -110,6 +110,11 @@ export interface MapZone {
   /** Every room's centre, and the dead ends (hiding spots). */
   cells: readonly { x: number; z: number }[];
   corners: readonly { x: number; z: number }[];
+  roomSize: number;
+  /** Rooms with a hole in the ceiling (monkeys wait in the crawlspace above). */
+  gaps: readonly { x: number; z: number }[];
+  /** The flooded section (splashing through it is loud), if any. */
+  flood: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
   /** The light inside (fog colour and density, ambient light...). */
   look: { horizon: string; zenith: string; fog: number; ambient: number; sunIntensity: number; exposure: number };
 }

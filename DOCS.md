@@ -3,6 +3,57 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 18 (11 Oct): bigger Backrooms, aggressive monkeys
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Level 4x bigger (16x16 rooms of 6 m, in `BACKROOMS_LEVEL`): backtracker + loops, halls with pillars, long hallways, a ring hallway, a flooded section, a wrong-coloured room, ceiling holes; walls merged | shared/src/maps/zones.ts, events.ts, night.ts |
+| 2 | Performance: short raycasts use the collision grid; the level drawn in 24 m chunks; lamps looked after only near you, at most 3 stuttering; routes capped per tick | raycast.ts, collision.ts, World.ts, ZombieBrain |
+| 3 | Monkeys: patrol, hearing, chase, search, pack screech and flanking, leap, swipe, stun, sleepers by crystals, ceiling drops, reinforcements every 30 s up to a cap | MonkeyMind.ts (new), CrystalHunt.ts, ZombieRoom, ServerPlayer, GameRoom |
+| 4 | Phone: fog of war, zoom (+ / -), crystals within 14 m always shown | HuntView.ts, Input.ts |
+| 5 | 18 crystals spread over the level, some far; 9 minute timer; dev `/backrooms small` and `/backrooms full` | events.ts, CrystalHunt.ts, GameSession, dev.ts |
+
+## What was done
+
+- **Level** (all numbers in `BACKROOMS_LEVEL`): 96 x 96 m (was 48 x 48), 198 boxes.
+  - 4 pillar halls (3x3 rooms), 4 long hallways, a 5x4 ring, a 4x3 flooded block (water you can see; splashing is louder to monkeys), a 2x2 room in sickly pink light, 7 ceiling holes.
+  - The map grew to 404 m to fit it (the playable graveyard is unchanged). The Facility stays where it was.
+- **Performance:** the nav graph builds in 48 ms (about 150 before, with the bigger level the old way would be seconds). In the level: 180 fps, about 6 draw calls in view.
+- **Monkeys** ([MonkeyMind.ts](server/src/rooms/zombies/MonkeyMind.ts), numbers in `MONKEYS`):
+  - **Speeds:** walk 0.5, chase 0.97 of your run speed (faster than slow-walking), leap 2.4.
+  - **Senses:** they see 22 m and hear footsteps (4 m quiet / 14 m running / 22 m splashing) and gunshots (40 m; silenced 12).
+  - **Pack:** a screech brings the pack within 30 m, half of them flanking.
+  - **Searching:** 8-10 s at your last known spot.
+  - **Attacks:** leap every 2.6 s from 3.5-8 m; swipe every 0.46 s; a 0.3 s stun.
+  - **Toughness:** 90 health; they flinch only briefly.
+  - **Cast:** about 13 at the start (some asleep by crystals, some in the ceiling), +1 every 30 s out of sight, up to 24.
+- **Phone** ([HuntView.ts](client/src/game/HuntView.ts), `PHONE`): fog of war (9 m round you and your team), zoom 30 m / 60 m / whole level, crystals within 14 m always shown.
+
+## Tests
+
+- 7 Backrooms tests (replacing 2):
+  - **Level and run:** a big level, 18 crystals with some far, a scaled pack with sleepers, ceiling monkeys and a patrol; the full run to the portal.
+  - **Senses:** the screech and the scare; hearing (a quiet step 30 m away: nothing; a gunshot: it comes).
+  - **Searching:** for 8-10 s, then back to patrolling.
+  - **Stun and reinforcements:** the stun; reinforcements every 30 s.
+  - **`/backrooms small`:** 4 crystals and 3 monkeys.
+- The open-spots test now uses the playable size.
+- Full run: **458/458 pass**, build OK.
+- Browser: `/backrooms full` gave 180 fps, 18 crystals and 13 monkeys; the phone showed fog of war and zoom; `/backrooms small` gave 4 crystals and 3 monkeys; no errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | A Write was refused (the file had changed since read). | Re-read, then wrote. |
+| 2 | Heredoc patches failed again on long scripts. | Patch scripts written to files. |
+| 3 | The Backrooms (18) now had more crystals than the "harder" Phone Mission (16). | The Phone Mission has 20. |
+| 4 | My first phone draft read pixels from the fog mask for every crystal each frame (slow). | A set of seen rooms instead. |
+| 5 | The splash code landed between an `if` and its `else` (typecheck caught it). | Fixed the order. |
+| 6 | The open-spots test measured spread against the whole 404 m map. | It uses the playable part. |
+
 # Batch 17 (11 Oct): story events, Crystal Hunt (Backrooms at wave 7, Phone Mission at wave 10)
 
 ## Plan

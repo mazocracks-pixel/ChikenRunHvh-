@@ -114,6 +114,13 @@ export class ServerPlayer {
   melee: WeaponId = DEFAULT_MELEE;
   /** Held in place by a developer (or ChikenBomb buy time): inputs are acknowledged but ignored. */
   frozen = false;
+  /** Stunned (a monkey's hit) until then: can't move, like frozen (server clock). */
+  stunUntil = 0;
+
+  /** Frozen by a developer, or stunned for a moment. */
+  get immobile(): boolean {
+    return this.frozen || performance.now() < this.stunUntil;
+  }
   /** Use (E) held in the latest input. */
   useHeld = false;
   /** ChikenBomb money, and whether a chikenCT bought a defuse kit. */
@@ -199,7 +206,7 @@ export class ServerPlayer {
       flashes: this.flashes,
       ack: this.lastSeq,
       vehicle: this.vehicle,
-      frozen: this.frozen,
+      frozen: this.immobile,
       fakeYaw: this.hvhMode ? this.fakeYaw : this.yaw,
       fakePitch: this.hvhEnabled ? this.fakePitch : this.pitch,
       hvhCharge: this.hvhMode ? this.resource.charge : 0,

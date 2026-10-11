@@ -94,6 +94,20 @@ export class CollisionWorld {
     return out;
   }
 
+  /** Ids of the boxes whose grid cells touch the XZ rectangle, ascending (the same order as entries()). */
+  idsNear(minX: number, minZ: number, maxX: number, maxZ: number): number[] {
+    const ids: number[] = [];
+    this.forEachCell(minX, minZ, maxX, maxZ, (key) => {
+      const list = this.cells.get(key);
+      if (list) for (const id of list) ids.push(id);
+    });
+    ids.sort((a, b) => a - b);
+    let n = 0;
+    for (let i = 0; i < ids.length; i++) if (i === 0 || ids[i] !== ids[i - 1]) ids[n++] = ids[i]!;
+    ids.length = n;
+    return ids;
+  }
+
   private forEachCell(minX: number, minZ: number, maxX: number, maxZ: number, fn: (key: number) => void): void {
     const cx0 = Math.floor(minX / CELL_SIZE);
     const cx1 = Math.floor(maxX / CELL_SIZE);

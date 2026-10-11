@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { CRYSTAL_HUNT, MAPS, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
+import { CRYSTAL_HUNT, MAPS, SMALL_TEST, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
 import type { GameRoom } from '../src/rooms/GameRoom';
 import { createRoom } from '../src/rooms/modes';
 import type { ZombieRoom } from '../src/rooms/ZombieRoom';
@@ -467,7 +467,7 @@ describe('Zombie Apocalypse match', () => {
       t.me.hp = 100;
     };
 
-    it('wave 7: into the Backrooms with 12 crystals and lurking monkeys; collect them all, portal out, then wave 8', () => {
+    it('wave 7: into the big Backrooms with 18 crystals spread out and a scaled pack; collect them all, portal out, then wave 8', () => {
       const t = setup();
       try {
         (t.me as { userId: number | null }).userId = 5;
@@ -475,23 +475,26 @@ describe('Zombie Apocalypse match', () => {
         assert.equal(t.priv.zphase, 'event');
         const h = hunt(t)!;
         assert.equal(h.zone.id, 'backrooms');
+        assert.ok(h.zone.maxX - h.zone.minX >= 96 && h.zone.maxZ - h.zone.minZ >= 96, '4x the old 48 m level');
         assert.ok(inside(h, t.me.state.x, t.me.state.z), 'taken into the Backrooms');
         const s = h.state();
-        assert.equal(s.total, 12);
-        assert.equal(s.crystals.length, 12);
-        const monkeys = t.zombies().filter((z) => z.kind === 'monkey');
-        assert.equal(monkeys.length, CRYSTAL_HUNT.events.backrooms.enemies.monkey);
+        assert.equal(s.total, CRYSTAL_HUNT.events.backrooms.crystals);
+        const far = s.crystals.filter((c) => Math.hypot(c.x - t.me.state.x, c.z - t.me.state.z) > 55).length;
+        assert.ok(far >= 4, `some far from the start (${far})`);
+        const monkeys = t.zombies().filter((z) => z.kind === 'monkey') as unknown as { p: { state: { x: number; y: number; z: number } }; monkey: { state: string } }[];
+        assert.ok(monkeys.length >= 12, `the pack scales with the level (${monkeys.length})`);
         assert.ok(monkeys.every((m) => inside(h, m.p.state.x, m.p.state.z)), 'monkeys in there too');
+        const states = new Set(monkeys.map((m) => m.monkey.state));
+        assert.ok(states.has('sleep') && states.has('ceiling') && states.has('patrol'), `sleepers, ceiling ones and a patrol (${[...states]})`);
+        assert.ok(monkeys.some((m) => m.monkey.state === 'ceiling' && m.p.state.y > 2.9), 'up in the ceiling');
         assert.equal(t.zombies().filter((z) => z.kind !== 'monkey').length, 0, 'no wave zombies');
         // C does nothing during the event.
         t.room.handleZombieBuild(t.me);
         assert.equal(t.priv.blocks.size, 0, 'no building');
-        // Crystals: walk into each.
         const money = t.me.money;
         for (const c of [...s.crystals]) walkTo(t, c.x, c.z);
         assert.equal(h.state().crystals.length, 0);
         assert.ok(h.state().portal, 'the portal opened');
-        assert.ok(t.events.some((e) => e.event === 'crystal'));
         walkTo(t, h.zone.exit.x, h.zone.exit.z);
         assert.equal(hunt(t), null, 'over');
         assert.ok(!inside(h, t.me.state.x, t.me.state.z), 'back in the graveyard');
@@ -504,21 +507,93 @@ describe('Zombie Apocalypse match', () => {
       }
     });
 
-    it('a monkey that sees you scares you once', () => {
+    type M = { p: import('../src/rooms/ServerPlayer').ServerPlayer; kind: string; monkey: { state: string; goal: { x: number; z: number } | null; searchUntil: number } };
+    const patroller = (t: ReturnType<typeof setup>) => (t.zombies() as unknown as M[]).find((z) => z.kind === 'monkey' && z.monkey.state === 'patrol')!;
+
+    it('a monkey that sees you screeches, charges, and the first sighting is a scare', () => {
       const t = setup();
       try {
         toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
-        const m = t.zombies().find((z) => z.kind === 'monkey')!;
-        const before = t.events.length;
-        // Stand right next to it, in its room.
+        const m = patroller(t);
         walkTo(t, m.p.state.x + 1.5, m.p.state.z);
-        t.run(600);
-        assert.equal((m as unknown as { alerted: boolean }).alerted, true, 'it charges');
+        t.run(400);
+        assert.equal(m.monkey.state, 'chase', 'it charges');
+        assert.ok(t.events.some((e) => e.event === 'zombieAlert'), 'the screech');
+        assert.ok((hunt(t) as unknown as { spotted: Set<number> }).spotted.has(t.me.pid), 'the scare, once');
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('monkeys hear gunshots far away and run to them; quiet footsteps they barely hear', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const m = patroller(t);
+        const h = hunt(t) as unknown as { noise(x: number, z: number, r: number, now: number): void };
+        // Somewhere 30 m off.
+        h.noise(m.p.state.x + 30, m.p.state.z, 4, t.now());
+        t.run(300);
+        assert.notEqual(m.monkey.state, 'investigate', 'a quiet step 30 m away: nothing');
+        h.noise(m.p.state.x + 30, m.p.state.z, 40, t.now());
+        t.run(300);
+        assert.equal(m.monkey.state, 'investigate', 'a gunshot: it comes');
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('losing you, a monkey searches the last place it saw you for 8-10 s, then patrols', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const m = patroller(t);
         walkTo(t, m.p.state.x + 1.5, m.p.state.z);
-        t.run(600);
-        // (The scare goes to your socket; here the room has no sockets, so check the hunt kept it once.)
-        assert.ok((hunt(t) as unknown as { spotted: Set<number> }).spotted.has(t.me.pid));
-        assert.ok(t.events.length >= before);
+        t.run(300);
+        assert.equal(m.monkey.state, 'chase');
+        // Gone: back at the entrance, far away.
+        const start = (hunt(t) as unknown as { zone: { start: { x: number; z: number } } }).zone.start;
+        walkTo(t, start.x, start.z);
+        t.run(1200);
+        assert.equal(m.monkey.state, 'search');
+        const left = m.monkey.searchUntil - t.now();
+        assert.ok(left > 6000 && left <= 10_000, `searching for a while (${Math.round(left)} ms left)`);
+        t.run(10_500);
+        assert.ok(['patrol', 'investigate', 'chase'].includes(m.monkey.state), `then back to patrolling (${m.monkey.state})`);
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('a monkey hit stuns you for a moment; reinforcements arrive every 30 s, out of sight', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const m = patroller(t);
+        t.me.shieldUntil = 0;
+        t.room.damage(t.me, m.p, 5, false, 'knife', m.p.state, t.now());
+        assert.equal(t.me.immobile, true, 'stunned');
+        t.run(400);
+        assert.equal(t.me.immobile, false, 'only for a moment');
+        t.me.shieldUntil = Infinity;
+        const before = t.zombies().filter((z) => z.kind === 'monkey' && z.p.alive).length;
+        t.run(CRYSTAL_HUNT.events.backrooms.pack!.respawnMs + 300);
+        const after = t.zombies().filter((z) => z.kind === 'monkey' && z.p.alive).length;
+        assert.ok(after > before, `one more (${before} -> ${after})`);
+      } finally {
+        t.room.close();
+      }
+    });
+
+    it('dev "backrooms small": a quick run with a few crystals near the entrance and a few monkeys', () => {
+      const t = setup();
+      try {
+        t.run(ZOMBIE.prepMs + 100);
+        (t.room as unknown as { devSetWave(w: number, v: string): void }).devSetWave(CRYSTAL_HUNT.events.backrooms.wave, 'small');
+        t.run(3200);
+        const h = hunt(t)!;
+        assert.equal(h.state().total, SMALL_TEST.crystals);
+        assert.equal(t.zombies().filter((z) => z.kind === 'monkey').length, SMALL_TEST.monkeys);
       } finally {
         t.room.close();
       }

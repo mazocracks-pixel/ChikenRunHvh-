@@ -147,7 +147,7 @@ export type DevAction =
   /** A prank: a scary face and a scream on that player's screen (people only, not bots; public rooms too). */
   | { kind: 'jumpscare'; target: number; style: JumpscareStyle }
   /** Zombie Apocalypse: straight to the shop before this wave (chat: /wave 7). */
-  | { kind: 'zombieWave'; wave: number };
+  | { kind: 'zombieWave'; wave: number; variant?: 'small' | 'full' };
 
 /** The jumpscares mega?dev can send. */
 export const JUMPSCARE_STYLES = ['chicken', 'ghost', 'glitch', 'flash', 'funnyChiken'] as const;
@@ -200,7 +200,8 @@ export function parseDevAction(raw: unknown): DevAction | null {
     case 'jumpscare':
       return target !== null && JUMPSCARE_STYLES.includes(r.style as JumpscareStyle) ? { kind, target, style: r.style as JumpscareStyle } : null;
     case 'zombieWave':
-      return Number.isSafeInteger(r.wave) && (r.wave as number) >= 1 && (r.wave as number) <= 99 ? { kind, wave: r.wave as number } : null;
+      if (!Number.isSafeInteger(r.wave) || (r.wave as number) < 1 || (r.wave as number) > 99) return null;
+      return r.variant === 'small' || r.variant === 'full' ? { kind, wave: r.wave as number, variant: r.variant } : { kind, wave: r.wave as number };
     case 'giveWeapon':
     case 'removeWeapon':
       return target !== null && isWeaponId(r.weapon) ? { kind, target, weapon: r.weapon } : null;

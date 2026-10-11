@@ -83,6 +83,7 @@ import {
   type TrainingGiveRequest,
   upgradeEffects,
   type MapZone,
+  CRYSTAL_HUNT,
   POWER_UP_INFO,
   isPowerUp,
 } from '@game/shared';
@@ -644,6 +645,12 @@ export class GameSession {
         break;
       case 'phone':
         this.hunt?.togglePhone();
+        break;
+      case 'phoneZoomIn':
+        this.hunt?.zoom(1);
+        break;
+      case 'phoneZoomOut':
+        this.hunt?.zoom(-1);
         break;
       case 'slot1':
       case 'slot2':
@@ -1391,8 +1398,16 @@ export class GameSession {
       if (e.key === 'Enter') {
         const text = input.value.trim();
         const wave = /^\/wave\s+(\d{1,2})$/i.exec(text);
-        // Developer shortcut (Zombie Apocalypse, private room, passkey unlocked): /wave 7.
-        if (wave) this.ctx.net.socket.emit('devAction', { kind: 'zombieWave', wave: Number(wave[1]) }, (res) => this.ctx.hud.toast(res.ok ? `Wave ${wave[1]} in 3 seconds` : (res.error ?? 'Not allowed.'), res.ok ? 'good' : 'bad'));
+        const backrooms = /^\/backrooms(?:\s+(small|full))?$/i.exec(text);
+        // Developer shortcuts (Zombie Apocalypse, private room, passkey unlocked): /wave 7,
+        // /backrooms small (a quick test run), /backrooms full.
+        const dev = (action: { kind: 'zombieWave'; wave: number; variant?: 'small' | 'full' }, label: string) =>
+          this.ctx.net.socket.emit('devAction', action, (res) => this.ctx.hud.toast(res.ok ? `${label} in 3 seconds` : (res.error ?? 'Not allowed.'), res.ok ? 'good' : 'bad'));
+        if (wave) dev({ kind: 'zombieWave', wave: Number(wave[1]) }, `Wave ${wave[1]}`);
+        else if (backrooms) {
+          const variant = (backrooms[1]?.toLowerCase() ?? 'full') as 'small' | 'full';
+          dev({ kind: 'zombieWave', wave: CRYSTAL_HUNT.events.backrooms.wave, variant }, `Backrooms (${variant})`);
+        }
         else if (text) this.ctx.net.socket.emit('chat', text, this.chatTeamOnly);
         this.closeChat();
       } else if (e.key === 'Escape') {
@@ -1436,6 +1451,11 @@ export class GameSession {
     this.on('zombieHit', (e) => this.remotes.get(e.pid)?.chicken.flinch(e.headshot));
     this.on('hunt', (s) => this.hunt?.setState(s));
     this.on('crystal', (e) => this.hunt?.collect(e));
+    // A monkey screeching to its pack: you hear where it is.
+    this.on('zombieAlert', (e) => {
+      const r = this.remotes.get(e.pid);
+      if (r) this.ctx.audio.play('monkeyShriek', r.position, 1.1);
+    });
     this.on('huntScare', (e) => this.hunt?.scare(e.kind));
     this.on('huntEnd', (e) => {
       this.ctx.hud.announce(e.success ? 'ESCAPED' : 'EVENT FAILED', e.reason, e.success ? 'good' : 'bad');

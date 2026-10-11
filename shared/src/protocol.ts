@@ -646,6 +646,8 @@ export interface ServerToClientEvents {
   zombiePower: (e: { kind: PowerUpKind; pid: number }) => void;
   /** Zombie Apocalypse story event (Crystal Hunt): its state changed, or it ended (null). */
   hunt: (s: HuntState | null) => void;
+  /** A monkey screeched (it has seen you; the pack is coming). */
+  zombieAlert: (e: { pid: number }) => void;
   /** A crystal was taken (`pid` took it). */
   crystal: (e: { id: number; pid: number; x: number; y: number; z: number }) => void;
   /** A scare noise for you (a monster saw you, the last crystal, the power going out). */

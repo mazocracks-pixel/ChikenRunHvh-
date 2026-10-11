@@ -72,7 +72,8 @@ export type SoundName =
   | 'portal'
   | 'scareSting'
   | 'buzz'
-  | 'powerDown';
+  | 'powerDown'
+  | 'splash';
 
 const VOLUME_KEY = 'chikengun:volume';
 const MUSIC_KEY = 'chikengun:music-volume';
@@ -731,6 +732,11 @@ export class AudioEngine {
         this.tone(ctx, out, t, { dur: 2.2, type: 'sawtooth', freq: 120, gain: 0.05 });
         this.tone(ctx, out, t, { dur: 2.2, type: 'square', freq: 240, gain: 0.015 });
         for (let i = 0; i < 3; i++) this.burst(ctx, out, t, { dur: 0.02, type: 'highpass', freq: 5000, gain: 0.04, delay: Math.random() * 2 });
+        break;
+      case 'splash':
+        // A footstep in shallow water.
+        this.burst(ctx, out, t, { dur: 0.18, type: 'bandpass', freq: 1300 * pitch, to: 500, q: 0.9, gain: 0.35 });
+        this.burst(ctx, out, t, { dur: 0.08, type: 'highpass', freq: 3500, gain: 0.12, delay: 0.04 });
         break;
       case 'powerDown':
         // The power cutting out: everything winding down.

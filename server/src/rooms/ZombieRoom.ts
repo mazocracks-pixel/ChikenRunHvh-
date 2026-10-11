@@ -36,6 +36,7 @@ import {
   round,
   type PowerUpKind,
   CRYSTAL_HUNT,
+  MONKEYS,
   createMoveState,
   huntEventAt,
   type HuntEventId,
@@ -43,7 +44,8 @@ import {
 import { GameRoom, type PlayerProfile } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 import { ZombieBrain, type Zombie, type ZombieHost } from './zombies/ZombieBrain';
-import { CrystalHunt, type HuntEvent, type HuntHost } from './zombies/CrystalHunt';
+import { CrystalHunt, type HuntEvent, type HuntHost, type HuntVariant } from './zombies/CrystalHunt';
+import { MonkeyMind } from './zombies/MonkeyMind';
 import { HUNT_EVENTS } from './zombies/events';
 
 const EPS = 1e-4;
@@ -105,16 +107,20 @@ export class ZombieRoom extends GameRoom {
   private hunt: CrystalHunt | null = null;
   private lives: number = CRYSTAL_HUNT.lives;
   private readonly huntsDone = new Set<HuntEventId>();
+  /** The next event's run (dev: /backrooms small). */
+  private huntVariant: HuntVariant = 'full';
   private readonly huntHost: HuntHost = {
     zones: this.map.zones ?? [],
     survivors: () => this.survivors(),
     humans: () => this.humans(),
     place: (p, x, z, now) => this.place(p, x, z, now),
-    spawnMonster: (kind, at, now) => {
+    world: this.world,
+    monsters: () => [...this.zombies.values()].filter((z) => z.p.alive),
+    spawnMonster: (kind, at, now, y = 0) => {
       const p = this.spawnZombie(kind, now, { x: at.x, y: 0, z: at.z });
       if (!p) return null;
-      // Exactly there (not scattered round it like a horde): the lair is a narrow dead end.
-      p.state = createMoveState(at.x, 0, at.z);
+      // Exactly there (not scattered round it like a horde): it may be a narrow dead end.
+      p.state = createMoveState(at.x, y, at.z);
       p.history.clear();
       return this.zombies.get(p.pid) ?? null;
     },
@@ -146,7 +152,15 @@ export class ZombieRoom extends GameRoom {
       zombies: () => this.zombies.values(),
       fuse: (z) => this.io.to(this.channel).emit('zombieFuse', { pid: z.p.pid }),
       burst: (z, now) => this.burst(z, z.p, now),
-      spotted: (_z, target) => this.hunt?.onSpotted(target),
+      monkeyMind: new MonkeyMind({
+        world: this.world,
+        zone: () => this.hunt?.zone ?? null,
+        survivors: () => this.survivors(),
+        monkeys: () => [...this.zombies.values()].filter((z) => z.kind === 'monkey'),
+        noises: () => this.hunt?.noises() ?? [],
+        spotted: (_z, target) => this.hunt?.onSpotted(target),
+        screech: (z) => this.io.to(this.channel).emit('zombieAlert', { pid: z.p.pid }),
+      }),
     };
     this.brain = new ZombieBrain(this.host);
   }
@@ -300,6 +314,7 @@ export class ZombieRoom extends GameRoom {
 
   /** The zombies' AI, and taking away the bodies. */
   private updateZombies(now: number): void {
+    this.brain.beginTick();
     for (const z of this.zombies.values()) {
       if (z.p.alive) this.brain.update(z, now);
       else if (z.diedAt !== null && now - z.diedAt > ZOMBIE.corpseMs) {
@@ -318,7 +333,8 @@ export class ZombieRoom extends GameRoom {
     this.clearBlocks();
     this.queue = [];
     this.zphase = 'event';
-    this.hunt = new CrystalHunt(this.huntHost, event, now);
+    this.hunt = new CrystalHunt(this.huntHost, event, now, this.huntVariant);
+    this.huntVariant = 'full';
     this.emitState(now);
   }
 
@@ -384,7 +400,8 @@ export class ZombieRoom extends GameRoom {
   }
 
   /** Developer shortcut (dev action, private rooms only): go straight to the shop before `wave`. */
-  devSetWave(wave: number): void {
+  devSetWave(wave: number, variant: HuntVariant = 'full'): void {
+    this.huntVariant = variant;
     const now = performance.now();
     if (this.phase !== 'playing') return;
     if (this.hunt) this.io.to(this.channel).emit('hunt', null);
@@ -599,6 +616,8 @@ export class ZombieRoom extends GameRoom {
       const z = this.zombies.get(attacker!.pid);
       amount = z?.stats.damage ?? amount;
       if (z?.kind === 'brute' && victim.alive) this.knockBack(victim, z.p, ZOMBIE.brute.knockback);
+      // A monkey's hit stuns you for a moment.
+      if (z?.kind === 'monkey' && victim.alive) victim.stunUntil = Math.max(victim.stunUntil, now + MONKEYS.stunMs);
     }
     super.damage(victim, attacker, amount, headshot, cause, from, now, flags);
   }
@@ -642,7 +661,8 @@ export class ZombieRoom extends GameRoom {
   /** A zombie reels from a hit (less for big ones); everyone sees it flinch. */
   private stagger(z: Zombie, headshot: boolean, now: number): void {
     const s = ZOMBIE.stagger;
-    const ms = (headshot ? s.headshotMs : s.hitMs) * (z.kind === 'boss' ? s.boss : z.kind === 'brute' ? s.brute : 1);
+    // (Monkeys only flinch briefly.)
+    const ms = (headshot ? s.headshotMs : s.hitMs) * (z.kind === 'boss' ? s.boss : z.kind === 'brute' ? s.brute : z.kind === 'monkey' ? 0.4 : 1);
     z.staggerUntil = Math.max(z.staggerUntil, now + ms);
     // Shotguns hit with many pellets at once: one flinch is enough (a headshot always shows).
     if (headshot || now - z.lastFlinchAt > 90) {
@@ -705,6 +725,15 @@ export class ZombieRoom extends GameRoom {
       this.systemMessage(`🏆 ${victim.info.name} is dead! +${z.stats.reward} money, +${ZOMBIE.coins.boss} coins each.`);
     }
     this.emitState(now);
+  }
+
+  /** Story events: monkeys hear gunshots (a silenced pistol much less). */
+  override handleFire(p: ServerPlayer, raw: unknown): void {
+    const before = p.lastFireAt;
+    super.handleFire(p, raw);
+    if (!this.hunt || p.info.undead || p.lastFireAt === before) return;
+    const h = MONKEYS.hearing;
+    this.hunt.noise(p.state.x, p.state.z, p.weapon === 'silenced' ? h.silenced : WEAPONS[p.weapon].melee ? h.quiet : h.gunshot, performance.now());
   }
 
   // ---------------------------------------------------------------------------
