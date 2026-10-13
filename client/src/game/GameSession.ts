@@ -852,7 +852,7 @@ export class GameSession {
 
     this.local.chicken.kick();
     this.viewmodel.fire();
-    const recoil = w.recoil * (this.ctx.dev?.recoilScale() ?? 1);
+    const recoil = w.recoil * (this.ctx.dev?.recoilScale() ?? 1) * this.weapons.lastShotBurst;
     const beforeYaw=input.yaw,beforePitch=input.pitch;
     input.kick(recoil * (aiming ? 0.6 : 1), (Math.random() - 0.5) * recoil * 0.4);
     this.visualKick.yaw+=input.yaw-beforeYaw;this.visualKick.pitch+=input.pitch-beforePitch;

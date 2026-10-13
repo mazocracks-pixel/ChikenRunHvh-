@@ -44,8 +44,8 @@ export function runHvhBenchmark(count = 1000, seed = 7042): { seed: number; duel
           const dir = pelletDirections(weapon, direction, hvhSpread(weapon, 0, false, false, f.heat), Math.floor(random() * 0x7fffffff))[0]!;
           const hit = rayHvhMatrix(makeRay(eye, dir), actual, 100, ['head']);
           if (hit) { f.stats.hits++; f.stats.headshots++; fighters[enemy]!.hp -= damageAt(weapon, hit.t) * weapon.headshotMultiplier;
-            f.resolver.feedback(enemy, h.source, 'HIT', now); }
-          else if (!perfect) { f.stats.resolverMisses++; f.resolver.feedback(enemy, h.source, 'RESOLVER', now); }
+            f.resolver.feedback(enemy, h.source, 'HIT', now, true, record.t); }
+          else if (!perfect) { f.stats.resolverMisses++; f.resolver.feedback(enemy, h.source, 'RESOLVER', now, true, record.t); }
           else f.stats.spreadMisses++;
         }
         f.heat = Math.min(3, f.heat + 0.25 * permission.shots);

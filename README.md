@@ -73,7 +73,7 @@ Environment variables:
 | `DEV_PASSKEY` | Developer menu passkey. Never in the code: for `npm run dev` put it in `server/.env` (git ignores it; see `server/.env.example`). Without it private developer access is **off**; public HvH access has a separate flag. Use 12+ random characters on a public server |
 | `DEV_PUBLIC_ROOMS=1` | Legacy modifiers in public non-HvH development rooms; player administration still requires a private room |
 | `ANTICHEAT=log` | FaceChiken anti-cheat only logs cheaters instead of removing them (`off` turns it off). Default: removes them |
-| `HVH_PUBLIC_PANEL=0` | Require the passkey for the HvH Lab and Skeet panels too. By default every HvH player gets them without a passkey (equal HvH stats, bounded abilities, no player administration) |
+| `HVH_PUBLIC_PANEL=0` | Require the passkey for the Skeet panel. By default every HvH player gets it without a passkey (equal HvH stats, bounded abilities, no player administration) |
 | `DEV_ACCOUNTS_ONLY=1` | Only developer accounts may use the passkey. Optional restriction for servers that require developer accounts |
 | `TRUST_PROXY` | Number of reverse proxies in front (e.g. `1` behind nginx), so rate limits and HTTPS detection see the real client |
 | `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to use the API/sockets, if the page is hosted elsewhere |
@@ -216,10 +216,10 @@ browser and applies immediately, even mid-match.
 
 **HvH setup.** Every human joining HvH starts outside combat, with a personal setup pause.
 New players start in first-person view; `V` switches camera view and preserves their preference.
-Choose **HvH Lab**, **Skeet**, or **Manual play**, configure your tools, and press **Begin match** to spawn.
-Assisted panel access follows the passkey/public-rollout policy; Manual play is always available.
-Changing panels later does not restore health, ammo or exploit charge. The typed panel registry
-(`client/src/dev/panels.ts`) provides separate resolver and anti-aim configuration hooks for future panels.
+Choose **Skeet** or **Manual play**, configure your tools, and press **Begin match** to spawn.
+Skeet access follows the passkey/public-rollout policy; Manual play is always available.
+Changing panels later does not restore health, ammo or exploit charge. Skeet and Manual use the
+same server-side weapon and movement rules.
 
 **Skeet.** A separate nine-tab panel adapts the readable Skeet SDK's menu categories to this game.
 It adds seven weapon profiles, geometric safe points, historical shot selection, auto-stop and
@@ -231,22 +231,21 @@ Down tucks it behind the torso when facing away, while preserving the camera and
 Every panel and
 bot uses the same HvH weapon, movement and shared-charge rules.
 
-Skins tint your local first-person weapon. Players offers per-match targeting overrides. Configs
-are stored separately from HvH Lab. Extensions applies native recipes; it does not run CSGO Lua.
+Skins tint your local first-person weapon. Players offers per-match targeting overrides. Skeet
+configs are saved in the browser. Extensions applies native recipes; it does not run CSGO Lua.
 The supplied SDK wraps compiled gameplay code, so its original resolver/anti-aim algorithms cannot
 be verified or ported exactly. See [the adaptation map](docs/skeet-adaptation.md) for implemented
 counterparts and deliberate substitutions. No SDK loader, binaries or foreign-engine offsets are bundled.
 The combat rewrite and its validation contracts are documented in [HvH simulation](docs/hvh-simulation.md).
 
-**HvH Lab.** Only in HvH matches: press `Insert` or choose *Pause → HvH panels* (the button only shows in HvH).
-The panel now has Aim, Anti-aim, Simulation, Exploits, Movement, Visuals, Weapons, World, Telemetry,
-Settings and Configs tabs. Old configs migrate automatically: retired stat-changing powers are removed.
+**Skeet.** Only in HvH matches: press `Insert` or choose *Pause → HvH panels* (the button only shows in HvH).
+The panel has Rage, Anti-aim, Fake lag, Trigger, Visuals, Misc, Skins, Configs and Extensions tabs.
 
 **Classic mega?dev.** Press `L` (or tap the menu title five times on a phone) for the old developer menu, exactly as it was, in every mode except HvH: Legit, Rage (speed, fly,
 noclip, infinite ammo, no recoil/spread, rapid fire, no rocket cooldown/damage...), Visuals, World,
 Players, Weapons, Misc, Configs and Settings. It asks for the same passkey and keeps its own saved
-settings (the first time it picks up the ones saved before the HvH Lab). It works wherever the server
-allows developer tools except HvH (equal stats there: use the HvH Lab) and ranked; player
+settings. It works wherever the server allows developer tools except HvH (equal stats there: use
+Skeet) and ranked; player
 administration (teleport, heal, give weapons) only works in private rooms.
 
 - Aim: target priority/persistence, historical records, multipoint, geometric safe points, body
@@ -259,7 +258,8 @@ administration (teleport, heal, give weapons) only works in private rooms.
   Stone, brick, concrete and metal stop bullets. Prediction and server execution share this model.
 - Anti-aim: backward, left, right or spin bases, jitter up to 45° and requested desync up to 58°.
   Hold `K` to invert. Body yaw and authoritative skeletons stay on the server. Public eye yaw,
-  lower-body updates, motion, crouch and turn weight let the resolver reconstruct alternatives.
+  periodic lower-body updates, motion, crouch and turn weight let the resolver reconstruct alternatives.
+  Resolver feedback follows stance and jitter phase; historical guesses use only earlier observations.
   Wrong-side head shots can miss; debug matrices are estimates. Ordinary shots expose on-shot
   orientation for 300 ms. Defensive transitions spend charge and remain hittable.
 - Simulation: every mode uses 64 Hz and at most one queued movement command per tick.
@@ -267,11 +267,12 @@ administration (teleport, heal, give weapons) only works in private rooms.
   and four era profiles. Skeet's Fake lag tab has a separate enable switch, limit, mode and
   Break on shot control; owners receive fresh state and accepted shots can refresh remote poses. HvH has
   no vehicles. Friendly fire is blocked; enemy kills still score for the team.
-- Exploits: one 32-tick resource recharges in four idle, unchoked seconds after recovery. Double
-  Tap spends the full budget to advance the weapon's simulation clock through its unchanged
-  normal interval and validate two rounds in one delivery. Intervals above 500 ms, projectiles,
-  melee and native bursts cannot shift. Hide Shots spends 14 ticks to protect on-shot orientation
-  for 150 ms. Defensive transitions spend 12 ticks. Damage, magazine and reload rules still apply.
+- Exploits: one 32-unit resource recharges in two idle seconds, or four with fake lag, after recovery.
+  Double Tap spends full charge and two rounds for two immediate damaging bullets, with a cooldown
+  of at least 312.5 ms (slower guns retain their normal interval). Hide Shots spends 14 units to
+  preserve anti-aim through the full 300 ms shot exposure window, with no delayed reveal. Both work
+  in every HvH era; projectiles, melee and native bursts are excluded. Skeet shows readiness,
+  charging, cooldown and weapon restrictions. Defensive transitions spend 12 units.
   Respawn empties charge; changing panel, mode or weapon cannot refill it.
 - Movement: inertial acceleration and physical counter-strafing; slow walk holds `Shift` at 45% input.
   Auto-stop options include native slow walking, stopping between shots and bounded prediction
@@ -327,7 +328,7 @@ or first person (`V`). Synthesized sound effects.
 | B             | Build mode (Sandbox) / buy menu (ChikenBomb) | X | Next block type (Sandbox) |
 | E (hold)      | Plant / defuse the bomb (ChikenBomb) |  |                     |
 | Ctrl / C      | Crouch (slower, smaller)  |         |                              |
-| Insert        | HvH Lab menu (passkey)    | L       | Classic mega?dev (passkey)   |
+| Insert        | Skeet HvH panel           | L       | Classic mega?dev (passkey)   |
 
 ## Deploying (GitHub + Railway)
 
@@ -377,12 +378,12 @@ client/src/
   game/Sky.ts          sky shader, clouds, hills;  game/Foliage.ts instanced grass, flowers, rocks
   game/Effects.ts      tracers, bullet holes, feathers, explosions, smoke;  game/Audio.ts synthesized sounds
   ui/                  HUD, crosshair, menus, shop, settings dialogs, touch controls
-  dev/                 HvH Lab: tabs.ts (controls), DevRuntime (aim / movement), tactics (shot estimates),
+  dev/                 Skeet HvH panel: tabs.ts (controls), DevRuntime (aim / movement), tactics (shot estimates),
                         config migration and presets. Legacy directory name is retained.
                         DevOverlay (ESP), DevDebug3D (hitbox/collision outlines)
 server/src/dev/        passkey check + permissions (DevAccess), player actions (devActions)
 shared/src/dev.ts      private testing modifiers and access status
-shared/src/hvh.ts      bounded real/fake poses and shared exploit recharge rules
+shared/src/hvh.ts      bounded requested eye/body poses and stance policies
 ```
 
 To add a panel feature: add a field to `DevConfig` (`client/src/dev/config.ts`) and a control

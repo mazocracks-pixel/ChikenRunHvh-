@@ -20,3 +20,18 @@ it('late acknowledgements cannot overwrite ammunition for a newer predicted shot
   w.confirmShot({pid: 1, shot: 1, weapon: 'rifle', ox: 0, oy: 0, oz: 0, ends: [], hits: [], mag: 29, readyAt: 1000}, now, 900);
   assert.equal(w.mag, 28);
 });
+it('exploit prediction and readiness use weapon eligibility, charge and burst recovery', () => {
+  for (const exploit of ['doubleTap', 'hideShots'] as const) {
+    const w = new WeaponController(['rifle']); w.tactical = true; w.hvh.exploit = exploit; w.hvh.core!.era = 'legacy';
+    const start = performance.now();
+    assert.equal(w.exploitState(start), 'Charging');
+    for (let tick = 1; tick <= 129; tick++) w.update(start + tick * 1000 / 64, false);
+    const now = start + 130 * 1000 / 64;
+    assert.equal(w.exploitReady, true); assert.equal(w.exploitState(now), exploit === 'doubleTap' ? 'Burst ready' : 'Concealment ready');
+    assert.equal(w.trigger(true, now, true), 'fire'); assert.equal(w.lastShotBurst, exploit === 'doubleTap' ? 2 : 1);
+    assert.equal(w.mag, exploit === 'doubleTap' ? 28 : 29); assert.equal(w.exploitState(now), 'Cooldown');
+    assert.equal(w.trigger(true, now, true), null);
+  }
+  const rocket = new WeaponController(['rocket']); rocket.tactical = true; rocket.hvh.exploit = 'doubleTap';
+  assert.equal(rocket.exploitReady, false); assert.equal(rocket.exploitState(performance.now() + 2000), 'Unavailable for this weapon');
+});

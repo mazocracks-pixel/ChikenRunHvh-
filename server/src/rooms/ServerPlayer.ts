@@ -62,6 +62,8 @@ export class ServerPlayer {
   lastThreatTick = -100;
   weaponHeat = 0;
   revealUntil = 0;
+  revealYaw = 0;
+  revealPitch = 0;
   concealUntil = 0;
   pitch = 0;
   lastInput: InputFrame | null = null;
@@ -173,6 +175,7 @@ export class ServerPlayer {
     this.simulationTime = now; this.lastThreatTick = -100; this.antiBruteSide = 1;
     this.weaponHeat = 0;
     this.revealUntil = this.concealUntil = 0;
+    this.revealYaw = yaw; this.revealPitch = 0;
     this.pitch = 0;
     this.alive = true;
     this.hp = PLAYER.maxHealth;
@@ -222,9 +225,12 @@ export class ServerPlayer {
       lowerBodyYaw: this.hvhMode ? this.animation.lowerBodyYaw : this.yaw,
       turnWeight: this.animation.turnWeight,
       weaponHeat: this.weaponHeat,
-      hvhDefensive: this.hvhMode && performance.now() < this.concealUntil && this.hvh.core?.defensive === true,
+      hvhDefensive: this.hvhMode && this.resource.defensive,
       hvhPreparing: this.hvhPreparing,
-      hvhConcealed: this.hvhEnabled && performance.now() < this.concealUntil,
+      hvhConcealed: this.hvhEnabled && this.simulationTime < this.concealUntil,
+      hvhRevealed: this.hvhEnabled && this.simulationTime >= this.concealUntil && this.simulationTime < this.revealUntil,
+      movementWeight: this.hvhMode ? Math.round(this.animation.movementWeight * 1000) / 1000 : undefined,
+      runFraction: this.hvhMode ? Math.round(this.animation.runFraction * 1000) / 1000 : undefined,
     };
   }
 }

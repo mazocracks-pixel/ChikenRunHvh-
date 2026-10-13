@@ -68,7 +68,7 @@ export class Dev {
 
   /** Developer features are on: access granted and allowed in the current room. */
   get active(): boolean {
-    // Not in HvH: that mode keeps everyone's stats equal (its own HvH Lab is on Insert).
+    // Not in HvH: that mode keeps everyone's stats equal (Skeet is on Insert there).
     return this.status.granted && this.status.allowedHere && this.status.profile === 'admin';
   }
 

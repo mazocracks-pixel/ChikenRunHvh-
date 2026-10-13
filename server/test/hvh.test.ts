@@ -23,7 +23,7 @@ it('HvH setup stages a human outside combat and spawns only once after a valid c
   assert.equal(p.state.horizontalSpeed,0);assert.equal(p.lastShotSeq,0);
   await new Promise(resolve=>setTimeout(resolve,75));assert.equal(p.alive,false,'room ticks must not auto-spawn setup players');
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','unknown' as never)).ok,false);
-  assert.equal((await c.timeout(3000).emitWithAck('hvhReady','lab')).ok,false,'public flag is off');
+  assert.equal((await c.timeout(3000).emitWithAck('hvhReady','lab' as never)).ok,false,'retired Lab panel is rejected');
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','skeet')).ok,false,'Skeet uses the same access gate');
   assert.equal(p.alive,false);
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady','manual')).ok,true);
@@ -55,15 +55,15 @@ it('HvH rejects every administration action and clears forged movement, ammo, im
   room.handleFire(a,{shot:1,weapon:a.weapon,dx:1,dy:0,dz:0,t:performance.now(),aiming:false});
   stepRoom(room);assert.equal(a.mag,WEAPONS[a.weapon].magazine-1);assert.equal(a.mods,null);
 });
-it('server Double Tap consumes stored time for two normal bullets and cannot repeat during recovery',t=>{
+it('server Double Tap spends shared charge for two normal bullets and cannot repeat during recovery',t=>{
   const {room,events}=makeRoom('hvh','flat');t.after(()=>room.close());const a=addPlayer(room,'A');
   a.info.loadout=['rifle'];a.weaponSlot=0;a.mags.set('rifle',30);a.hvhEnabled=true;a.hvh.exploit='doubleTap';a.resource.ticks=32;
   let now=performance.now();
   const fire=(shot:number)=>room.handleFire(a,{shot,weapon:'rifle',dx:1,dy:0,dz:0,t:now,aiming:false});
   fire(1);assert.equal(a.mag,30,'packet reception does not simulate a shot');stepRoom(room,now);
   assert.equal(a.mag,28);assert.equal(a.resource.ticks,0);assert.equal((events.find(e=>e.event==='shot')!.args[0] as {burst:number}).burst,2);
-  now+=SIM_DT*1000;fire(2);stepRoom(room,now);assert.equal(a.lastShotSeq,1,'shifted weapon timer still blocks early requests');
-  for(let i=0;i<8;i++){now+=SIM_DT*1000;stepRoom(room,now);}
+  now+=SIM_DT*1000;fire(2);stepRoom(room,now);assert.equal(a.lastShotSeq,1,'burst cooldown blocks early requests');
+  for(let i=0;i<19;i++){now+=SIM_DT*1000;stepRoom(room,now);}
   fire(3);stepRoom(room,now);assert.equal(a.lastShotSeq,3);assert.equal(a.mag,27,'recovery uses normal single-shot fire');
   a.reloadUntil=now+100;fire(4);stepRoom(room,now);assert.equal(a.lastShotSeq,3);
 });

@@ -3955,7 +3955,7 @@ code {
 /* ==========================================================================================
    Barnyard: the game's own screens (title, mode select, HvH choice, HUD, match over, pause,
    settings, dev code). Scoped to #ui-layer / #modal-layer / #hud-layer and .pk-*, so the
-   Skeet, Lab and mega?dev menus (on <body>, styled by dev.css) never change.
+   Skeet and mega?dev menus (on <body>, styled by dev.css) never change.
    Sky blue base, egg yolk + barn red accents, dark-brown ink outlines, cream paper.
    Shadows are hard offsets (things sink when pressed); no blur, no gradients, no glass.
    ========================================================================================== */

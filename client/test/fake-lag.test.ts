@@ -5,12 +5,12 @@ import {defaultConfig,sanitizeConfig} from '../src/dev/config';
 import {HVH_PANELS} from '../src/dev/panels';
 import {skeetEffectiveConfig} from '../src/dev/skeet/model';
 import {WeaponController} from '../src/game/WeaponController';
-it('Skeet fake-lag controls map consistently to bounded runtime and server policies without altering Lab',()=>{
+it('Skeet fake-lag controls map consistently to bounded runtime and server policies',()=>{
  const raw=defaultConfig('skeet');raw.skeet.fakeLag.enabled=true;raw.skeet.fakeLag.limit=999;raw.skeet.fakeLag.mode='unknown' as never;
  raw.hvh.movement.subtickStrafe=true;const c=sanitizeConfig(raw);
  assert.equal(c.skeet.fakeLag.limit,12);assert.equal(c.skeet.fakeLag.mode,'static');assert.equal(c.hvh.movement.subtickStrafe,true);
  assert.equal(HVH_PANELS.skeet.loadout(c).core!.fakeLag,12);assert.equal(skeetEffectiveConfig(c,WEAPONS.pistol).hvh.core!.fakeLag,12);
- assert.equal(HVH_PANELS.lab.loadout(c).core!.fakeLag,0);assert.equal(HVH_PANELS.manual.loadout(c).core!.fakeLag,0);
+ assert.equal(HVH_PANELS.manual.loadout(c).core!.fakeLag,0);
  c.skeet.fakeLag.enabled=false;assert.equal(HVH_PANELS.skeet.loadout(c).core!.fakeLag,0);
  const old=defaultConfig('skeet');delete (old.skeet as Partial<typeof old.skeet>).fakeLag;old.hvh.core!.fakeLag=9;old.hvh.core!.fakeLagMode='random';
  const migrated=sanitizeConfig(old);assert.deepEqual(migrated.skeet.fakeLag,{enabled:true,limit:9,mode:'random',breakOnShot:true});
@@ -20,8 +20,8 @@ it('weapon recharge prediction follows effective choke while idle',()=>{
   const weapons=new WeaponController(['rifle']);weapons.tactical=true;
   const core=weapons.hvh.core!;core.fakeLag=8;core.fakeLagMode=mode;core.era='tickbase';weapons.hvh.exploit='doubleTap';
   const start=performance.now();
-  for(let tick=1;tick<=257;tick++)weapons.update(start+tick*1000/64,fakeLagTicks(core,tick,0)>0);
-  assert.equal(weapons.trigger(true,start+258*1000/64,true),'fire');
+  for(let tick=1;tick<=129;tick++)weapons.update(start+tick*1000/64,fakeLagTicks(core,tick,0)>0);
+  assert.equal(weapons.trigger(true,start+130*1000/64,true),'fire');
   assert.equal(weapons.lastShotBurst,mode==='velocity'?2:1);
  }
 });

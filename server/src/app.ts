@@ -30,7 +30,7 @@ export interface GameServerOptions {
   devPasskey?: string;
   /** Allow developer tools in public rooms (a local dev server). Otherwise: private rooms only. */
   devInPublicRooms?: boolean;
-  /** Equal, balanced HvH panels for every player in HvH matches, no passkey; on by default (false turns it off). */
+  /** Equal, balanced Skeet access for every player in HvH matches, no passkey; on by default (false turns it off). */
   publicHvhPanel?: boolean;
   /** FaceChiken anti-cheat: remove cheaters (default), only log them, or off. */
   antiCheat?: 'enforce' | 'log' | 'off';

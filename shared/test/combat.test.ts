@@ -117,6 +117,7 @@ describe('protocol packing', () => {
       fakeYaw: 2, hvhCharge: 0.5, hvhBurst: true, hvhConcealed: true,
       walkVx: -2.375, walkVz: 4.125, simulationTime: 1234, lowerBodyYaw: 0.625,
       turnWeight: 0.35, hvhDefensive: false, weaponHeat: 0.45, crouchAmount: 0.4,
+      hvhRevealed: true, movementWeight: 0.32, runFraction: 0.8,
     };
     const packed = packPlayer(p), back = unpackPlayer(packed);
     assert.equal(packed[28], p.flashes, 'retain the upstream flashbang slot');

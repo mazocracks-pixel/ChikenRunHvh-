@@ -170,7 +170,7 @@ export class DevMenu {
       : d.active
         ? ['Active', 'on', 'Developer tools are active in this room.']
         : d.status.profile === 'hvh'
-          ? ['Off in HvH', 'locked', 'HvH keeps everyone equal: use the HvH Lab (Insert) there.']
+          ? ['Off in HvH', 'locked', 'HvH keeps everyone equal: use Skeet (Insert) there.']
           : ['Locked here', 'locked', 'This room does not allow developer tools (ranked, or a server setting).'];
     if (this.pill.textContent !== text) {
       this.pill.textContent = text;

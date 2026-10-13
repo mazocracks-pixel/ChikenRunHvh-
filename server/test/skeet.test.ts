@@ -36,7 +36,8 @@ it('the server derives Skeet stance and physical pitch while keeping the camera 
     const expected = hvhPose(p.lookYaw, p.hvh, 1000, false, false, { speed: state.horizontalSpeed, ...state, seed: p.pid });
     assert.equal(p.animation.eyeYaw, expected.real); assert.equal(p.fakeYaw, expected.real); assert.equal(p.pitch, 0.3); assert.equal(p.fakePitch, -1.15);
   }
-  p.revealUntil = 2000; room.updateHvhPose(p, 1100); assert.equal(p.fakePitch, p.pitch); assert.equal(p.animation.eyeYaw, p.lookYaw);
+  p.revealYaw = p.lookYaw; p.revealPitch = p.pitch; p.revealUntil = 2000;
+  room.updateHvhPose(p, 1100); assert.equal(p.fakePitch, p.pitch); assert.equal(p.animation.eyeYaw, p.lookYaw);
 });
 it('accepted ranged shots carry their sequence and rejected shots produce no resolver feedback', t => {
   const { room, events } = makeRoom('hvh', 'flat'); t.after(() => room.close()); const p = addPlayer(room, 'A');

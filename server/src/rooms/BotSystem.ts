@@ -11,6 +11,7 @@ import {
   directionFromAngles,
   findPath,
   makeRay,
+  moveSpeedFor,
   normalize,
   raycastWorld,
   wrapAngle,
@@ -104,7 +105,7 @@ export class BotSystem {
     if (!res.ok) return false;
     const p = this.room.players.get(res.selfPid)!;
     if (this.room.mode.id === 'hvh') {
-      p.hvhEnabled = true; p.hvhPanel = p.pid % 2 ? 'skeet' : 'lab';
+      p.hvhEnabled = true; p.hvhPanel = 'skeet';
       p.hvh.antiAim.enabled = true; p.hvh.antiAim.desync = [22, 35, 45][p.pid % 3]!;
       p.hvh.exploit = 'off';
       p.hvh.skeet = defaultSkeetAntiAim(); p.hvh.skeet.freestanding = true;
@@ -345,7 +346,8 @@ export class BotSystem {
           origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
           eyeYaw: s.yaw, pitch: s.fakePitch ?? s.pitch, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
           grounded: s.onGround, turnWeight: s.turnWeight ?? 0, alive: s.alive, hp: s.hp, armor: s.armor,
-          fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
+          fired: s.hvhRevealed ?? false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false,
+          movementWeight: s.movementWeight, runFraction: s.runFraction, weaponSpeed: moveSpeedFor(s.weapon) };
         p.resolver.observe(r); b.hvhObserved.push(s.pid);
       }
     }

@@ -40,7 +40,7 @@ it('random jitter is deterministic per player, inverted desync stays bounded, an
   }
   assert.notEqual(hvhPose(0, l, 1000, false, false, { seed: 1 }).real, hvhPose(0, l, 1000, false, false, { seed: 2 }).real);
 });
-it('target base and cover side use server evidence, while disabling the builder keeps the Lab fallback', () => {
+it('target base and cover side use server evidence, while disabling the builder keeps the shared fallback', () => {
   const l = defaultHvhLoadout(); l.antiAim.enabled = true; l.skeet = defaultSkeetAntiAim();
   l.skeet.atTargets = l.skeet.freestanding = true; l.skeet.states.standing.jitter = 0;
   const p = hvhPose(0, l, 1000, false, false, { targetYaw: 0.5, coverSide: 1 });
@@ -49,12 +49,15 @@ it('target base and cover side use server evidence, while disabling the builder 
   l.skeet.enabled = false;
   assert.deepEqual(hvhPose(0, l, 1000, false, false), hvhPose(0, { ...l, skeet: undefined }, 1000, false, false));
 });
-it('cosmetic pitch appends to snapshots and legacy packets retain real pitch and existing field positions', () => {
+it('physical pitch and shot cues append to snapshots without changing legacy field positions', () => {
   const s: PlayerState = { ...createMoveState(1, 0, 2), pid: 4, yaw: 0.2, pitch: 0.3, fakeYaw: 1, fakePitch: -0.65,
     alive: true, reloading: false, shielded: false, aiming: false, carryingFlag: false, hp: 100, armor: 0,
-    weapon: 'pistol', mag: 12, eggs: 0, smokes: 0, ack: 12, vehicle: 0, frozen: false, hvhPreparing: true };
+    weapon: 'pistol', mag: 12, eggs: 0, smokes: 0, ack: 12, vehicle: 0, frozen: false, hvhPreparing: true, hvhRevealed: true, movementWeight: 0.4, runFraction: 0.8 };
   const packed = packPlayer(s), decoded = unpackPlayer(packed);
   assert.equal(packed[26], 1); assert.equal(decoded.pitch, 0.3); assert.equal(decoded.fakePitch, -0.65);
   assert.equal(decoded.fakeYaw, 1); assert.equal(decoded.ack, 12);
   assert.equal(unpackPlayer(packed.slice(0, 27)).fakePitch, 0.3);
+  assert.equal(decoded.hvhRevealed, true); assert.equal(unpackPlayer(packed.slice(0, 37)).hvhRevealed, false);
+  assert.equal(decoded.movementWeight, 0.4); assert.equal(decoded.runFraction, 0.8);
+  assert.equal(unpackPlayer(packed.slice(0, 38)).movementWeight, undefined);
 });

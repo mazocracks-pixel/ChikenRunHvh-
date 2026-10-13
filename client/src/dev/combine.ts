@@ -1,7 +1,7 @@
 import type { DevHooks } from '../game/GameSession';
 
 /**
- * Runs two developer systems in the same match: the HvH Lab (Insert) and the classic mega?dev
+ * Runs two developer systems in the same match: the Skeet HvH panel (Insert) and the classic mega?dev
  * menu (L). Each only does anything where the server allows it, so they rarely overlap; when
  * both want something (the shot direction, the camera), the first one wins.
  */

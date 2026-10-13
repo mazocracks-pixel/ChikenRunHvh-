@@ -215,7 +215,7 @@ export function sanitizeConfig(raw: unknown): DevConfig {
     }
   };
   walk(out as unknown as Record<string, unknown>, raw, '');
-  // Insert belongs to the HvH Lab now.
+  // Insert belongs to Skeet now.
   if (!out.settings.menuKey || out.settings.menuKey === 'Insert') out.settings.menuKey = 'KeyL';
   // Saved before the mega?dev look and never customised: move to the new default theme.
   if (out.settings.theme === 'midnight' && out.settings.accent === '#7c5cff') {
@@ -253,7 +253,7 @@ export function toServerMods(c: DevConfig): Partial<DevMods> {
 // Saved configs
 // ---------------------------------------------------------------------------
 
-/** Classic mega?dev keeps its own settings; the first time it reads the ones saved before the HvH Lab. */
+/** Classic mega?dev keeps its own settings and migrates its earlier saved config once. */
 const CURRENT_KEY = 'chikengun:dev-classic';
 const CONFIGS_KEY = 'chikengun:dev-classic-configs';
 const OLD_CURRENT_KEY = 'chikengun:dev';

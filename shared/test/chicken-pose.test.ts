@@ -41,14 +41,15 @@ it('bounded down pitch hides the head behind the torso from the rear while remai
   loadout.skeet.visualPitch='zero';assert.equal(hvhPitch(0.4,loadout),0);
 });
 
-it('resolver trusts moving public body updates, deduplicates guesses and keeps feedback decay monotonic', () => {
+it('resolver keeps uncertain body targets, deduplicates guesses and keeps feedback decay monotonic', () => {
   const resolver=new ResolverSystem(),r={...record(),speed:2,pitch:0};resolver.observe(r);
-  const moving=resolver.resolve(r);assert.equal(moving.hypotheses[0]!.source,'BODY_UPDATE');assert.ok(moving.confidence>0.9);
-  assert.ok(Math.abs(wrapAngle(moving.hypotheses[0]!.yaw-r.lowerBodyYaw))<1e-8);
+  const moving=resolver.resolve(r);assert.ok(moving.confidence<0.5,'a lower-body target is not the actual body pose');
   for (const a of moving.hypotheses) for(const b of moving.hypotheses) if(a!==b)assert.ok(Math.abs(wrapAngle(a.yaw-b.yaw))>=0.06);
   const still={...r,t:200,speed:0};resolver.observe(still);
-  resolver.feedback(2,'LEFT','RESOLVER',400);
+  const initial=resolver.resolve(still).hypotheses.find(h=>h.source==='LEFT')!.probability;
+  resolver.feedback(2,'LEFT','RESOLVER',400,true,still.t);
   const before=resolver.resolve(still).hypotheses.find(h=>h.source==='LEFT')!.probability;
+  assert.ok(before<initial);
   for(let i=0;i<40;i++){resolver.resolve(r);resolver.resolve(still);}
   assert.equal(resolver.resolve(still).hypotheses.find(h=>h.source==='LEFT')!.probability,before);
 });

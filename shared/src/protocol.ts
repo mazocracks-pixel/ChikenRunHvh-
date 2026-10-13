@@ -54,6 +54,10 @@ export interface PlayerState extends MoveState {
   hvhCharge?: number;
   hvhBurst?: boolean;
   hvhConcealed?: boolean;
+  /** Public on-shot pose cue; concealed firing never sets it. */
+  hvhRevealed?: boolean;
+  movementWeight?: number;
+  runFraction?: number;
   hvhPreparing?: boolean;
   pid: number;
   yaw: number;
@@ -142,6 +146,8 @@ export function packPlayer(p: PlayerState): PackedPlayer {
     round(p.lowerBodyYaw ?? p.yaw, 3), p.turnWeight ?? 0, p.hvhDefensive ? 1 : 0,
     round(p.weaponHeat ?? 0, 3),
     p.crouchAmount === undefined ? -1 : round(p.crouchAmount, 3),
+    p.hvhRevealed ? 1 : 0,
+    p.movementWeight ?? -1, p.runFraction ?? -1,
   ];
 }
 
@@ -191,6 +197,9 @@ export function unpackPlayer(a: PackedPlayer): PlayerState {
     lowerBodyYaw: a[32] ?? a[7] ?? 0, turnWeight: a[33] ?? 0, hvhDefensive: a[34] === 1,
     weaponHeat: a[35] ?? 0,
     crouchAmount: (a[36] ?? -1) < 0 ? undefined : a[36],
+    hvhRevealed: a[37] === 1,
+    movementWeight: (a[38] ?? -1) < 0 ? undefined : a[38],
+    runFraction: (a[39] ?? -1) < 0 ? undefined : a[39],
   };
 }
 
@@ -392,6 +401,7 @@ export interface ShotEvent {
   readyAt?: number;
   mag?: number;
   charge?: number;
+  hidden?: boolean;
   audit?: import('./hvh/rage').ShotAudit;
   burst?: number;
   /** Accepted client sequence, for matching assistance telemetry without guessed misses. */

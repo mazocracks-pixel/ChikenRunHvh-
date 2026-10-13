@@ -31,7 +31,7 @@ export class App {
   private readonly leaveButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.leave() }, 'Leave match');
   private readonly hvhPanelsButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.openHvhSetup() }, 'HvH panels');
   private readonly friends: Friends;
-  /** The old mega?dev menu, on L (the HvH Lab above is on Insert). */
+  /** The old mega?dev menu, on L. */
   private readonly classicDev: ClassicDev;
   private readonly menu: MainMenu;
   private readonly shop: ShopScreen;

@@ -17,13 +17,13 @@ abilities. [HvH simulation](hvh-simulation.md) describes the shared authoritativ
 | Misc | Physical stop/slow walk/peek return; keybind list, charge, watermark and classified shot log; local menu/arena settings |
 | Skins | Local first-person weapon tint and inspect animation, with fixed HvH weapon reference |
 | Players | Per-match ignore/body targeting overrides, public roster and scores |
-| Config | Independent Lab/Skeet current and named configs; sanitized import/export; old real/visual resolver values migrate to center assumption |
+| Config | Skeet current and named configs; sanitized import/export; old real/visual resolver values migrate to center assumption |
 | Extensions | Native recipes plus bounded typed command, observation, candidate, own anti-aim, shot/result and render callbacks |
 
-Skeet defaults to adaptive resolution; Lab defaults to animation priors. The policy selector
-offers adaptive feedback, animation-weighted feedback and a cycle after confirmed resolver
-misses. Skeet's center option deliberately assumes eye yaw for comparison; it never reveals
-authoritative body yaw. Both panels share weapon stats, ammo, movement and stored-tick costs.
+Skeet defaults to adaptive resolution. Its policy selector offers adaptive feedback,
+animation-weighted feedback and a cycle after confirmed resolver misses. The center option
+deliberately assumes eye yaw for comparison; it never reveals authoritative body yaw. Skeet
+and Manual share weapon stats, ammo and movement. Assisted weapon abilities spend shared charge.
 
 Public observations include eye yaw, intermittent lower-body updates, speed, crouch amount,
 ground state, turn weight and time. Body yaw, enemy settings/inverter, authoritative matrices
@@ -31,15 +31,18 @@ and enemy resolver state are not transmitted. Incorrect reconstructed head locat
 Force-safe points test overlap across plausible LEFT/CENTER/RIGHT and low-delta alternatives;
 safe body shots generally sacrifice head damage. Body hits clear recent misses without
 reinforcing an orientation guess. Spread, cover and server rejection never count as resolver errors.
+Feedback follows the selected historical record's stance and jitter phase. Exposed firing supplies
+a center cue; charged Hide Shots withholds it. Skeet's Exploit mode selector enables two-round
+Double Tap bursts or 300 ms Hide Shots concealment, with readiness and charge shown beside it.
 
 Opponent overrides and observations clear on match exit or panel changes. Panel changes do not
-restore health, ammo or resource charge. Cosmetic pitch affects head rendering only. The classic
+restore health, ammo or resource charge. Anti-aim pitch changes the physical head pose. The classic
 private developer menu remains separate outside HvH; ranked mode still denies these capabilities.
-Public HvH panels are available by default, matching the main game's access policy.
-Set `HVH_PUBLIC_PANEL=0` to require the passkey for HvH panels.
+Skeet is available by default, matching the main game's access policy.
+Set `HVH_PUBLIC_PANEL=0` to require the passkey for its access.
 
-Controller additions register through `runtime.extensions.register(...)` and the typed panel
-registry. Hooks receive immutable public data or the owner's sanitized configuration. They
+Controller additions register through `runtime.extensions.register(...)` and typed HvH runtime
+hooks. Hooks receive immutable public data or the owner's sanitized configuration. They
 can change bounded movement intent, candidate score or their own anti-aim configuration;
 the server revalidates gameplay. Throwing callbacks disable themselves. These are trusted
 repository-owned callbacks, not a sandbox for uploaded JavaScript or CSGO Lua. Add a new panel
