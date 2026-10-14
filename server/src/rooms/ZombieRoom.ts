@@ -418,7 +418,7 @@ export class ZombieRoom extends GameRoom {
 
   /** The Backrooms mode: the run is over (out through the portal, or lost). */
   private endRun(hunt: CrystalHunt, success: boolean, reason: string, now: number): void {
-    this.result = { success, crystals: hunt.collected, total: hunt.state().total, ms: Math.round(now - hunt.startedAt), reason };
+    this.result = { success, crystals: hunt.collected, total: hunt.state().needed, ms: Math.round(now - hunt.startedAt), reason };
     if (success) for (const p of this.humans()) this.earn(p, BACKROOMS_MODE.escapeBonus);
     this.systemMessage(success ? `🌀 You escaped the Backrooms with ${hunt.collected} crystals! ${reason}` : `💀 Lost in the Backrooms: ${reason} (${hunt.collected} crystals)`);
     this.zphase = 'over';

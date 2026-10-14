@@ -3,6 +3,15 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 21 (13 Oct): the Backrooms is easier, 300 of 500 crystals open the portal
+
+- New `needed` option on a story event (missing means all of them). The Backrooms has `crystals: 500, needed: 300` in [events.ts](shared/src/events.ts).
+- The portal opens once the team has 300. You can keep picking up the rest; they still count toward the speed-ups.
+- The phone counter reads "Crystals 12/300". The welcome line says "find 300 of the 500". The result screen shows x/300. The mode card text is updated.
+- Covers both the Backrooms mode and the wave-7 event (they share the config). `/backrooms small` still needs all 4 of its crystals.
+- Test: 500 lie about, 299 don't open the portal, 300 do. Full run: **466/466 pass**.
+- Not checked in the browser this time: only the counter text changed on screen; the rule itself is server-side and tested.
+
 # Batch 20 (11 Oct): The Backrooms as its own game mode; a better monkey
 
 The user's message was cut off after "and". Read as: the Backrooms as a game mode of its own (the wave-7 event stays in Zombie Apocalypse), and a better monkey with the old design kept as a second version.

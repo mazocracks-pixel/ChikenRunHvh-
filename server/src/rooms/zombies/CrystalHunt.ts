@@ -138,7 +138,9 @@ export class CrystalHunt {
     }
     event.onStart?.(this, now);
     host.setSpeed(1);
-    host.message(`📱 ${event.def.name}: find all ${this.left()} purple crystals with your phone map, then get to the portal. ${Math.round((this.endsAt - now) / 60000)} minutes!${small ? ' (small test)' : ''}`);
+    const need = small ? this.left() : Math.min(this.left(), event.def.needed ?? this.left());
+    host.message(`📱 ${event.def.name}: find ${need === this.left() ? `all ${need}` : `${need} of the ${this.left()}`} purple crystals with your phone map, then get to the portal.`);
+    host.message(`⏱ ${Math.round((this.endsAt - now) / 60000)} minutes!${small ? ' (small test)' : ''}`);
     this.emit(true);
   }
 
@@ -223,6 +225,7 @@ export class CrystalHunt {
       zone: this.zone.id,
       endsAt: this.endsAt,
       total: this.total,
+      needed: this.needed,
       left: this.left(),
       ...(full ? { crystals: [...this.crystals.values()] } : {}),
       portal: this.portal,
@@ -233,6 +236,8 @@ export class CrystalHunt {
   }
 
   private total = 0;
+  /** Crystals that open the portal (CrystalHuntDef.needed; a small test needs all of its few). */
+  private needed = 0;
 
   /** Purple crystals still to find. */
   private left(): number {
@@ -243,6 +248,7 @@ export class CrystalHunt {
 
   emit(full = false): void {
     this.total ||= this.left();
+    this.needed ||= this.variant === 'small' ? this.total : Math.min(this.total, this.def.needed ?? this.total);
     this.host.broadcast('hunt', this.state(full));
   }
 
@@ -311,7 +317,7 @@ export class CrystalHunt {
             m.monkey.goal = { x: c.x, z: c.z };
           }
         }
-        if (this.left() === 0 && !this.portal) {
+        if (this.collected >= this.needed && !this.portal) {
           this.portal = { ...this.zone.exit };
           for (const s of this.host.humans()) this.host.scare(s, 'lastCrystal');
           this.host.message('🌀 The last crystal! The exit portal is open: get to it!');

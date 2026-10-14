@@ -162,7 +162,7 @@ export class HuntView {
     const left = Math.max(0, Math.ceil((s.endsAt - serverNow) / 1000));
     this.timer.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
     this.timer.classList.toggle('urgent', left <= 30);
-    this.counter.textContent = s.portal ? 'Portal open: get out!' : `Crystals ${s.total - s.left}/${s.total}`;
+    this.counter.textContent = s.portal ? 'Portal open: get out!' : `Crystals ${s.total - s.left}/${s.needed}`;
     const seen = Math.max(0, Math.ceil((s.revealUntil - serverNow) / 1000));
     this.revealBar.hidden = seen <= 0;
     if (seen > 0) this.revealBar.textContent = `Monkeys visible ${Math.floor(seen / 60)}:${String(seen % 60).padStart(2, '0')}`;

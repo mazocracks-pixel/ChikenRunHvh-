@@ -604,6 +604,24 @@ describe('Zombie Apocalypse match', () => {
       }
     });
 
+    it('500 crystals lie about, but 300 open the portal', () => {
+      const t = setup();
+      try {
+        toWave(t, CRYSTAL_HUNT.events.backrooms.wave);
+        const h = hunt(t)! as unknown as { state(full?: boolean): { crystals?: { x: number; z: number; red?: boolean }[]; needed: number; total: number; portal: unknown } };
+        const s = h.state(true);
+        assert.equal(s.total, 500);
+        assert.equal(s.needed, 300);
+        const purple = s.crystals!.filter((c) => !c.red);
+        for (const c of purple.slice(0, 299)) walkTo(t, c.x, c.z);
+        assert.equal(h.state().portal, null, 'not yet at 299');
+        walkTo(t, purple[299]!.x, purple[299]!.z);
+        assert.ok(h.state().portal, 'open at 300');
+      } finally {
+        t.room.close();
+      }
+    });
+
     it('a red crystal shows every monkey through walls for 1:30', () => {
       const t = setup();
       try {

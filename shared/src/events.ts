@@ -102,6 +102,8 @@ export interface HuntEventDef {
   farCrystals?: { share: number; distance: number };
   /** Red crystals (in dangerous spots): taking one shows every monkey through walls for a while. */
   redCrystals?: number;
+  /** The portal opens after this many crystals (of all `crystals` lying about); missing = all of them. */
+  needed?: number;
 }
 
 /** The Backrooms game mode (the event as a whole run): coins per crystal and for getting out. */
@@ -137,7 +139,9 @@ export const CRYSTAL_HUNT = {
       name: 'The Backrooms',
       wave: 7,
       zone: 'backrooms',
+      // 500 lie about; 300 of them open the portal.
       crystals: 500,
+      needed: 300,
       timeMs: 1_500_000,
       enemies: { monkey: 0 },
       smart: true,
@@ -188,6 +192,8 @@ export interface HuntState {
   total: number;
   /** Crystals still to find (purple ones; red ones don't count). */
   left: number;
+  /** How many the team needs for the portal (the counter shows taken / needed). */
+  needed: number;
   /**
    * Every crystal still lying about: sent when the event starts (and to anyone joining); after
    * that the `crystal` events take them away one by one, so it's left out.

@@ -95,7 +95,7 @@ const DEFS: ModeDef[] = [
     maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Zombies'], noDrops: true, zombies: true, pve: true, noBots: true, weapons: ['pistol', 'knife'], spawnProtectionMs: 0,
   },
   {
-    id: 'backrooms', name: 'The Backrooms', description: 'Lost in endless yellow rooms. Find all 500 purple crystals with your phone map, then escape through the portal. The monkeys hear you, hunt in packs and get faster every 50 crystals. Red crystals show them through walls. Up to 4 together.',
+    id: 'backrooms', name: 'The Backrooms', description: 'Lost in endless yellow rooms. 300 of the 500 purple crystals open the portal: find them with your phone map, then escape. The monkeys hear you, hunt in packs and get faster every 50 crystals. Red crystals show them through walls. Up to 4 together.',
     teams: true, maxPlayers: 40, maxHumans: 4, scoreLimit: 0, timeLimitMs: 0, respawnMs: 3600_000, minPlayers: 1,
     maps: ['night'], building: false, vehicles: false, teamNames: ['Survivors', 'Monkeys'], noDrops: true, zombies: true, pve: true, noBots: true, weapons: ['rifle', 'pistol', 'knife'], spawnProtectionMs: 0, huntOnly: 'backrooms',
   },
