@@ -1,9 +1,12 @@
 import type { CollisionWorld } from './collision';
 import { isSpaceFree } from './physics';
 import { makeRay, raycastWorld } from './raycast';
+import { SOURCE_MOVE } from './movement';
+import type { Aabb } from './collision';
 
 export interface NavPoint {
   x: number;
+  y?: number;
   z: number;
 }
 
@@ -16,23 +19,41 @@ export interface NavGraph {
 /** Two spots are linked when they're this close and nothing blocks a chicken walking between them. */
 const MAX_LINK = 26;
 /** Checked at knee and head height, and a body-width either side, so links never clip a corner. */
-const HEIGHTS = [0.4, 1.3];
+const HEIGHTS = [SOURCE_MOVE.stepHeight + 0.05, 1.3];
 const SIDE = 0.45;
 
 /** True if a chicken can walk in a straight line from `a` to `b`. */
 export function walkable(a: NavPoint, b: NavPoint, world: CollisionWorld): boolean {
   const dx = b.x - a.x;
   const dz = b.z - a.z;
-  const dist = Math.hypot(dx, dz);
+  const dy = (b.y ?? 0) - (a.y ?? 0);
+  const dist = Math.hypot(dx, dy, dz);
   if (dist < 1e-6) return true;
-  const dir = { x: dx / dist, y: 0, z: dz / dist };
+  const dir = { x: dx / dist, y: dy / dist, z: dz / dist };
   const nx = -dir.z * SIDE;
   const nz = dir.x * SIDE;
   for (const y of HEIGHTS) {
     for (const side of [-1, 0, 1]) {
-      const origin = { x: a.x + nx * side, y, z: a.z + nz * side };
+      const origin = { x: a.x + nx * side, y: (a.y ?? 0) + y, z: a.z + nz * side };
       if (raycastWorld(makeRay(origin, dir), world, dist)) return false;
     }
+  }
+  if (a.y !== undefined || b.y !== undefined) {
+    const steps = Math.max(1, Math.ceil(dist / 0.25));
+    let floor = a.y ?? 0;
+    const nearby: Aabb[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = a.x + dx * t, z = a.z + dz * t;
+      let top = floor <= SOURCE_MOVE.stepHeight ? 0 : -Infinity;
+      for (const box of world.query(x - SIDE, z - SIDE, x + SIDE, z + SIDE, nearby)) {
+        if (box.minX >= x + SIDE || box.maxX <= x - SIDE || box.minZ >= z + SIDE || box.maxZ <= z - SIDE) continue;
+        if (box.maxY <= floor + SOURCE_MOVE.stepHeight + 0.001 && box.maxY >= floor - SOURCE_MOVE.stepHeight - 0.001) top = Math.max(top, box.maxY);
+      }
+      if (!Number.isFinite(top) || !isSpaceFree(x, top, z, world)) return false;
+      floor = top;
+    }
+    if (Math.abs(floor - (b.y ?? 0)) > SOURCE_MOVE.stepHeight) return false;
   }
   return true;
 }
@@ -72,9 +93,10 @@ export function openSpots(starts: readonly NavPoint[], world: CollisionWorld, ha
   return out;
 }
 
-export function buildNavGraph(points: readonly NavPoint[], world: CollisionWorld): NavGraph {
-  const links: number[][] = points.map(() => []);
+export function buildNavGraph(points: readonly NavPoint[], world: CollisionWorld, importedLinks?: readonly (readonly number[])[]): NavGraph {
+  const links: number[][] = points.map((_, i) => [...(importedLinks?.[i] ?? [])]);
   for (let i = 0; i < points.length; i++) {
+    if (i < (importedLinks?.length ?? 0)) continue;
     for (let j = i + 1; j < points.length; j++) {
       const a = points[i]!;
       const b = points[j]!;
@@ -89,7 +111,7 @@ export function buildNavGraph(points: readonly NavPoint[], world: CollisionWorld
 /** The waypoint nearest to `p` that `p` can walk straight to (or just the nearest one). */
 export function nearestNavPoint(graph: NavGraph, p: NavPoint, world: CollisionWorld): number {
   // Nearest first, so the (costly) walk check stops at the first one that passes.
-  const dist = graph.points.map((q) => Math.hypot(q.x - p.x, q.z - p.z));
+  const dist = graph.points.map((q) => Math.hypot(q.x - p.x, (q.y ?? 0) - (p.y ?? 0), q.z - p.z));
   const order = dist.map((_, i) => i).sort((a, b) => dist[a]! - dist[b]! || a - b);
   for (const i of order) if (walkable(p, graph.points[i]!, world)) return i;
   return order[0] ?? 0;

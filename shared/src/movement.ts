@@ -8,6 +8,7 @@ export const SOURCE_MOVE = {
   stopSpeed: PLAYER.speed * 80 / 250, airWishSpeed: PLAYER.speed * 30 / 250,
   deadStrafeSpeed: PLAYER.speed * 140 / 250, maxVelocity: PLAYER.speed * 3500 / 250,
   strafeSubsteps: 8,
+  stepHeight: 0.45,
 } as const;
 
 export function airSurfaceFriction(vy: number): number { return vy > 0 && vy < SOURCE_MOVE.deadStrafeSpeed ? 0.25 : 1; }

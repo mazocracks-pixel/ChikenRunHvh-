@@ -1,14 +1,39 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { LOOT, MAPS, MAP_IDS, MODES, PLAYER, SIM_DT, boxToAabb, createMoveState, stepPlayer, buildNavGraph, createCollisionWorld, findPath, isSpaceFree, reachableCount, walkable } from '../src/index';
+import { CollisionWorld, LOOT, MAPS, MAP_IDS, MODES, PLAYER, SIM_DT, boxToAabb, createMoveState, stepPlayer, buildNavGraph, createCollisionWorld, findPath, isMapId, isSpaceFree, reachableCount, walkable } from '../src/index';
+
+it('never links elevated routes across an unsupported gap', () => {
+  const a = { x: -2, y: 3, z: 0 }, b = { x: 2, y: 3, z: 0 };
+  const platform = { minX: -4, maxX: 4, minY: 0, maxY: 3, minZ: -2, maxZ: 2 };
+  assert.equal(walkable(a, b, new CollisionWorld(10, [platform])), true);
+  const gap = new CollisionWorld(10, [{ ...platform, maxX: -1 }, { ...platform, minX: 1 }]);
+  assert.equal(walkable(a, b, gap), false);
+  assert.deepEqual(buildNavGraph([a, b], gap).links, [[], []]);
+});
+
+it('offers Mirage alongside the original maps and rejects inherited object keys', () => {
+  assert.deepEqual(MAP_IDS, ['mirage', 'farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory', 'flat', 'night', 'lobby']);
+  for (const id of MAP_IDS) assert.equal(isMapId(id), true);
+  for (const mode of Object.values(MODES)) assert.ok(mode.maps.includes('mirage'));
+  assert.deepEqual(MODES.bomb.maps, ['mirage', 'sandstown', 'harbor']);
+  assert.deepEqual(MODES.sandbox.maps, ['mirage', 'flat', 'farm', 'town']);
+  assert.deepEqual(MODES.zombie.maps, ['night', 'mirage']);
+  for (const invalid of ['constructor', '__proto__', 'toString', 'missing', null, 1]) assert.equal(isMapId(invalid), false);
+});
 
 for (const id of MAP_IDS) {
   const map = MAPS[id];
   const world = createCollisionWorld(map);
 
   describe(`map: ${map.name}`, () => {
-    it('has no interpenetrating boxes', () => {
+    it('has valid collision boxes', () => {
       const boxes = map.boxes.map(boxToAabb);
+      for (const b of boxes) {
+        assert.ok(Object.values(b).every(Number.isFinite));
+        assert.ok(b.maxX > b.minX && b.maxY > b.minY && b.maxZ > b.minZ);
+      }
+      // Source brushes and prop collision deliberately overlap at joins.
+      if (map.mesh) return;
       const bad: string[] = [];
       const e = 1e-6;
       boxes.forEach((a, i) =>
@@ -30,7 +55,14 @@ for (const id of MAP_IDS) {
 
     it('has spawn points with room to stand', () => {
       assert.ok(map.spawns.length >= 4);
-      for (const s of map.spawns) assert.ok(isSpaceFree(s.x, 0, s.z, world), `spawn ${s.x},${s.z} is blocked`);
+      for (const s of map.spawns) {
+        assert.ok(isSpaceFree(s.x, s.y ?? 0, s.z, world), `spawn ${s.x},${s.z} is blocked`);
+        if (map.mesh) {
+          const state = createMoveState(s.x, s.y ?? 0, s.z);
+          stepPlayer(state, { seq: 0, forward: 0, right: 0, jump: false, yaw: 0, pitch: 0 }, SIM_DT, world);
+          assert.ok(state.onGround && Math.abs(state.y - (s.y ?? 0)) < 1e-5, 'imported spawns start on the floor');
+        }
+      }
     });
 
     it('has enough team spawns for the team modes it supports', () => {
@@ -54,13 +86,13 @@ for (const id of MAP_IDS) {
 
     it('has free vehicle and flag spots', () => {
       for (const v of map.vehicles) assert.ok(isSpaceFree(v.x, 0, v.z, world), `vehicle ${v.x},${v.z}`);
-      for (const f of map.flags) assert.ok(isSpaceFree(f.x, 0, f.z, world), `flag ${f.x},${f.z}`);
+      for (const f of map.flags) assert.ok(isSpaceFree(f.x, f.y ?? 0, f.z, world), `flag ${f.x},${f.z}`);
     });
 
     it('bot waypoints are open, all linked up, and reach every spawn and bomb site', () => {
       if (!map.nav) return;
-      for (const p of map.nav) assert.ok(isSpaceFree(p.x, 0, p.z, world), `waypoint ${p.x},${p.z} is blocked`);
-      const graph = buildNavGraph(map.nav, world);
+      for (const p of map.nav) assert.ok(isSpaceFree(p.x, p.y ?? 0, p.z, world), `waypoint ${p.x},${p.z} is blocked`);
+      const graph = buildNavGraph(map.nav, world, map.navLinks);
       // Sealed event levels (zones) are their own little worlds: every waypoint reaches every
       // other in the same area.
       const area = (p: { x: number; z: number }) => map.zones?.find((z) => p.x > z.minX && p.x < z.maxX && p.z > z.minZ && p.z < z.maxZ)?.id ?? 'main';
@@ -69,10 +101,14 @@ for (const id of MAP_IDS) {
         assert.equal(reachableCount(graph, members[0]), members.length, `every waypoint reaches every other (${name})`);
       }
       for (const spot of [...map.spawns, ...(map.bombSites ?? [])]) {
-        assert.ok(map.nav.some((p) => walkable(spot, p, world)), `${spot.x},${spot.z} can't walk to any waypoint`);
+        const settled = createMoveState(spot.x, spot.y ?? 0, spot.z);
+        for (let i = 0; i < 64; i++) stepPlayer(settled, { seq: i, forward: 0, right: 0, jump: false, yaw: 0, pitch: 0 }, SIM_DT, world);
+        assert.ok(map.nav.some((p) => walkable(settled, p, world)), `${spot.x},${spot.z} can't walk to any waypoint`);
       }
       // A route from chikenT spawn to each site, every leg walkable.
-      const tSpawn = map.spawns.find((s) => s.team === 1)!;
+      const spawn = map.spawns.find((s) => s.team === 1)!;
+      const tSpawn = createMoveState(spawn.x, spawn.y ?? 0, spawn.z);
+      for (let i = 0; i < 64; i++) stepPlayer(tSpawn, { seq: i, forward: 0, right: 0, jump: false, yaw: 0, pitch: 0 }, SIM_DT, world);
       for (const site of map.bombSites ?? []) {
         const route = [tSpawn, ...findPath(graph, tSpawn, site, world)];
         for (let i = 1; i < route.length; i++) assert.ok(walkable(route[i - 1]!, route[i]!, world), `route to ${site.id}, leg ${i}`);
@@ -80,7 +116,7 @@ for (const id of MAP_IDS) {
     });
 
     it('has free bomb sites', () => {
-      for (const site of map.bombSites ?? []) assert.ok(isSpaceFree(site.x, 0, site.z, world), `site ${site.id}`);
+      for (const site of map.bombSites ?? []) assert.ok(isSpaceFree(site.x, site.y ?? 0, site.z, world), `site ${site.id}`);
     });
 
     it('is within the player radius margin', () => {

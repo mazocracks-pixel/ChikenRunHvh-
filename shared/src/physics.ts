@@ -196,8 +196,8 @@ function stepMovement(s: MoveState, input: InputFrame, dt: number, world: Collis
   const speed = Math.hypot(velocity.x, velocity.z);
   if (speed > SOURCE_MOVE.maxVelocity) { velocity.x *= SOURCE_MOVE.maxVelocity / speed; velocity.z *= SOURCE_MOVE.maxVelocity / speed; }
   s.walkVx = velocity.x; s.walkVz = velocity.z;
-  moveX(s, velocity.x * dt, world);
-  moveZ(s, velocity.z * dt, world);
+  moveX(s, velocity.x * dt, world, s.onGround);
+  moveZ(s, velocity.z * dt, world, s.onGround);
   const excessSpeed = Math.hypot(s.walkVx ?? 0, s.walkVz ?? 0) / (runSpeed || PLAYER.speed) - 1;
   s.hop = excessSpeed > 1e-9 ? excessSpeed : 0;
   const wasOnGround = s.onGround;
@@ -259,10 +259,18 @@ function nearby(s: MoveState, world: CollisionWorld): Aabb[] {
   return world.query(s.x - R, s.z - R, s.x + R, s.z + R, scratch);
 }
 
-function moveX(s: MoveState, dx: number, world: CollisionWorld): void {
+function stepUp(s: MoveState, world: CollisionWorld, startX: number, startZ: number): void {
+  let top = s.y;
+  for (const box of nearby(s, world)) if (overlaps(s, box)) top = Math.max(top, box.maxY);
+  if (top <= s.y || top - s.y > SOURCE_MOVE.stepHeight + EPS) return;
+  if (isSpaceFree(s.x, top, s.z, world) && isSpaceFree(startX, top, startZ, world)) s.y = top;
+}
+
+function moveX(s: MoveState, dx: number, world: CollisionWorld, stairs = false): void {
   if (dx === 0) return;
   const start = s.x, end = start + dx;
   s.x = clamp(end, -world.halfSize + R, world.halfSize - R);
+  if (stairs) stepUp(s, world, start, s.z);
   for (const b of world.query(Math.min(start,end)-R,s.z-R,Math.max(start,end)+R,s.z+R,scratch)) {
     if (s.y >= b.maxY-EPS || s.y+heightOf(s) <= b.minY+EPS || s.z-R >= b.maxZ-EPS || s.z+R <= b.minZ+EPS) continue;
     if (dx>0 && start+R<=b.minX+EPS && s.x+R>b.minX) s.x=Math.min(s.x,b.minX-R);
@@ -272,10 +280,11 @@ function moveX(s: MoveState, dx: number, world: CollisionWorld): void {
   if(Math.abs(s.x-end)>EPS) {s.vx=0;s.walkVx=0;}
 }
 
-function moveZ(s: MoveState, dz: number, world: CollisionWorld): void {
+function moveZ(s: MoveState, dz: number, world: CollisionWorld, stairs = false): void {
   if (dz === 0) return;
   const start=s.z,end=start+dz;
   s.z=clamp(end,-world.halfSize+R,world.halfSize-R);
+  if (stairs) stepUp(s, world, s.x, start);
   for(const b of world.query(s.x-R,Math.min(start,end)-R,s.x+R,Math.max(start,end)+R,scratch)) {
     if(s.y>=b.maxY-EPS || s.y+heightOf(s)<=b.minY+EPS || s.x-R>=b.maxX-EPS || s.x+R<=b.minX+EPS)continue;
     if(dz>0 && start+R<=b.minZ+EPS && s.z+R>b.minZ)s.z=Math.min(s.z,b.minZ-R);

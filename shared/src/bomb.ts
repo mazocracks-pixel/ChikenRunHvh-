@@ -5,10 +5,12 @@ import type { WeaponId } from './weapons';
 export const BOMB = {
   /** Free play before the first round: respawns on, buying is free. */
   warmupMs: 40_000,
-  /** Start of every round: everyone frozen in spawn, buy menu open. */
-  buyMs: 15_000,
-  /** The round itself (1:50). */
-  roundMs: 110_000,
+  /** Start of every round: players are frozen in spawn. */
+  freezeMs: 15_000,
+  /** Buying remains open for five seconds after players can move. */
+  buyMs: 20_000,
+  /** The round itself (1:55). */
+  roundMs: 115_000,
   /** Results banner between rounds. */
   roundEndMs: 5_000,
   plantMs: 3_000,
@@ -22,8 +24,10 @@ export const BOMB = {
   /** The explosion: kills anyone close, hurts further out. */
   blastRadius: 14,
   blastDamage: 500,
-  /** Round wins needed to take the match. */
-  roundsToWin: 6,
+  /** Competitive matches switch sides after 15 and end at 30 rounds. */
+  halfTimeAfter: 15,
+  maxRounds: 30,
+  roundsToWin: 16,
 } as const;
 
 export const ECONOMY = {
@@ -48,16 +52,14 @@ export const ECONOMY = {
 export type BuyKind = 'weapon' | 'armor' | 'eggs' | 'smoke' | 'flash' | 'kit';
 
 /** Buy menu columns. A pistol takes the pistol slot; every other gun is your one main gun. */
-export type BuyCategory = 'pistol' | 'smg' | 'heavy' | 'rifle' | 'sniper' | 'special' | 'gear';
+export type BuyCategory = 'equipment' | 'pistol' | 'mid' | 'rifle' | 'grenade';
 
 export const BUY_CATEGORIES: readonly { id: BuyCategory; name: string }[] = [
+  { id: 'equipment', name: 'Equipment' },
   { id: 'pistol', name: 'Pistols' },
-  { id: 'smg', name: 'SMGs' },
-  { id: 'heavy', name: 'Heavy' },
+  { id: 'mid', name: 'Mid-Tier' },
   { id: 'rifle', name: 'Rifles' },
-  { id: 'sniper', name: 'Snipers' },
-  { id: 'special', name: 'Explosive' },
-  { id: 'gear', name: 'Gear' },
+  { id: 'grenade', name: 'Grenades' },
 ];
 
 export interface BuyItem {
@@ -82,25 +84,25 @@ export const BUY_ITEMS: readonly BuyItem[] = [
   gun('mpistol', 'Machine Pistol', 500, 'pistol'),
   gun('revolver', 'Revolver', 600, 'pistol'),
   gun('deagle', 'Deagle', 700, 'pistol'),
-  gun('smg', 'SMG', 1_250, 'smg'),
-  gun('shotgun', 'Shotgun', 1_100, 'heavy'),
-  gun('autoshotgun', 'Auto Shotgun', 2_000, 'heavy'),
-  gun('lmg', 'LMG', 5_200, 'heavy'),
-  gun('minigun', 'Minigun', 6_000, 'heavy'),
+  gun('smg', 'SMG', 1_250, 'mid'),
+  gun('shotgun', 'Shotgun', 1_100, 'mid'),
+  gun('autoshotgun', 'Auto Shotgun', 2_000, 'mid'),
+  gun('lmg', 'LMG', 5_200, 'mid'),
+  gun('minigun', 'Minigun', 6_000, 'mid'),
   gun('burst', 'Burst Rifle', 2_050, 'rifle'),
   gun('rifle', 'Rifle', 2_700, 'rifle', 1),
   gun('golden', 'Golden Rifle', 3_100, 'rifle', 2),
   gun('battle', 'Battle Rifle', 3_000, 'rifle'),
-  gun('scout', 'Scout', 1_700, 'sniper'),
-  gun('crossbow', 'Crossbow', 1_900, 'sniper'),
-  gun('sniper', 'Sniper', 4_750, 'sniper'),
-  gun('launcher', 'Egg Launcher', 3_500, 'special'),
-  gun('rocket', 'Rocket Launcher', 5_000, 'special'),
-  { id: 'armor', name: 'Armor', price: 650, kind: 'armor', category: 'gear' },
-  { id: 'eggs', name: 'Explosive egg', price: 300, kind: 'eggs', category: 'gear' },
-  { id: 'smoke', name: 'Smoke grenade', price: 300, kind: 'smoke', category: 'gear' },
-  { id: 'flash', name: 'Flashbang', price: 200, kind: 'flash', category: 'gear' },
-  { id: 'kit', name: 'Defuse kit', price: 400, kind: 'kit', category: 'gear', team: 2 },
+  gun('scout', 'Scout', 1_700, 'rifle'),
+  gun('crossbow', 'Crossbow', 1_900, 'rifle'),
+  gun('sniper', 'Sniper', 4_750, 'rifle'),
+  gun('launcher', 'Egg Launcher', 3_500, 'mid'),
+  gun('rocket', 'Rocket Launcher', 5_000, 'mid'),
+  { id: 'armor', name: 'Kevlar Vest', price: 650, kind: 'armor', category: 'equipment' },
+  { id: 'kit', name: 'Defuse Kit', price: 400, kind: 'kit', category: 'equipment', team: 2 },
+  { id: 'flash', name: 'Flashbang', price: 200, kind: 'flash', category: 'grenade' },
+  { id: 'smoke', name: 'Smoke Grenade', price: 300, kind: 'smoke', category: 'grenade' },
+  { id: 'eggs', name: 'HE Egg', price: 300, kind: 'eggs', category: 'grenade' },
 ];
 export const BUY_ITEMS_BY_ID: ReadonlyMap<string, BuyItem> = new Map(BUY_ITEMS.map((i) => [i.id, i]));
 
@@ -119,12 +121,12 @@ export function isSidearm(id: WeaponId): boolean {
 export function bombHoldsPlayer(
   round: RoundState,
   me: { pid: number; team: Team; x: number; y: number; z: number; onGround: boolean; useHeld: boolean },
-  sites: readonly { x: number; z: number; radius: number }[],
+  sites: readonly { x: number; y?: number; z: number; radius: number }[],
 ): boolean {
   const b = round.bomb;
   if (b.action?.pid === me.pid) return me.useHeld;
   if (!me.useHeld) return false;
-  if (round.phase === 'live' && b.carrier === me.pid) return me.onGround && sites.some((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius);
+  if (round.phase === 'live' && b.carrier === me.pid) return me.onGround && sites.some((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius && Math.abs(me.y - (s.y ?? 0)) < 1.5);
   if (round.phase === 'planted' && me.team === 2) return Math.hypot(me.x - b.x, me.z - b.z) <= BOMB.defuseRange && Math.abs(me.y - b.y) < 2;
   return false;
 }
@@ -164,6 +166,8 @@ export interface RoundState {
   round: number;
   /** Server time (ms) the current phase ends, or null. */
   endsAt: number | null;
+  /** Server time (ms) buying closes for this round. */
+  buyEndsAt: number | null;
   bomb: BombState;
   /** Set while phase is 'over'. */
   winner: Team;

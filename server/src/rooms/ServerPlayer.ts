@@ -165,8 +165,8 @@ export class ServerPlayer {
   }
 
   /** Fresh life at a spawn point: full health, full magazines, starting grenades. */
-  respawn(x: number, z: number, yaw: number, now: number, protectMs: number = PLAYER.spawnProtectionMs): void {
-    this.state = createMoveState(x, 0, z);
+  respawn(x: number, z: number, yaw: number, now: number, protectMs: number = PLAYER.spawnProtectionMs, y = 0): void {
+    this.state = createMoveState(x, y, z);
     this.yaw = yaw;
     this.lookYaw = this.fakeYaw = yaw;
     this.fakePitch = 0;
@@ -193,7 +193,7 @@ export class ServerPlayer {
     this.vehicle = 0;
     for (const id of this.info.loadout) this.mags.set(id, this.magazineSize(id));
     this.history.clear();
-    if (this.hvhMode) this.history.push({ t: now, x, y: 0, z, yaw, alive: true, scale: 1 });
+    if (this.hvhMode) this.history.push({ t: now, x, y, z, yaw, alive: true, scale: 1 });
   }
 
   toState(): PlayerState {

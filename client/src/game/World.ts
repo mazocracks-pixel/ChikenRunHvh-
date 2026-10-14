@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Yard } from './Yard';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { createCollisionWorld, mulberry32, type BoxKind, type CollisionWorld, type MapBox, type MapDef } from '@game/shared';
 import { Foliage } from './Foliage';
 import { SURFACES, type Surface, type WorldLook } from './look';
@@ -51,6 +53,7 @@ export class World {
   readonly root = new THREE.Group();
   /** Shared collision data, used for prediction, aiming and the camera. */
   readonly collision: CollisionWorld;
+  readonly ready: Promise<void>;
   private readonly disposables: { dispose(): void }[] = [];
   private readonly maxAnisotropy: number;
   private readonly sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
@@ -70,6 +73,7 @@ export class World {
   private readonly windmillRotor = new THREE.Group();
   /** The title screen's track, tufts and clouds (Courtyard only). */
   private yard: Yard | null = null;
+  private disposed = false;
 
   constructor(scene: THREE.Scene, map: MapDef, maxAnisotropy: number) {
     this.map = map;
@@ -82,6 +86,7 @@ export class World {
     this.addLights();
     this.addGround();
     this.addBoxes();
+    this.ready = map.mesh ? this.addMapMesh(map.mesh) : Promise.resolve();
     this.addLamps();
     this.addZoneFloors();
     if (this.map.id === 'farm') {
@@ -101,6 +106,7 @@ export class World {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.root.removeFromParent();
     this.foliage?.dispose();
     this.yard?.dispose();
@@ -160,7 +166,7 @@ export class World {
   /** With the sky's environment lighting off (low quality), the hemisphere light makes up for it. */
   setAmbient(environmentLight: boolean): void {
     this.envLight = environmentLight;
-    this.hemi.intensity = (environmentLight ? HEMI_WITH_ENV : HEMI_ALONE) * this.ambientScale;
+    this.hemi.intensity = (environmentLight && !this.map.mesh ? HEMI_WITH_ENV : HEMI_ALONE) * this.ambientScale;
   }
 
   /** Applies the developer World look: surface tints, sun, ambient light, fog and wireframe. */
@@ -201,7 +207,7 @@ export class World {
         if(amount===0)this.nativeOpacity.delete(m);
       }
     }
-    this.hemi.intensity=(this.envLight?HEMI_WITH_ENV:HEMI_ALONE)*this.ambientScale*(brightness===1?0.2:brightness===2?2.5:1);
+    this.hemi.intensity=(this.envLight&&!this.map.mesh?HEMI_WITH_ENV:HEMI_ALONE)*this.ambientScale*(brightness===1?0.2:brightness===2?2.5:1);
     if(brightness && this.nativeSunIntensity===null)this.nativeSunIntensity=this.sun.intensity;
     if(brightness)this.sun.intensity=brightness===1?0.25:4;
     else if(this.nativeSunIntensity!==null){this.sun.intensity=this.nativeSunIntensity;this.nativeSunIntensity=null;}
@@ -442,7 +448,7 @@ export class World {
         this.decal(new THREE.MeshStandardMaterial({ map: this.texture(bombSiteTexture(site.id)), transparent: true, roughness: 0.9, depthWrite: false })),
       );
       mark.rotation.x = -Math.PI / 2;
-      mark.position.set(site.x, 0.012, site.z);
+      mark.position.set(site.x, (site.y ?? 0) + 0.012, site.z);
       mark.receiveShadow = true;
       this.root.add(mark);
     }
@@ -493,6 +499,7 @@ export class World {
     const caps: THREE.BufferGeometry[] = [];
     const accents: THREE.BufferGeometry[] = [];
     for (const b of this.map.boxes) {
+      if (b.visible === false) continue;
       if (b.kind === 'car') {
         this.addCar(b);
         continue;
@@ -565,6 +572,49 @@ export class World {
       mesh.receiveShadow = true;
       this.root.add(mesh);
     }
+  }
+
+  private addMapMesh(url: string): Promise<void> {
+    return new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(url).then((gltf) => {
+      const resources = new Set<{ dispose(): void }>();
+      const materials = new Map<THREE.Material, THREE.Material>();
+      gltf.scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        object.castShadow = object.receiveShadow = true;
+        resources.add(object.geometry);
+        const source = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of source) {
+          resources.add(material);
+          for (const value of Object.values(material)) {
+            if (value instanceof THREE.Texture) {
+              value.anisotropy = Math.min(8, this.maxAnisotropy);
+              resources.add(value);
+            }
+          }
+          // Source's matte map surfaces don't need physical reflections on every pixel.
+          if (material instanceof THREE.MeshStandardMaterial && !materials.has(material)) {
+            const matte = new THREE.MeshLambertMaterial({
+              name: material.name, color: material.color, map: material.map,
+              alphaMap: material.alphaMap, alphaTest: material.alphaTest,
+              transparent: material.transparent, opacity: material.opacity,
+              side: material.side, vertexColors: material.vertexColors,
+              emissive: material.emissive, emissiveMap: material.emissiveMap,
+              emissiveIntensity: material.emissiveIntensity,
+            });
+            materials.set(material, matte);
+            resources.add(matte);
+          }
+        }
+        const converted = source.map((material) => materials.get(material) ?? material);
+        object.material = Array.isArray(object.material) ? converted : converted[0]!;
+      });
+      if (this.disposed) {
+        for (const resource of resources) resource.dispose();
+        return;
+      }
+      this.disposables.push(...resources);
+      this.root.add(gltf.scene);
+    });
   }
 
   /** Tiny painted details are batched by colour, keeping the arena cheap to render. */

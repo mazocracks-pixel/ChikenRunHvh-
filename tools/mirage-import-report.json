@@ -1,0 +1,9 @@
+{
+  "source": "de_mirage.bsp v21 / de_mirage.nav v16.1",
+  "boxes": 35623,
+  "spawns": 33,
+  "navAreas": 903,
+  "textureFallbacks": [],
+  "modelFallbacks": [],
+  "connectedNavAreas": 755
+}

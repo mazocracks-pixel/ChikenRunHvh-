@@ -1,6 +1,6 @@
 import type { Aabb } from '../collision';
 
-export type MapId = 'farm' | 'town' | 'flat' | 'sandstown' | 'harbor' | 'frostbite' | 'factory' | 'night' | 'lobby';
+export type MapId = 'mirage' | 'farm' | 'town' | 'flat' | 'sandstown' | 'harbor' | 'frostbite' | 'factory' | 'night' | 'lobby';
 
 export type BoxKind = 'crate' | 'hay' | 'stone' | 'brick' | 'wood' | 'roof' | 'concrete' | 'car' | 'metal' | 'sandstone';
 
@@ -15,6 +15,8 @@ export interface MapBox {
   d: number;
   /** Optional paint colour (e.g. parked cars). */
   color?: number;
+  /** Imported map collision is drawn by the map's mesh instead. */
+  visible?: boolean;
 }
 
 /** Team 0 = no team (free-for-all), 1 = red, 2 = blue. */
@@ -22,6 +24,7 @@ export type Team = 0 | 1 | 2;
 
 export interface SpawnPoint {
   x: number;
+  y?: number;
   z: number;
   /** Team-mode spawns; points without a team are only used in free-for-all modes. */
   team?: 1 | 2;
@@ -43,6 +46,7 @@ export interface VehicleSpot {
 export interface FlagSpot {
   team: 1 | 2;
   x: number;
+  y?: number;
   z: number;
 }
 
@@ -52,6 +56,7 @@ export type GroundStyle = 'grass' | 'town' | 'flat' | 'sand' | 'dock' | 'snow' |
 export interface BombSite {
   id: 'A' | 'B';
   x: number;
+  y?: number;
   z: number;
   radius: number;
 }
@@ -62,6 +67,9 @@ export interface MapDef {
   /** The playable area is the square [-halfSize, halfSize] on X and Z. */
   halfSize: number;
   ground: GroundStyle;
+  /** Static architecture, loaded from the client's public directory. */
+  mesh?: string;
+  radar?: { image: string; x: number; z: number; size: number };
   boxes: readonly MapBox[];
   spawns: readonly SpawnPoint[];
   loot: readonly LootSpot[];
@@ -69,17 +77,28 @@ export interface MapDef {
   flags: readonly FlagSpot[];
   /** ChikenBomb plant zones. */
   bombSites?: readonly BombSite[];
+  /** ChikenBomb buying areas around each team's spawn. */
+  buyZones?: readonly BuyZone[];
   /**
    * Open spots bots use to find their way through walls: any two that can see each other are
    * linked. Only needed on maps with long detours (Sandstown).
    */
-  nav?: readonly { x: number; z: number }[];
+  nav?: readonly { x: number; y?: number; z: number; place?: string }[];
+  /** Imported navigation adjacency; remaining event areas use visibility links. */
+  navLinks?: readonly (readonly number[])[];
   /** Lights in the level (looks only): lanterns at height `y`, or a campfire. */
   lamps?: readonly MapLamp[];
   /** Sealed event levels inside the map (Zombie Apocalypse Crystal Hunt). */
   zones?: readonly MapZone[];
   /** Grass grows only inside this half-size (the playable part; default the whole map). */
   grassHalf?: number;
+}
+
+export interface BuyZone {
+  team: Team;
+  x: number;
+  z: number;
+  radius: number;
 }
 
 export interface MapLamp {

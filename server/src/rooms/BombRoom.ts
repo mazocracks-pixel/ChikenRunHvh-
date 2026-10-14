@@ -45,12 +45,11 @@ const BOMB_BLAST = { ...PROJECTILES.rocket, damage: BOMB.blastDamage, splashRadi
  * ChikenBomb. chikenT (team 1) plant the bomb on site A or B, chikenCT (team 2) defuse it.
  *
  * A match is a 40 s warmup (free respawns, free buying), then rounds until a team has won
- * BOMB.roundsToWin: 15 s buy time frozen in spawn, then 1:50 to plant (and 40 s fuse once
- * planted). The dead wait for the next round. Money comes from kills and round results and is
- * spent in the buy menu; survivors keep what they bought.
+ * BOMB.roundsToWin: 15 s frozen in spawn with a 20 s buy window, then 1:55 to plant (and a 40 s
+ * fuse once planted). The dead wait for the next round. Survivors keep what they bought.
  */
 export class BombRoom extends GameRoom {
-  private state: RoundState = { phase: 'warmup', round: 0, endsAt: null, bomb: noBomb(), winner: 0, reason: null };
+  private state: RoundState = { phase: 'warmup', round: 0, endsAt: null, buyEndsAt: null, bomb: noBomb(), winner: 0, reason: null };
   /** Rounds lost in a row, per team (raises the loss bonus). */
   private lossStreak: [number, number] = [0, 0];
   /** The site chikenT bots go for this round. */
@@ -73,7 +72,7 @@ export class BombRoom extends GameRoom {
       this.resetLoadout(p);
       this.announcePlayer(p);
     }
-    this.state = { phase: 'warmup', round: 0, endsAt: now + BOMB.warmupMs, bomb: noBomb(), winner: 0, reason: null };
+    this.state = { phase: 'warmup', round: 0, endsAt: now + BOMB.warmupMs, buyEndsAt: null, bomb: noBomb(), winner: 0, reason: null };
     this.emitRound();
     this.emitMoneyToAll();
     this.systemMessage('Warmup: buy anything for free and get used to the map. Round 1 starts in 40 seconds.');
@@ -114,16 +113,22 @@ export class BombRoom extends GameRoom {
       p.frozen = false;
       if (!p.alive) p.respawnAt = now;
     }
-    this.state = { phase: 'warmup', round: 0, endsAt: null, bomb: noBomb(), winner: 0, reason: null };
+    this.state = { phase: 'warmup', round: 0, endsAt: null, buyEndsAt: null, bomb: noBomb(), winner: 0, reason: null };
     this.emitRound();
   }
 
   private startRound(n: number, now: number): void {
     const first = n === 1;
+    const halfTime = n === BOMB.halfTimeAfter + 1;
+    if (halfTime) {
+      for (const p of this.players.values()) if (p.info.team !== 0) p.info.team = p.info.team === 1 ? 2 : 1;
+      this.swapTeamScores();
+      this.systemMessage('HALF-TIME: teams have switched sides.');
+    }
     for (const p of this.players.values()) {
-      // Survivors keep their guns, armor and grenades; everyone else starts over.
-      const keep = !first && p.alive ? { armor: p.armor, eggs: p.eggs, smokes: p.smokes, flashes: p.flashes } : null;
-      if (first) {
+      // Survivors keep their gear within a half; halftime starts a fresh pistol round.
+      const keep = !first && !halfTime && p.alive ? { armor: p.armor, eggs: p.eggs, smokes: p.smokes, flashes: p.flashes } : null;
+      if (first || halfTime) {
         p.money = ECONOMY.start;
         p.hasKit = false;
       }
@@ -133,7 +138,7 @@ export class BombRoom extends GameRoom {
       p.frozen = true;
       this.announcePlayer(p);
     }
-    if (first) this.lossStreak = [0, 0];
+    if (first || halfTime) this.lossStreak = [0, 0];
     this.projectiles.clear();
     const sites = this.map.bombSites ?? [];
     this.targetSite = sites[Math.floor(Math.random() * sites.length)] ?? null;
@@ -142,8 +147,8 @@ export class BombRoom extends GameRoom {
     const humans = ts.filter((p) => !p.info.bot);
     const pool = humans.length > 0 ? humans : ts;
     const carrier = pool[Math.floor(Math.random() * pool.length)];
-    this.state = { phase: 'buy', round: n, endsAt: now + BOMB.buyMs, bomb: { ...noBomb(), carrier: carrier?.pid ?? 0 }, winner: 0, reason: null };
-    for (const p of this.players.values()) if (p.info.bot) this.botBuy(p);
+    this.state = { phase: 'buy', round: n, endsAt: now + BOMB.freezeMs, buyEndsAt: now + BOMB.buyMs, bomb: { ...noBomb(), carrier: carrier?.pid ?? 0 }, winner: 0, reason: null };
+    for (const p of this.players.values()) if (p.info.bot) this.botBuy(p, now);
     this.emitRound();
     this.emitMoneyToAll();
   }
@@ -196,6 +201,7 @@ export class BombRoom extends GameRoom {
     this.emitMoneyToAll();
     this.addTeamScore(winner, 1);
     this.checkScoreLimit(now);
+    if (this.state.round >= BOMB.maxRounds && this.phase === 'playing') this.endMatch(now);
   }
 
   // ---------------------------------------------------------------------------
@@ -270,7 +276,7 @@ export class BombRoom extends GameRoom {
 
   /** The bomb site a player stands on, or null. */
   private siteAt(p: ServerPlayer): BombSite | null {
-    for (const site of this.map.bombSites ?? []) if (Math.hypot(p.state.x - site.x, p.state.z - site.z) <= site.radius) return site;
+    for (const site of this.map.bombSites ?? []) if (Math.hypot(p.state.x - site.x, p.state.z - site.z) <= site.radius && Math.abs(p.state.y - (site.y ?? 0)) < 1.5) return site;
     return null;
   }
 
@@ -393,13 +399,15 @@ export class BombRoom extends GameRoom {
   // Buy menu
   // ---------------------------------------------------------------------------
 
-  override handleBuy(p: ServerPlayer, itemId: unknown): BuyResult {
+  override handleBuy(p: ServerPlayer, itemId: unknown, now = performance.now()): BuyResult {
     const fail = (error: string): BuyResult => ({ ok: false, error, money: p.money });
     const item = typeof itemId === 'string' ? BUY_ITEMS_BY_ID.get(itemId) : undefined;
     if (!item) return fail('Unknown item.');
     const free = this.state.phase === 'warmup';
-    if (this.phase !== 'playing' || (this.state.phase !== 'buy' && !free)) return fail('You can only buy during buy time.');
+    const buying = (this.state.phase === 'buy' || this.state.phase === 'live') && this.state.buyEndsAt !== null && now < this.state.buyEndsAt;
+    if (this.phase !== 'playing' || (!buying && !free)) return fail('You can only buy during buy time.');
     if (!p.alive) return fail('You can buy when you respawn.');
+    if (!free && !this.map.buyZones?.some((z) => z.team === p.info.team && Math.hypot(p.state.x - z.x, p.state.z - z.z) <= z.radius)) return fail('Move into your buy zone to buy.');
     if (!canTeamBuy(item, p.info.team)) return fail(`Only ${teamName(this.mode, item.team as Team)} can buy that.`);
     const price = free ? 0 : item.price;
     const full =
@@ -448,13 +456,13 @@ export class BombRoom extends GameRoom {
   }
 
   /** Bots spend their money at the start of a round: the best gun they can afford, then armor. */
-  private botBuy(p: ServerPlayer): void {
+  private botBuy(p: ServerPlayer, now: number): void {
     // Bots stick to the classic guns: no explosives or heavy spray.
-    const guns = BUY_ITEMS.filter((i) => i.kind === 'weapon' && !isSidearm(i.weapon!) && (i.category === 'rifle' || i.category === 'smg' || i.category === 'sniper' || i.weapon === 'shotgun') && canTeamBuy(i, p.info.team)).sort((a, b) => b.price - a.price);
+    const guns = BUY_ITEMS.filter((i) => i.kind === 'weapon' && !isSidearm(i.weapon!) && (i.category === 'rifle' || i.weapon === 'smg' || i.weapon === 'shotgun') && canTeamBuy(i, p.info.team)).sort((a, b) => b.price - a.price);
     const best = guns.find((g) => g.price <= p.money - 650) ?? guns.find((g) => g.price <= p.money);
-    if (best && !p.info.loadout.includes(best.weapon!) && !p.info.loadout.some((w) => !isSidearm(w) && !isMelee(w))) this.handleBuy(p, best.id);
-    if (p.money >= 650) this.handleBuy(p, 'armor');
-    if (p.info.team === 2 && p.money >= 400) this.handleBuy(p, 'kit');
+    if (best && !p.info.loadout.includes(best.weapon!) && !p.info.loadout.some((w) => !isSidearm(w) && !isMelee(w))) this.handleBuy(p, best.id, now);
+    if (p.money >= 650) this.handleBuy(p, 'armor', now);
+    if (p.info.team === 2 && p.money >= 400) this.handleBuy(p, 'kit', now);
   }
 
   // ---------------------------------------------------------------------------
@@ -466,25 +474,25 @@ export class BombRoom extends GameRoom {
     if (s.phase !== 'live' && s.phase !== 'planted') return null;
     const bomb = s.bomb;
     // Spread the team out a little around the spot they're heading for.
-    const spread = (x: number, z: number, r: number): BotGoal => ({ x: x + Math.cos(p.pid * 2.4) * r, z: z + Math.sin(p.pid * 2.4) * r });
+    const spread = (x: number, z: number, r: number, y = 0): BotGoal => ({ x: x + Math.cos(p.pid * 2.4) * r, y, z: z + Math.sin(p.pid * 2.4) * r });
     if (p.info.team === 1) {
-      if (s.phase === 'planted') return spread(bomb.x, bomb.z, 4);
+      if (s.phase === 'planted') return spread(bomb.x, bomb.z, 4, bomb.y);
       if (bomb.carrier === p.pid) {
         const site = this.targetSite;
         if (!site) return null;
-        if (Math.hypot(p.state.x - site.x, p.state.z - site.z) <= site.radius - 1.5) return { x: p.state.x, z: p.state.z, use: true };
-        return { x: site.x, z: site.z };
+        if (Math.hypot(p.state.x - site.x, p.state.z - site.z) <= site.radius - 1.5 && Math.abs(p.state.y - (site.y ?? 0)) < 1.5) return { x: p.state.x, y: p.state.y, z: p.state.z, use: true };
+        return { x: site.x, y: site.y, z: site.z };
       }
-      if (bomb.carrier === 0) return { x: bomb.x, z: bomb.z };
-      return this.targetSite ? spread(this.targetSite.x, this.targetSite.z, 3.5) : null;
+      if (bomb.carrier === 0) return { x: bomb.x, y: bomb.y, z: bomb.z };
+      return this.targetSite ? spread(this.targetSite.x, this.targetSite.z, 3.5, this.targetSite.y) : null;
     }
     if (s.phase === 'planted') {
-      if (Math.hypot(p.state.x - bomb.x, p.state.z - bomb.z) <= BOMB.defuseRange - 0.5) return { x: bomb.x, z: bomb.z, use: true };
-      return { x: bomb.x, z: bomb.z };
+      if (Math.hypot(p.state.x - bomb.x, p.state.z - bomb.z) <= BOMB.defuseRange - 0.5 && Math.abs(p.state.y - bomb.y) < 2) return { x: bomb.x, y: bomb.y, z: bomb.z, use: true };
+      return { x: bomb.x, y: bomb.y, z: bomb.z };
     }
     const sites = this.map.bombSites ?? [];
     const site = sites[p.pid % Math.max(1, sites.length)];
-    return site ? spread(site.x, site.z, 3) : null;
+    return site ? spread(site.x, site.z, 3, site.y) : null;
   }
 
   // ---------------------------------------------------------------------------

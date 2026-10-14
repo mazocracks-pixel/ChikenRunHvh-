@@ -27,7 +27,7 @@ interface View {
   accumulator: number;
 }
 
-function buildMesh(kind: ProjectileKind): THREE.Group {
+export function buildProjectileMesh(kind: ProjectileKind): THREE.Group {
   const g = new THREE.Group();
   switch (kind) {
     case 'egg': {
@@ -170,7 +170,7 @@ export class ClientProjectiles {
   }
 
   private add(v: Omit<View, 'mesh' | 'age' | 'landed' | 'accumulator'>): View {
-    const view: View = { ...v, mesh: buildMesh(v.kind), age: 0, landed: false, accumulator: 0 };
+    const view: View = { ...v, mesh: buildProjectileMesh(v.kind), age: 0, landed: false, accumulator: 0 };
     for(const node of [...view.mesh.children])if(node instanceof THREE.Mesh){const glow=new THREE.Mesh(node.geometry,this.glowMaterial);glow.userData.projectileGlow=true;glow.scale.setScalar(1.3);glow.visible=this.glow!==null;glow.renderOrder=10;node.add(glow);}
     view.mesh.position.set(v.body.x, v.body.y, v.body.z);
     this.root.add(view.mesh);

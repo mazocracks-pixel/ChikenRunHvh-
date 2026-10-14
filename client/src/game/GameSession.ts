@@ -88,6 +88,7 @@ import {
   isPowerUp,
 } from '@game/shared';
 import type { Network } from '../net/Network';
+import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
 import type { Hud, ScoreLine } from '../ui/Hud';
@@ -243,6 +244,8 @@ export class GameSession {
   private clockOffset = 0;
   private hasClock = false;
   private aimingSent = false;
+  private heldGrenade: HeldGrenade | null = null;
+  private grenadeThrowHeld = false;
   private chatOpen = false;
   /** The open chat box sends to the team only (U), not everyone (Y). */
   private chatTeamOnly = false;
@@ -469,7 +472,7 @@ export class GameSession {
     this.effects.update(dt);
 
     const def = this.weapons.def;
-    const canAim = input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading;
+    const canAim = input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading && !this.heldGrenade;
     // Snipers (Sniper, Scout): the scope button is a click, not a hold (see stepScope).
     if (def.scope) this.stepScope(canAim && this.scopeWeapon === def.id, input.aiming && !this.aimWasDown);
     else this.scopeLevel = 0;
@@ -492,7 +495,7 @@ export class GameSession {
       this.local.chicken.setBodyVisible(true);
     } else {
       // (At night the camera can't see far: circle the middle of the map, close in.)
-      this.rig.overview(dt, this.ctx.world.map.id === 'night' ? 22 : this.ctx.world.map.halfSize);
+      this.rig.overview(dt, this.ctx.world.map.mesh ? 70 : this.ctx.world.map.id === 'night' ? 22 : this.ctx.world.map.halfSize);
     }
     const cam = this.ctx.camera;
     audio.setListener(cam.position.x, cam.position.y, cam.position.z, input.yaw);
@@ -502,7 +505,13 @@ export class GameSession {
     this.weapons.update(now, this.mode.id === 'hvh'
       && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed()) > 0);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
-    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !dev?.blocksShooting();
+    if (!input.firing) this.grenadeThrowHeld = false;
+    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !this.heldGrenade && !this.grenadeThrowHeld && !dev?.blocksShooting();
+    if (this.heldGrenade && input.active && input.firing && !this.fireWasDown) {
+      this.throwGrenade(this.heldGrenade);
+      this.grenadeThrowHeld = true;
+      if (grenadeCount(this.heldGrenade, this.local.server) === 0) this.heldGrenade = null;
+    }
     if (aiming !== this.aimingSent) {
       this.aimingSent = aiming;
       net.socket.emit('aim', aiming);
@@ -573,6 +582,7 @@ export class GameSession {
       dt,
       camera: this.ctx.camera,
       weapon: w.weapon,
+      grenade: this.heldGrenade,
       visible,
       aiming,
       speed: this.local.alive ? Math.hypot(this.local.position.x - this.lastViewPos.x, this.local.position.z - this.lastViewPos.z) / Math.max(dt, 1e-3) : 0,
@@ -588,18 +598,25 @@ export class GameSession {
   private updateHud(now: number, fps: number, aiming: boolean, scoped: boolean): void {
     const { hud, input, net } = this.ctx;
     const server = this.local.server;
+    if (this.heldGrenade && grenadeCount(this.heldGrenade, server) <= 0) this.heldGrenade = null;
     const w = this.weapons;
     hud.setStats(net.ping, fps, this.infos.size);
     hud.setPersonalScore(this.self.kills, this.self.deaths);
     hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel, this.maxHealth);
     hud.setNitro(this.local.alive && this.local.car ? this.local.car.boost : null);
-    hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot);
+    hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot, this.heldGrenade, server);
     hud.setGrenades(server.eggs, server.smokes, server.flashes ?? 0);
     hud.setHop(this.local.alive && !this.local.car ? this.local.state.hop : 0, hopMaxFor(w.weapon));
     const spread = spreadFor(w.def, this.horizontalSpeed(), !this.local.onGround, aiming) * (w.mods?.spread ?? 1);
     const pixels = (spread / ((this.ctx.camera.fov * Math.PI) / 360)) * (window.innerHeight / 2);
     hud.setCrosshair(this.local.alive && input.active, pixels, scoped);
     hud.setMatch(this.match, this.serverNow(), this.infos.size);
+    const players = [...this.infos.values()].filter((info) => !info.undead).map((info) => ({ info, alive: info.pid === this.selfPid ? this.local.alive : this.remotes.get(info.pid)?.latest?.alive ?? false }));
+    hud.setRoster(players, this.selfPid);
+    hud.radar.update(this.local.position, input.yaw, players.flatMap(({info,alive}) => {
+      const p = this.remotes.get(info.pid);
+      return info.pid !== this.selfPid && this.isFriendly(info) && alive && p && !p.culled ? [p.position] : [];
+    }));
     if (this.round && this.match.phase === 'playing') this.updateRoundHud();
     if (this.mode.armsRace) {
       const level = this.self.level ?? 0;
@@ -615,7 +632,6 @@ export class GameSession {
     hud.setHint(this.hintText());
     hud.setScoreboardVisible(input.scoreboardHeld && this.match.phase !== 'ended');
     if (input.scoreboardHeld) hud.renderScoreboard(this.scoreLines(), this.teamScores, net.ping);
-    hud.renderMiniBoard(this.scoreLines());
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
   }
 
@@ -647,7 +663,7 @@ export class GameSession {
     const { net } = this.ctx;
     switch (action) {
       case 'reload':
-        this.startReload(now);
+        if (!this.heldGrenade) this.startReload(now);
         break;
       case 'flashlight':
         this.night?.toggleFlashlight();
@@ -672,13 +688,25 @@ export class GameSession {
       case 'slot9': {
         const n = Number(action.slice(4));
         if (this.buyMenu?.open) break;
-        this.switchWeapon(() => this.weapons.switchTo(n - 1, now));
+        if (n === 4) {
+          this.heldGrenade = nextGrenade(this.heldGrenade, this.local.server);
+          this.scopeLevel = 0;
+          this.weapons.suspend();
+          break;
+        }
+        const index = n <= 3 ? weaponIndexForKey(this.weapons.loadout, n) : n - 1;
+        if (index >= 0) {
+          this.heldGrenade = null;
+          this.switchWeapon(() => this.weapons.switchTo(index, now));
+        }
         break;
       }
       case 'nextWeapon':
+        this.heldGrenade = null;
         this.switchWeapon(() => this.weapons.cycle(1, now));
         break;
       case 'prevWeapon':
+        this.heldGrenade = null;
         this.switchWeapon(() => this.weapons.cycle(-1, now));
         break;
       case 'egg':
@@ -970,6 +998,7 @@ export class GameSession {
   }
 
   private hintText(): string | null {
+    if (this.heldGrenade && this.local.alive) return 'Left-click · Throw grenade · 4 · Next grenade · 1–3 · Weapon';
     const def = this.weapons.def;
     if (def.scope && this.local.alive && this.scopeLevel > 0) {
       const zoom = this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom;
@@ -1023,8 +1052,8 @@ export class GameSession {
       hud.toast(won ? 'Round won! 🎉' : 'Round lost', won ? 'good' : 'bad');
       audio.play(won ? 'reward' : 'empty');
     }
-    // Buy time over: the menu stays (it has the mouse) but can't buy; B or Esc gets you back.
-    if (r.phase !== 'buy' && r.phase !== 'warmup' && this.buyMenu?.open) this.buyMenu.say('Buy time is over: press B or Esc to play', true);
+    const buying = r.phase === 'warmup' || ((r.phase === 'buy' || r.phase === 'live') && r.buyEndsAt !== null && this.serverNow() < r.buyEndsAt);
+    if (!buying && this.buyMenu?.open) this.buyMenu.say('Buy time is over: press B or Esc to play', true);
   }
 
   /** Round line, buy menu contents and your own plant / defuse progress. */
@@ -1033,6 +1062,9 @@ export class GameSession {
     const { hud } = this.ctx;
     const now = this.serverNow();
     hud.setRound(r, now, this.self.team);
+    const buying = r.phase === 'warmup' || ((r.phase === 'buy' || r.phase === 'live') && r.buyEndsAt !== null && now < r.buyEndsAt);
+    hud.buyButton.textContent = buying ? 'B · Buy' : 'Buy time over';
+    hud.buyButton.disabled = !buying || !this.local.alive;
     const action = r.bomb.action;
     if (action && action.pid === this.selfPid) {
       hud.setBombProgress(action.kind === 'plant' ? '💣 Planting…' : '✂️ Defusing…', (now - action.startedAt) / (action.endsAt - action.startedAt));
@@ -1040,10 +1072,12 @@ export class GameSession {
     if (this.buyMenu?.open) {
       const s = this.local.server;
       const loadout = this.weapons.loadout;
+      const buying = r.phase === 'warmup' || ((r.phase === 'buy' || r.phase === 'live') && r.buyEndsAt !== null && now < r.buyEndsAt);
+      const inBuyZone = r.phase === 'warmup' || (this.ctx.world.map.buyZones ?? []).some((z) => z.team === this.self.team && Math.hypot(s.x - z.x, s.z - z.z) <= z.radius);
       this.buyMenu.render({
         money: this.money,
         team: this.self.team,
-        secondsLeft: r.phase === 'warmup' ? null : r.phase !== 'buy' ? 0 : Math.max(1, Math.ceil(((r.endsAt ?? now) - now) / 1000)),
+        secondsLeft: r.phase === 'warmup' ? null : buying ? Math.max(1, Math.ceil(((r.buyEndsAt ?? now) - now) / 1000)) : 0,
         loadout,
         armor: s.armor,
         eggs: s.eggs,
@@ -1051,7 +1085,9 @@ export class GameSession {
         flashes: s.flashes ?? 0,
         hasKit: this.hasKit,
         blocked: (item) =>
-          item.kind === 'weapon' && loadout.includes(item.weapon!) ? 'Owned'
+          !buying ? 'Buy time is over'
+          : !inBuyZone ? 'Spawn only'
+          : item.kind === 'weapon' && loadout.includes(item.weapon!) ? 'Owned'
           : item.kind === 'armor' && s.armor >= PLAYER.maxArmor ? 'Full'
           : item.kind === 'eggs' && s.eggs >= PLAYER.maxEggs ? 'Full'
           : item.kind === 'smoke' && s.smokes >= PLAYER.maxSmokes ? 'Full'
@@ -1172,12 +1208,15 @@ export class GameSession {
     });
   }
 
-  private toggleBuyMenu(): void {
-    const menu = this.buyMenu!;
+  toggleBuyMenu(): void {
+    const menu = this.buyMenu;
+    if (!menu) return;
     if (menu.open) return this.closeBuyMenu();
-    const phase = this.round?.phase;
+    const r = this.round;
+    const now = this.serverNow();
+    const buying = r?.phase === 'warmup' || !!r && (r.phase === 'buy' || r.phase === 'live') && r.buyEndsAt !== null && now < r.buyEndsAt;
     if (!this.local.alive) return this.ctx.hud.toast('You can buy when you’re back next round', 'bad');
-    if (phase !== 'buy' && phase !== 'warmup') return this.ctx.hud.toast('Buy time is over: you can buy at the start of the next round', 'bad');
+    if (!buying) return this.ctx.hud.toast('Buy time is over: you can buy at the start of the next round', 'bad');
     menu.setAppearance(this.self.appearance, this.self.team);
     menu.setOpen(true);
     // The mouse is yours while shopping.
@@ -1209,6 +1248,7 @@ export class GameSession {
       if (item.kind === 'kit') this.hasKit = true;
       // A new gun: take it out (the server already put it in slot 1).
       if (item.weapon) {
+        this.heldGrenade = null;
         const slot = this.weapons.loadout.indexOf(item.weapon);
         if (slot >= 0) this.switchWeapon(() => this.weapons.switchTo(slot, performance.now()));
       }
@@ -1223,7 +1263,7 @@ export class GameSession {
     if (r.phase === 'buy') return 'Buy time · B to open the buy menu';
     if (r.phase === 'live' && r.bomb.carrier === this.selfPid) {
       if (r.bomb.action?.kind === 'plant') return 'Planting… keep holding E';
-      const site = this.map.bombSites?.find((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius);
+      const site = this.map.bombSites?.find((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius && Math.abs(me.y - (s.y ?? 0)) < 1.5);
       return site ? `Site ${site.id} · hold E to plant the bomb (3 s)` : '💣 You have the bomb · follow the A / B markers and plant it';
     }
     if (r.phase === 'live' && this.self.team === 1) {
@@ -1321,7 +1361,7 @@ export class GameSession {
     const b = r.bomb;
     for (const s of this.map.bombSites ?? []) {
       if (r.phase === 'planted' && b.site === s.id) continue;
-      add(s.x, 2.2, s.z, s.id, b.carrier === this.selfPid ? 'site go' : 'site');
+      add(s.x, (s.y ?? 0) + 2.2, s.z, s.id, b.carrier === this.selfPid ? 'site go' : 'site');
     }
     if (r.phase === 'planted') {
       const left = b.explodeAt !== null ? Math.max(0, b.explodeAt - this.serverNow()) / 1000 : 0;
@@ -1695,6 +1735,7 @@ export class GameSession {
   }
 
   private respawned(): void {
+    this.heldGrenade = null;
     this.deathPos = null;
     this.weapons.refill();
     this.ctx.hud.hideDeath();

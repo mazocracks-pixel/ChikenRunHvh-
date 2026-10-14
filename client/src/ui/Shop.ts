@@ -28,6 +28,7 @@ import { icon, type IconName } from './icons';
 import { openModal } from './Modal';
 
 type Tab = 'upgrades' | 'skins' | 'guns' | 'knives' | 'gunskins';
+export type ShopSection = 'inventory' | 'loadout' | 'store';
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'upgrades', label: 'Chicken Upgrades', icon: 'medal' },
@@ -71,6 +72,8 @@ export class ShopScreen {
   private readonly message = h('p', { class: 'status' });
   private readonly nameInput = h('input', { maxlength: NAME_MAX_LENGTH, class: 'name-input', 'aria-label': 'Chicken name' });
   private tab: Tab = 'upgrades';
+  private section: ShopSection = 'store';
+  private readonly title = h('h2', null, 'Store');
   /** What you're trying on (null: what you're wearing). */
   private selected: ItemDef | null = null;
   private busy = false;
@@ -87,7 +90,7 @@ export class ShopScreen {
       h(
         'div',
         { class: 'shop-panel panel' },
-        h('header', null, h('button', { class: 'icon-btn', type: 'button', onclick: onBack, 'aria-label': 'Back' }, '←'), h('h2', null, 'Customize & Shop'), this.coins),
+        h('header', null, h('button', { class: 'icon-btn', type: 'button', onclick: onBack, 'aria-label': 'Back' }, '←'), this.title, this.coins),
         h('div', { class: 'name-row' }, this.nameInput, saveName),
         this.deals,
         this.tabs,
@@ -103,7 +106,10 @@ export class ShopScreen {
     });
   }
 
-  open(): void {
+  open(section: ShopSection = 'store'): void {
+    this.section = section;
+    this.tab = section === 'inventory' ? 'skins' : section === 'loadout' ? 'guns' : 'upgrades';
+    this.title.textContent = section === 'inventory' ? 'Inventory' : section === 'loadout' ? 'Loadout' : 'Store';
     this.root.hidden = false;
     this.message.textContent = '';
     this.selected = null;
@@ -127,10 +133,13 @@ export class ShopScreen {
     clear(this.coins);
     this.coins.append(icon('coin', 'coin-icon'), h('b', null, p.coins.toLocaleString()));
     this.preview(p);
-    this.renderDeals(p);
+    this.deals.hidden = this.section !== 'store';
+    if (!this.deals.hidden) this.renderDeals(p);
 
     clear(this.tabs);
     for (const t of TABS) {
+      if (this.section === 'inventory' && t.id === 'upgrades') continue;
+      if (this.section === 'loadout' && t.id !== 'guns' && t.id !== 'knives') continue;
       this.tabs.append(h('button', { type: 'button', class: `tab${t.id === this.tab ? ' active' : ''}`, onclick: () => this.pickTab(t.id) }, icon(t.icon, 'tab-icon'), t.label));
     }
 
@@ -145,7 +154,7 @@ export class ShopScreen {
     } else {
       const knives = this.tab === 'knives';
       this.body.append(
-        h('p', { class: 'muted shop-note' }, knives ? 'Your melee weapon always sits in the last slot (key 5).' : `Tap an owned gun to put it in your loadout (up to ${LOADOUT_SIZE}, keys 1-${LOADOUT_SIZE}).`),
+        h('p', { class: 'muted shop-note' }, knives ? 'Your knife uses key 3.' : `Tap an owned gun to put it in your loadout (up to ${LOADOUT_SIZE}). Primary: 1 · Pistol: 2 · Knife: 3 · Grenades: 4. Use the wheel for additional guns.`),
         this.grid(ITEMS.filter((i) => i.slot === 'weapon' && isMelee(i.key as WeaponId) === knives), p),
       );
     }
@@ -224,7 +233,11 @@ export class ShopScreen {
   private grid(items: readonly ItemDef[], p: Profile): HTMLElement {
     const grid = h('div', { class: 'item-grid' });
     const deals = new Map(dailyDeals(Date.now()).map((d) => [d.itemId, d]));
-    for (const item of items) grid.append(this.card(item, p, deals.get(item.id)));
+    for (const item of items) {
+      if (this.section !== 'store' && item.price > 0 && !p.owned.includes(item.id)) continue;
+      grid.append(this.card(item, p, deals.get(item.id)));
+    }
+    if (!grid.children.length) grid.append(h('p', { class: 'muted' }, 'No owned items in this category yet.'));
     return grid;
   }
 

@@ -14,7 +14,7 @@ import { HvhSetup } from '../ui/HvhSetup';
 import { MainMenu } from '../ui/MainMenu';
 import { CookieNotice, openPrivacy } from '../ui/Privacy';
 import { anyModalOpen, setModalLayer } from '../ui/Modal';
-import { ShopScreen } from '../ui/Shop';
+import { ShopScreen, type ShopSection } from '../ui/Shop';
 import { TouchControls, isTouchDevice } from '../ui/TouchControls';
 
 type Screen = 'boot' | 'menu' | 'shop' | 'game';
@@ -27,6 +27,7 @@ export class App {
   private readonly dev: Dev;
   /** Pause menu: the HvH panels, only shown in HvH matches. */
   private readonly reportButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.openReport() }, 'Report a player');
+  private readonly buyButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.game.activeSession?.toggleBuyMenu() }, 'Buy weapons · B');
   /** 'Leave match', or 'Back to lobby' in Training. */
   private readonly leaveButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.leave() }, 'Leave match');
   private readonly hvhPanelsButton = h('button', { type: 'button', class: 'secondary', onclick: () => this.openHvhSetup() }, 'HvH panels');
@@ -53,13 +54,14 @@ export class App {
     const ui = byId('ui-layer');
     setModalLayer(byId('modal-layer'));
     this.game = new Game(byId<HTMLCanvasElement>('game'), byId('hud-layer'));
+    this.game.hud.buyButton.addEventListener('click', () => this.game.activeSession?.toggleBuyMenu());
 
     this.menu = new MainMenu(ui, {
       quickPlay: (mode, map, noBots) => this.enter(() => this.net.quickPlay(mode, map, noBots)),
       browse: () => openServerBrowser(() => this.net.listRooms(), (roomId) => this.enter(() => this.net.joinRoom({ roomId }), true)),
       createRoom: () => openCreateRoom((req: CreateRoomRequest) => this.enter(() => this.net.createRoom(req), true)),
       joinCode: () => openJoinCode((code) => this.enter(() => this.net.joinRoom({ code }), true)),
-      customize: () => this.showShop(),
+      customize: (section) => this.showShop(section),
       friends: () => this.friends.open(),
       leaderboard: (mode) => void openLeaderboard(this.api, mode),
       daily: () => void openDaily(this.api),
@@ -89,7 +91,7 @@ export class App {
       const p = this.friends.party;
       const names = p?.members.map((m) => m.name) ?? [];
       const leader = p?.members.find((m) => m.userId === p.leader)?.name ?? '';
-      this.menu.setFriends(this.friends.waiting, p ? { names, leader, isLeader: this.friends.isLeader } : null);
+      this.menu.setFriends(this.friends.waiting, p ? { names, leader, isLeader: this.friends.isLeader } : null, this.friends.state.friends);
     });
     this.cookieNotice = new CookieNotice(ui);
     // Developer menu: the menu key (Insert by default), or tap the logo five times on touch screens.
@@ -153,6 +155,7 @@ export class App {
         { class: 'panel card' },
         h('h2', null, 'Paused'),
         resume,
+        this.buyButton,
         this.hvhPanelsButton,
         this.reportButton,
         h('button', { type: 'button', class: 'secondary', onclick: () => this.openGuide() }, 'How to play (F1)'),
@@ -175,7 +178,7 @@ export class App {
     this.game.input.touchMode = this.isTouch;
     this.game.input.onLockChange = () => this.refreshOverlays();
     this.api.onProfile((p) => {
-      this.game.setMenuChicken(p.appearance);
+      this.game.setMenuChicken(p.appearance, p.loadout[0] ?? 'rifle');
       this.menu.setProfile(p);
       this.friends.selfId = p.id;
     });
@@ -185,7 +188,7 @@ export class App {
 
   /** Five quick taps on the title open the developer menu (there is no Insert key on phones). */
   private bindSecretTaps(): void {
-    const logo = document.querySelector('.main-menu .logo');
+    const logo = document.querySelector('.cs-lobby .logo');
     let taps: number[] = [];
     logo?.addEventListener('click', () => {
       const now = performance.now();
@@ -209,9 +212,13 @@ export class App {
       this.showServerDown();
       return;
     }
+    this.loading.querySelector('p')!.textContent = 'Loading Mirage…';
+    let mapError = '';
+    try { await this.game.ready; }
+    catch { mapError = 'Mirage could not load. Refresh the page to retry.'; }
     this.net.connect();
     this.loading.hidden = true;
-    this.showMenu();
+    this.showMenu(mapError, Boolean(mapError));
   }
 
   private showServerDown(): void {
@@ -237,6 +244,7 @@ export class App {
   // ---------------------------------------------------------------------------
 
   private showMenu(status = '', error = false): void {
+    this.loading.hidden = true;
     this.clearHvhSetup();
     this.screen = 'menu';
     this.game.audio.setMusic(true);
@@ -250,11 +258,11 @@ export class App {
     this.refreshOverlays();
   }
 
-  private showShop(): void {
+  private showShop(section: ShopSection): void {
     this.screen = 'shop';
     this.game.audio.setMusic(true);
     this.menu.setVisible(false);
-    this.shop.open();
+    this.shop.open(section);
     void this.api.refresh().catch(() => undefined);
     this.refreshOverlays();
   }
@@ -273,15 +281,17 @@ export class App {
     const devMenu = this.dev.menuOpen || this.classicDev.menuOpen;
     const buyMenu = this.game.activeSession?.buyMenuOpen ?? false;
     const overlay = devMenu || buyMenu;
-    this.game.input.suspended = Boolean(this.hvhSetup) || overlay || paused;
+    const mapLoading = inGame && !this.loading.hidden;
+    this.game.input.suspended = mapLoading || Boolean(this.hvhSetup) || overlay || paused;
     if (this.hvhSetup) this.hvhSetup.root.hidden = devMenu;
-    this.pause.hidden = !paused || anyModalOpen() || overlay || Boolean(this.hvhSetup);
+    this.pause.hidden = mapLoading || !paused || anyModalOpen() || overlay || Boolean(this.hvhSetup);
     this.hvhPanelsButton.hidden = this.game.activeSession?.mode.id !== 'hvh';
+    this.buyButton.hidden = this.game.activeSession?.mode.bomb !== true;
     const training = this.game.activeSession?.mode.training === true;
     this.leaveButton.textContent = training ? 'Back to lobby' : 'Leave match';
     this.reportButton.hidden = training;
     this.pauseButton.hidden = !inGame || !this.isTouch || paused || overlay || Boolean(this.hvhSetup);
-    this.touch?.setVisible(inGame && !paused && !overlay && !this.hvhSetup);
+    this.touch?.setVisible(inGame && !mapLoading && !paused && !overlay && !this.hvhSetup);
     this.cookieNotice.setVisible(this.screen === 'menu' || this.screen === 'shop');
   }
 
@@ -329,7 +339,9 @@ export class App {
     this.touchPaused = false;
     this.menu.setVisible(false);
     this.shop.close();
-    this.game.startSession(this.net, join, {
+    this.loading.replaceChildren(h('div', { class: 'egg-spinner' }, '🥚'), h('p', null, 'Loading Mirage…'));
+    this.loading.hidden = false;
+    const ready = this.game.startSession(this.net, join, {
       onReward: (coins, xp) => this.api.setRewards(coins, xp),
       onOverlay: () => this.refreshOverlays(),
       onClosed: (reason) => {
@@ -338,7 +350,19 @@ export class App {
         this.showMenu(reason, true);
       },
     });
-    if (join.room.mode === 'hvh') this.openHvhSetup();
+    const session = this.game.activeSession;
+    void ready.then(() => {
+      if (this.screen !== 'game' || this.game.activeSession !== session) return;
+      this.loading.hidden = true;
+      if (join.room.mode === 'hvh') this.openHvhSetup();
+      this.refreshOverlays();
+    }).catch((error) => {
+      if (this.game.activeSession !== session) return;
+      console.error('Map loading failed', error);
+      this.loading.hidden = true;
+      this.leave();
+      this.showMenu('Could not load Mirage. Reload and try again.', true);
+    });
     this.refreshOverlays();
   }
 

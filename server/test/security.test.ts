@@ -100,6 +100,7 @@ describe('browser protections', () => {
     assert.match(csp, /script-src 'self'/);
     assert.match(csp, /'wasm-unsafe-eval'/);
     assert.doesNotMatch(csp, /'unsafe-eval'/);
+    assert.match(csp, /connect-src 'self' blob:/, 'GLTF ImageBitmapLoader fetches its embedded textures as blob URLs');
     assert.match(csp, /frame-ancestors 'none'/);
     assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
     assert.equal(res.headers.get('x-frame-options'), 'DENY');

@@ -3,6 +3,10 @@ import { describe, it } from 'node:test';
 import { BUY_CATEGORIES, BUY_ITEMS, KNIFE_SKINS, WEAPONS, WEAPON_IDS, isMelee, isSidearm } from '../src/index';
 
 describe('the ChikenBomb buy menu', () => {
+  it('uses the five reference columns and separates equipment from grenades', () => {
+    assert.deepEqual(BUY_CATEGORIES.map((c) => c.name), ['Equipment', 'Pistols', 'Mid-Tier', 'Rifles', 'Grenades']);
+    for (const item of BUY_ITEMS.filter((i) => i.kind !== 'weapon')) assert.equal(item.category, item.kind === 'armor' || item.kind === 'kit' ? 'equipment' : 'grenade');
+  });
   it('sells every gun in the game, each in a column', () => {
     const sold = new Set(BUY_ITEMS.map((i) => i.weapon));
     const guns = WEAPON_IDS.filter((id) => !isMelee(id));

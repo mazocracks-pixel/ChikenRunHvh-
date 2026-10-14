@@ -124,6 +124,7 @@ export interface RoomOptions {
 /** Where a bot should go for the mode, and whether to hold use (E) once there. */
 export interface BotGoal {
   x: number;
+  y?: number;
   z: number;
   /** Hold use here (plant / defuse) instead of walking. */
   use?: boolean;
@@ -440,7 +441,7 @@ export class GameRoom {
   }
 
   /** ChikenBomb buy menu; nothing to buy anywhere else. */
-  handleBuy(p: ServerPlayer, _itemId: unknown): BuyResult {
+  handleBuy(p: ServerPlayer, _itemId: unknown, _now = performance.now()): BuyResult {
     return { ok: false, error: 'There is no buy menu in this mode.', money: p.money };
   }
 
@@ -1076,19 +1077,20 @@ export class GameRoom {
     this.enforceHvhRules(p);
     this.publicStates.delete(p.pid);
     const point = this.pickSpawn(p);
-    p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs);
+    p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs, point.y ?? 0);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
     if (this.mode.weapons) p.eggs = p.smokes = p.flashes = 0;
-    if (announce) this.io.to(this.channel).emit('spawn', { pid: p.pid, x: point.x, y: 0, z: point.z, yaw: p.yaw });
+    if (announce) this.io.to(this.channel).emit('spawn', { pid: p.pid, x: point.x, y: point.y ?? 0, z: point.z, yaw: p.yaw });
   }
 
   /** Open spots all over the map (spread-spawn modes), worked out once per room. */
   private spread: SpawnPoint[] | null = null;
 
   /** Where free-for-all chickens spawn and bots wander. */
-  roamSpots(): readonly { x: number; z: number }[] {
+  roamSpots(): readonly SpawnPoint[] {
+    if (this.map.navLinks) return this.spread ??= this.map.nav!.slice(0, this.map.navLinks.length);
     if (!this.mode.spreadSpawns || this.mode.building) return [...this.map.spawns, ...this.map.loot, ...this.map.flags];
-    this.spread ??= [...this.map.spawns.map((s) => ({ x: s.x, z: s.z })), ...openSpots(this.map.spawns, this.world, this.map.halfSize)];
+    this.spread ??= [...this.map.spawns, ...openSpots(this.map.spawns, this.world, this.map.halfSize)];
     return this.spread;
   }
 
@@ -1112,10 +1114,10 @@ export class GameRoom {
   }
 
   /** Could `viewer` see a chicken standing at `spot`? */
-  private canSeeSpot(viewer: ServerPlayer, spot: { x: number; z: number }): boolean {
+  private canSeeSpot(viewer: ServerPlayer, spot: SpawnPoint): boolean {
     const eye = { x: viewer.state.x, y: viewer.state.y + eyeHeightOf(viewer.state), z: viewer.state.z };
     const dx = spot.x - eye.x;
-    const dy = 0.9 - eye.y;
+    const dy = (spot.y ?? 0) + 0.9 - eye.y;
     const dz = spot.z - eye.z;
     const dist = Math.hypot(dx, dy, dz);
     if (dist > 70) return false;
@@ -1234,6 +1236,11 @@ export class GameRoom {
   protected addTeamScore(team: Team, amount: number): void {
     if (team === 0) return;
     this.match.teamScores[team - 1] += amount;
+    this.emitScores();
+  }
+
+  protected swapTeamScores(): void {
+    this.match.teamScores = [this.match.teamScores[1], this.match.teamScores[0]];
     this.emitScores();
   }
 

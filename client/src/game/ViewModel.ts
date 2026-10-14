@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, clamp, damp, isSidearm, wrapAngle, type WeaponId } from '@game/shared';
 import { buildGun, type GunModel } from './models/Guns';
+import { buildProjectileMesh } from './Projectiles';
+import type { HeldGrenade } from './weaponSlots';
 
 /** Where the gun sits in front of the camera (metres), hip-fire and aiming down the sights. */
 const HIP = new THREE.Vector3(0.24, -0.22, -0.45);
@@ -216,6 +218,7 @@ export interface ViewModelFrame {
   dt: number;
   camera: THREE.Camera;
   weapon: WeaponId;
+  grenade?: HeldGrenade | null;
   visible: boolean;
   aiming: boolean;
   /** Horizontal speed, m/s (for the walk bob). */
@@ -241,6 +244,7 @@ export class ViewModel {
   private gun: GunModel | null = null;
   private gunId: WeaponId | null = null;
   private readonly guns = new Map<WeaponId, GunModel>();
+  private readonly grenades = new Map<HeldGrenade, THREE.Group>();
   /** Your gun skin (set before the first gun is drawn). */
   skin = 'none';
   private tint: string | null = null;
@@ -328,6 +332,15 @@ export class ViewModel {
     }
     const dt = f.dt;
     if (f.weapon !== this.gunId) this.swap(f.weapon);
+    this.gun!.group.visible = !f.grenade;
+    for (const [kind, model] of this.grenades) model.visible = kind === f.grenade;
+    if (f.grenade && !this.grenades.has(f.grenade)) {
+      const model = buildProjectileMesh(f.grenade);
+      model.scale.setScalar(2);
+      model.position.set(0, 0, -0.14);
+      this.holder.add(model);
+      this.grenades.set(f.grenade, model);
+    }
     const feel = RECOIL[f.weapon] ?? DEFAULT_RECOIL;
     const motion = this.reducedMotion.matches ? 0.25 : 1;
 

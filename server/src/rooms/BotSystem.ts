@@ -4,6 +4,7 @@ import {
   eyeHeightOf,
   SIM_DT,
   SNAPSHOT_RATE,
+  SOURCE_MOVE,
   WEAPONS,
   buildNavGraph,
   chestPoint,
@@ -15,6 +16,7 @@ import {
   normalize,
   raycastWorld,
   wrapAngle,
+  walkable,
   type Appearance,
   type InputFrame,
   type NavGraph,
@@ -58,7 +60,7 @@ interface Brain {
   errYaw: number;
   errPitch: number;
   nextErrorRoll: number;
-  waypoint: { x: number; z: number } | null;
+  waypoint: NavPoint | null;
   strafe: 1 | -1;
   strafeUntil: number;
   progressAt: number;
@@ -216,7 +218,7 @@ export class BotSystem {
 
   private newWaypoint(b: Brain): void {
     const s = pick(this.room.roamSpots());
-    b.waypoint = { x: s.x + (Math.random() - 0.5) * 4, z: s.z + (Math.random() - 0.5) * 4 };
+    b.waypoint = this.room.map.mesh ? { x: s.x, y: s.y, z: s.z } : { x: s.x + (Math.random() - 0.5) * 4, z: s.z + (Math.random() - 0.5) * 4 };
   }
 
   private think(b: Brain, now: number): void {
@@ -291,7 +293,7 @@ export class BotSystem {
       const wx = next.x - p.state.x;
       const wz = next.z - p.state.z;
       const d = Math.hypot(wx, wz);
-      if (d > 0.4) {
+      if (d > 0.1) {
         moveX = wx / d;
         moveZ = wz / d;
         lookYaw = p.yaw + clamp(wrapAngle(Math.atan2(-moveX, -moveZ) - p.yaw), -TURN_SPEED * SIM_DT, TURN_SPEED * SIM_DT);
@@ -299,8 +301,9 @@ export class BotSystem {
       lookPitch = p.pitch * 0.9;
     } else {
       if (!b.waypoint || Math.hypot(b.waypoint.x - p.state.x, b.waypoint.z - p.state.z) < 2) this.newWaypoint(b);
-      const wx = b.waypoint!.x - p.state.x;
-      const wz = b.waypoint!.z - p.state.z;
+      const next = this.room.map.mesh ? this.nextStep(b, b.waypoint!, now) : b.waypoint!;
+      const wx = next.x - p.state.x;
+      const wz = next.z - p.state.z;
       const d = Math.hypot(wx, wz) || 1;
       moveX = wx / d;
       moveZ = wz / d;
@@ -403,7 +406,7 @@ export class BotSystem {
     if (len > 0.01) {
       moveX /= len;
       moveZ /= len;
-      const knee = makeRay({ x: p.state.x, y: p.state.y + 0.4, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
+      const knee = makeRay({ x: p.state.x, y: p.state.y + SOURCE_MOVE.stepHeight + 0.05, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
       if (raycastWorld(knee, this.room.world, 1.1)) {
         const head = makeRay({ x: p.state.x, y: p.state.y + 1.45, z: p.state.z }, { x: moveX, y: 0, z: moveZ });
         if (!raycastWorld(head, this.room.world, 1.4)) jump = true;
@@ -437,15 +440,22 @@ export class BotSystem {
   private nextStep(b: Brain, goal: BotGoal, now: number): NavPoint {
     const p = b.p;
     const world = this.room.world;
-    if (!this.nav && this.room.map.nav) this.nav = buildNavGraph(this.room.map.nav, world);
+    if (!this.nav && this.room.map.nav) this.nav = buildNavGraph(this.room.map.nav, world, this.room.map.navLinks);
     const moved = !b.pathGoal || Math.hypot(b.pathGoal.x - goal.x, b.pathGoal.z - goal.z) > 2;
     if (moved || now >= b.nextPath || b.path.length === 0) {
-      const from = { x: p.state.x, z: p.state.z };
+      const from = { x: p.state.x, y: p.state.y, z: p.state.z };
       b.path = this.nav ? findPath(this.nav, from, goal, world) : [{ x: goal.x, z: goal.z }];
-      b.pathGoal = { x: goal.x, z: goal.z };
+      b.pathGoal = { x: goal.x, y: goal.y, z: goal.z };
       b.nextPath = now + 3000;
     }
-    while (b.path.length > 1 && Math.hypot(b.path[0]!.x - p.state.x, b.path[0]!.z - p.state.z) < 1.6) b.path.shift();
+    const from = { x: p.state.x, y: p.state.y, z: p.state.z };
+    while (b.path.length > 1) {
+      const next = b.path[0]!;
+      const distance = Math.hypot(next.x - p.state.x, next.z - p.state.z);
+      const reached = distance < 0.15 && Math.abs((next.y ?? 0) - p.state.y) <= SOURCE_MOVE.stepHeight;
+      if (!reached && (distance >= 0.6 || !walkable(from, b.path[1]!, world))) break;
+      b.path.shift();
+    }
     return b.path[0]!;
   }
 

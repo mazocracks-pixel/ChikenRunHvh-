@@ -46,7 +46,7 @@ export function toggleGuide(onClose?: () => void): void {
       row('Shoot', fixed('Left click')),
       row('Aim / scope (snipers: again to zoom)', fixed('Right click')),
       row('Reload', k('reload')),
-      row('Guns 1-4, melee 5', fixed('1'), fixed('2'), fixed('3'), fixed('4'), fixed('5')),
+      row('Primary 1 · Pistol 2 · Knife 3 · Grenades 4 (press again to cycle)', fixed('1'), fixed('2'), fixed('3'), fixed('4')),
       row('Inspect your weapon', k('inspect')),
       row('Egg, smoke, flashbang', k('egg'), k('smoke'), k('flash')),
     ),

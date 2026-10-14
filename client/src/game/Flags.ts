@@ -19,7 +19,7 @@ export class Flags {
     for (const spot of map.flags) {
       const color = TEAM_COLORS[spot.team];
       const pad = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 0.06, 28), new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.45 }));
-      pad.position.set(spot.x, 0.03, spot.z);
+      pad.position.set(spot.x, (spot.y ?? 0) + 0.03, spot.z);
       pad.receiveShadow = true;
       this.root.add(pad);
 
@@ -28,7 +28,7 @@ export class Flags {
       const cloth = part(box(0.9, 0.55, 0.03), solid(color), 0.47, 1.9, 0);
       flag.add(cloth);
       this.root.add(flag);
-      const state = states.find((s) => s.team === spot.team) ?? { team: spot.team, x: spot.x, y: 0, z: spot.z, carrier: 0, atBase: true };
+      const state = states.find((s) => s.team === spot.team) ?? { team: spot.team, x: spot.x, y: spot.y ?? 0, z: spot.z, carrier: 0, atBase: true };
       this.views.push({ team: spot.team, root: flag, cloth, state });
     }
     scene.add(this.root);

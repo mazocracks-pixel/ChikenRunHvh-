@@ -5,6 +5,9 @@ import type { ModeId } from '@game/shared';
  * emoji, so they look the same on every phone and match the chunky buttons. 24 x 24 grid.
  */
 const PATHS = {
+  vest: '<path d="M8 3H5l-2 5 3 2v11h12V10l3-2-2-5h-3l-1 5H9z" fill="currentColor"/><path d="M9 12h6M9 16h6" stroke="#39372e"/>',
+  grenade: '<path d="M9 3h6v3H9zM10 6h4M10 7c-3 2-4 5-4 9s2 5 6 5 6-1 6-5-1-7-4-9z" fill="currentColor"/><path d="M15 4h3l2 8"/>',
+  kit: '<path d="M6 9h12v12H6zM9 9V5h6v4"/><path d="M9 15h6M12 12v6"/>',
   play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>',
   chicken: '<path d="M8 20c-3-1-4-4-3-7 1-3 3-4 3-7a4 4 0 0 1 8 0c0 1 0 2-1 3l4 1-4 2c2 2 2 5 0 7-2 1-5 2-7 1z"/><path d="M9 4.5c0-2 2-3 3-2"/><circle cx="12" cy="6.5" r=".8" fill="currentColor"/>',
   swords: '<path d="M4 4l10 10M20 4L10 14M6 15l3 3M18 15l-3 3M4 20l3-3M20 20l-3-3"/>',
