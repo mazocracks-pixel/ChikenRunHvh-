@@ -422,3 +422,67 @@ export function tiledBoxGeometry(w: number, h: number, d: number, tile: number):
   uv.needsUpdate = true;
   return geometry;
 }
+
+/** A woven rug (Mirage's hanging carpets had no texture): red field, border bands, diamond medallions. */
+export function rugTexture(): THREE.CanvasTexture {
+  return canvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(31);
+    ctx.fillStyle = '#8e2a24';
+    ctx.fillRect(0, 0, size, size);
+    // Border bands.
+    for (const [inset, color] of [[0, '#2c2440'], [14, '#d3a54a'], [20, '#2c2440'], [30, '#b9483a']] as const) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = inset === 14 ? 5 : 8;
+      ctx.strokeRect(inset + 4, inset + 4, size - 2 * inset - 8, size - 2 * inset - 8);
+    }
+    // Medallions: nested diamonds down the middle.
+    const diamond = (cx: number, cy: number, r: number, color: string) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.7, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r * 0.7, cy);
+      ctx.closePath();
+      ctx.fill();
+    };
+    for (const cy of [size * 0.3, size * 0.5, size * 0.7]) {
+      diamond(size / 2, cy, 38, '#d3a54a');
+      diamond(size / 2, cy, 28, '#2c2440');
+      diamond(size / 2, cy, 18, '#c9b48a');
+      diamond(size / 2, cy, 8, '#8e2a24');
+    }
+    // Small motifs in the corners of the field.
+    for (const [x, y] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) diamond(size * x!, size * y!, 12, '#d3a54a');
+    // Weave: faint threads and wear.
+    for (let y = 0; y < size; y += 2) { ctx.fillStyle = `rgba(0,0,0,${0.04 + rand() * 0.05})`; ctx.fillRect(0, y, size, 1); }
+    speckle(ctx, size, 32, 1400, 'rgba(255,240,210,0.08)', 'rgba(0,0,0,0.12)');
+  });
+}
+
+/**
+ * A fine grey grain centred on mid-grey, multiplied over Mirage's 128-pixel textures at 8× their
+ * scale (like Source's detail textures), so walls stop looking smeared up close.
+ */
+export function detailTexture(): THREE.CanvasTexture {
+  const texture = canvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(77);
+    const img = ctx.createImageData(size, size);
+    // Two octaves of value noise (wrapped so it tiles) plus pixel grain.
+    const grid = (n: number) => Array.from({ length: n * n }, () => rand());
+    const g1 = grid(16), g2 = grid(64);
+    const sample = (g: number[], n: number, x: number, y: number) => {
+      const fx = (x / size) * n, fy = (y / size) * n, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+      const at = (i: number, j: number) => g[((j % n) * n) + (i % n)]!;
+      const top = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx, bottom = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx;
+      return top * (1 - ty) + bottom * ty;
+    };
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const v = 128 + (sample(g1, 16, x, y) - 0.5) * 50 + (sample(g2, 64, x, y) - 0.5) * 40 + (rand() - 0.5) * 34;
+      const i = (y * size + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.max(0, Math.min(255, v));
+      img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  });
+  // Linear data: 128 means "unchanged".
+  texture.colorSpace = THREE.NoColorSpace;
+  return texture;
+}

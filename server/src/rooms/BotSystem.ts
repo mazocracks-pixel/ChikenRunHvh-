@@ -185,7 +185,7 @@ export class BotSystem {
     if (dist > VISION_RANGE) return false;
     if (dist < 0.01) return true;
     const dir = { x: dx / dist, y: dy / dist, z: dz / dist };
-    const wall = raycastWorld(makeRay(eye, dir), this.room.world, dist - 0.3);
+    const wall = raycastWorld(makeRay(eye, dir), this.room.world, dist - 0.3, this.room.world.seeThrough);
     if (wall) return false;
     for (const s of this.room.projectiles.activeSmokes(performance.now())) {
       // Distance from the smoke centre to the line of sight.

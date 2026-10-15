@@ -245,6 +245,8 @@ export class GameSession {
   private hasClock = false;
   private aimingSent = false;
   private heldGrenade: HeldGrenade | null = null;
+  /** ChikenBomb: the bomb is in your hands (slot 5); holding fire plants it. */
+  private bombOut = false;
   private grenadeThrowHeld = false;
   private chatOpen = false;
   /** The open chat box sends to the team only (U), not everyone (Y). */
@@ -404,6 +406,8 @@ export class GameSession {
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
       if (this.mode.id !== 'hvh') frame = { ...frame, autoHop: false, subtickStrafe: false };
+      // With the bomb out, holding fire plants it (the same as holding E).
+      if (this.bombOut && input.firing) frame = { ...frame, use: true };
       if (this.bombHolds(frame)) frame = { ...frame, forward: 0, right: 0, jump: false, crouch: true };
       this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon));
       if (this.mode.id === 'hvh') {
@@ -506,7 +510,8 @@ export class GameSession {
       && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed()) > 0);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
     if (!input.firing) this.grenadeThrowHeld = false;
-    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !this.heldGrenade && !this.grenadeThrowHeld && !dev?.blocksShooting();
+    if (this.bombOut && !this.carryingBomb()) this.bombOut = false;
+    const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !this.heldGrenade && !this.bombOut && !this.grenadeThrowHeld && !dev?.blocksShooting();
     if (this.heldGrenade && input.active && input.firing && !this.fireWasDown) {
       this.throwGrenade(this.heldGrenade);
       this.grenadeThrowHeld = true;
@@ -583,6 +588,7 @@ export class GameSession {
       camera: this.ctx.camera,
       weapon: w.weapon,
       grenade: this.heldGrenade,
+      bomb: this.bombOut,
       visible,
       aiming,
       speed: this.local.alive ? Math.hypot(this.local.position.x - this.lastViewPos.x, this.local.position.z - this.lastViewPos.z) / Math.max(dt, 1e-3) : 0,
@@ -604,7 +610,7 @@ export class GameSession {
     hud.setPersonalScore(this.self.kills, this.self.deaths);
     hud.setVitals(this.local.alive ? server.hp : 0, server.armor, this.local.state.fuel, this.maxHealth);
     hud.setNitro(this.local.alive && this.local.car ? this.local.car.boost : null);
-    hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot, this.heldGrenade, server);
+    hud.setWeapon(w.weapon, w.mag, w.reloading, w.reloadProgress(now), w.loadout, w.slot, this.heldGrenade, server, this.carryingBomb() ? (this.bombOut ? 'out' : 'carried') : null);
     hud.setGrenades(server.eggs, server.smokes, server.flashes ?? 0);
     hud.setHop(this.local.alive && !this.local.car ? this.local.state.hop : 0, hopMaxFor(w.weapon));
     const spread = spreadFor(w.def, this.horizontalSpeed(), !this.local.onGround, aiming) * (w.mods?.spread ?? 1);
@@ -688,6 +694,13 @@ export class GameSession {
       case 'slot9': {
         const n = Number(action.slice(4));
         if (this.buyMenu?.open) break;
+        this.bombOut = n === 5 && this.carryingBomb();
+        if (this.bombOut) {
+          this.heldGrenade = null;
+          this.scopeLevel = 0;
+          this.weapons.suspend();
+          break;
+        }
         if (n === 4) {
           this.heldGrenade = nextGrenade(this.heldGrenade, this.local.server);
           this.scopeLevel = 0;
@@ -703,10 +716,12 @@ export class GameSession {
       }
       case 'nextWeapon':
         this.heldGrenade = null;
+        this.bombOut = false;
         this.switchWeapon(() => this.weapons.cycle(1, now));
         break;
       case 'prevWeapon':
         this.heldGrenade = null;
+        this.bombOut = false;
         this.switchWeapon(() => this.weapons.cycle(-1, now));
         break;
       case 'egg':
@@ -998,6 +1013,7 @@ export class GameSession {
   }
 
   private hintText(): string | null {
+    if (this.bombOut && this.local.alive) return 'Hold left-click on A or B · Plant the bomb · 1–3 · Weapon';
     if (this.heldGrenade && this.local.alive) return 'Left-click · Throw grenade · 4 · Next grenade · 1–3 · Weapon';
     const def = this.weapons.def;
     if (def.scope && this.local.alive && this.scopeLevel > 0) {
@@ -1264,7 +1280,7 @@ export class GameSession {
     if (r.phase === 'live' && r.bomb.carrier === this.selfPid) {
       if (r.bomb.action?.kind === 'plant') return 'Planting… keep holding E';
       const site = this.map.bombSites?.find((s) => Math.hypot(me.x - s.x, me.z - s.z) <= s.radius && Math.abs(me.y - (s.y ?? 0)) < 1.5);
-      return site ? `Site ${site.id} · hold E to plant the bomb (3 s)` : '💣 You have the bomb · follow the A / B markers and plant it';
+      return site ? `Site ${site.id} · hold E (or 5, then hold fire) to plant the bomb (3 s)` : "💣 You have the bomb (5) · follow the A / B markers and plant it";
     }
     if (r.phase === 'live' && this.self.team === 1) {
       const carrier = r.bomb.carrier ? this.infos.get(r.bomb.carrier) : undefined;
@@ -1340,6 +1356,11 @@ export class GameSession {
     if (!this.round || !this.local.alive || this.match.phase !== 'playing') return false;
     const s = this.local.state;
     return bombHoldsPlayer(this.round, { pid: this.selfPid, team: this.self.team, x: s.x, y: s.y, z: s.z, onGround: s.onGround, useHeld: frame.use === true }, this.map.bombSites ?? []);
+  }
+
+  /** You have the bomb in a live ChikenBomb round. */
+  private carryingBomb(): boolean {
+    return this.local.alive && this.round?.phase === 'live' && this.round.bomb.carrier === this.selfPid;
   }
 
   /** On-screen markers: the sites, the planted bomb with its timer, and (for chikenT) the bomb or its carrier. */

@@ -23,7 +23,7 @@ import {
 } from '@game/shared';
 import { ApiError, type Api } from '../net/Api';
 import { clear, h, hex } from './dom';
-import { gunIcon, prepareGunIcons } from './GunIcons';
+import { gunPicture, prepareGunIcons } from './GunIcons';
 import { icon, type IconName } from './icons';
 import { openModal } from './Modal';
 
@@ -289,7 +289,7 @@ export class ShopScreen {
 
   private picture(item: ItemDef): HTMLElement {
     if (item.slot === 'weapon') {
-      const pic = gunIcon(item.key as WeaponId);
+      const pic = gunPicture(item.key as WeaponId, 'light');
       if (pic) return h('div', { class: 'swatch gun-pic' }, h('img', { src: pic.url, alt: '' }));
       return h('div', { class: 'swatch gun-pic' }, icon(isMelee(item.key as WeaponId) ? 'knife' : 'target'));
     }

@@ -17,6 +17,8 @@ export interface MapBox {
   color?: number;
   /** Imported map collision is drawn by the map's mesh instead. */
   visible?: boolean;
+  /** A player clip: blocks chickens, but bullets and sight pass through. */
+  clip?: boolean;
 }
 
 /** Team 0 = no team (free-for-all), 1 = red, 2 = blue. */
@@ -92,6 +94,8 @@ export interface MapDef {
   zones?: readonly MapZone[];
   /** Grass grows only inside this half-size (the playable part; default the whole map). */
   grassHalf?: number;
+  /** Ladders you climb: stand at one and walk into it (look down and walk to go down). */
+  ladders?: readonly Aabb[];
 }
 
 export interface BuyZone {

@@ -284,24 +284,25 @@ export class Hud {
     this.hopBadge.classList.toggle('max', excessSpeed >= max - 0.01);
   }
 
-  setWeapon(weapon: WeaponId, mag: number, reloading: boolean, reloadProgress: number, loadout: WeaponId[], slot: number, grenade: HeldGrenade | null = null, stock: GrenadeStock = { eggs: 0, smokes: 0 }): void {
+  setWeapon(weapon: WeaponId, mag: number, reloading: boolean, reloadProgress: number, loadout: WeaponId[], slot: number, grenade: HeldGrenade | null = null, stock: GrenadeStock = { eggs: 0, smokes: 0 }, bomb: 'carried' | 'out' | null = null): void {
     const w = WEAPONS[weapon];
-    this.weaponName.textContent = w.name;
+    this.weaponName.textContent = bomb === 'out' ? 'C4' : w.name;
     this.ammo.textContent = grenade ? String(grenadeCount(grenade, stock)) : w.melee ? '∞' : reloading ? 'Reloading…' : `${mag} / ${w.magazine}`;
     this.ammo.classList.toggle('empty', !grenade && mag === 0 && !reloading && !w.melee);
     this.reloadBar.hidden = !reloading || grenade !== null;
     (this.reloadBar.firstChild as HTMLElement).style.width = `${reloadProgress * 100}%`;
-    const key = `${loadout.join()}|${slot}|${grenade}|${stock.eggs}|${stock.smokes}|${stock.flashes}`;
+    const key = `${loadout.join()}|${slot}|${grenade}|${stock.eggs}|${stock.smokes}|${stock.flashes}|${bomb}`;
     if (key !== this.lastSlotsKey) {
       this.lastSlotsKey = key;
       clear(this.slots);
       for (const n of [1, 2, 3]) {
         const i = weaponHotkey(weapon) === n ? slot : weaponIndexForKey(loadout, n);
         const id = loadout[i];
-        if (id) this.slots.append(h('div', { class: `slot${!grenade && i === slot ? ' active' : ''}` }, icon(shapeSvg(weaponShape(id)), WEAPONS[id].name), h('span', null, WEAPONS[id].name), h('kbd', null, n)));
+        if (id) this.slots.append(h('div', { class: `slot${!grenade && bomb !== 'out' && i === slot ? ' active' : ''}` }, icon(shapeSvg(weaponShape(id)), WEAPONS[id].name), h('span', null, WEAPONS[id].name), h('kbd', null, n)));
       }
       const kind = grenade ?? nextGrenade(null, stock);
-      if (kind) this.slots.append(h('div', { class: `slot${grenade ? ' active' : ''}`, title: 'Press 4 again to cycle grenades' }, drawnIcon(kind === 'smoke' ? 'grenade' : kind), h('span', null, GRENADE_NAMES[kind]), h('kbd', null, '4')));
+      if (kind) this.slots.append(h('div', { class: `slot${grenade && bomb !== 'out' ? ' active' : ''}`, title: 'Press 4 again to cycle grenades' }, drawnIcon(kind === 'smoke' ? 'grenade' : kind), h('span', null, GRENADE_NAMES[kind]), h('kbd', null, '4')));
+      if (bomb) this.slots.append(h('div', { class: `slot bomb-slot${bomb === 'out' ? ' active' : ''}`, title: 'Hold fire (or E) on a site to plant' }, drawnIcon('bomb'), h('span', null, 'C4'), h('kbd', null, '5')));
     }
   }
 

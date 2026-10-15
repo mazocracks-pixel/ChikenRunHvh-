@@ -1,6 +1,6 @@
 import { TRAINING_GUNS, TRAINING_KNIVES, WEAPONS, isMelee, type WeaponId } from '@game/shared';
 import { clear, h } from './dom';
-import { gunIcon } from './GunIcons';
+import { gunPicture } from './GunIcons';
 import { icon, type IconName } from './icons';
 
 type Grenade = 'egg' | 'smoke' | 'flash';
@@ -70,7 +70,7 @@ export class TrainingMenu {
 
   private render(): void {
     const item = (id: WeaponId) => {
-      const pic = gunIcon(id);
+      const pic = gunPicture(id, 'light');
       const b = h(
         'button',
         { type: 'button', class: `tr-item${this.loadout.includes(id) ? ' active' : ''}`, onclick: () => this.onPick?.(id) },

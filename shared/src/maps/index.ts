@@ -23,5 +23,8 @@ export function isMapId(value: unknown): value is MapId {
 
 /** A fresh collision world for a map (each room gets its own, since Sandbox adds blocks to it). */
 export function createCollisionWorld(map: MapDef): CollisionWorld {
-  return new CollisionWorld(map.halfSize, map.boxes.map(boxToAabb));
+  const world = new CollisionWorld(map.halfSize, map.boxes.map(boxToAabb));
+  map.boxes.forEach((box, id) => box.clip && world.seeThrough.add(id));
+  world.ladders = map.ladders ?? [];
+  return world;
 }

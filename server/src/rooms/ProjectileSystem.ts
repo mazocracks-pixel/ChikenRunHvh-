@@ -13,6 +13,7 @@ import {
   raycastWorld,
   round,
   stepProjectile,
+  atRest,
   type ProjectileBody,
   type ProjectileDef,
   type ProjectileKind,
@@ -62,13 +63,16 @@ export class ProjectileSystem {
     const def = PROJECTILES[kind];
     const d = normalize(dir);
     const speed = def.speed * speedScale;
+    // Grenades carry some of the thrower's run (and jump) speed, as in Counter-Strike.
+    const s = owner.state, carry = def.carry ?? 0;
+    const run = { x: ((s.walkVx ?? 0) + s.vx) * carry, y: Math.max(0, s.vy) * carry, z: ((s.walkVz ?? 0) + s.vz) * carry };
     const p: Projectile = {
       id: this.nextId++,
       kind,
       def,
       ownerPid: owner.pid,
       ownerSeq,
-      body: { x: origin.x, y: origin.y, z: origin.z, vx: d.x * speed, vy: d.y * speed + def.upBoost, vz: d.z * speed },
+      body: { x: origin.x, y: origin.y, z: origin.z, vx: d.x * speed + run.x, vy: d.y * speed + def.upBoost + run.y, vz: d.z * speed + run.z },
       bornAt: now,
       fuseAt: now + def.fuseMs,
       cause,
@@ -117,7 +121,8 @@ export class ProjectileSystem {
         this.active.delete(p.id);
         continue;
       }
-      if (hit || now >= p.fuseAt) this.detonate(p, now);
+      const settled = p.def.restFuse === true && now - p.bornAt > 300 && atRest(b);
+      if (hit || settled || now >= p.fuseAt) this.detonate(p, now);
     }
   }
 

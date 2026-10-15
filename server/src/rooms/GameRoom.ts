@@ -1121,7 +1121,7 @@ export class GameRoom {
     const dz = spot.z - eye.z;
     const dist = Math.hypot(dx, dy, dz);
     if (dist > 70) return false;
-    return !raycastWorld(makeRay(eye, { x: dx / dist, y: dy / dist, z: dz / dist }), this.world, dist);
+    return !raycastWorld(makeRay(eye, { x: dx / dist, y: dy / dist, z: dz / dist }), this.world, dist, this.world.seeThrough);
   }
 
   /** Team spawns in team modes; otherwise the free spot furthest from living enemies. */

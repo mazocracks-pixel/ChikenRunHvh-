@@ -8,6 +8,7 @@ export const WEAPON_IDS = [
   'pistol', 'rifle', 'shotgun', 'sniper', 'smg', 'minigun', 'rocket', 'golden', 'knife', 'pan', 'katana',
   'mpistol', 'revolver', 'burst', 'battle', 'autoshotgun', 'lmg', 'scout', 'crossbow', 'launcher', 'goldknife',
   'deagle', 'fiveseven', 'dualies', 'silenced', 'butterfly', 'karambit', 'm9', 'daggers',
+  'ak47', 'm4a1',
 ] as const;
 export type WeaponId = typeof WEAPON_IDS[number];
 
@@ -233,6 +234,21 @@ const DEFS: WeaponDef[] = [
   {
     ...KNIFE, id: 'daggers', name: 'Shadow Daggers',
     price: 1500, sound: 'knife', model: { length: 0.2, color: 0x24262b, accent: 0xd5dae2 },
+  },
+  // ---- The two sides' rifles (ChikenBomb buys them by team, like Counter-Strike) ----
+  /** chikenT's rifle: hard-hitting, a one-shot headshot, kicks more and is shaky on the move. */
+  {
+    id: 'ak47', name: 'AK-47', damage: 26, headshotMultiplier: 3.9, fireInterval: 100, automatic: true,
+    magazine: 30, reloadTime: 2400, pellets: 1, spread: 0.011, moveSpread: 0.055, airSpread: 0.1,
+    range: 140, falloffStart: 50, minDamageScale: 0.75, zoom: 1.4, scope: false, recoil: 0.019,
+    price: 2200, sound: 'battle', model: { length: 0.74, color: 0x2f3134, accent: 0x6e4122 },
+  },
+  /** chikenCT's rifle: a little less damage (two to the head), faster, steadier and more accurate. */
+  {
+    id: 'm4a1', name: 'M4A1', damage: 23, headshotMultiplier: 3.9, fireInterval: 90, automatic: true,
+    magazine: 30, reloadTime: 2100, pellets: 1, spread: 0.009, moveSpread: 0.045, airSpread: 0.09,
+    range: 140, falloffStart: 50, minDamageScale: 0.75, zoom: 1.45, scope: false, recoil: 0.013,
+    price: 2400, sound: 'rifle', model: { length: 0.76, color: 0x232427, accent: 0x3a3c40 },
   },
 ];
 

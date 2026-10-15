@@ -85,7 +85,19 @@ const COVER: MapBox[] = [
   crate(-40, 16),
   crate(41, 16),
   crate(40, -16),
+  ...chicane('concrete', 29, 25),
 ];
+
+/**
+ * Two staggered walls across the mid corridor (|z| < 4) at each end, walked through in an S like
+ * Dust2's doors: no straight line passes both, so the spawns never see each other while buying.
+ */
+function chicane(kind: 'concrete' | 'sandstone', outer: number, inner: number): MapBox[] {
+  return [-1, 1].flatMap((side) => [
+    block(kind, side * outer, -1.25, 0.8, 3.5, 5.5),
+    block(kind, side * inner, 1.25, 0.8, 3.5, 5.5),
+  ]);
+}
 
 export const HARBOR: MapDef = {
   id: 'harbor',
@@ -128,12 +140,16 @@ export const HARBOR: MapDef = {
       { x, z: -21 },
       { x, z: 21 },
     ]),
-    // Mid (around the barriers) and the centre connectors.
-    { x: -28, z: -2.8 },
+    // Mid (around the barriers and through the spawn chicanes) and the centre connectors.
+    ...[-1, 1].flatMap((side) => [
+      { x: side * 31, z: 2.75 },
+      { x: side * 27, z: 2.75 },
+      { x: side * 27, z: -2.75 },
+      { x: side * 23, z: -2.75 },
+    ]),
     { x: -14, z: -2.8 },
     { x: 1, z: 0 },
     { x: 14, z: -2.8 },
-    { x: 28, z: -2.8 },
     { x: 1, z: -11 },
     { x: 1, z: 11 },
     // The sites.

@@ -63,8 +63,9 @@ function tex(kind: TexKind): THREE.CanvasTexture {
   if (t) return t;
   const blade = kind === 'blade' || kind === 'bladeRough';
   const canvas = document.createElement('canvas');
-  canvas.width = blade ? 256 : 128;
-  canvas.height = blade ? 64 : 128;
+  // (256 for the surfaces: twice the old detail, still tiny.)
+  canvas.width = 256;
+  canvas.height = blade ? 64 : 256;
   const ctx = canvas.getContext('2d')!;
   const W = canvas.width;
   const H = canvas.height;
@@ -81,15 +82,23 @@ function tex(kind: TexKind): THREE.CanvasTexture {
         ctx.fillStyle = gray(rough ? 110 + rand() * 90 : 205 + rand() * 50, 0.55);
         ctx.fillRect(0, y, W, 1);
       }
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 60; i++) {
         ctx.strokeStyle = gray(rough ? 70 : 255, rough ? 0.8 : 0.6);
-        ctx.lineWidth = 0.7;
+        ctx.lineWidth = 0.5 + rand() * 0.6;
         const x = rand() * W;
         const y = rand() * H;
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + 10 + rand() * 30, y + (rand() - 0.5) * 8);
+        ctx.lineTo(x + 10 + rand() * 40, y + (rand() - 0.5) * 10);
         ctx.stroke();
+      }
+      // Wear: bright flecks where the finish has rubbed off (smoother there), and darker grime.
+      for (let i = 0; i < 220; i++) {
+        const r = 0.6 + rand() * 1.8;
+        ctx.fillStyle = rand() < 0.7 ? gray(rough ? 60 : 255, 0.5) : gray(rough ? 200 : 150, 0.35);
+        ctx.beginPath();
+        ctx.arc(rand() * W, rand() * H, r, 0, Math.PI * 2);
+        ctx.fill();
       }
       break;
     }
@@ -98,10 +107,28 @@ function tex(kind: TexKind): THREE.CanvasTexture {
       const bump = kind === 'stippleBump';
       ctx.fillStyle = gray(bump ? 128 : 232);
       ctx.fillRect(0, 0, W, H);
-      for (let i = 0; i < 2600; i++) {
+      // A mottled finish (Cerakote-like blotches), then the stipple, then light scuffs.
+      if (!bump) for (let i = 0; i < 60; i++) {
+        const x = rand() * W, y = rand() * H, r = 12 + rand() * 30;
+        const blob = ctx.createRadialGradient(x, y, 0, x, y, r);
+        blob.addColorStop(0, gray(rand() < 0.5 ? 205 : 255, 0.28));
+        blob.addColorStop(1, gray(232, 0));
+        ctx.fillStyle = blob;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      for (let i = 0; i < 10400; i++) {
         const v = rand() < 0.5 ? (bump ? 90 : 205) : bump ? 175 : 250;
         ctx.fillStyle = gray(v, 0.7);
         ctx.fillRect(rand() * W, rand() * H, 1.2, 1.2);
+      }
+      for (let i = 0; i < 24; i++) {
+        ctx.strokeStyle = gray(bump ? 150 : 255, bump ? 0.6 : 0.45);
+        ctx.lineWidth = 0.6;
+        const x = rand() * W, y = rand() * H;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (rand() - 0.5) * 30, y + (rand() - 0.5) * 30);
+        ctx.stroke();
       }
       break;
     }
@@ -402,6 +429,76 @@ function rifleLike(body: THREE.Material, accent: THREE.Material, gold: boolean):
     return { muzzle: new THREE.Vector3(0, 0.064, -0.765), magazine: mag, scale: 0.84 };
   };
 }
+
+/** chikenT's rifle: stamped receiver, walnut furniture, gas tube over the barrel, a curved bakelite magazine. */
+const ak47: Builder = (g) => {
+  const wood = WOOD();
+  const steel = STEEL();
+  add(g, profile('ak:receiver', [[-0.06, 0.092], [0.24, 0.092], [0.25, 0.04], [0.18, 0.032], [0.172, -0.012], [0.072, -0.012], [0.064, 0.022], [-0.06, 0.026]], 0.062), steel, 0, 0, 0);
+  // Dust cover with its ribs, the rear sight leaf and the charging handle on the right.
+  add(g, rbox(0.058, 0.014, 0.27), DARK(), 0, 0.097, -0.09);
+  for (let i = 0; i < 5; i++) add(g, box(0.06, 0.004, 0.006), steel, 0, 0.105, 0.03 - i * 0.05);
+  add(g, rbox(0.03, 0.022, 0.05), steel, 0, 0.108, -0.25);
+  add(g, box(0.034, 0.012, 0.024), steel, 0.04, 0.072, -0.13);
+  // Lower handguard and the gas tube cover, both walnut.
+  add(g, profile('ak:handguard', [[0.25, 0.072], [0.47, 0.068], [0.47, 0.024], [0.25, 0.02]], 0.068, 0.008), wood, 0, 0, 0);
+  add(g, tube(0.017, 0.2), wood, 0, 0.098, -0.36);
+  add(g, tube(0.008, 0.07), steel, 0, 0.098, -0.5);
+  // Barrel, front sight post on its block, and a slanted muzzle brake.
+  add(g, tube(0.011, 0.3), DARK(), 0, 0.058, -0.6);
+  add(g, rbox(0.026, 0.05, 0.03), steel, 0, 0.08, -0.66);
+  add(g, box(0.004, 0.03, 0.006), DARK(), 0, 0.118, -0.66);
+  add(g, tube(0.015, 0.05), DARK(), 0, 0.058, -0.775);
+  add(g, box(0.018, 0.012, 0.03), polymer(0x050505), 0, 0.07, -0.785, -0.4);
+  // Curved magazine in orange-brown bakelite, with its ribs.
+  const mag = new THREE.Group();
+  mag.position.set(0, -0.012, -0.125);
+  add(mag, curvedMag(), polymer(0x7a3f1d, 0.5), 0, 0.01, 0);
+  for (let i = 0; i < 3; i++) add(mag, box(0.044, 0.006, 0.012), polymer(0x5c2e14, 0.5), 0, -0.04 - i * 0.04, -0.012 - i * 0.022, -0.35);
+  g.add(mag);
+  grip(g, wood, 0.035);
+  trigger(g, steel, -0.006, 0.01, 0.024);
+  // Wooden stock with the sling loop and a steel butt plate.
+  add(g, profile('ak:stock', [[-0.055, 0.084], [-0.3, 0.064], [-0.31, -0.05], [-0.22, -0.03], [-0.11, 0.008], [-0.055, 0.03]], 0.044), wood, 0, 0, 0);
+  add(g, rbox(0.046, 0.12, 0.012), steel, 0, 0.007, 0.312);
+  add(g, ring(0.012, 0.003), steel, 0, -0.02, 0.2, 0, Math.PI / 2);
+  return { muzzle: new THREE.Vector3(0, 0.058, -0.805), magazine: mag, scale: 0.84 };
+};
+
+/** chikenCT's rifle: flat-top rail, quad-rail handguard, A-frame front sight, straight magazine, collapsible stock. */
+const m4a1: Builder = (g) => {
+  const body = metal(0x232427, 0.5);
+  const black = polymer(0x18191b);
+  add(g, profile('m4:receiver', [[-0.07, 0.1], [0.24, 0.1], [0.24, 0.036], [0.185, 0.03], [0.178, -0.022], [0.084, -0.022], [0.076, 0.022], [0.0, 0.024], [-0.07, 0.05]], 0.062), body, 0, 0, 0);
+  // Picatinny rail along the whole top, with teeth.
+  add(g, box(0.026, 0.012, 0.5), DARK(), 0, 0.106, -0.2);
+  for (let i = 0; i < 17; i++) add(g, box(0.03, 0.006, 0.01), DARK(), 0, 0.114, 0.03 - i * 0.028);
+  // Folding rear sight, forward assist and ejection port cover on the right.
+  add(g, rbox(0.028, 0.026, 0.026), DARK(), 0, 0.125, 0.01);
+  add(g, tube(0.008, 0.03), DARK(), 0.036, 0.08, 0.02);
+  add(g, box(0.003, 0.024, 0.05), DARK(), 0.033, 0.072, -0.08);
+  // Quad-rail handguard: a tube with rails on each side.
+  add(g, rbox(0.066, 0.066, 0.26, 0.012), body, 0, 0.066, -0.37);
+  for (const [x, y] of [[0.036, 0.066], [-0.036, 0.066], [0, 0.03]] as const) add(g, box(x ? 0.01 : 0.026, x ? 0.026 : 0.01, 0.24), DARK(), x, y, -0.37);
+  // Barrel, A-frame front sight and the flash hider.
+  add(g, tube(0.0105, 0.2), DARK(), 0, 0.066, -0.6);
+  add(g, profile('m4:asight', [[0.0, 0.0], [0.03, 0.0], [0.022, 0.075], [0.008, 0.075]], 0.02), DARK(), 0, 0.06, -0.535);
+  add(g, tube(0.015, 0.05), DARK(), 0, 0.066, -0.72);
+  for (let i = 0; i < 3; i++) add(g, box(0.003, 0.03, 0.03), polymer(0x050505), 0, 0.066, -0.735, 0, 0, (i * Math.PI) / 3);
+  // Straight 30-round magazine, a touch curved at the base.
+  const mag = new THREE.Group();
+  mag.position.set(0, -0.03, -0.13);
+  add(mag, rbox(0.03, 0.15, 0.064, 0.006), DARK(), 0, -0.06, -0.01, 0.12);
+  add(mag, rbox(0.036, 0.012, 0.07), black, 0, -0.14, -0.02, 0.12);
+  g.add(mag);
+  grip(g, black, 0.04);
+  trigger(g, DARK(), -0.005, 0.01, 0.024);
+  // Buffer tube and the collapsible stock.
+  add(g, tube(0.016, 0.17), DARK(), 0, 0.07, 0.14);
+  add(g, profile('m4:stock', [[-0.17, 0.1], [-0.31, 0.1], [-0.315, -0.04], [-0.27, -0.035], [-0.2, 0.035], [-0.17, 0.045]], 0.046), black, 0, 0, 0);
+  add(g, rbox(0.048, 0.14, 0.02), RUBBER(), 0, 0.03, 0.32);
+  return { muzzle: new THREE.Vector3(0, 0.066, -0.75), magazine: mag, scale: 0.84 };
+};
 
 const shotgun: Builder = (g) => {
   const wood = WOOD();
@@ -1063,6 +1160,8 @@ const BUILDERS: Record<WeaponId, Builder> = {
   karambit,
   m9,
   daggers,
+  ak47,
+  m4a1,
 };
 
 /** Baked geometry per weapon, group and material: made the first time, shared by every copy after. */

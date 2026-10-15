@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, clamp, damp, isSidearm, wrapAngle, type WeaponId } from '@game/shared';
 import { buildGun, type GunModel } from './models/Guns';
+import { BombView } from './BombView';
 import { buildProjectileMesh } from './Projectiles';
 import type { HeldGrenade } from './weaponSlots';
 
@@ -205,6 +206,8 @@ interface RecoilFeel {
 const RECOIL: Partial<Record<WeaponId, RecoilFeel>> = {
   pistol: { back: 0.07, pitch: 0.2, roll: 0.14, recovery: 17, flash: 0.75, flashLife: 0.045 },
   golden: { back: 0.085, pitch: 0.22, roll: 0.12, recovery: 16, flash: 0.9, flashLife: 0.045 },
+  ak47: { back: 0.075, pitch: 0.16, roll: 0.11, recovery: 16, flash: 1, flashLife: 0.045 },
+  m4a1: { back: 0.055, pitch: 0.11, roll: 0.08, recovery: 20, flash: 0.8, flashLife: 0.035 },
   rifle: { back: 0.055, pitch: 0.11, roll: 0.09, recovery: 19, flash: 0.9, flashLife: 0.04 },
   smg: { back: 0.035, pitch: 0.075, roll: 0.1, recovery: 24, flash: 0.6, flashLife: 0.035 },
   minigun: { back: 0.022, pitch: 0.045, roll: 0.065, recovery: 26, flash: 0.7, flashLife: 0.028 },
@@ -219,6 +222,8 @@ export interface ViewModelFrame {
   camera: THREE.Camera;
   weapon: WeaponId;
   grenade?: HeldGrenade | null;
+  /** The bomb is out (slot 5): the C4 in your hands instead of the gun. */
+  bomb?: boolean;
   visible: boolean;
   aiming: boolean;
   /** Horizontal speed, m/s (for the walk bob). */
@@ -245,6 +250,7 @@ export class ViewModel {
   private gunId: WeaponId | null = null;
   private readonly guns = new Map<WeaponId, GunModel>();
   private readonly grenades = new Map<HeldGrenade, THREE.Group>();
+  private c4: THREE.Group | null = null;
   /** Your gun skin (set before the first gun is drawn). */
   skin = 'none';
   private tint: string | null = null;
@@ -332,8 +338,19 @@ export class ViewModel {
     }
     const dt = f.dt;
     if (f.weapon !== this.gunId) this.swap(f.weapon);
-    this.gun!.group.visible = !f.grenade;
-    for (const [kind, model] of this.grenades) model.visible = kind === f.grenade;
+    this.gun!.group.visible = !f.grenade && !f.bomb;
+    for (const [kind, model] of this.grenades) model.visible = !f.bomb && kind === f.grenade;
+    if (f.bomb && !this.c4) {
+      const view = new BombView(new THREE.Scene());
+      view.update(new THREE.Vector3(), 0, 'carried', 0, 0, 0, 0);
+      this.c4 = view.root;
+      this.c4.removeFromParent();
+      this.c4.position.set(0.02, -0.06, -0.1);
+      this.c4.rotation.set(0.55, -0.35, 0.1);
+      this.c4.scale.setScalar(0.55);
+      this.holder.add(this.c4);
+    }
+    if (this.c4) this.c4.visible = f.bomb === true;
     if (f.grenade && !this.grenades.has(f.grenade)) {
       const model = buildProjectileMesh(f.grenade);
       model.scale.setScalar(2);

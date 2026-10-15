@@ -6519,3 +6519,6 @@ code {
 }
 .cs-lobby .mode-select .mode-select-rooms button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
 .cs-lobby .mode-select .mode-select-rooms .ico { color: var(--cs-blue); }
+
+/* Buy menu: the shaded gold pictures are already coloured. */
+.buy-card img.buy-pic { filter: none; }

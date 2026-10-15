@@ -1,7 +1,14 @@
 import data from './mirage-data.json';
+// Collision the importer missed on diagonal walls (tools/patch_mirage_walls.mts). Kept last: box order sets collision IDs.
+import walls from './mirage-walls.json';
+// Player clips (tools/mirage_clips.mts): shots and sight pass, chickens don't.
+import clips from './mirage-clips.json';
+// The upright ladder props (tools/mirage_ladders.mts).
+import ladders from './mirage-ladders.json';
 import { type MapBox, type MapDef, type SpawnPoint } from './types';
 import { BACKROOMS_SPEC, FACILITY_SPEC, buildZone } from './zones';
 
+const clipIds = new Set(clips);
 const backrooms = buildZone(BACKROOMS_SPEC);
 const facility = buildZone(FACILITY_SPEC);
 const index = new Map(data.nav.map((p, i) => [p.id, i]));
@@ -17,7 +24,7 @@ export const MIRAGE: MapDef = {
   halfSize: Math.ceil(Math.max(86, backrooms.zone.maxX, -backrooms.zone.minZ, facility.zone.maxZ) + 6),
   // The playable part; the event levels lie sealed beyond it.
   grassHalf: 66,
-  boxes: [...data.boxes as MapBox[], ...backrooms.boxes, ...facility.boxes],
+  boxes: [...(data.boxes as MapBox[]).map((box, i) => clipIds.has(i) ? { ...box, clip: true } : box), ...backrooms.boxes, ...facility.boxes, ...walls as MapBox[]],
   spawns: data.spawns as SpawnPoint[],
   loot: [], vehicles: [],
   flags: bases.map((p, i) => ({ team: (i + 1) as 1 | 2, x: p.x, y: p.y, z: p.z })),
@@ -34,4 +41,5 @@ export const MIRAGE: MapDef = {
   // Existing PvE events stay sealed outside the competitive map.
   zones: [backrooms.zone, facility.zone],
   lamps: [...backrooms.lamps, ...facility.lamps],
+  ladders,
 };

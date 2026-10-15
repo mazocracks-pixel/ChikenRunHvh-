@@ -70,7 +70,6 @@ const COVER: MapBox[] = [
   block('sandstone', 0, 3, 1, 4, 2),
   crate(-14, 2),
   crate(14, -2),
-  crate(21, 2.5),
   // chikenCT spawn and the way down to B.
   crate(31, -6),
   crate(40.5, 10),
@@ -87,6 +86,9 @@ const COVER: MapBox[] = [
   crate(-8, 40),
   crate(-40, 26),
   crate(-5, 20),
+  // Mid, at each spawn's end: two staggered walls walked through in an S, so no straight line
+  // runs spawn to spawn while buying.
+  ...[-1, 1].flatMap((side) => [block('sandstone', side * 23, -1.25, 0.8, 3.5, 5.5), block('sandstone', side * 19, 1.25, 0.8, 3.5, 5.5)]),
 ];
 
 export const SANDSTOWN: MapDef = {
@@ -154,12 +156,18 @@ export const SANDSTOWN: MapDef = {
     { x: -38, z: 24 },
     { x: -38, z: 14 },
     // Mid, Short A and Mid to B.
-    { x: -22, z: 0 },
+    { x: -25, z: 2.75 },
+    { x: -21, z: 2.75 },
+    { x: -21, z: -2.75 },
+    { x: -17, z: -2.75 },
     { x: -12, z: 0 },
     { x: -3, z: 0 },
     { x: 5, z: 0 },
     { x: 16, z: 0 },
-    { x: 24, z: 0 },
+    { x: 25, z: 2.75 },
+    { x: 21, z: 2.75 },
+    { x: 21, z: -2.75 },
+    { x: 17, z: -2.75 },
     { x: 5, z: -10 },
     { x: 5, z: -24 },
     { x: 5, z: -32 },

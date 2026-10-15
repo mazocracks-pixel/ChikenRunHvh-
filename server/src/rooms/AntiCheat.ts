@@ -223,7 +223,7 @@ export class AntiCheat {
         const d = { x: p.x - eye.x, y: p.y - eye.y, z: p.z - eye.z };
         const dist = Math.hypot(d.x, d.y, d.z);
         if (dist < 1e-6) return true;
-        if (!raycastWorld(makeRay(eye, { x: d.x / dist, y: d.y / dist, z: d.z / dist }), this.room.world, dist - 0.05)) return true;
+        if (!raycastWorld(makeRay(eye, { x: d.x / dist, y: d.y / dist, z: d.z / dist }), this.room.world, dist - 0.05, this.room.world.seeThrough)) return true;
       }
     }
     return false;

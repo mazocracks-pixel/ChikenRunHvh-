@@ -92,6 +92,11 @@ export function copyMoveState(from: MoveState, to: MoveState): MoveState {
 
 const MAX_GROUND_TICKS = 255;
 const MAX_FALL_SPEED = 30;
+/**
+ * Ladders, like Counter-Strike's: walk into one and you climb (look down to go down), strafe to
+ * slide along it, jump to let go. `reach` is how close counts as touching it.
+ */
+export const LADDER = { speed: 3.2, reach: 0.3, sideways: 0.5, jumpOff: 3 } as const;
 const EPS = 1e-4;
 const R = PLAYER.radius;
 
@@ -139,6 +144,19 @@ function stepMovement(s: MoveState, input: InputFrame, dt: number, world: Collis
     s.crouching = false;
     stepFlying(s, input, f, r, dt, world, mods);
     return;
+  }
+  const ladder = world.ladders.length > 0 ? ladderFor(s, input, f, r, world) : null;
+  if (ladder && !input.jump) {
+    stepLadder(s, input, f, r, dt, world, ladder);
+    return;
+  }
+  if (ladder && !s.jumpHeld) {
+    // Jumping off: a hop away from the ladder.
+    const ax = s.x - (ladder.minX + ladder.maxX) / 2, az = s.z - (ladder.minZ + ladder.maxZ) / 2, d = Math.hypot(ax, az) || 1;
+    s.walkVx = (ax / d) * LADDER.jumpOff;
+    s.walkVz = (az / d) * LADDER.jumpOff;
+    s.vy = PLAYER.jumpVelocity * 0.5;
+    s.onGround = false;
   }
   // Crouch while held; standing back up needs headroom.
   if (input.crouch) s.crouching = true;
@@ -237,6 +255,45 @@ function stepFlying(s: MoveState, input: InputFrame, f: number, r: number, dt: n
     moveY(s, dy * dt, world);
   }
   s.groundTicks = s.onGround ? (wasOnGround ? Math.min(MAX_GROUND_TICKS, s.groundTicks + 1) : 0) : s.groundTicks;
+}
+
+/**
+ * The ladder you're on: touching one, and either off the ground already or walking into it (so
+ * walking past one doesn't grab you).
+ */
+function ladderFor(s: MoveState, input: InputFrame, f: number, r: number, world: CollisionWorld): Aabb | null {
+  for (const l of world.ladders) {
+    const reach = R + LADDER.reach;
+    if (s.x + reach < l.minX || s.x - reach > l.maxX || s.z + reach < l.minZ || s.z - reach > l.maxZ) continue;
+    if (s.y >= l.maxY - EPS || s.y + heightOf(s) <= l.minY) continue;
+    const towardX = (l.minX + l.maxX) / 2 - s.x, towardZ = (l.minZ + l.maxZ) / 2 - s.z;
+    // In the air you hold on, unless you're flying away from it (just jumped off).
+    if (!s.onGround) { if ((s.walkVx ?? 0) * towardX + (s.walkVz ?? 0) * towardZ >= -0.2) return l; continue; }
+    const wishX = -Math.sin(input.yaw) * f + Math.cos(input.yaw) * r, wishZ = -Math.cos(input.yaw) * f - Math.sin(input.yaw) * r;
+    if (wishX * towardX + wishZ * towardZ > 0) return l;
+  }
+  return null;
+}
+
+/** Climbing: forward goes up (down when looking well below the horizon), strafe slides along. */
+function stepLadder(s: MoveState, input: InputFrame, f: number, r: number, dt: number, world: CollisionWorld, ladder: Aabb): void {
+  const climb = f * (input.pitch < -0.6 ? -1 : 1) * LADDER.speed;
+  s.vx = s.vz = s.vy = 0;
+  s.walkVx = s.walkVz = 0;
+  s.jetting = s.gliding = false;
+  s.hop = 0;
+  s.jumpHeld = input.jump;
+  const side = r * LADDER.speed * LADDER.sideways * dt;
+  moveX(s, Math.cos(input.yaw) * side, world);
+  moveZ(s, -Math.sin(input.yaw) * side, world);
+  const wasOnGround = s.onGround;
+  moveY(s, climb * dt, world);
+  // At the top, a small step forward puts you on the ledge.
+  if (climb > 0 && s.y >= ladder.maxY - 0.1) {
+    moveX(s, -Math.sin(input.yaw) * 0.6 * dt * LADDER.speed, world, true);
+    moveZ(s, -Math.cos(input.yaw) * 0.6 * dt * LADDER.speed, world, true);
+  }
+  if (s.onGround) s.groundTicks = wasOnGround ? Math.min(MAX_GROUND_TICKS, s.groundTicks + 1) : 0;
 }
 
 function canStand(s: MoveState, world: CollisionWorld): boolean {

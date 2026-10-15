@@ -8,7 +8,7 @@ import { Foliage } from './Foliage';
 import { SURFACES, type Surface, type WorldLook } from './look';
 import { box, cylinder, part, solid } from './models/materials';
 import { HORIZON_COLOR, SUN_DIRECTION } from './Sky';
-import { asphaltTexture, bombSiteTexture, boxTexture, concreteTexture, containerTexture, factoryFloorTexture, grassTexture, gridTexture, pavementTexture, sandTexture,
+import { asphaltTexture, bombSiteTexture, boxTexture, concreteTexture, containerTexture, detailTexture, factoryFloorTexture, grassTexture, gridTexture, pavementTexture, rugTexture, sandTexture,
   yardTexture, snowTexture, tiledBoxGeometry } from './textures';
 
 /** Much larger than the fog distance, so the ground's edge is never visible. */
@@ -74,6 +74,8 @@ export class World {
   /** The title screen's track, tufts and clouds (Courtyard only). */
   private yard: Yard | null = null;
   private disposed = false;
+  /** The grain over imported map textures (one shared texture). */
+  private detail: THREE.Texture | null = null;
 
   constructor(scene: THREE.Scene, map: MapDef, maxAnisotropy: number) {
     this.map = map;
@@ -609,8 +611,11 @@ export class World {
             });
             materials.set(material, matte);
             resources.add(matte);
+            this.fixMapMaterial(matte, resources);
           }
         }
+        // The rugs came without texture coordinates: lay one flat over their two longest sides.
+        if (source.some((material) => material.name === 'rug02') && !object.geometry.getAttribute('uv')) planarUvs(object.geometry);
         const converted = source.map((material) => materials.get(material) ?? material);
         object.material = Array.isArray(object.material) ? converted : converted[0]!;
       });
@@ -620,7 +625,24 @@ export class World {
       }
       this.disposables.push(...resources);
       this.root.add(gltf.scene);
+      // The apartment's table had nothing on it: an old TV facing the sofa.
+      if (this.map.id === 'mirage') this.root.add(buildTv(this.disposables, { x: 11.6, y: 7.5, z: -22 }, Math.PI / 2));
     });
+  }
+
+  /** Fixes for the imported Mirage materials: cut-outs left opaque, the untextured rugs, and grain. */
+  private fixMapMaterial(m: THREE.MeshLambertMaterial, resources: Set<{ dispose(): void }>): void {
+    if (m.name === 'rug02') {
+      m.map = rugTexture();
+      m.color.set(0xffffff);
+      resources.add(m.map);
+    }
+    // Mostly see-through textures (scaffolding planks, grates) drew their empty parts as black slabs.
+    if (m.map?.image && !m.transparent && m.alphaTest === 0 && meanAlpha(m.map.image as CanvasImageSource) < 128) m.alphaTest = 0.5;
+    if (m.map) {
+      this.detail ??= this.track(detailTexture());
+      addDetail(m, this.detail);
+    }
   }
 
   /** Tiny painted details are batched by colour, keeping the arena cheap to render. */
@@ -894,4 +916,77 @@ function addWindows(b: MapBox, frames: THREE.BufferGeometry[], glass: THREE.Buff
     add(frames, f * 0.6, wh, fd - 0.02, 0, cy);
     add(frames, ww, f * 0.6, fd - 0.02, 0, cy);
   }
+}
+
+/** Texture coordinates projected over a geometry's two longest sides (for meshes imported without). */
+function planarUvs(geometry: THREE.BufferGeometry): void {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const size = box.getSize(new THREE.Vector3());
+  const axes = (['x', 'y', 'z'] as const).slice().sort((a, b) => size[b] - size[a]);
+  const [u, v] = [axes[0], axes[1]] as const;
+  const pos = geometry.getAttribute('position');
+  const uv = new Float32Array(pos.count * 2);
+  const p = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i);
+    uv[i * 2] = (p[u] - box.min[u]) / (size[u] || 1);
+    uv[i * 2 + 1] = (p[v] - box.min[v]) / (size[v] || 1);
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+const alphaCanvas = typeof document === 'undefined' ? null : document.createElement('canvas');
+/** Average alpha (0–255) of an image, read from a tiny copy. */
+function meanAlpha(image: CanvasImageSource): number {
+  const ctx = alphaCanvas?.getContext('2d', { willReadFrequently: true });
+  if (!alphaCanvas || !ctx) return 255;
+  alphaCanvas.width = alphaCanvas.height = 8;
+  ctx.clearRect(0, 0, 8, 8);
+  ctx.drawImage(image, 0, 0, 8, 8);
+  const d = ctx.getImageData(0, 0, 8, 8).data;
+  let sum = 0;
+  for (let i = 3; i < d.length; i += 4) sum += d[i]!;
+  return sum / 64;
+}
+
+/** Multiplies a fine grain over the base texture at 8× its scale (Source-style detail texture). */
+function addDetail(m: THREE.MeshLambertMaterial, detail: THREE.Texture): void {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.detailMap = { value: detail };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <map_pars_fragment>', '#include <map_pars_fragment>\nuniform sampler2D detailMap;')
+      .replace('#include <map_fragment>', '#include <map_fragment>\n\tdiffuseColor.rgb *= mix( 1.0, texture2D( detailMap, vMapUv * 8.0 ).r * 2.0, 0.35 );');
+  };
+  m.customProgramCacheKey = () => 'map-detail';
+}
+
+/** An old CRT television with rabbit-ear antennas, standing at `at` and turned by `yaw`. */
+function buildTv(disposables: { dispose(): void }[], at: { x: number; y: number; z: number }, yaw: number): THREE.Group {
+  const track = <T extends { dispose(): void }>(t: T) => (disposables.push(t), t);
+  const plastic = track(new THREE.MeshLambertMaterial({ color: 0x2b2722 }));
+  const trim = track(new THREE.MeshLambertMaterial({ color: 0x7a6a55 }));
+  const metal = track(new THREE.MeshLambertMaterial({ color: 0xb8b8b0 }));
+  const screen = track(new THREE.MeshLambertMaterial({ color: 0x1b2a2e, emissive: 0x3a5a62, emissiveIntensity: 0.55 }));
+  const tv = new THREE.Group();
+  const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(track(geometry), material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    tv.add(mesh);
+    return mesh;
+  };
+  add(new THREE.BoxGeometry(0.66, 0.5, 0.42), plastic, 0, 0.25, 0);
+  add(new THREE.BoxGeometry(0.46, 0.38, 0.22), plastic, 0, 0.25, -0.3);
+  add(new THREE.BoxGeometry(0.5, 0.38, 0.02), screen, -0.06, 0.27, 0.215);
+  add(new THREE.BoxGeometry(0.1, 0.42, 0.02), trim, 0.27, 0.25, 0.212);
+  for (const y of [0.36, 0.26]) add(new THREE.CylinderGeometry(0.025, 0.025, 0.03, 12), metal, 0.27, y, 0.23).rotation.x = Math.PI / 2;
+  for (const side of [-1, 1]) {
+    const ear = add(new THREE.CylinderGeometry(0.006, 0.006, 0.55, 6), metal, side * 0.12, 0.72, -0.05);
+    ear.rotation.z = side * -0.55;
+  }
+  add(new THREE.SphereGeometry(0.04, 10, 8), plastic, 0, 0.51, -0.05);
+  tv.position.set(at.x, at.y, at.z);
+  tv.rotation.y = yaw;
+  return tv;
 }

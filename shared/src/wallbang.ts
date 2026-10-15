@@ -32,7 +32,7 @@ export interface PenetratingHit {
 /** Raycast where up to `maxSoft` soft boxes don't stop the ray. Same result on server and client. */
 export function raycastPenetrating(ray: Ray, world: CollisionWorld, maxT: number, isSoft: (id: number) => boolean, maxSoft: number): PenetratingHit {
   const soft: RayHit[] = [];
-  const skip = new Set<number>();
+  const skip = new Set<number>(world.seeThrough);
   for (;;) {
     const hit = raycastWorld(ray, world, maxT, skip);
     if (hit && hit.id !== undefined && soft.length < maxSoft && isSoft(hit.id)) {

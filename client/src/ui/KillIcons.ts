@@ -12,7 +12,7 @@ export type WeaponShape = 'pistol' | 'smg' | 'rifle' | 'sniper' | 'shotgun' | 'l
 const SHAPE_OF: Record<WeaponId, WeaponShape> = {
   pistol: 'pistol', mpistol: 'pistol', revolver: 'pistol', deagle: 'pistol', fiveseven: 'pistol', dualies: 'pistol', silenced: 'pistol',
   smg: 'smg',
-  rifle: 'rifle', burst: 'rifle', battle: 'rifle', golden: 'rifle',
+  rifle: 'rifle', burst: 'rifle', battle: 'rifle', golden: 'rifle', ak47: 'rifle', m4a1: 'rifle',
   sniper: 'sniper', scout: 'sniper',
   shotgun: 'shotgun', autoshotgun: 'shotgun',
   lmg: 'lmg', minigun: 'lmg',

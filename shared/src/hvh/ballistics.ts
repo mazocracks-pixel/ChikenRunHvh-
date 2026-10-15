@@ -9,7 +9,7 @@ import { rayHvhMatrix, type HvhHit, type HvhMatrix } from './geometry';
 export interface BallisticTrace { wallDistance: number; passages: { entry: number; exit: number; loss: number }[] }
 /** Thickness-based penetration shared by server execution and every targeting prediction. */
 export function traceHvhCover(ray: Ray, world: CollisionWorld, range: number, isSoft?: (id: number) => boolean): BallisticTrace {
-  const skip = new Set<number>(), passages: BallisticTrace['passages'] = [];
+  const skip = new Set<number>(world.seeThrough), passages: BallisticTrace['passages'] = [];
   for (let n = 0; n < 3; n++) {
     const hit = raycastWorld(ray, world, range, skip);
     if (!hit) return { wallDistance: range, passages };

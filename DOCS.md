@@ -3,6 +3,32 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 23 (14 Oct): Mirage holes and clips, ladders, CS grenades, the bomb as slot 5, spawn cover, AK-47 / M4A1
+
+- **Walk-through walls:** the importer's collision for diagonal brushes dropped any 16-unit cell poking outside the brush, so thin diagonal walls had none. `tools/patch_mirage_walls.mts` fills open wall faces near walkways with thin boxes (`mirage-walls.json`, 490 boxes). `--check` walks into every open face: 37 holes before, 0 after. Imported nav links that now clip a corner are dropped when the bot graph is built (`nav.ts`); one box was reopened where that link was the only way into an area.
+- **Shots stopping in mid-air:** player clips. `tools/mirage_clips.mts` fires rays from every walkway spot; 42 boxes that stop them where nothing is drawn are `clip: true` (`mirage-clips.json`). Players still collide with them; bullets, wallbangs, bot sight and anti-cheat sight pass through (`CollisionWorld.seeThrough`).
+- **Textures:** mostly see-through textures (scaffolding planks) were drawn opaque, so they get a cut-out. The rugs had no texture or UVs: a woven rug texture and planar UVs. A Source-style grain at 8× scale over all map textures. A CRT TV on the apartment table.
+- **Ladders:** `tools/mirage_ladders.mts` takes the 5 upright ladder props (`mirage-ladders.json`), and shared physics climbs them like CS: walk into one, look down to go down, strafe along it, hang when idle, jump to hop off. 3 tests.
+- **Grenades (CS):** smoke and flash use CS's arc at this scale (16.9 m/s, 0.4 gravity, 45% bounce, rolling friction) and carry 1.25× the thrower's speed; the smoke pops once it stops; the flash fuse is 1.5 s. The egg is unchanged.
+- **Bomb as an item:** key 5 takes the C4 out (first-person C4, "5 C4" in the HUD); holding fire plants it; E still works.
+- **Spawn cover:** Harbor and Sandstown mid get an S-chicane of two staggered 3.5 m walls at each spawn: buy-zone sight lines went from 1600/4608 and 1050/4608 to 0. Waypoints were moved through the gaps, and one Sandstown crate was removed.
+- **AK-47 (chikenT, $2700) and M4A1 (chikenCT, $3100):** new weapon IDs, appended to the list. The AK one-taps the head; the M4 fires faster and is steadier. New models. The Rifle and Golden Rifle are still sold, since the buy-menu tests need every gun.
+- **Guns and icons:** surface textures at 2× resolution, with wear, mottling and scuffs. Buy-menu and shop pictures are rendered at 3× the pixels with the gun's own lighting, then recoloured to gold (buy menu) or light grey (shop); the kill feed keeps the silhouettes.
+- **Not done (out of time):** the buy-menu layout, a buy sound, footstep sounds. The theme the owner called "theme228" is byte-identical to the one already playing.
+- Tests: 506; all pass. The Exploder fuse test failed once under full-suite load and passes alone.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | My first wall check counted walls where collision sat a bit off the face. | Checked by walking a simulated player into each face and testing if the path crossed it. |
+| 2 | Dropping boxes for every cut nav link reopened 19 holes. | Kept the boxes; nav drops the links instead; reopened only what kept every area reachable. |
+| 3 | Python patches through bash heredocs mangled `
+` again. | Used the Edit tool for those lines. |
+| 4 | Ladders: idle in the air re-grabbed the ladder right after a jump. | A jump pushes you away, and no grab while moving away. |
+| 5 | A chicane overlapped an old crate in Sandstown mid. | Removed the crate. |
+| 6 | Replacing Rifle/Golden in the bomb buy list broke 4 tests. | Kept them alongside the new rifles. |
+
 # Batch 22 (14 Oct): CS-style screens after PR #9, Mirage look, lobby chicken, theme music
 
 Came after merging PR #9 (the CS-style lobby, the CS HUD, Mirage). The requests, in order: make everything else match the new menu (the shop, Loadout, Store, the Dev code keypad); fix Mirage being too light and its texture bugs; a bigger top bar, a smaller lobby chicken that does a CS-style emote with its gun; the owner's `chickenRunHvh_theme.mp3` as the title music.

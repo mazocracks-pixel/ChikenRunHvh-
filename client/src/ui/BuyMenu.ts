@@ -13,7 +13,7 @@ import {
   type WeaponId,
 } from '@game/shared';
 import { Chicken } from '../game/models/Chicken';
-import { gunIcon, prepareGunIcons } from './GunIcons';
+import { gunPicture, prepareGunIcons } from './GunIcons';
 import { clear, formatTime, h } from './dom';
 import { icon, type IconName } from './icons';
 
@@ -145,7 +145,7 @@ export class BuyMenu {
   update(dt: number): void {
     if (!this.open) return;
     for (const img of this.root.querySelectorAll<HTMLImageElement>('img[data-weapon]')) {
-      const picture = gunIcon(img.dataset.weapon as WeaponId);
+      const picture = gunPicture(img.dataset.weapon as WeaponId, 'gold');
       if (picture && img.getAttribute('src') !== picture.url) img.src = picture.url;
     }
     if (!this.renderer || !this.chicken) return;
@@ -208,7 +208,7 @@ export class BuyMenu {
       if (items.length === 0) continue;
       const grid = h('div', { class: 'buy-grid' });
       for (const [itemIndex, item] of items.entries()) {
-        const pic = item.weapon ? h('img', { class: 'buy-pic', alt: '', src: gunIcon(item.weapon)?.url ?? '', 'data-weapon': item.weapon }) : icon(GEAR_ICONS[item.id]!, 'buy-pic');
+        const pic = item.weapon ? h('img', { class: 'buy-pic', alt: '', src: gunPicture(item.weapon, 'gold')?.url ?? '', 'data-weapon': item.weapon }) : icon(GEAR_ICONS[item.id]!, 'buy-pic');
         const card = h(
           'button',
           { type: 'button', class: `buy-card${item.team ? ` team${item.team}` : ''}`, 'data-item': item.id },
@@ -269,7 +269,7 @@ export class BuyMenu {
     const pistol = v.loadout.find((w) => isSidearm(w));
     const melee = v.loadout.find((w) => isMelee(w));
     const slot = (label: string, id: WeaponId | undefined) =>
-      h('div', { class: `buy-slot${id ? '' : ' empty'}` }, id ? h('img', { src: gunIcon(id)?.url ?? '', 'data-weapon': id, alt: '' }) : null, h('small', null, label), h('b', null, id ? WEAPONS[id].name : '—'));
+      h('div', { class: `buy-slot${id ? '' : ' empty'}` }, id ? h('img', { src: gunPicture(id, 'gold')?.url ?? '', 'data-weapon': id, alt: '' }) : null, h('small', null, label), h('b', null, id ? WEAPONS[id].name : '—'));
     this.loadoutEl.append(
       h('h4', null, 'Your loadout'),
       slot('Main', main),

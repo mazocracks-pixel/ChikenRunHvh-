@@ -90,6 +90,8 @@ export const BUY_ITEMS: readonly BuyItem[] = [
   gun('lmg', 'LMG', 5_200, 'mid'),
   gun('minigun', 'Minigun', 6_000, 'mid'),
   gun('burst', 'Burst Rifle', 2_050, 'rifle'),
+  gun('ak47', 'AK-47', 2_700, 'rifle', 1),
+  gun('m4a1', 'M4A1', 3_100, 'rifle', 2),
   gun('rifle', 'Rifle', 2_700, 'rifle', 1),
   gun('golden', 'Golden Rifle', 3_100, 'rifle', 2),
   gun('battle', 'Battle Rifle', 3_000, 'rifle'),

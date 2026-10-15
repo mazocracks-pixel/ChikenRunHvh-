@@ -26,6 +26,10 @@ export class CollisionWorld {
   private readonly boxes = new Map<number, Aabb>();
   private readonly cells = new Map<number, number[]>();
   private readonly scratchIds: number[] = [];
+  /** Player clips: boxes that stop chickens but not bullets or sight (Mirage's invisible gap fillers). */
+  readonly seeThrough = new Set<number>();
+  /** Climbable ladder volumes (Mirage). */
+  ladders: readonly Aabb[] = [];
 
   constructor(halfSize: number, staticBoxes: readonly Aabb[] = []) {
     this.halfSize = halfSize;

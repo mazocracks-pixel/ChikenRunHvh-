@@ -21,15 +21,28 @@ export interface ProjectileDef {
   knockback: number;
   /** Damage multiplier when you catch yourself in your own blast. */
   selfDamageScale: number;
+  /** Grenades: slowing (m/s²) while rolling along the floor. */
+  rollFriction?: number;
+  /** How much of the thrower's own speed it carries (Counter-Strike: 1.25). */
+  carry?: number;
+  /** Goes off once it comes to rest (Counter-Strike's smoke), `fuseMs` at the latest. */
+  restFuse?: boolean;
 }
+
+/**
+ * Counter-Strike's grenade arc, at this game's scale (both about 40 units a metre): thrown at
+ * 750 × 0.9 u/s, a little upward, under 0.4 gravity; 45% kept per bounce, then it rolls.
+ */
+const CS_GRENADE = { speed: 16.9, upBoost: 2.9, gravity: 8, bounce: 0.45, rollFriction: 5, carry: 1.25 } as const;
 
 export const PROJECTILES: Record<ProjectileKind, ProjectileDef> = {
   egg: {
     speed: 19, upBoost: 3.5, gravity: 18, radius: 0.12, fuseMs: 4000, explodeOnImpact: true, bounce: 0,
     damage: 95, splashRadius: 4.2, knockback: 13, selfDamageScale: 0.5,
   },
+  /** Smoke: Counter-Strike's arc; pops once it has stopped rolling. */
   smoke: {
-    speed: 15, upBoost: 3, gravity: 18, radius: 0.12, fuseMs: 1500, explodeOnImpact: false, bounce: 0.35,
+    ...CS_GRENADE, radius: 0.12, fuseMs: 5000, explodeOnImpact: false, restFuse: true,
     damage: 0, splashRadius: 5, knockback: 0, selfDamageScale: 0,
   },
   rocket: {
@@ -38,7 +51,7 @@ export const PROJECTILES: Record<ProjectileKind, ProjectileDef> = {
   },
   /** Flashbang: bounces about, then goes off with a blinding flash (no damage). */
   flash: {
-    speed: 16, upBoost: 3, gravity: 18, radius: 0.1, fuseMs: 1600, explodeOnImpact: false, bounce: 0.4,
+    ...CS_GRENADE, radius: 0.1, fuseMs: 1500, explodeOnImpact: false,
     damage: 0, splashRadius: 0, knockback: 0, selfDamageScale: 0,
   },
   /** Crossbow bolt: fast, drops a little, and hits whatever it strikes directly (no blast). */
@@ -118,10 +131,22 @@ export function stepProjectile(p: ProjectileBody, def: ProjectileDef, dt: number
   p.vz = (p.vz - 2 * dot * hit.nz) * def.bounce;
   if (hit.ny > 0.7 && Math.abs(p.vy) < 1.5) {
     p.vy = 0;
-    p.vx *= 0.8;
-    p.vz *= 0.8;
+    if (def.rollFriction) {
+      // Rolling: slows at a steady rate, then lies still.
+      const along = Math.hypot(p.vx, p.vz), slower = Math.max(0, along - def.rollFriction * dt);
+      p.vx = along > 1e-6 ? (p.vx / along) * slower : 0;
+      p.vz = along > 1e-6 ? (p.vz / along) * slower : 0;
+    } else {
+      p.vx *= 0.8;
+      p.vz *= 0.8;
+    }
   }
   return false;
+}
+
+/** True once a bouncing projectile lies still. */
+export function atRest(p: ProjectileBody): boolean {
+  return Math.hypot(p.vx, p.vy, p.vz) < 0.05;
 }
 
 /** 1 at the centre of a blast, falling linearly to 0 at the edge. */
