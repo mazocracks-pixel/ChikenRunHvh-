@@ -34,6 +34,7 @@ Came after merging PR #9 (the CS-style lobby, the CS HUD, Mirage). The requests,
   - One CSS block remaps the paper theme's colour tokens inside the shop, every dialog, the keypad, the cookie notice and the server-down card. The main parts are then restyled one by one: dark glass panels, square corners, uppercase headings, slate buttons, and underlined tabs.
   - Items are CS inventory tiles: a grey gradient with the rarity as a bar along the bottom, the rarity name in its colour, a green dot when equipped, and a soft light behind gun pictures.
   - Left alone: the Skeet and Lab panels, the HvH setup, and the pause menu (the PR already made it CS-style).
+  - Follow-up: "Choose a mode" was still half paper style (cream badges with unreadable text, white dropdowns, red trophy circles). It now matches: dark tiles, blue icons with no badge, grey player counts, dark dropdowns, a joined With/No bots switch, underlined tabs, and gold for the ranked FaceChiken card.
 - **What the PR broke (6 tests).**
   - Mirage got 0 open spots, because the flat fill runs at y = 0 and Mirage's streets are metres up. Free-for-all already used Mirage's nav points. Training now does too, so it gets its 8 targets.
   - Training movers on raised floors need a level strafe line (`walkable` follows the floor). A half-width strafe is used where streets are tight.
@@ -65,7 +66,8 @@ Came after merging PR #9 (the CS-style lobby, the CS HUD, Mirage). The requests,
 | 6 | First reverted Zombie and Backrooms to the Graveyard only, then saw the PR's own test requires Mirage in every mode. | Kept Mirage and fixed the real break (the C wall height) instead. |
 | 7 | Guessed Mirage's playable size as 86; its nav spans about 100 × 86 m around the origin. | 66 (covers x down to -65). |
 | 8 | The full test run hung once while my browser tests ran at the same time (the socket test is timing-sensitive). | Ran it alone (passes), then the full run with nothing else going. |
-| 9 | The test server refused guests after many runs from the same fake IPs. | Random fake IPs per run. |
+| 9 | The test server refused guests after many runs. Random fake IPs didn't help: the limiter ignores X-Forwarded-For locally, so every test browser is one address. | One browser session reused for all screen sizes. |
+| 10 | Missed the mode select in the first pass: it lives in the lobby, not the dialog layer. | Its own CS block. A generic `.ranked` rule (for rank labels) also centred the FaceChiken card, so that's overridden. |
 
 # Batch 21 (13 Oct): the Backrooms is easier, 300 of 500 crystals open the portal
 
