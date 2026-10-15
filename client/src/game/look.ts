@@ -68,6 +68,21 @@ export function nightLook(): WorldLook {
   };
 }
 
+/** Mirage: hard desert sun, a weaker sky fill (it washed the stone out) and a long view. */
+export function desertLook(): WorldLook {
+  return {
+    ...defaultLook(),
+    zenith: '#5d97c4',
+    horizon: '#e3d6bd',
+    clouds: 0.5,
+    fog: 2.2,
+    sunColor: '#ffe3b8',
+    sunIntensity: 3.1,
+    ambient: 0.42,
+    exposure: 0.95,
+  };
+}
+
 export function defaultLook(): WorldLook {
   return {
     grass: '#ffffff',

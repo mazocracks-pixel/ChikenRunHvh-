@@ -3,6 +3,70 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 22 (14 Oct): CS-style screens after PR #9, Mirage look, lobby chicken, theme music
+
+Came after merging PR #9 (the CS-style lobby, the CS HUD, Mirage). The requests, in order: make everything else match the new menu (the shop, Loadout, Store, the Dev code keypad); fix Mirage being too light and its texture bugs; a bigger top bar, a smaller lobby chicken that does a CS-style emote with its gun; the owner's `chickenRunHvh_theme.mp3` as the title music.
+
+## Plan
+
+| Step | What | Where |
+| --- | --- | --- |
+| 1 | Run the tests on the merged PR and fix what it broke | modes tests, TrainingRoom, ZombieRoom, mirage.ts |
+| 2 | Mirage: its own desert light; fix the moire rings and the green faces | look.ts, Game.ts, World.ts |
+| 3 | Lobby: bigger top bar, camera further back, gun emote | style.css, Game.ts, Chicken.ts |
+| 4 | Title music: the new theme, streamed | Audio.ts, client/public/sounds, SOUNDS.md |
+| 5 | CS look for Inventory / Loadout / Store, every dialog, the keypad, the cookie notice | Shop.ts, style.css |
+
+## What was done
+
+- **Mirage look.**
+  - New `desertLook()`: hard warm sun (3.1), sky fill cut to 0.42 (it washed the stone white-blue), fog pushed back 2.2×, exposure 0.95.
+  - The sky fill's ground colour was grass green, which lit every downward-facing face olive. On maps with an imported mesh it is warm sand now.
+  - The moire rings on floors were shadow acne. Every imported face is double-sided, so floors shadowed themselves. The import's triangle winding is reversed, so `shadowSide: FrontSide` (the faces turned away from the sun) casts the same shadows without the acne. Checked with shadows off, BackSide and FrontSide.
+  - **Not fixable here:** every Mirage texture is 128 px or smaller (the PR's importer capped them), which is why walls look blurry up close. Sharper ones need the importer re-run with a bigger cap.
+- **Lobby.**
+  - The top bar is 54 px (was 42), with 15 px labels and bigger icons.
+  - The camera sits 4.6 m back (was 2.8), so the whole chicken stands in the scene. The name and rank sit under its feet (desktop and phone).
+  - `Chicken.menuEmote()`, used on the title screen only: the gun rests low across the body, the weight shifts and the head looks around. Every 14 s the chicken shoulders the gun to check an angle (off to the side, never at the camera), then inspects it while looking down at it.
+- **Music.** `chickenRunHvh_theme.mp3` (4 min, 256 kbps) replaces `CHIKEN_HVHLOBBY.mp3`. It streams from an `<audio>` element through the music gain, because decoding it whole would hold about 85 MB. Same fades and volume as before; it picks up where it stopped.
+- **CS screens.**
+  - The shop screens have the lobby's top bar (Inventory, Loadout, Play, Store), with the open one underlined.
+  - One CSS block remaps the paper theme's colour tokens inside the shop, every dialog, the keypad, the cookie notice and the server-down card. The main parts are then restyled one by one: dark glass panels, square corners, uppercase headings, slate buttons, and underlined tabs.
+  - Items are CS inventory tiles: a grey gradient with the rarity as a bar along the bottom, the rarity name in its colour, a green dot when equipped, and a soft light behind gun pictures.
+  - Left alone: the Skeet and Lab panels, the HvH setup, and the pause menu (the PR already made it CS-style).
+- **What the PR broke (6 tests).**
+  - Mirage got 0 open spots, because the flat fill runs at y = 0 and Mirage's streets are metres up. Free-for-all already used Mirage's nav points. Training now does too, so it gets its 8 targets.
+  - Training movers on raised floors need a level strafe line (`walkable` follows the floor). A half-width strafe is used where streets are tight.
+  - Zombie Apocalypse on Mirage: the C wall was built from y = 0, under the street, so no blocks were placed. It now builds from the floor you stand on.
+  - Mirage gets `grassHalf: 66`, its playable size (the event levels lie beyond).
+  - The zombie and Backrooms tests now expect `['night', 'mirage']`, as the PR's own map test does.
+  - The Backrooms card said "Graveyard" again (the PR undid Batch 20's fix). Restored.
+
+## Tests
+
+- New: Zombie Apocalypse on Mirage builds the wall on the raised street, at your feet.
+- Full run: **503/503 pass**, typecheck OK, build OK.
+- Browser (real GPU, headless):
+  - Mirage from 8 places before and after;
+  - the lobby at 1600×900 and on a phone, with the emote frames;
+  - Store, Inventory, Loadout, item detail, buy confirm, Settings, Daily, Leaderboard, Friends, Account, How to play, the mode select and the keypad, on desktop and phone;
+  - the music element plays the new file;
+  - no page errors.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | My first Mirage views teleported into walls (y inside solid boxes), so the camera fell under the map and it looked like missing floors. | Used Mirage's nav places (on the floor) as the views. |
+| 2 | Tried `shadowSide: BackSide` first: no change, because the import's winding is reversed. | Probed both sides in the browser; FrontSide is right. |
+| 3 | A bash heredoc with CSS quotes broke. | Wrote the CSS to a file and appended it. |
+| 4 | My screenshot script's "back" selector clicked the new INVENTORY tab, so dialogs looked like they opened over the shop. | Narrowed it to the panel's back button (a test-script bug, not the game). |
+| 5 | Phone: item cards squashed (swatches became lines, "Equipped" cut off). The grids were shrinking flex children of the scrolling body. | `flex-shrink: 0` on the body's children. |
+| 6 | First reverted Zombie and Backrooms to the Graveyard only, then saw the PR's own test requires Mirage in every mode. | Kept Mirage and fixed the real break (the C wall height) instead. |
+| 7 | Guessed Mirage's playable size as 86; its nav spans about 100 × 86 m around the origin. | 66 (covers x down to -65). |
+| 8 | The full test run hung once while my browser tests ran at the same time (the socket test is timing-sensitive). | Ran it alone (passes), then the full run with nothing else going. |
+| 9 | The test server refused guests after many runs from the same fake IPs. | Random fake IPs per run. |
+
 # Batch 21 (13 Oct): the Backrooms is easier, 300 of 500 crystals open the portal
 
 - New `needed` option on a story event (missing means all of them). The Backrooms has `crystals: 500, needed: 300` in [events.ts](shared/src/events.ts).

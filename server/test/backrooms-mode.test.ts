@@ -36,12 +36,12 @@ function setup() {
 }
 
 describe('The Backrooms (game mode)', () => {
-  it('is its own co-op PvE mode in the menu list, on the night map with the event level', () => {
+  it('is its own co-op PvE mode in the menu list, on the night map or Mirage with the event level', () => {
     const m = MODES.backrooms;
     assert.equal(m.huntOnly, 'backrooms');
     assert.equal(m.pve, true);
     assert.equal(m.maxHumans, 4);
-    assert.deepEqual(m.maps, ['night']);
+    assert.deepEqual(m.maps, ['night', 'mirage']);
   });
 
   it('starts inside the Backrooms with the hunt on: no waves, the entrance is where you appear', () => {

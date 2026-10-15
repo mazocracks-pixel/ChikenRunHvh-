@@ -84,6 +84,8 @@ export class World {
     scene.fog = new THREE.Fog(HORIZON_COLOR, FOG_NEAR, FOG_FAR);
 
     this.addLights();
+    // Imported stone maps: the sky fill bounces off sand, not grass (green undersides otherwise).
+    if (map.mesh) this.hemi.groundColor.set(0x8c7656);
     this.addGround();
     this.addBoxes();
     this.ready = map.mesh ? this.addMapMesh(map.mesh) : Promise.resolve();
@@ -600,6 +602,10 @@ export class World {
               side: material.side, vertexColors: material.vertexColors,
               emissive: material.emissive, emissiveMap: material.emissiveMap,
               emissiveIntensity: material.emissiveIntensity,
+              // Every imported face is double-sided, and casting from both sides made floors
+              // shadow themselves (moire rings). The import's winding is reversed, so FrontSide
+              // here means the faces turned away from the sun: same shadows, no acne.
+              shadowSide: THREE.FrontSide,
             });
             materials.set(material, matte);
             resources.add(matte);

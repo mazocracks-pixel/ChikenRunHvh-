@@ -883,12 +883,14 @@ export class ZombieRoom extends GameRoom {
       bodies.push({ minX: s.x - r, maxX: s.x + r, minY: s.y, maxY: s.y + heightOf(s), minZ: s.z - r, maxZ: s.z + r });
     }
     let placed = 0;
+    // From the floor you stand on (Mirage's streets are metres up), on the block grid.
+    const base = Math.max(0, Math.ceil(p.state.y / BLOCK_SIZE - 0.05));
     for (let i = -(b.width - 1) / 2; i <= (b.width - 1) / 2; i++) {
       const x = p.state.x + fx * b.ahead + rx * i * BLOCK_SIZE;
       const z = p.state.z + fz * b.ahead + rz * i * BLOCK_SIZE;
       const cx = Math.floor(x / BLOCK_SIZE);
       const cz = Math.floor(z / BLOCK_SIZE);
-      for (let cy = 0; cy < b.height; cy++) {
+      for (let cy = base; cy < base + b.height; cy++) {
         if (this.blocks.size >= b.maxBlocks) break;
         const key = cellKey(cx, cy, cz);
         if (this.cells.has(key)) continue;

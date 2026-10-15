@@ -15,7 +15,7 @@ import { baseFov } from './CameraRig';
 import { GameSession, type DevHooks } from './GameSession';
 import { Input } from './Input';
 import { Chicken } from './models/Chicken';
-import { defaultLook, nightLook, type WorldLook, bloodMoonLook } from './look';
+import { defaultLook, desertLook, nightLook, type WorldLook, bloodMoonLook } from './look';
 import { SUN_DIRECTION, Sky } from './Sky';
 import { World } from './World';
 
@@ -79,7 +79,7 @@ export class Game {
   private envScene: THREE.Scene;
   /** What the developer World tab set (white tints = unchanged), and what the map looks like by itself. */
   private userLook: WorldLook = defaultLook();
-  private baseLook: WorldLook = defaultLook();
+  private baseLook: WorldLook = SHOWCASE_MAP === 'mirage' ? desertLook() : defaultLook();
   /** Zombie Apocalypse Blood Moon: 0 (normal night) to 1 (crimson). */
   private bloodMoon = 0;
   /** Inside a story event level: its own light (null: the map's). */
@@ -219,7 +219,7 @@ export class Game {
     this.applyQuality(this.quality);
     // Some maps have their own light (the Graveyard is a night).
     const night = id === 'night';
-    this.baseLook = night ? nightLook() : defaultLook();
+    this.baseLook = night ? nightLook() : id === 'mirage' ? desertLook() : defaultLook();
     // The night: nothing is drawn past the fog (it hides it anyway), and the gun in your hands
     // is lit like the world around it.
     this.camera.far = night ? NIGHT_VIEW : DAY_VIEW;
@@ -265,14 +265,16 @@ export class Game {
 
     s.chicken.root.position.copy(PREVIEW_SPOT);
     s.chicken.animate(dt, 0, true);
+    s.chicken.menuEmote(s.clock);
     s.chicken.root.rotation.y = Math.PI + 0.3 + Math.sin(s.clock * 0.35) * 0.035;
     const fov = this.camera.aspect < 1 ? 50 : 40;
     if (this.camera.fov !== fov) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
-    this.camera.position.set(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 0.85, PREVIEW_SPOT.z + 2.8);
-    this.camera.lookAt(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 0.82, PREVIEW_SPOT.z);
+    // Far enough back that the whole chicken stands in the lobby, like a CS agent.
+    this.camera.position.set(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 1, PREVIEW_SPOT.z + 4.6);
+    this.camera.lookAt(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 0.75, PREVIEW_SPOT.z);
   }
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */

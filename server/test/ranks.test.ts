@@ -177,9 +177,10 @@ describe('spread spawns', () => {
     for (const id of MAP_IDS) {
       const map = MAPS[id];
       const world = createCollisionWorld(map);
-      const spots = openSpots(map.spawns, world, map.halfSize);
+      // Imported maps (Mirage) roam over their own nav points instead of a flat fill.
+      const spots = map.navLinks ? map.nav!.slice(0, map.navLinks.length) : openSpots(map.spawns, world, map.halfSize);
       assert.ok(spots.length >= 25, `${id}: only ${spots.length} spots`);
-      for (const s of spots) assert.ok(isSpaceFree(s.x, 0, s.z, world), `${id}: ${s.x},${s.z} is blocked`);
+      for (const s of spots) assert.ok(isSpaceFree(s.x, s.y ?? 0, s.z, world), `${id}: ${s.x},${s.z} is blocked`);
       const xs = spots.map((s) => s.x);
       const zs = spots.map((s) => s.z);
       // (The playable part: the Graveyard's event levels lie sealed beyond it.)

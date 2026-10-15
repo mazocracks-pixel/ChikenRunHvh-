@@ -15,6 +15,8 @@ export const MIRAGE: MapDef = {
   id: 'mirage', name: 'Mirage', ground: 'sand', mesh: '/maps/mirage.glb',
   radar: { image: '/maps/mirage-radar.png', x: -80.75, z: -42.825, size: 128 },
   halfSize: Math.ceil(Math.max(86, backrooms.zone.maxX, -backrooms.zone.minZ, facility.zone.maxZ) + 6),
+  // The playable part; the event levels lie sealed beyond it.
+  grassHalf: 66,
   boxes: [...data.boxes as MapBox[], ...backrooms.boxes, ...facility.boxes],
   spawns: data.spawns as SpawnPoint[],
   loot: [], vehicles: [],

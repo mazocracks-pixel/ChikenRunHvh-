@@ -5893,7 +5893,7 @@ code {
 .cs-topbar {
   position: absolute;
   inset: 0 var(--rail) auto 0;
-  height: 42px;
+  height: 54px;
   display: flex;
   align-items: center;
   background: linear-gradient(180deg, rgba(39, 43, 44, 0.8), rgba(39, 43, 44, 0.48));
@@ -5901,17 +5901,18 @@ code {
   backdrop-filter: blur(8px);
 }
 .cs-tools { display: flex; padding-left: 3px; }
-.cs-lobby .cs-tool { position: relative; display: grid; place-items: center; width: 36px; padding: 6px; }
-.cs-tool .icon { width: 18px; height: 18px; }
+.cs-lobby .cs-tool { position: relative; display: grid; place-items: center; width: 42px; padding: 6px; }
+.cs-tool .icon { width: 21px; height: 21px; }
 .cs-lobby .logo { color: #8bcddd; text-shadow: none; }
 .cs-nav { display: flex; justify-content: center; margin-inline: auto; padding-right: 144px; }
-.cs-nav button { padding-inline: clamp(9px, 1.4vw, 24px); text-transform: uppercase; white-space: nowrap; }
+.cs-nav button { align-self: stretch; padding-inline: clamp(10px, 1.8vw, 32px); font-size: 15px; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.cs-nav { align-self: stretch; }
 .cs-nav button + button { border-left: 1px solid rgba(255, 255, 255, 0.1); }
 .cs-nav .cs-nav-play { color: #fff; border-bottom: 2px solid #8bcddd; }
 .cs-profile {
   position: absolute;
   left: 50%;
-  bottom: 18%;
+  bottom: 13%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -5953,7 +5954,7 @@ code {
   border-left: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(7px);
 }
-.cs-friends > .cs-tool:first-child { height: 42px; padding-top: 18px; }
+.cs-friends > .cs-tool:first-child { height: 50px; padding-top: 20px; }
 .cs-friend-count { position: absolute; top: 0; right: 4px; color: #b1cf6e; font-size: 11px; }
 .cs-friends .badge { position: absolute; top: 1px; left: 0; padding: 1px 3px; background: #8bcddd; color: #17242c; font-size: 9px; }
 .cs-friend-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; width: 100%; align-items: center; }
@@ -5992,7 +5993,7 @@ code {
 .cs-party .party-chip { padding: 2px 4px; border: 0; border-radius: 0; background: rgba(255, 255, 255, 0.1); }
 .cs-news {
   position: absolute;
-  top: 56px;
+  top: 66px;
   left: 18px;
   width: min(310px, calc(100% - var(--rail) - 32px));
   max-height: calc(100dvh - 160px);
@@ -6031,7 +6032,7 @@ code {
 .cs-bottom .coins { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: #e5d59a; }
 .cs-bottom .coins .icon { width: 12px; height: 12px; }
 .cs-bottom button { min-height: 24px; padding: 3px 6px; font-size: 10px; }
-.cs-lobby > .cs-tool { position: absolute; top: 48px; left: 7px; color: #d4d8d9; }
+.cs-lobby > .cs-tool { position: absolute; top: 60px; left: 7px; color: #d4d8d9; }
 .cs-lobby.scene-only > :not(.cs-tool) { visibility: hidden; pointer-events: none; }
 .cs-lobby .mode-select-window { --muted: #bac5ca; color: #f0f1ee; background: rgba(27, 33, 36, 0.97); border: 1px solid var(--panel-border); border-radius: 0; }
 .cs-lobby .mode-select h2, .cs-lobby .mode-card h3 { font-family: inherit; color: #fff; font-style: normal; }
@@ -6058,7 +6059,7 @@ code {
   .cs-nav { width: 100%; margin: 0; }
   .cs-nav button { flex: 1; padding: 8px 4px; font-size: 10px; }
   .cs-lobby > .cs-tool { top: 84px; }
-  .cs-profile { bottom: 32%; max-width: 200px; }
+  .cs-profile { bottom: 20%; max-width: 200px; }
   .cs-news { top: 84px; }
   .cs-match { left: 8px; right: calc(var(--rail) + 8px); max-width: none; }
   .cs-match-mode { flex: 1; font-size: 10px; }
@@ -6069,4 +6070,304 @@ code {
   .cs-profile { bottom: 30%; gap: 3px; }
   .cs-profile .rank-chip { height: 30px; width: 28px; font-size: 14px; }
   .cs-profile .record { display: none; }
+}
+
+/* ============================== CS-style screens ============================== */
+/* Inventory, Loadout and Store, every dialog, the cookie notice and the dev code keypad share the
+   lobby's look: dark glass, thin lines, square corners, small uppercase headings. The paper theme's
+   colour tokens are remapped here, so the parts not restyled one by one follow along. */
+:root {
+  --cs-glass: rgba(24, 28, 31, 0.92);
+  --cs-tile: linear-gradient(180deg, #4b5258 0%, #2c3136 100%);
+  --cs-tile-hi: linear-gradient(180deg, #59636b 0%, #353b41 100%);
+  --cs-line: rgba(255, 255, 255, 0.14);
+  --cs-text: #f0f1ee;
+  --cs-muted: #aab4b9;
+  --cs-blue: #8bcddd;
+  --cs-green: #b1cf6e;
+  --cs-red: #e0705f;
+  --cs-button: #526976;
+  --cs-button-hi: #64808e;
+  --cs-gold: #e5d59a;
+  --cs-font: 'Arial Narrow', 'Segoe UI', sans-serif;
+}
+:is(.cs-shop, #modal-layer, .pk-backdrop, #ui-layer .server-down, #ui-layer .cookie-notice) {
+  --ink: var(--cs-text);
+  --muted-ink: var(--cs-muted);
+  --paper: rgba(255, 255, 255, 0.04);
+  --paper-2: rgba(255, 255, 255, 0.07);
+  --yolk: var(--cs-button);
+  --yolk-hi: var(--cs-button-hi);
+  --barn: var(--cs-red);
+  --sky-deep: var(--cs-blue);
+  --display: var(--cs-font);
+  --outline: none;
+  font-family: var(--cs-font);
+}
+:where(.cs-shop, #modal-layer, .pk-backdrop, #ui-layer .server-down, #ui-layer .cookie-notice) :is(.panel, .modal, .card) {
+  --text: var(--cs-text);
+  --muted: var(--cs-muted);
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-solid: var(--cs-glass);
+  --panel-border: var(--cs-line);
+  --accent: var(--cs-blue);
+  --accent-ink: #17242c;
+}
+:where(.cs-shop, #modal-layer) .panel,
+:where(#modal-layer) .modal,
+#ui-layer :is(.server-down, .cookie-notice) {
+  --text: var(--cs-text);
+  --muted: var(--cs-muted);
+  --panel-border: var(--cs-line);
+  color: var(--cs-text);
+  background: var(--cs-glass);
+  border: 1px solid var(--cs-line);
+  border-radius: 0;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) :is(h2, h3) {
+  font-family: var(--cs-font);
+  font-weight: 700;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #fff;
+  text-shadow: none;
+}
+:where(#modal-layer) .modal h2,
+:where(.cs-shop) .shop-panel header h2 { font-size: 17px; }
+:where(#modal-layer) .modal-backdrop { background: rgba(8, 10, 12, 0.62); backdrop-filter: blur(2px); }
+:where(#modal-layer) .modal header { padding: 12px 16px; background: rgba(255, 255, 255, 0.04); border-bottom: 1px solid var(--cs-line); }
+:where(#modal-layer) .modal-body { color: var(--cs-text); }
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) :is(.muted, small) { color: var(--cs-muted); }
+
+/* Buttons: flat slate, uppercase; secondary ones are glass. */
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) button {
+  min-height: 36px;
+  padding: 7px 14px;
+  color: #fff;
+  background: var(--cs-button);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  font-family: var(--cs-font);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) button:hover:not(:disabled) { background: var(--cs-button-hi); }
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) button:active:not(:disabled) { transform: none; box-shadow: none; filter: brightness(0.92); }
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) button:focus-visible { outline: 2px solid var(--cs-blue); outline-offset: -2px; }
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) button:disabled { opacity: 0.45; }
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) :is(button.secondary, .icon-btn) {
+  color: var(--cs-text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--cs-line);
+}
+:where(.cs-shop, #modal-layer, #ui-layer .server-down, #ui-layer .cookie-notice) :is(button.secondary, .icon-btn):hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+:where(#modal-layer) .modal header .icon-btn { min-width: 32px; min-height: 32px; padding: 4px; color: var(--cs-muted); background: transparent; border: 0; }
+:where(#modal-layer) .modal header .icon-btn:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.12); }
+:where(.cs-shop, #modal-layer, #ui-layer .cookie-notice) button.link {
+  min-height: 0;
+  padding: 0;
+  color: var(--cs-blue);
+  background: none;
+  border: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  text-decoration: underline;
+}
+
+/* Fields, sliders, keys. */
+:where(.cs-shop, #modal-layer) :is(input:not([type='range']):not([type='checkbox']):not([type='radio']), select, textarea) {
+  min-height: 36px;
+  color: var(--cs-text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--cs-line);
+  border-radius: 0;
+  font-family: var(--cs-font);
+}
+:where(.cs-shop, #modal-layer) :is(input, select, textarea):focus { border-color: var(--cs-blue); outline: none; }
+:where(.cs-shop, #modal-layer) select option { color: var(--cs-text); background: #22272b; }
+:where(.cs-shop, #modal-layer) input:is([type='range'], [type='checkbox'], [type='radio']) { accent-color: var(--cs-blue); }
+:where(.cs-shop, #modal-layer) kbd {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--cs-line);
+  border-bottom-width: 2px;
+  border-radius: 2px;
+  font-family: var(--cs-font);
+  font-weight: 700;
+}
+
+/* Tabs: plain uppercase labels; the open one is white and underlined, like the top bar. */
+:where(.cs-shop, #modal-layer) .tabs { gap: 0; border-bottom: 1px solid var(--cs-line); }
+:where(.cs-shop, #modal-layer) .tab {
+  min-height: 34px;
+  padding: 6px 12px;
+  color: var(--cs-muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  font-family: var(--cs-font);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+:where(.cs-shop, #modal-layer) .tab:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.06); }
+:where(.cs-shop, #modal-layer) .tab.active { color: #fff; background: rgba(139, 205, 221, 0.1); border-bottom-color: var(--cs-blue); transform: none; box-shadow: none; }
+
+/* ---- Inventory / Loadout / Store ---- */
+.cs-shop { --rail: 0px; padding: 66px 16px 16px; }
+.cs-shop-bar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 1;
+  height: 54px;
+  display: flex;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(39, 43, 44, 0.86), rgba(39, 43, 44, 0.55));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+  backdrop-filter: blur(8px);
+}
+.cs-shop-bar .cs-nav { margin: 0; padding: 0; }
+.cs-shop .cs-shop-bar button {
+  min-height: 0;
+  padding: 0 clamp(10px, 1.8vw, 32px);
+  color: #d4d8d9;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 15px;
+  font-weight: 600;
+}
+.cs-shop .cs-shop-bar button + button { border-left: 1px solid rgba(255, 255, 255, 0.1); }
+.cs-shop .cs-shop-bar button:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.cs-shop .cs-shop-bar button.active { color: #fff; border-bottom-color: var(--cs-blue); }
+:where(.cs-shop) .shop-panel { width: min(660px, 100%); max-height: calc(100dvh - 82px); padding: 14px 16px; }
+:where(.cs-shop) .shop-panel header .icon-btn { min-width: 36px; }
+:where(.cs-shop) .shop-coins { color: var(--cs-gold); background: rgba(0, 0, 0, 0.3); border: 1px solid var(--cs-line); border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .coin-icon { color: var(--cs-gold); }
+:where(.cs-shop) .shop-section {
+  margin: 8px 0 2px;
+  padding-bottom: 4px;
+  color: var(--cs-muted);
+  border-bottom: 1px solid var(--cs-line);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+:where(.cs-shop) .shop-fair { color: var(--cs-text); background: rgba(139, 205, 221, 0.08); border: 1px solid rgba(139, 205, 221, 0.28); border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .shop-fair b { color: var(--cs-blue); }
+:where(.cs-shop) .item-grid { gap: 6px; }
+/* The body scrolls; its grids keep their full height instead of squashing the cards. */
+:where(.cs-shop) .shop-body > * { flex-shrink: 0; }
+/* Item tiles, like CS inventory slots: grey gradient, the rarity as a bar along the bottom. */
+:where(.cs-shop) :is(.item-card, .deal-card) {
+  position: relative;
+  min-height: 0;
+  gap: 4px;
+  color: var(--cs-text);
+  background: var(--cs-tile);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 3px solid var(--rarity, #b0c3d9);
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  font-family: var(--cs-font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+:where(.cs-shop) .item-card { padding: 20px 8px 10px; }
+:where(.cs-shop) :is(.item-card, .deal-card):hover:not(:disabled) { background: var(--cs-tile-hi); }
+:where(.cs-shop) .item-card.selected { outline: 2px solid var(--cs-blue); outline-offset: -2px; box-shadow: none; }
+:where(.cs-shop) .item-card.equipped { border-color: rgba(255, 255, 255, 0.07); border-bottom-color: var(--rarity, #b0c3d9); background: var(--cs-tile); }
+:where(.cs-shop) .item-card.equipped::after { content: ""; position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; background: var(--cs-green); }
+:where(.cs-shop) .item-card.locked { opacity: 1; }
+:where(.cs-shop) .rarity-tag {
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  padding: 0;
+  color: var(--rarity);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+:where(.cs-shop) .item-card .stats { color: var(--cs-muted); font-size: 10px; }
+:where(.cs-shop) .status-tag { color: var(--cs-muted); background: none; border: 0; border-radius: 0; box-shadow: none; font-size: 11px; }
+:where(.cs-shop) .item-card.equipped .status-tag { color: var(--cs-green); background: none; }
+:where(#modal-layer) .guide-section h3 { color: var(--cs-blue); }
+/* Settings: five tabs in a narrow dialog, so tighter labels. */
+:where(#modal-layer) .settings-wrap .tab { padding-inline: 4px; font-size: 12px; letter-spacing: 0.02em; }
+:where(.cs-shop) :is(.deal-badge, .deal-off) { color: #fff; background: #b8463a; border: 0; border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .swatch { border: 1px solid rgba(0, 0, 0, 0.45); border-radius: 2px; box-shadow: none; }
+:where(.cs-shop) .swatch.gun-pic { background: radial-gradient(closest-side, rgba(255, 255, 255, 0.3), transparent); border: 0; }
+:where(.cs-shop) .swatch.none { color: var(--cs-muted); background: rgba(0, 0, 0, 0.25); }
+:where(.cs-shop) .shop-deals { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--cs-line); border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .shop-deals-head b { color: #fff; font-family: var(--cs-font); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+:where(.cs-shop) .upgrade-row {
+  color: var(--cs-text);
+  background: linear-gradient(90deg, rgba(75, 82, 88, 0.5), rgba(38, 43, 48, 0.6));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 3px solid var(--rarity);
+  border-radius: 0;
+  box-shadow: none;
+}
+:where(.cs-shop) .upgrade-pips i { background: rgba(255, 255, 255, 0.14); border: 0; border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .upgrade-pips i.on { background: var(--cs-blue); }
+:where(.cs-shop) .shop-detail { color: var(--cs-text); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--cs-line); border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .rarity-chip { border-radius: 0; box-shadow: none; }
+:where(.cs-shop) .status.error { color: var(--cs-red); }
+:where(#modal-layer) .confirm-buy b { color: var(--cs-gold); }
+
+/* ---- The dev code keypad ---- */
+.pk-backdrop { color: var(--cs-text); background: rgba(8, 10, 12, 0.62); backdrop-filter: blur(2px); }
+.pk {
+  background: var(--cs-glass);
+  border: 1px solid var(--cs-line);
+  border-radius: 0;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+.pk-head h2 { color: #fff; font-family: var(--cs-font); font-size: 17px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.pk-backdrop :is(.pk-cancel, .pk-type, .pk-key) {
+  color: var(--cs-text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--cs-line);
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--cs-font);
+  font-weight: 700;
+}
+.pk-backdrop :is(.pk-cancel, .pk-type, .pk-key):hover { background: rgba(255, 255, 255, 0.14); }
+.pk-backdrop :is(.pk-cancel, .pk-type, .pk-key):active { transform: none; box-shadow: none; filter: brightness(0.9); }
+.pk-backdrop .pk-key { min-height: 52px; font-size: 1.4rem; }
+.pk-backdrop .pk-del { font-size: 0.9rem; text-transform: uppercase; color: var(--cs-muted); }
+.pk-backdrop .pk-ok { color: #fff; background: var(--cs-button); font-size: 1.1rem; }
+.pk-backdrop .pk-ok:hover { background: var(--cs-button-hi); }
+.pk-backdrop .pk-cancel { font-size: 0.8rem; text-transform: uppercase; }
+.pk-backdrop .pk-type { border-style: dashed; color: var(--cs-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.pk-screen { color: var(--cs-blue); background: rgba(0, 0, 0, 0.45); border: 1px solid var(--cs-line); border-radius: 0; }
+.pk-prompt { color: var(--cs-muted); }
+.pk-screen.empty .pk-dots::after { color: rgba(139, 205, 221, 0.45); }
+.pk-msg { color: var(--cs-muted); font-weight: 600; }
+.pk-msg.good { color: var(--cs-green); }
+.pk-msg.bad { color: var(--cs-red); }
+.pk.granted { background: rgba(38, 56, 40, 0.94); }
+@media (max-width: 560px) {
+  .cs-shop { padding-top: 54px; padding-inline: 8px; }
+  .cs-shop-bar .cs-nav { width: 100%; }
+  .cs-shop .cs-shop-bar button { flex: 1; padding: 0 4px; font-size: 11px; }
 }

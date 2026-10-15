@@ -78,7 +78,7 @@ export type SoundName =
 const VOLUME_KEY = 'chikengun:volume';
 const MUSIC_KEY = 'chikengun:music-volume';
 /** The title screen's music: loops while you're in the menus (the file's exact name). */
-const LOBBY_MUSIC = '/sounds/CHIKEN_HVHLOBBY.mp3';
+const LOBBY_MUSIC = '/sounds/chickenRunHvh_theme.mp3';
 /** Seconds to fade the music in and out. */
 const MUSIC_FADE = 0.8;
 /** Your own sound files live in client/public/sounds/ (served from /sounds/). */
@@ -181,8 +181,10 @@ export class AudioEngine {
   private musicVolumeValue = safeVolume(Number(storage.get(MUSIC_KEY) ?? '0.4'));
   private musicWanted = false;
   private musicGain: GainNode | null = null;
-  private musicSource: AudioBufferSourceNode | null = null;
-  private musicBuffer: AudioBuffer | null = null;
+  /** The theme is four minutes long: streamed from an <audio> element, not decoded whole (~85 MB). */
+  private musicEl: HTMLAudioElement | null = null;
+  private musicPlaying = false;
+  private musicPause = 0;
   /** The main volume, for the music (which skips the effects compressor). */
   private musicOut: GainNode | null = null;
   private readonly voices = new WeakMap<AudioNode, Voice>();
@@ -210,12 +212,12 @@ export class AudioEngine {
   set musicVolume(v: number) {
     this.musicVolumeValue = safeVolume(v);
     storage.set(MUSIC_KEY, String(this.musicVolumeValue));
-    if (this.musicGain && this.ctx && this.musicSource) this.musicGain.gain.setTargetAtTime(this.musicVolumeValue, this.ctx.currentTime, 0.05);
+    if (this.musicGain && this.ctx && this.musicPlaying) this.musicGain.gain.setTargetAtTime(this.musicVolumeValue, this.ctx.currentTime, 0.05);
   }
 
   /**
    * The lobby music: on in the menus, off in a match. It starts as soon as the browser allows
-   * sound (your first click) and the file has loaded, fades in and out, and loops without a gap.
+   * sound (your first click), fades in and out, loops, and picks up where it stopped.
    */
   setMusic(on: boolean): void {
     this.musicWanted = on;
@@ -224,26 +226,22 @@ export class AudioEngine {
 
   private syncMusic(): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || !this.musicGain) return;
+    const el = this.musicEl;
+    if (!ctx || !this.master || !this.musicGain || !el) return;
     const t = ctx.currentTime;
-    if (this.musicWanted && !this.musicSource && this.musicBuffer && ctx.state === 'running') {
-      const src = ctx.createBufferSource();
-      src.buffer = this.musicBuffer;
-      src.loop = true;
-      src.connect(this.musicGain);
+    if (this.musicWanted && !this.musicPlaying && ctx.state === 'running') {
+      this.musicPlaying = true;
+      clearTimeout(this.musicPause);
       this.musicGain.gain.cancelScheduledValues(t);
       this.musicGain.gain.setValueAtTime(0, t);
       this.musicGain.gain.linearRampToValueAtTime(this.musicVolumeValue, t + MUSIC_FADE);
-      src.start();
-      this.musicSource = src;
-    } else if (!this.musicWanted && this.musicSource) {
-      const src = this.musicSource;
-      this.musicSource = null;
+      void el.play().catch(() => { this.musicPlaying = false; });
+    } else if (!this.musicWanted && this.musicPlaying) {
+      this.musicPlaying = false;
       this.musicGain.gain.cancelScheduledValues(t);
       this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, t);
       this.musicGain.gain.linearRampToValueAtTime(0, t + MUSIC_FADE);
-      src.stop(t + MUSIC_FADE + 0.05);
-      src.onended = () => src.disconnect();
+      this.musicPause = window.setTimeout(() => el.pause(), (MUSIC_FADE + 0.05) * 1000);
     }
   }
 
@@ -271,11 +269,11 @@ export class AudioEngine {
       this.musicGain.connect(musicOut).connect(this.ctx.destination);
       this.musicOut = musicOut;
       this.ctx.addEventListener('statechange', () => this.syncMusic());
-      void this.load(LOBBY_MUSIC).then((buffer) => {
-        if (!buffer || !this.ctx) return;
-        this.musicBuffer = trimSilence(this.ctx, buffer);
-        this.syncMusic();
-      });
+      const el = new Audio(LOBBY_MUSIC);
+      el.loop = true;
+      this.ctx.createMediaElementSource(el).connect(this.musicGain);
+      this.musicEl = el;
+      this.syncMusic();
       void this.load(JUMPSCARE_FILE);
       for (const [name, url] of Object.entries(FILE_SOUNDS) as [SoundName, string][]) {
         void this.load(url).then((buffer) => {

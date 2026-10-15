@@ -7,6 +7,7 @@ import {
   openSpots,
   trainingLoadout,
   trainingMods,
+  walkable,
   wrapAngle,
   type KillCause,
   type SpawnPoint,
@@ -144,21 +145,32 @@ export class TrainingRoom extends GameRoom {
    */
   private placeTargets(): Target[] {
     const s = this.start;
-    const spots = openSpots([s], this.world, this.map.halfSize, 3)
+    // Imported maps (Mirage) have floors at many heights: their own nav points, not a flat fill.
+    const open: SpawnPoint[] = this.map.navLinks ? this.map.nav!.slice(0, this.map.navLinks.length) : openSpots([s], this.world, this.map.halfSize, 3);
+    const spots = open
       .map((p) => ({ ...p, d: Math.hypot(p.x - s.x, p.z - s.z) }))
       .filter((p) => p.d >= 7 && p.d <= 35)
       .sort((a, b) => a.d - b.d);
-    const chosen: { x: number; z: number }[] = [];
+    const chosen: SpawnPoint[] = [];
     for (const spot of spots) {
       if (chosen.length >= TARGETS) break;
       if (chosen.every((c) => Math.hypot(c.x - spot.x, c.z - spot.z) >= 5)) chosen.push(spot);
     }
+    // The first ones with room to strafe move (narrow streets leave few).
+    let movers = 0;
     return chosen.map((home, i) => {
       // Across the line of sight from your start.
       const d = Math.hypot(home.x - s.x, home.z - s.z) || 1;
       const across = { x: -(home.z - s.z) / d, z: (home.x - s.x) / d };
-      const clear = [-STRAFE, -STRAFE / 2, STRAFE / 2, STRAFE].every((k) => isSpaceFree(home.x + across.x * k, 0, home.z + across.z * k, this.world));
-      return { home, along: i % Math.ceil(TARGETS / MOVERS) === 1 && clear ? across : null, phase: i, lastHitAt: -Infinity };
+      const end = (k: number) => ({ x: home.x + across.x * k, y: home.y, z: home.z + across.z * k });
+      // Raised floors (Mirage) slope and streets are tight: the line must keep to level ground,
+      // and a half-width strafe will do where the full one doesn't fit.
+      const fits = (k: number) => home.y === undefined
+        ? [-k, -k / 2, k / 2, k].every((j) => isSpaceFree(home.x + across.x * j, 0, home.z + across.z * j, this.world))
+        : walkable(home, end(-k), this.world) && walkable(home, end(k), this.world);
+      const scale = i === 0 || movers >= MOVERS ? 0 : fits(STRAFE) ? 1 : home.y !== undefined && fits(STRAFE / 2) ? 0.5 : 0;
+      if (scale) movers++;
+      return { home, along: scale ? { x: across.x * scale, z: across.z * scale } : null, phase: i, lastHitAt: -Infinity };
     });
   }
 }

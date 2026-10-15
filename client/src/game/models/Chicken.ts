@@ -564,6 +564,30 @@ export class Chicken {
     this.inspectTime = 0;
   }
 
+  /**
+   * Title screen only, called after `animate`: a CS-style lobby idle. The gun rests low across
+   * the body, the weight shifts and the head looks around; every 14 seconds the chicken
+   * shoulders the gun to check an angle, then inspects it, looking down at it.
+   */
+  menuEmote(clock: number): void {
+    const t = clock % 14;
+    const ease = (a: number, b: number) => {
+      const k = clamp((t - a) / (b - a), 0, 1);
+      return k * k * (3 - 2 * k);
+    };
+    const aim = ease(4, 4.7) * (1 - ease(6.6, 7.3));
+    if (t >= 9 && t < 9.5 && this.inspectTime < 0) this.inspect();
+    const look = this.inspectTime >= 0 ? Math.sin((this.inspectTime / INSPECT_SECONDS) * Math.PI) : 0;
+    const rest = 1 - aim;
+    // Shouldered, it aims off to its right (never at the camera) and looks the same way.
+    this.gunPivot.rotation.set(-0.6 * rest + 0.25 * look, 0.5 * rest - 0.75 * aim, 0.15 * rest);
+    this.wingL.rotation.x = -0.7 * aim;
+    this.bodyPivot.rotation.z = Math.sin(clock * 0.8) * 0.035 * rest;
+    this.bodyPivot.rotation.x = -0.08 * aim;
+    this.bodyPivot.rotation.y = -0.3 * aim;
+    this.headGroup.rotation.set(-0.35 * look, Math.sin(clock * 0.45) * 0.3 * rest * (1 - look) - 0.35 * look - 0.5 * aim, 0);
+  }
+
   setDead(dead: boolean): void {
     if (dead && this.deadTime < 0) {
       this.deadTime = 0;

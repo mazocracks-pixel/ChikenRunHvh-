@@ -74,6 +74,8 @@ export class ShopScreen {
   private tab: Tab = 'upgrades';
   private section: ShopSection = 'store';
   private readonly title = h('h2', null, 'Store');
+  /** The lobby's top bar, so the shop screens feel like the same place (the open one underlined). */
+  private readonly navButtons = new Map<ShopSection, HTMLButtonElement>();
   /** What you're trying on (null: what you're wearing). */
   private selected: ItemDef | null = null;
   private busy = false;
@@ -84,9 +86,17 @@ export class ShopScreen {
     this.onPreview = onPreview;
     const saveName = h('button', { type: 'button', class: 'secondary' }, 'Save name');
     saveName.addEventListener('click', () => void this.run(() => this.api.update({ name: this.nameInput.value }), 'Name saved!'));
+    const navButton = (label: string, run: () => void) => h('button', { type: 'button', onclick: run }, label);
+    const nav = h('nav', { class: 'cs-nav', 'aria-label': 'Main menu' });
+    for (const [section, label] of [['inventory', 'Inventory'], ['loadout', 'Loadout'], ['play', 'Play'], ['store', 'Store']] as const) {
+      const b = navButton(label, section === 'play' ? onBack : () => this.open(section));
+      if (section !== 'play') this.navButtons.set(section, b);
+      nav.append(b);
+    }
     this.root = h(
       'div',
-      { class: 'screen shop' },
+      { class: 'screen shop cs-shop' },
+      h('header', { class: 'cs-shop-bar' }, nav),
       h(
         'div',
         { class: 'shop-panel panel' },
@@ -110,6 +120,7 @@ export class ShopScreen {
     this.section = section;
     this.tab = section === 'inventory' ? 'skins' : section === 'loadout' ? 'guns' : 'upgrades';
     this.title.textContent = section === 'inventory' ? 'Inventory' : section === 'loadout' ? 'Loadout' : 'Store';
+    for (const [id, b] of this.navButtons) b.classList.toggle('active', id === section);
     this.root.hidden = false;
     this.message.textContent = '';
     this.selected = null;

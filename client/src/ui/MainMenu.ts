@@ -133,8 +133,8 @@ export class MainMenu {
         ),
         h('h3', null, m.name),
         h('p', null, m.description),
-        // Event modes share Mirage but enter their sealed event area.
-        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, MAPS[m.maps[0]!].name),
+        // (The Backrooms lives inside the Graveyard map's file, but it's its own place.)
+        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, m.huntOnly ? m.name : MAPS[m.maps[0]!].name),
         this.addPlayButton(button('Play', () => this.play(id), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
