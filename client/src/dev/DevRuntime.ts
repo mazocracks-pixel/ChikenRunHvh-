@@ -77,7 +77,7 @@ export class DevRuntime implements DevHooks {
   get autoStopState(): string { return this.autoStopText; }
   get shotLog(): readonly string[] { return this.logs; }
   get resolverInfo(): string {
-    if (this.coreTarget) { const r = this.coreResolver.resolve(this.coreTarget.record); return `${r.state} · ${r.pattern} · ${this.coreTarget.source} · ${Math.round(r.confidence * 100)}% confidence · ${Math.round(this.coreTarget.safety * 100)}% safety`; }
+    if (this.coreTarget) { const c = this.policy, r = this.coreResolver.resolve(this.coreTarget.record, c.hvh.feedback.resolver && c.skeet.resolver.mode === 'adaptive', undefined, c.hvh.resolverPolicy); return `${r.state} · ${r.pattern} · ${this.coreTarget.source} · ${Math.round(r.confidence * 100)}% confidence · ${Math.round(this.coreTarget.safety * 100)}% safety`; }
     return 'Awaiting a target';
   }
   playerRule(pid: number): { ignore: boolean; body: boolean } { return this.playerRules.get(pid) ?? { ignore: false, body: false }; }
@@ -187,11 +187,13 @@ export class DevRuntime implements DevHooks {
   }
   onServerShot(session: GameSession, shot: ShotEvent): void {
     this.overlay.sound(shot);
-    if (session.mode.id === 'hvh' && shot.pid === session.selfPid && shot.audit) {
+    if (session.mode.id === 'hvh' && shot.pid === session.selfPid) {
       const a = shot.audit;
-      this.extensions.result(a);
-      this.coreResolver.feedback(a.target, a.source, a.reason, session.serverNow(), a.headshot === true);
-      this.logs.unshift(`#${shot.shot} ${a.reason} · ${shot.burst === 2 ? 'DT burst · ' : ''}${Math.round(a.damage)} damage`);
+      if (a) {
+        this.extensions.result(a);
+        this.coreResolver.feedback(a.target, a.source, a.reason, session.serverNow(), a.headshot === true, a.recordT);
+      }
+      this.logs.unshift(`#${shot.shot} ${a?.reason ?? 'FIRED'} · ${shot.burst === 2 ? 'DT burst · ' : shot.hidden ? 'HS concealed · ' : ''}${a ? `${Math.round(a.damage)} damage` : `${shot.burst ?? 1} round`}`);
       this.logs.length = Math.min(this.logs.length, 5); this.coreScanAt = -Infinity; return;
     }
   }
@@ -273,7 +275,8 @@ export class DevRuntime implements DevHooks {
         origin: { x: s.x, y: s.y, z: s.z }, velocity: { x: (s.walkVx ?? 0) + s.vx, y: s.vy, z: (s.walkVz ?? 0) + s.vz },
         eyeYaw: s.yaw, pitch: s.fakePitch ?? s.pitch, lowerBodyYaw: s.lowerBodyYaw ?? s.yaw, speed: s.horizontalSpeed, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0),
         grounded: s.onGround, turnWeight: s.turnWeight ?? 0, hp: s.hp, armor: s.armor, alive: s.alive,
-        fired: false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false };
+        fired: s.hvhRevealed ?? false, concealed: s.hvhConcealed ?? false, defensive: s.hvhDefensive ?? false,
+        movementWeight: s.movementWeight, runFraction: s.runFraction, weaponSpeed: moveSpeedFor(s.weapon) };
       this.coreResolver.observe(record, this.dev.panelId === 'skeet' ? c.skeet.resolver : { history: 16, memoryMs: 1000 });
       this.extensions.observe(record);
       records.push(...this.coreResolver.records(pid, serverNow));
@@ -318,7 +321,7 @@ export class DevRuntime implements DevHooks {
           hpRelative: this.keyHeld(c.hvh.aim.overrideKey, false) || c.hvh.aim.hpRelative < 0 ? undefined : c.hvh.aim.hpRelative,
           damageWeight: c.hvh.aim.damageWeight, safetyWeight: c.hvh.aim.safetyWeight, accuracyWeight: c.hvh.aim.accuracyWeight, confidenceWeight: c.hvh.aim.confidenceWeight,
           groups: a.hitbox === 'body' ? ['stomach', 'chest', 'pelvis'] : a.hitbox === 'head' ? ['head', 'stomach', 'chest'] : ['head', 'chest', 'stomach', 'pelvis', 'arm', 'leg'],
-          priority: a.priority, burstReady: c.hvh.exploit === 'doubleTap' && (session.local.server.hvhCharge ?? 0) >= 1 && session.weapons.def.fireInterval <= 500,
+          priority: a.priority, burstReady: c.hvh.exploit === 'doubleTap' && session.weapons.exploitReady,
           body: this.keyHeld(c.hvh.aim.bodyKey, false) ? 'force' : c.hvh.aim.bodyAim,
           pointScale: skeet ? profile.multipoint ? profile.pointScale / 100 : 0 : c.hvh.aim.multipoint ? c.hvh.aim.pointScale / 100 : 0, maxRecords: c.hvh.aim.maxRecords } });
       if (next && next.target !== this.coreTarget?.target) { this.acquiredAt = now; this.switchingUntil = !this.rageTiming && this.coreTarget ? now + c.hvh.aim.switchDelay : now; }
@@ -345,7 +348,8 @@ export class DevRuntime implements DevHooks {
     const s = this.session;
     if (!this.playing || !s || this.dev.status.profile !== 'hvh') return null;
     if (!this.dev.status.hvh?.antiAim.enabled) return null;
-    const pose = hvhPose(this.dev.input.yaw, this.dev.status.hvh ?? defaultHvhLoadout(), s.serverNow(), this.keyHeld(this.dev.config.hvh.invertKey,false), false);
+    const pose = hvhPose(this.dev.input.yaw, this.dev.status.hvh ?? defaultHvhLoadout(), s.serverNow(), this.keyHeld(this.dev.config.hvh.invertKey,false), false,
+      { speed: s.local.state.horizontalSpeed, onGround: s.local.onGround, crouching: s.local.state.crouching, seed: s.selfPid });
     return { yaw: s.local.server.fakeYaw ?? pose.fake, pitch: s.local.server.fakePitch ?? this.dev.input.pitch };
   }
   afterFrame(session: GameSession): void {
@@ -378,7 +382,7 @@ export class DevRuntime implements DevHooks {
     const c=this.dev.config.hvh, d=this.diagnostics;
     const charge=Math.round((session.local.server.hvhCharge??0)*100);
     const stopText = this.policy.hvh.movement.autoStop ? `\n${this.autoStopText}` : '';
-    const lines=[c.feedback.targetInfo ? `${d.target} · ~${d.damage} HP · ${d.chance}%\n${d.state} · ${this.peekState}${stopText}\n${c.exploit === 'off' ? 'EXPLOIT OFF' : c.exploit === 'doubleTap' ? 'DOUBLE TAP' : 'HIDE SHOTS'} · ${charge}% charge` : '', skeet && this.dev.config.skeet.indicators.resolver ? this.resolverInfo : '', c.feedback.shotLog ? this.logs.slice(0,3).join('\n') : ''].filter(Boolean);
+    const lines=[c.feedback.targetInfo ? `${d.target} · ~${d.damage} HP · ${d.chance}%\n${d.state} · ${this.peekState}${stopText}\n${c.exploit === 'off' ? 'EXPLOIT OFF' : c.exploit === 'doubleTap' ? 'DOUBLE TAP' : 'HIDE SHOTS'} · ${session.weapons.exploitState(performance.now())} · ${charge}% charge` : '', skeet && this.dev.config.skeet.indicators.resolver ? this.resolverInfo : '', c.feedback.shotLog ? this.logs.slice(0,3).join('\n') : ''].filter(Boolean);
     if (!this.binds.hidden) {
       const h = this.dev.config.hvh, active = (key: string) => this.keyHeld(key, false) ? 'active' : 'hold';
       this.binds.textContent = ['keybinds', `body aim · ${active(h.aim.bodyKey)}`, `damage override · ${active(h.aim.overrideKey)}`,

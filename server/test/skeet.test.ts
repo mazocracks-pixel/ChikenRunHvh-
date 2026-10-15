@@ -11,7 +11,7 @@ it('Skeet is accepted by the shared access gate and Manual clears its pose witho
   const { token } = await auth.json() as { token: string };
   const c: Socket<ServerToClientEvents, ClientToServerEvents> = connect(base, { transports: ['websocket'], auth: { token }, reconnection: false }); t.after(() => c.disconnect());
   await new Promise<void>((resolve, reject) => { c.once('connect', resolve); c.once('connect_error', reject); });
-  const joined: JoinResponse = await c.timeout(3000).emitWithAck('createRoom', { mode: 'hvh', map: 'farm', private: true, bots: 0 }); assert.ok(joined.ok); if (!joined.ok) return;
+  const joined: JoinResponse = await c.timeout(3000).emitWithAck('createRoom', { mode: 'hvh', map: 'mirage', private: true, bots: 0 }); assert.ok(joined.ok); if (!joined.ok) return;
   const room = server.rooms.roomOf(c.id!)!, p = room.playerFor(c.id!)!;
   assert.equal(p.hvhPreparing, true); assert.equal(p.alive, false);
   const policy = defaultHvhLoadout(); policy.antiAim.enabled = true; policy.skeet = defaultSkeetAntiAim(); policy.skeet.states.standing.desync = 999; policy.skeet.interval = 1;
@@ -24,7 +24,7 @@ it('Skeet is accepted by the shared access gate and Manual clears its pose witho
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady', 'manual')).ok, true);
   assert.equal(p.hvh.skeet, undefined); assert.equal(p.fakeYaw, p.lookYaw); assert.equal(p.fakePitch, p.pitch);
   assert.equal(p.hp, 40); assert.equal(p.mag, 5); assert.equal(p.resource.ticks, charge);
-  await c.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'farm', private: true, bots: 0 });
+  await c.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'mirage', private: true, bots: 0 });
   assert.equal((await c.timeout(3000).emitWithAck('hvhReady', 'skeet')).ok, false);
 });
 it('the server derives Skeet stance and physical pitch while keeping the camera independent', t => {
@@ -36,7 +36,8 @@ it('the server derives Skeet stance and physical pitch while keeping the camera 
     const expected = hvhPose(p.lookYaw, p.hvh, 1000, false, false, { speed: state.horizontalSpeed, ...state, seed: p.pid });
     assert.equal(p.animation.eyeYaw, expected.real); assert.equal(p.fakeYaw, expected.real); assert.equal(p.pitch, 0.3); assert.equal(p.fakePitch, -1.15);
   }
-  p.revealUntil = 2000; room.updateHvhPose(p, 1100); assert.equal(p.fakePitch, p.pitch); assert.equal(p.animation.eyeYaw, p.lookYaw);
+  p.revealYaw = p.lookYaw; p.revealPitch = p.pitch; p.revealUntil = 2000;
+  room.updateHvhPose(p, 1100); assert.equal(p.fakePitch, p.pitch); assert.equal(p.animation.eyeYaw, p.lookYaw);
 });
 it('accepted ranged shots carry their sequence and rejected shots produce no resolver feedback', t => {
   const { room, events } = makeRoom('hvh', 'flat'); t.after(() => room.close()); const p = addPlayer(room, 'A');

@@ -1,8 +1,8 @@
 # HvH auto-stop options
 
-HvH Lab's Movement tab and Skeet's Misc tab have Slow-walk auto stop, Between shots,
-Predict auto stop and a 50–300 ms Prediction look-ahead. Enable Auto-stop in Lab, or in
-Skeet's active Rage weapon profile. Skeet's weapon-specific master switch retains the same
+Skeet's Misc tab has Slow-walk auto stop, Between shots, Predict auto stop and a 50–300 ms
+Prediction look-ahead. Enable auto-stop in Skeet's active Rage weapon profile. Its
+weapon-specific master switch retains the same
 shared options; disabling that profile's auto stop disables its predictive movement too.
 
 - **Slow-walk auto stop** preserves the player's movement direction and uses native walking

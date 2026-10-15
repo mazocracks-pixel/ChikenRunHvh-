@@ -150,13 +150,13 @@ it('only an unobstructed wrong-side shot teaches a resolver miss', t => {
   }
 });
 
-it('recharge follows effective choke rather than an inactive fake-lag setting', t => {
-  for (const [enabled, mode, expected] of [[true, 'velocity', 1], [true, 'static', 0], [false, 'static', 1]] as const) {
+it('effective choke slows recharge without disabling the selected exploit', t => {
+  for (const [enabled, mode, expected] of [[true, 'velocity', 1], [true, 'static', 0.5], [false, 'static', 1]] as const) {
     const {room} = makeRoom('hvh', 'flat'); t.after(() => room.close());
     const p = addPlayer(room, 'Charging'); room.startNow(); place(p, 20, 20);
     p.hvhEnabled = enabled; p.hvh.core!.fakeLag = 8; p.hvh.core!.fakeLagMode = mode;
     let now = performance.now();
-    for (let tick = 0; tick < 256; tick++) stepRoom(room, now += SIM_DT * 1000);
+    for (let tick = 0; tick < 128; tick++) stepRoom(room, now += SIM_DT * 1000);
     assert.equal(p.resource.charge, expected, `${enabled ? 'assisted' : 'Manual'} ${mode}`);
   }
 });

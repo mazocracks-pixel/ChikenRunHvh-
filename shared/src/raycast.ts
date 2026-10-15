@@ -93,28 +93,22 @@ export function raycastWorld(ray: Ray, world: CollisionWorld, maxT: number, skip
     if (t <= maxT) best = { t, nx: 0, ny: 1, nz: 0, id: -1 };
   }
   const hit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
-  // Short rays (sight lines, steering, waypoint checks) only test the boxes near them: the same
-  // answer, without walking every box of a big map.
-  if (maxT <= SHORT_RAY) {
-    const ex = ray.ox + ray.dx * maxT;
-    const ez = ray.oz + ray.dz * maxT;
-    for (const id of world.idsNear(Math.min(ray.ox, ex), Math.min(ray.oz, ez), Math.max(ray.ox, ex), Math.max(ray.oz, ez))) {
-      if (skip?.has(id)) continue;
+  // Query short strips along the ray, stopping at the first hit strip; large maps never need a full scan.
+  const seen = new Set<number>();
+  for (let start = 0; start <= maxT; start += 4) {
+    const end = Math.min(maxT, start + 4);
+    const sx = ray.ox + ray.dx * start, sz = ray.oz + ray.dz * start;
+    const ex = ray.ox + ray.dx * end, ez = ray.oz + ray.dz * end;
+    for (const id of world.idsNear(Math.min(sx, ex), Math.min(sz, ez), Math.max(sx, ex), Math.max(sz, ez))) {
+      if (seen.has(id) || skip?.has(id)) continue;
+      seen.add(id);
       const t = rayAabb(ray, world.get(id)!, best ? best.t : maxT, hit);
       if (t >= 0 && (!best || t < best.t)) best = { ...hit, id };
     }
-    return best;
-  }
-  for (const [id, box] of world.entries()) {
-    if (skip?.has(id)) continue;
-    const t = rayAabb(ray, box, best ? best.t : maxT, hit);
-    if (t >= 0 && (!best || t < best.t)) best = { ...hit, id };
+    if (end === maxT || best && best.t <= end) break;
   }
   return best;
 }
-
-/** Rays up to this long use the collision grid (see raycastWorld). */
-const SHORT_RAY = 32;
 
 /** Hit volumes of a chicken, relative to its feet. */
 export const HITBOX = {

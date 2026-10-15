@@ -5,7 +5,6 @@ import type { GameSocket } from '../net/Network';
 import type { Hud } from '../ui/Hud';
 import { defaultConfig, getPath, loadConfigs, loadCurrent, sanitizeConfig, saveConfigs, saveCurrent, setPath, type DevConfig, type NamedConfig } from './config';
 import { HVH_PANELS } from './panels';
-import { DevMenu } from './DevMenu';
 import { NativeMenu } from './skeet/NativeMenu';
 import { DevRuntime } from './DevRuntime';
 import { showPasskeyPrompt } from './passkey';
@@ -38,10 +37,9 @@ export interface DevContext {
  * the in-match runtime. The server decides what's allowed; this only asks.
  */
 export class Dev {
-  config: DevConfig = loadCurrent();
-  panelId: HvhPanelId = 'lab';
-  private configPanel: 'lab' | 'skeet' = 'lab';
-  configs: NamedConfig[] = loadConfigs();
+  config: DevConfig = loadCurrent('skeet');
+  panelId: HvhPanelId = 'skeet';
+  configs: NamedConfig[] = loadConfigs('skeet');
   status: DevStatus = { granted: false, allowedHere: false, profile: 'off', publicHvh: false, mods: { ...DEFAULT_MODS } };
   readonly runtime: DevRuntime;
   readonly input: Input;
@@ -50,7 +48,7 @@ export class Dev {
 
   private readonly ctx: DevContext;
   private readonly socket: GameSocket;
-  private menu: DevMenu | NativeMenu | null = null;
+  private menu: NativeMenu | null = null;
   private prompting = false;
   private readonly listeners = new Set<() => void>();
   private syncTimer: number | undefined;
@@ -64,7 +62,7 @@ export class Dev {
     this.hud = ctx.hud;
     this.audio = ctx.audio;
     this.runtime = new DevRuntime(this);
-    saveConfigs(this.configs);
+    saveConfigs(this.configs, 'skeet');
     ctx.applyWorldLook(this.config.world);
     window.addEventListener('keydown', this.onKey, true);
     // Grants live on the server; after a reconnect (e.g. server restart) ask again.
@@ -118,11 +116,6 @@ export class Dev {
 
   selectPanel(id: HvhPanelId): void {
     const changedPanel = id !== this.panelId;
-    if (id !== 'manual' && id !== this.configPanel) {
-      saveCurrent(this.config, this.configPanel); saveConfigs(this.configs, this.configPanel);
-      this.configPanel = id; this.config = loadCurrent(id); this.configs = loadConfigs(id);
-      this.ctx.applyWorldLook(this.config.world);
-    }
     this.panelId = id;
     if (changedPanel) this.runtime.panelChanged();
     this.runtime.applyServerMods();
@@ -131,12 +124,12 @@ export class Dev {
   }
 
   resetAll(): void {
-    this.config = defaultConfig(this.configPanel);
+    this.config = defaultConfig('skeet');
     this.changed();
   }
 
   saveConfigList(): void {
-    saveConfigs(this.configs, this.configPanel);
+    saveConfigs(this.configs, 'skeet');
   }
 
   onChange(fn: () => void): () => void {
@@ -146,7 +139,7 @@ export class Dev {
 
   private changed(): void {
     this.config = sanitizeConfig(this.config);
-    saveCurrent(this.config, this.configPanel);
+    saveCurrent(this.config, 'skeet');
     this.ctx.applyWorldLook(this.config.world);
     for (const fn of this.listeners) fn();
     this.scheduleSync();
@@ -250,7 +243,7 @@ export class Dev {
       }
     }
     this.prompting = false;
-    this.menu = this.panelId === 'skeet' ? new NativeMenu(this, () => this.closeMenu()) : new DevMenu(this, () => this.closeMenu());
+    this.menu = new NativeMenu(this, () => this.closeMenu());
     this.ctx.onMenuChange();
     this.click();
   }

@@ -27,11 +27,11 @@ describe('guide-driven simulation contracts', () => {
   });
   it('creates bounded real body matrices and an explicit observable allow-list', () => {
     const a = createAnimation();
-    for (let tick = 0; tick < 30; tick++) stepAnimation(a, { eyeYaw: 0, desiredDelta: 10, speed: 0, crouch: 0, grounded: true, active: true }, tick);
+    for (let tick = 0; tick < 64; tick++) stepAnimation(a, { eyeYaw: 0, desiredDelta: 10, speed: 0, crouch: 0, grounded: true, active: true }, tick);
     assert.ok(Math.abs(a.bodyYaw - maximumBodyDelta(0, 0, true)) < 1e-8);
     const observable = observableRecord(2, 30, 100, record().origin, record().velocity, a, 100, 0, true);
     assert.equal('bodyYaw' in observable, false); assert.equal('maxDelta' in observable, false);
-    assert.ok(maximumBodyDelta(6, 0, true) < a.maxDelta); assert.ok(maximumBodyDelta(0, 1, false) < a.maxDelta);
+    assert.ok(maximumBodyDelta(6, 0, true) < a.maxDelta); assert.ok(maximumBodyDelta(3, 1, false) < a.maxDelta);
   });
   it('never copies hidden properties into resolver records or extension observations', () => {
     const r = record();
@@ -134,7 +134,7 @@ describe('guide-driven simulation contracts', () => {
     assert.ok(candidate); assert.equal(candidate.group, 'head');
     assert.ok(candidate.damage >= 70); assert.ok(candidate.chance >= 0.5);
   });
-  it('stores command time for Double Tap, shares it with Hide Shots, and never changes fire rate', () => {
+  it('spends shared charge for Double Tap and Hide Shots while preserving cooldown gates', () => {
     const resource = new ExploitResource();
     for (let i = 0; i < 256; i++) resource.step(i, false, false);
     assert.equal(resource.charge, 1);

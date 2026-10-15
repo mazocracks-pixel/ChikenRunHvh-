@@ -113,6 +113,10 @@ export const HARBOR: MapDef = {
     { id: 'A', x: 5, z: -33, radius: 6.5 },
     { id: 'B', x: 5, z: 33, radius: 6.5 },
   ],
+  buyZones: [
+    { team: 1, x: -38, z: 0, radius: 10 },
+    { team: 2, x: 38, z: 0, radius: 10 },
+  ],
   nav: [
     // The two side lanes.
     ...[-36, -21, -10, 0, 10, 21, 36].flatMap((z) => [

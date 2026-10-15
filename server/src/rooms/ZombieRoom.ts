@@ -526,7 +526,7 @@ export class ZombieRoom extends GameRoom {
    * A spot anywhere on the map, a good way from every survivor; preferably not so far that the
    * zombie takes ages to arrive (the map is big).
    */
-  private zombieSpawn(): { x: number; z: number } {
+  private zombieSpawn(): SpawnPoint {
     const alive = this.survivors().map((p) => ({ x: p.state.x, z: p.state.z }));
     // Nobody standing right now (respawning): measure from where the survivors come back.
     const refs = alive.length > 0 ? alive : this.map.spawns.filter((s) => s.team === 1);
@@ -536,7 +536,7 @@ export class ZombieRoom extends GameRoom {
     const close = far.filter((s) => nearest(s) <= ZOMBIE.spawnMaxDistance);
     const pool = close.length > 0 ? close : far.length > 0 ? far : spots;
     const spot = pool[Math.floor(Math.random() * pool.length)] ?? { x: 0, z: 0 };
-    return { x: spot.x + (Math.random() - 0.5) * 1.6, z: spot.z + (Math.random() - 0.5) * 1.6 };
+    return { x: spot.x + (Math.random() - 0.5) * 1.6, y: spot.y, z: spot.z + (Math.random() - 0.5) * 1.6 };
   }
 
   private spawnZombie(kind: ZombieKind, now: number, near?: Vec3): ServerPlayer | null {
@@ -551,8 +551,8 @@ export class ZombieRoom extends GameRoom {
     const res = this.join(null, { userId: null, name: title, appearance: look, loadout: ['knife'], bot: true, team: 2, rank: 1 });
     if (!res.ok) return null;
     const p = this.players.get(res.selfPid)!;
-    const at = near ? { x: near.x + (Math.random() - 0.5) * 5, z: near.z + (Math.random() - 0.5) * 5 } : this.zombieSpawn();
-    p.respawn(at.x, at.z, Math.atan2(at.x, at.z), now, 0);
+    const at = near ? { x: near.x + (Math.random() - 0.5) * 5, y: near.y, z: near.z + (Math.random() - 0.5) * 5 } : this.zombieSpawn();
+    p.respawn(at.x, at.z, Math.atan2(at.x, at.z), now, 0, at.y ?? 0);
     p.info.undead = kind;
     // The mode's weapon list is for survivors: a zombie has only its claws (the knife swing).
     p.info.loadout = ['knife'];
@@ -634,7 +634,7 @@ export class ZombieRoom extends GameRoom {
   private summonHelp(z: Zombie, now: number): void {
     this.systemMessage(`☠️ ${z.p.info.name} calls for help!`);
     for (let i = 0; i < ZOMBIE.boss.summon.count; i++) {
-      this.spawnZombie(i % 3 === 2 ? 'runner' : 'walker', now, { x: z.p.state.x, y: 0, z: z.p.state.z });
+      this.spawnZombie(i % 3 === 2 ? 'runner' : 'walker', now, { x: z.p.state.x, y: z.p.state.y, z: z.p.state.z });
     }
   }
 

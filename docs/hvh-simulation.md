@@ -16,7 +16,8 @@ reconciliation share physics. Camera direction, shot direction, observable eye y
 body yaw, rendered yaw and resolver hypotheses are separate values.
 
 Body animation has a bounded turn rate, lower-body update timer and maximum eye/body delta.
-The standing maximum is 58 degrees, reduced by velocity, crouching and flight. Hit volumes form
+The standing maximum is 58 degrees. Walk/run blending narrows it toward 46.4/29 degrees;
+crouched movement narrows it toward 29 degrees. Hit volumes form
 a transformed chicken skeleton: head, torso, pelvis, arms and legs. Changing body yaw changes
 actual head and limb locations. All modes use the same 0.25 m head and segmented body volumes.
 Physical pitch rotates the head around its neck and modestly tucks it on downward angles; renderer,
@@ -27,7 +28,8 @@ Head bones stay stable through decorative walking bob, and crouch presentation u
 interpolated scale as hit detection rather than a separate shrinking animation.
 
 Remote packets expose position/velocity, eye yaw, lower-body updates, crouch amount, ground
-state, physical head pitch, quantized turn weight, health, armor and simulation time. Body yaw, enemy anti-aim settings,
+state, physical head pitch, exposed-shot cue, move-layer weight, run blend, quantized turn weight,
+health, armor and simulation time. Body yaw, enemy anti-aim settings,
 inverter, exact bones and resolver state remain private. Observable copies use an explicit field
 allow-list, including in controller hooks. Ground truth is used by server collision and post-shot
 classification, not by client or bot target selection.
@@ -38,10 +40,16 @@ The resolver keeps bounded public observations and ranks LEFT, CENTER, RIGHT, lo
 last-moving and lower-body-update hypotheses. Its feedback decays; confirmed resolver misses
 change orientation weights, informative head hits reinforce them, and body hits clear misses
 without proving a side. Spread, obstruction, invalid history, death and weapon rejection do not
-teach orientation errors. Public moving body updates and recent stationary updates receive stronger
-weight. Duplicate angles are merged, and reading old history cannot repeatedly decay new feedback.
-Policies differ in feedback strength or confirmed-miss cycling. Both panels fall back to body hits
-when orientation is uncertain or repeated misses confirm a poor guess.
+teach orientation errors. Feedback belongs to the shot record's stance, pattern and observed jitter
+phase, so one phase's failed side does not poison the opposite phase or an airborne transition.
+Pattern detection and last-moving cues use only observations at or before the selected record.
+Stable moving records compare each candidate's reconstructed movement-layer weight against the
+public weight. Symmetric headings can remain ambiguous. Lower-body target updates provide a
+modest cue rather than disclosing actual body yaw; stale or concealed cues lose it. Exposed shots
+favor the public eye orientation because the body actually aligns with it during that window.
+Duplicate angles are merged, and reading old history cannot repeatedly decay new feedback.
+Skeet's policy sets feedback strength or cycles hypotheses after confirmed misses. It falls back
+to body hits when orientation is uncertain or repeated misses confirm a poor guess.
 
 Every hypothesis builds a complete skeleton. Safe-point checks intersect several reconstructed
 matrices, including LEFT/CENTER/RIGHT even with resolver disabled or high confidence. Multipoint
@@ -57,8 +65,8 @@ flat or HP-relative minimum damage, air hitchance, force/prefer-safe and weapon 
 
 Rage acquires and switches targets without an intentional reaction or target-switch delay,
 including when older saved profiles contain delay values. Accuracy, scope, movement and weapon
-cooldown checks still apply. Both panels use silent aim for automatic and manually triggered
-assisted shots. Coverage is a full cone angle from 1 to 360 degrees; 360 includes targets behind
+cooldown checks still apply. Skeet uses silent aim for automatic and manually triggered assisted
+shots. Coverage is a full cone angle from 1 to 360 degrees; 360 includes targets behind
 the player. New profiles default to 360, while saved coverage choices remain configurable.
 Older smooth-style profiles migrate to silent Rage; aiming never turns the player's view.
 
@@ -80,7 +88,7 @@ records and actual-speed hitchance. Reloads, jumps and auto-peek return retain c
 [the auto-stop options](auto-stop.md) for prediction bounds and accuracy fallback.
 When a shot needs a full stop, that requirement survives the next stationary scan; slow-walk
 auto stop cannot restart movement and repeatedly spoil the shot before firing.
-Hops preserve velocity rather than granting a speed bonus. Both panels' helpers use ordinary
+Hops preserve velocity rather than granting a speed bonus. Skeet's helpers use ordinary
 movement inputs and the same shared takeoff ceiling as Manual players. Subtick strafe is an
 explicit assisted-HvH exception: eight air-direction optimizations share one fixed tick and
 build velocity more efficiently. It grants no extra elapsed time or altered gravity. The client,
@@ -98,13 +106,15 @@ incoming head/body damage at alternative owner matrices. Anti-bruteforce reacts 
 incoming bullet paths with a cooldown, not to another player's resolver. Defensive transitions
 spend charge and lower fresh-record confidence; all ordinary hit detection still applies.
 
-Lab and Skeet jitter intervals accept 1–600 ms. The phase is sampled at the simulation's 64 Hz
+Moving lower-body targets track eye yaw. Stopping delays realignment by 0.22 seconds, and
+standing realignment uses a 1.1-second timer with a 35-degree eye/body threshold. Timers round
+to simulation ticks. Concealment postpones target updates. Skeet jitter intervals accept 1–600 ms and each player has
+a deterministic independent phase. The phase is sampled at the simulation's 64 Hz
 tick rate; selecting 1 ms does not increase the number of physics or network updates.
 
 Skeet's dedicated Fake lag tab has an enable switch, a 1–12-command limit, static, velocity,
 random, adaptive and peek modes, and Break on shot. Disabled fake lag sends each command.
-Lab retains its shared network controls. Static, velocity, random, adaptive and peek command
-choking are bounded to 0–12 commands.
+Static, velocity, random, adaptive and peek command choking are bounded to 0–12 commands.
 Remote presentation is held for the configured interval; its historical simulation time remains
 attached. Owners receive fresh state. Break on shot flushes pending manual or assisted firing
 commands and accepted shots expose a fresh remote update. Disabling fake lag or respawning
@@ -113,25 +123,42 @@ Fake duck alternates ordinary crouch commands and gradually changes real collisi
 and hitbox scale. Seeded input latency/jitter/loss is a game simulation, not OS packet manipulation.
 Fire requests are associated with command sequence and wait for server acknowledgement.
 
-Four era profiles enable different observable presentation/resource rules: legacy, desync,
-tickbase and defensive. Legacy intentionally rotates observable presentation; modern profiles
-retain public eye orientation. Charged shifts require tickbase/defensive era.
+Four era profiles are available: legacy, desync, tickbase and defensive. Legacy rotates the
+requested anti-aim base within the same animation constraints, rather than falsifying a packet
+after hitboxes have been calculated. All eras support the selected charged weapon ability;
+automatic defensive transitions still require the defensive era.
 
-One 32-tick resource recharges by 1/8 tick per idle, unchoked simulation tick: four seconds for
-a full charge after recovery. Double Tap spends all 32 ticks, advances the weapon simulation
-clock through its unchanged interval and validates two actual firing states. It consumes two
-rounds with deterministic rays; it does not divide the weapon cooldown or grant movement speed.
-Only intervals up to 32 ticks qualify; projectiles, melee and native bursts do not shift.
-Hide Shots spends 14 ticks to protect on-shot orientation for 150 ms. Tracers, damage and shots
-remain observable. Defensive transitions spend 12 ticks. The three share charge and recovery;
+One 32-unit resource recharges by 1/4 unit per idle simulation tick, or 1/8 while choking:
+two seconds idle, four seconds with fake lag, after recovery. Recent firing pauses recharge.
+Double Tap spends all 32 units for two immediate bullets with independent deterministic rays,
+two rounds of ammunition and twice the firing heat/recoil. Its next shot waits for the normal
+weapon interval or a 20-tick burst cooldown (312.5 ms), whichever is longer. Slow hitscan guns
+can burst too; projectiles, melee and native bursts cannot use either weapon ability.
+Hide Shots spends 14 units and one round, preserving anti-aim and withholding lower-body and
+shot-facing cues for the entire 300 ms normal exposure window. It creates no delayed reveal.
+Tracers, damage, position and collision remain observable. An uncharged attempt fires a normal
+exposed shot. Defensive transitions spend 12 units. The three share charge and recovery;
 changing modes, panels or guns cannot refill it. Respawn clears the budget.
+Skeet displays charging, readiness, cooldown and weapon restrictions, and accepted shot logs
+identify DT bursts and HS concealment.
+
+## Source and resolver references
+
+The supplied Resolver.cpp informs side reconstruction, movement-layer comparison, low-delta
+alternatives and default/opposite/center miss cycling. The linked
+[CSGO animation source](https://github.com/sr2echa/CSGO-Source-Code/blob/master/cstrike15_src/game/shared/cstrike15/csgo_playeranimstate.cpp)
+informs walk/run/crouch width, duck/run interpolation and lower-body timers. Implementation is
+TypeScript against this game's public records, with separate per-opponent state.
+The directional movement layer is an approximation for the chicken rig. Source animation
+sequences, human bones, its client command pipeline and weapon content are not reproduced;
+this is a playable adaptation of those rules rather than a verified one-to-one engine replica.
 
 ## Panels, hooks and diagnostics
 
-Before entering combat a human chooses Lab, Skeet or Manual play in a personal setup pause.
+Before entering combat a human chooses Skeet or Manual play in a personal setup pause.
 The match continues for other players. Later panel switching preserves health, ammo and charge.
-Lab and Skeet have independent configuration stores and resolver policies. Every panel is
-subject to shared server bounds. No stat multipliers, immunity, healing, teleport or unlimited
+Skeet's resolver and anti-aim use its browser-saved configuration. Every panel is subject to
+shared server bounds. No stat multipliers, immunity, healing, teleport or unlimited
 ammo are granted by public HvH access. Friendly fire is blocked and enemy kills score for the
 team; HvH vehicles are disabled.
 

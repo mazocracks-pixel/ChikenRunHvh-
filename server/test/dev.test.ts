@@ -218,7 +218,7 @@ describe('developer modifiers in a room', () => {
       try {
         let got = 0;
         victim.on('jumpscare', () => got++);
-        const room = await dev.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'farm', private: false, bots: 0 });
+        const room = await dev.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'mirage', private: false, bots: 0 });
         assert.ok(room.ok);
         if (!room.ok) return;
         const joined = await victim.timeout(3000).emitWithAck('joinRoom', { code: room.room.code });
@@ -232,7 +232,7 @@ describe('developer modifiers in a room', () => {
         assert.equal(got, 1);
         assert.equal((await dev.timeout(3000).emitWithAck('devAction', { kind: 'refill', target: joined.selfPid })).ok, false, 'admin actions stay private-only');
         // HvH panels need no passkey, but they never unlock pranks on other players.
-        const hvh = await victim.timeout(3000).emitWithAck('createRoom', { mode: 'hvh', map: 'farm', private: false, bots: 0 });
+        const hvh = await victim.timeout(3000).emitWithAck('createRoom', { mode: 'hvh', map: 'mirage', private: false, bots: 0 });
         assert.ok(hvh.ok);
         if (!hvh.ok) return;
         assert.equal((await victim.timeout(3000).emitWithAck('devAction', { kind: 'jumpscare', target: hvh.selfPid, style: 'ghost' })).ok, false, 'HvH');
@@ -402,7 +402,7 @@ describe('developer socket API', () => {
 
   it('ignores everything until the passkey is accepted, then works in private rooms only', async () => {
     const c = await client();
-    const priv = await call<JoinResponse>((ack) => c.emit('createRoom', { mode: 'sandbox', map: 'flat', private: true }, ack));
+    const priv = await call<JoinResponse>((ack) => c.emit('createRoom', { mode: 'sandbox', map: 'mirage', private: true }, ack));
     assert.ok(priv.ok);
 
     let status = await call<DevStatus>((ack) => c.emit('devMods', { infiniteAmmo: true }, ack));

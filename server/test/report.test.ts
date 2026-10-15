@@ -23,7 +23,7 @@ describe('reporting a player', () => {
         return c;
       };
       const [a, b] = [await join(), await join()];
-      const ra = await a.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'farm', private: false, bots: 2 });
+      const ra = await a.timeout(3000).emitWithAck('createRoom', { mode: 'ffa', map: 'mirage', private: false, bots: 2 });
       assert.ok(ra.ok);
       if (!ra.ok) return;
       const rb = await b.timeout(3000).emitWithAck('joinRoom', { roomId: ra.room.id });

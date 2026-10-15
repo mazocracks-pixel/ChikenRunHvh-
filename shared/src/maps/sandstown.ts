@@ -120,6 +120,10 @@ export const SANDSTOWN: MapDef = {
     { id: 'A', x: 31, z: -29, radius: 6.5 },
     { id: 'B', x: 18, z: 33, radius: 6.5 },
   ],
+  buyZones: [
+    { team: 1, x: -36, z: 2, radius: 10 },
+    { team: 2, x: 36, z: 0, radius: 10 },
+  ],
   nav: [
     // chikenT spawn, Long A (west lane, north lane), A site.
     { x: -36, z: 2 },

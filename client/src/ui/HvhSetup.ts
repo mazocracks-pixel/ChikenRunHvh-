@@ -54,8 +54,8 @@ export class HvhSetup {
       if (this.disposed || this.busy) return;
       if (!this.hasChosen) this.selected = s.allowedHere ? dev.panelId : 'manual';
       this.status.textContent = s.allowedHere
-        ? 'Assisted panels are available. Every panel uses the same weapon and movement rules.'
-        : 'Manual play is available. Assisted panels require access on this server.';
+        ? 'Skeet is available. Every player uses the same weapon and movement rules.'
+        : 'Manual play is available. Skeet requires access on this server.';
       this.refresh();
     });
   }

@@ -13,8 +13,9 @@ import {
   type WeaponId,
 } from '@game/shared';
 import { Chicken } from '../game/models/Chicken';
-import { buildGun } from '../game/models/Guns';
-import { clear, h } from './dom';
+import { gunIcon, prepareGunIcons } from './GunIcons';
+import { clear, formatTime, h } from './dom';
+import { icon, type IconName } from './icons';
 
 export interface BuyMenuView {
   money: number;
@@ -31,23 +32,16 @@ export interface BuyMenuView {
   hasKit: boolean;
 }
 
-const GEAR_ICONS: Record<string, string> = { armor: '🛡️', eggs: '🥚', smoke: '💨', flash: '⚡', kit: '✂️' };
+const GEAR_ICONS: Record<string, IconName> = { armor: 'vest', eggs: 'egg', smoke: 'grenade', flash: 'flash', kit: 'kit' };
 const GEAR_TEXT: Record<string, string> = {
-  armor: 'Takes most of the damage from hits until it’s used up.',
+  armor: 'Absorbs half of incoming damage while armor remains.',
   eggs: 'Explosive egg (G): area damage and knockback.',
   smoke: 'Smoke grenade (Q): a cloud nobody can see through.',
   flash: 'Flashbang (Z): blinds whoever looks at it. Turn away when you throw it!',
   kit: 'Defuse in 5 seconds instead of 10.',
 };
-const THUMB_W = 240;
-const THUMB_H = 120;
-/** Gun pictures, rendered once from the real models and kept for the whole visit. */
-const thumbs = new Map<WeaponId, string>();
 
-/**
- * ChikenBomb buy menu (B): your chicken on the left (holding whatever you point at), every gun
- * and piece of gear on the right. The mouse is free while it's open: click to buy. B or Esc closes.
- */
+/** Five-column round shop with the player's chicken holding the selected gun. */
 export class BuyMenu {
   readonly root = h('div', { class: 'buy-overlay' });
   private readonly money = h('span', { class: 'buy-money' });
@@ -62,6 +56,8 @@ export class BuyMenu {
   private team: Team = 0;
   private view: BuyMenuView | null = null;
   private hovered: BuyItem | null = null;
+  private categoryIndex: number | null = null;
+  private previousFocus: HTMLElement | null = null;
   onBuy: ((item: BuyItem) => void) | null = null;
   onClose: (() => void) | null = null;
 
@@ -84,10 +80,11 @@ export class BuyMenu {
     close.addEventListener('click', () => this.onClose?.());
     const window_ = h(
       'div',
-      { class: 'buy-window', role: 'dialog', 'aria-label': 'Buy menu' },
-      h('header', { class: 'buy-head' }, h('h2', null, '🛒 Buy'), this.timer, h('span', { class: 'buy-spacer' }), this.money, close),
-      h('div', { class: 'buy-body' }, h('aside', { class: 'buy-side' }, this.stage, this.detail, this.loadoutEl), this.columns),
-      h('footer', { class: 'buy-foot' }, this.status, h('small', null, 'Click to buy · B or Esc to close')),
+      { class: 'buy-window', role: 'dialog', 'aria-label': 'Buy menu', 'aria-modal': 'true' },
+      h('header', { class: 'buy-head' }, this.money, this.timer, close),
+      h('div', { class: 'buy-body' }, this.columns, h('aside', { class: 'buy-side', 'aria-label': 'Chicken and weapon preview' }, this.stage, this.detail)),
+      this.loadoutEl,
+      h('footer', { class: 'buy-foot' }, this.status, h('small', null, '1–5 category · 1–7 item · B / Esc close')),
     );
     this.root.append(window_);
     // A click on the dim area around the window closes it too.
@@ -107,6 +104,8 @@ export class BuyMenu {
       this.dragX = e.clientX;
     });
     this.stage.addEventListener('pointerup', () => (this.dragX = null));
+    this.stage.addEventListener('pointercancel', () => (this.dragX = null));
+    this.stage.addEventListener('lostpointercapture', () => (this.dragX = null));
   }
 
   get open(): boolean {
@@ -117,11 +116,17 @@ export class BuyMenu {
     if (open === this.open) return;
     this.root.hidden = !open;
     if (open) {
+      this.previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      this.categoryIndex = null;
       this.say('');
+      prepareGunIcons();
       this.ensurePreview();
       window.addEventListener('keydown', this.onKey, true);
+      this.root.querySelector<HTMLButtonElement>('.buy-close')?.focus();
     } else {
       window.removeEventListener('keydown', this.onKey, true);
+      this.previousFocus?.focus();
+      this.columns.querySelector('.selected')?.classList.remove('selected');
     }
   }
 
@@ -136,10 +141,14 @@ export class BuyMenu {
     this.status.classList.toggle('bad', bad);
   }
 
-  /** Spins and draws the chicken (called every frame while open). */
+  /** Draws the idle chicken; dragging the preview turns it. */
   update(dt: number): void {
-    if (!this.open || !this.renderer || !this.chicken) return;
-    if (this.dragX === null) this.spin += dt * 0.5;
+    if (!this.open) return;
+    for (const img of this.root.querySelectorAll<HTMLImageElement>('img[data-weapon]')) {
+      const picture = gunIcon(img.dataset.weapon as WeaponId);
+      if (picture && img.getAttribute('src') !== picture.url) img.src = picture.url;
+    }
+    if (!this.renderer || !this.chicken) return;
     this.chicken.root.rotation.y = this.spin;
     this.chicken.animate(dt, 0, true);
     this.renderer.render(this.scene!, this.camera!);
@@ -156,7 +165,7 @@ export class BuyMenu {
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.money.textContent = v.secondsLeft === null ? 'Warmup: free' : `$${v.money.toLocaleString()}`;
-    this.timer.textContent = v.secondsLeft === null ? '' : over ? 'Buy time is over' : `⏱ ${v.secondsLeft}s`;
+    this.timer.replaceChildren(h('span', null, v.secondsLeft === null ? 'Warmup' : over ? 'Buy time is over' : 'Buy Time Remaining'), h('b', null, v.secondsLeft === null || over ? '' : formatTime(v.secondsLeft * 1000)));
     this.timer.classList.toggle('over', over);
     for (const item of this.items()) {
       const card = this.cards.get(item.id);
@@ -164,10 +173,10 @@ export class BuyMenu {
       const blocked = v.blocked(item);
       const price = v.secondsLeft === null ? 0 : item.price;
       const poor = !blocked && price > v.money;
-      card.classList.toggle('owned', blocked !== null);
+      card.classList.toggle('owned', blocked === 'Owned' || blocked === 'Full');
       card.classList.toggle('poor', poor);
-      card.classList.toggle('locked', over);
-      card.disabled = over;
+      card.classList.toggle('locked', over || blocked !== null);
+      card.setAttribute('aria-disabled', String(over || blocked !== null || poor));
       card.querySelector('.buy-price')!.textContent = blocked ?? (price === 0 ? 'Free' : `$${price.toLocaleString()}`);
     }
     this.renderLoadout(v);
@@ -194,27 +203,33 @@ export class BuyMenu {
   private buildColumns(): void {
     clear(this.columns);
     this.cards.clear();
-    for (const cat of BUY_CATEGORIES) {
+    for (const [categoryIndex, cat] of BUY_CATEGORIES.entries()) {
       const items = this.items().filter((i) => i.category === cat.id);
       if (items.length === 0) continue;
       const grid = h('div', { class: 'buy-grid' });
-      for (const item of items) {
-        const pic = item.weapon ? h('img', { class: 'buy-pic', alt: '', src: thumbs.get(item.weapon) ?? '', 'data-weapon': item.weapon }) : h('span', { class: 'buy-pic emoji' }, GEAR_ICONS[item.id] ?? '📦');
+      for (const [itemIndex, item] of items.entries()) {
+        const pic = item.weapon ? h('img', { class: 'buy-pic', alt: '', src: gunIcon(item.weapon)?.url ?? '', 'data-weapon': item.weapon }) : icon(GEAR_ICONS[item.id]!, 'buy-pic');
         const card = h(
           'button',
           { type: 'button', class: `buy-card${item.team ? ` team${item.team}` : ''}`, 'data-item': item.id },
+          h('span', { class: 'buy-number', 'aria-hidden': 'true' }, itemIndex + 1),
           pic,
           h('span', { class: 'buy-name' }, item.name),
           h('span', { class: 'buy-price' }, `$${item.price.toLocaleString()}`),
         );
-        card.addEventListener('click', () => this.onBuy?.(item));
+        card.addEventListener('click', () => {
+          this.categoryIndex = null;
+          this.columns.querySelector('.selected')?.classList.remove('selected');
+          if (card.getAttribute('aria-disabled') !== 'true') this.onBuy?.(item);
+          else this.say(this.view?.blocked(item) ?? (this.view?.secondsLeft === 0 ? 'Buy time is over.' : 'Not enough money.'), true);
+        });
         card.addEventListener('pointerenter', () => this.showItem(item));
         card.addEventListener('focus', () => this.showItem(item));
         card.addEventListener('pointerleave', () => this.showItem(null));
         this.cards.set(item.id, card);
         grid.append(card);
       }
-      this.columns.append(h('section', { class: `buy-cat cat-${cat.id}` }, h('h3', null, cat.name), grid));
+      this.columns.append(h('section', { class: `buy-cat cat-${cat.id}` }, h('h3', null, h('span', { 'aria-hidden': 'true' }, categoryIndex + 1), cat.name), grid));
     }
     this.lastKey = '';
   }
@@ -227,7 +242,7 @@ export class BuyMenu {
     this.chicken?.setWeapon(holding);
     clear(this.detail);
     if (item && !item.weapon) {
-      this.detail.append(h('h4', null, `${GEAR_ICONS[item.id] ?? ''} ${item.name}`), h('p', null, GEAR_TEXT[item.id] ?? ''));
+      this.detail.append(h('h4', null, item.name), h('p', null, GEAR_TEXT[item.id] ?? ''));
       return;
     }
     const w = WEAPONS[holding];
@@ -237,7 +252,7 @@ export class BuyMenu {
     const rpm = Math.round(60_000 / w.fireInterval);
     const shots = w.burst ? `${w.burst.count}-round burst` : w.automatic ? 'automatic' : 'semi-auto';
     this.detail.append(
-      h('h4', null, item ? w.name : `In your hands: ${w.name}`),
+      h('h4', null, w.name),
       w.projectile
         ? h('p', { class: 'buy-note' }, w.projectile === 'bolt' ? 'Fires bolts that drop with distance.' : 'Fires explosives: area damage, knockback.')
         : bar('Damage', dmg / 100, `${dmg}${w.pellets > 1 ? ` (${w.pellets}×${w.damage})` : ''}`),
@@ -254,7 +269,7 @@ export class BuyMenu {
     const pistol = v.loadout.find((w) => isSidearm(w));
     const melee = v.loadout.find((w) => isMelee(w));
     const slot = (label: string, id: WeaponId | undefined) =>
-      h('div', { class: `buy-slot${id ? '' : ' empty'}` }, id && thumbs.get(id) ? h('img', { src: thumbs.get(id)!, alt: '' }) : null, h('small', null, label), h('b', null, id ? WEAPONS[id].name : '—'));
+      h('div', { class: `buy-slot${id ? '' : ' empty'}` }, id ? h('img', { src: gunIcon(id)?.url ?? '', 'data-weapon': id, alt: '' }) : null, h('small', null, label), h('b', null, id ? WEAPONS[id].name : '—'));
     this.loadoutEl.append(
       h('h4', null, 'Your loadout'),
       slot('Main', main),
@@ -263,21 +278,36 @@ export class BuyMenu {
       h(
         'div',
         { class: 'buy-gear' },
-        h('span', { class: v.armor > 0 ? 'on' : '' }, `🛡️ ${v.armor}`),
-        h('span', { class: v.eggs > 0 ? 'on' : '' }, `🥚 ${v.eggs}`),
-        h('span', { class: v.smokes > 0 ? 'on' : '' }, `💨 ${v.smokes}`),
-        h('span', { class: v.flashes > 0 ? 'on' : '' }, `⚡ ${v.flashes}`),
-        v.team === 2 ? h('span', { class: v.hasKit ? 'on' : '' }, `✂️ ${v.hasKit ? 'Kit' : 'No kit'}`) : null,
+        h('span', { class: v.armor > 0 ? 'on' : '' }, icon('vest'), ` ${v.armor}`),
+        h('span', { class: v.eggs > 0 ? 'on' : '' }, icon('egg'), ` ${v.eggs}`),
+        h('span', { class: v.smokes > 0 ? 'on' : '' }, icon('grenade'), ` ${v.smokes}`),
+        h('span', { class: v.flashes > 0 ? 'on' : '' }, icon('flash'), ` ${v.flashes}`),
+        v.team === 2 ? h('span', { class: v.hasKit ? 'on' : '' }, icon('kit'), ` ${v.hasKit ? 'Kit' : 'No kit'}`) : null,
       ),
     );
   }
 
   private onKey = (e: KeyboardEvent): void => {
-    if (e.code !== 'KeyB' && e.key !== 'Escape') return;
-    if (e.repeat) return;
+    if (e.repeat && e.key !== 'Tab') return;
+    if (e.key === 'Tab') {
+      const buttons = [...this.root.querySelectorAll<HTMLButtonElement>('button')];
+      const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      buttons[(current + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    } else if (/^[1-7]$/.test(e.key)) {
+      const index = Number(e.key) - 1;
+      if (this.categoryIndex === null) {
+        if (index >= BUY_CATEGORIES.length) return;
+        this.categoryIndex = index;
+        this.columns.children[index]?.classList.add('selected');
+        this.say(`${BUY_CATEGORIES[index]!.name}: choose an item.`);
+      } else {
+        this.columns.children[this.categoryIndex]?.querySelectorAll<HTMLButtonElement>('button')[index]?.click();
+      }
+    } else if (e.code === 'KeyB' || e.key === 'Escape') {
+      this.onClose?.();
+    } else return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    this.onClose?.();
   };
 
   // ---------------------------------------------------------------------------
@@ -320,7 +350,6 @@ export class BuyMenu {
     this.camera.position.set(0, 1.25, 3.9);
     this.camera.lookAt(0, 0.82, 0);
 
-    this.renderThumbs();
     this.stage.append(this.renderer.domElement);
     this.resizeObserver = new ResizeObserver(() => this.fitStage());
     this.resizeObserver.observe(this.stage);
@@ -337,57 +366,4 @@ export class BuyMenu {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Pictures of every gun, from the same models you see in the game. */
-  private renderThumbs(): void {
-    const r = this.renderer!;
-    const missing = BUY_ITEMS.filter((i) => i.weapon && !thumbs.has(i.weapon));
-    if (missing.length > 0) {
-      const scene = new THREE.Scene();
-      scene.environment = this.envTexture;
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x666055, 1.4));
-      const key = new THREE.DirectionalLight(0xffffff, 2.4);
-      key.position.set(1, 3, 4);
-      scene.add(key);
-      const cam = new THREE.OrthographicCamera(-1, 1, 0.5, -0.5, 0.01, 20);
-      r.setPixelRatio(1);
-      r.setSize(THUMB_W, THUMB_H, false);
-      const box = new THREE.Box3();
-      const size = new THREE.Vector3();
-      const centre = new THREE.Vector3();
-      for (const item of missing) {
-        const gun = buildGun(item.weapon!);
-        const holder = new THREE.Group();
-        holder.add(gun.group);
-        // Side on, muzzle to the right, tipped a little towards the camera.
-        gun.group.rotation.set(0.12, -Math.PI / 2, 0);
-        // A pair: the left one just behind and below, so both show.
-        gun.offhand?.position.set(-0.1, -0.05, 0.07);
-        scene.add(holder);
-        holder.updateMatrixWorld(true);
-        box.setFromObject(holder).getSize(size);
-        box.getCenter(centre);
-        gun.group.position.sub(centre);
-        const aspect = THUMB_W / THUMB_H;
-        let halfW = (size.x * 1.12) / 2;
-        let halfH = halfW / aspect;
-        if (size.y * 1.2 > halfH * 2) {
-          halfH = (size.y * 1.2) / 2;
-          halfW = halfH * aspect;
-        }
-        cam.left = -halfW;
-        cam.right = halfW;
-        cam.top = halfH;
-        cam.bottom = -halfH;
-        cam.position.set(0, 0, 5);
-        cam.lookAt(0, 0, 0);
-        cam.updateProjectionMatrix();
-        r.render(scene, cam);
-        thumbs.set(item.weapon!, r.domElement.toDataURL('image/png'));
-        scene.remove(holder);
-      }
-      r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    }
-    for (const img of this.columns.querySelectorAll<HTMLImageElement>('img[data-weapon]')) img.src = thumbs.get(img.dataset.weapon as WeaponId) ?? '';
-    this.lastKey = '';
-  }
 }

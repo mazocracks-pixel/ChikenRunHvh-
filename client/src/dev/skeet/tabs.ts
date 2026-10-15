@@ -47,7 +47,7 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
         info('Current state', () => { const s = dev.runtime.currentSession?.local; return s ? hvhStance({ speed: s.server.horizontalSpeed, crouching: s.server.crouching, onGround: s.server.onGround }) : 'Standing'; }),
       ] },
       { title: 'Resolver', icon: '◈', items: [
-        select('Resolver mode', 'skeet.resolver.mode', 'Center assumes eye yaw; Adaptive ranks hidden-body hypotheses'), slider('History samples', 'skeet.resolver.history'), slider('History window', 'skeet.resolver.memoryMs', 'ms'),
+        select('Resolver mode', 'skeet.resolver.mode', 'Adaptive compares movement layers, body-update timing and shot feedback. Center assumes eye yaw'), slider('History samples', 'skeet.resolver.history'), slider('History window', 'skeet.resolver.memoryMs', 'ms'),
         slider('Prefer body below confidence', 'skeet.resolver.preferBodyBelow', '%'), slider('Prefer body after misses', 'skeet.resolver.missedShots', 'shots', '0 disables this fallback. Counts only server-confirmed assisted shots'),
         info('Stance reading', () => dev.runtime.resolverInfo), info('Hidden body', () => 'Colored matrices are resolver guesses. Enemy body yaw stays on the server.'),
       ] },

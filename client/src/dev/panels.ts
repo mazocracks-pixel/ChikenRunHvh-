@@ -12,11 +12,6 @@ export interface HvhPanel {
 }
 
 export const HVH_PANELS: Readonly<Record<HvhPanelId, HvhPanel>> = {
-  lab: {
-    id: 'lab', name: 'HvH Lab', assisted: true,
-    description: 'Hypothesis resolving, historical shots, real desync and charged command shifts.',
-    loadout: c => sanitizeHvhLoadout(c.hvh),
-  },
   skeet: {
     id: 'skeet', name: 'Skeet', assisted: true,
     description: 'Weapon profiles, adaptive stance analysis, safe points and movement-state anti-aim.',

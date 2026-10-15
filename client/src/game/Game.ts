@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { LOBBY_LAP, MAPS, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
+import { MAPS, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
 import type { Network } from '../net/Network';
 import { watchSettings, type Quality } from '../settings';
 import { Hud } from '../ui/Hud';
@@ -24,19 +24,10 @@ import { World } from './World';
 const DAY_VIEW = 400;
 const NIGHT_VIEW = 48;
 const MAX_FRAME_DT = 0.25;
-const PREVIEW_SPOT = new THREE.Vector3(0, 0, 18);
+const PREVIEW_SPOT = new THREE.Vector3(31.25, 5.9, 5.9375);
 const DEFAULT_LOOK_KEY = JSON.stringify(defaultLook());
 
-/** The title screen: your chicken runs laps on this map (the Courtyard: no game mode uses it). */
-const SHOWCASE_MAP: MapId = 'lobby';
-/** The chicken's running speed (m/s), and how far ahead of it the camera runs (looking back at it). */
-const SHOWCASE_SPEED = 6.5;
-const SHOWCASE_LEAD = 3.2;
-const SHOWCASE_HEIGHT = 0.85;
-/** How far the chicken is turned from looking straight at the camera (radians), for a three-quarter view. */
-const SHOWCASE_TURN = 0.35;
-/** The chicken is on the right of the screen (negative: left; 0 = centre, 1 = the edge). */
-const SHOWCASE_SHIFT = -0.52;
+const SHOWCASE_MAP: MapId = 'mirage';
 
 interface QualityPreset {
   /** Upper limit for the device pixel ratio. */
@@ -106,10 +97,9 @@ export class Game {
   private idleAngle = 0.7;
   /** The player's chicken for the title screen (set by the app); null = just the fly-over. */
   private showcaseAppearance: Appearance | null = null;
+  private showcaseWeapon: WeaponId = 'rifle';
   private showcase: {
     chicken: Chicken;
-    /** How far round the oval the chicken is (radians), and a running clock. */
-    phi: number;
     clock: number;
   } | null = null;
   private fpsFrames = 0;
@@ -119,6 +109,10 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement, hudContainer: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    this.renderer.info.autoReset = false;
+    const gl = this.renderer.getContext();
+    const gpu = gl.getExtension('WEBGL_debug_renderer_info');
+    if (gpu) canvas.dataset.gpu = String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -135,7 +129,9 @@ export class Game {
     this.setupOverlay();
     pmrem.dispose();
 
-    this.world = new World(this.scene, MAPS.farm, this.renderer.capabilities.getMaxAnisotropy());
+    this.world = new World(this.scene, MAPS[SHOWCASE_MAP], this.renderer.capabilities.getMaxAnisotropy());
+    // The app displays map errors after the account handshake.
+    void this.world.ready.catch(() => undefined);
     this.input = new Input(canvas);
     this.hud = new Hud(hudContainer);
 
@@ -152,7 +148,11 @@ export class Game {
     return this.session;
   }
 
-  startSession(net: Network, join: JoinSuccess, callbacks: SessionCallbacks): void {
+  get ready(): Promise<void> {
+    return this.world.ready;
+  }
+
+  startSession(net: Network, join: JoinSuccess, callbacks: SessionCallbacks): Promise<void> {
     this.endSession();
     this.setPreview(null);
     this.endShowcase();
@@ -179,6 +179,7 @@ export class Game {
       },
       ...callbacks,
     });
+    return this.world.ready;
   }
 
   endSession(): void {
@@ -201,9 +202,8 @@ export class Game {
       return;
     }
     if (!this.preview) {
-      // The preview spot is chosen for the farm; the title screen may have another map up.
       this.endShowcase();
-      this.useMap('farm');
+      this.useMap(SHOWCASE_MAP);
       this.preview = new Chicken(appearance);
       this.preview.root.position.copy(PREVIEW_SPOT);
       this.scene.add(this.preview.root);
@@ -216,11 +216,10 @@ export class Game {
     if (this.world.map.id === id) return;
     this.world.dispose();
     this.world = new World(this.scene, MAPS[id], this.renderer.capabilities.getMaxAnisotropy());
-    this.applyWorldQuality();
+    this.applyQuality(this.quality);
     // Some maps have their own light (the Graveyard is a night).
     const night = id === 'night';
     this.baseLook = night ? nightLook() : defaultLook();
-    this.sky.setTitle(id === SHOWCASE_MAP);
     // The night: nothing is drawn past the fog (it hides it anyway), and the gun in your hands
     // is lit like the world around it.
     this.camera.far = night ? NIGHT_VIEW : DAY_VIEW;
@@ -232,18 +231,18 @@ export class Game {
     this.applyLook();
   }
 
-  /** The chicken the title screen shows (your own, with a rifle); null for the plain fly-over. */
-  setMenuChicken(appearance: Appearance | null): void {
+  /** The chicken and equipped weapon shown in the lobby; null for a plain fly-over. */
+  setMenuChicken(appearance: Appearance | null, weapon: WeaponId = 'rifle'): void {
     this.showcaseAppearance = appearance;
+    this.showcaseWeapon = weapon;
     if (this.showcase) {
       this.showcase.chicken.setAppearance(this.showcaseLook(appearance));
+      this.showcase.chicken.setWeapon(weapon);
     }
   }
 
-  /** The title-screen chicken wears an army helmet when you have no hat on, like the poster. */
   private showcaseLook(appearance: Appearance | null): Appearance {
-    const a = appearance ?? { skin: 'white', hat: 'none', beak: 'orange', shoes: 'none' };
-    return a.hat === 'none' ? { ...a, hat: 'helmet' } : a;
+    return appearance ?? { skin: 'white', hat: 'none', beak: 'orange', shoes: 'none' };
   }
 
   private endShowcase(): void {
@@ -255,40 +254,25 @@ export class Game {
   private updateShowcase(dt: number): void {
     if (!this.showcase) {
       const chicken = new Chicken(this.showcaseLook(this.showcaseAppearance));
-      chicken.setWeapon('rifle');
+      chicken.setWeapon(this.showcaseWeapon);
       chicken.headBob = true;
       this.scene.add(chicken.root);
       this.useMap(SHOWCASE_MAP);
-      this.showcase = { chicken, phi: 0, clock: 0 };
+      this.showcase = { chicken, clock: 0 };
     }
     const s = this.showcase;
     s.clock += dt;
 
-    // The chicken runs a big oval round the house. (Metres per radian changes round the oval,
-    // so the speed stays the same on the long sides and the ends.)
-    const { x, z, a, b } = LOBBY_LAP;
-    const onOval = (phi: number) => ({ x: x + a * Math.cos(phi), z: z + b * Math.sin(phi) });
-    const metresPerRadian = (phi: number) => Math.hypot(a * Math.sin(phi), b * Math.cos(phi));
-    s.phi += (SHOWCASE_SPEED / metresPerRadian(s.phi)) * dt;
-    const at = onOval(s.phi);
-    s.chicken.root.position.set(at.x, 0, at.z);
-    s.chicken.animate(dt, SHOWCASE_SPEED, true);
-
-    // The camera runs ahead of it on the same oval, looking back, so the chicken runs towards the
-    // camera. Camera and target slide sideways together, so the chicken stays on the right.
-    const lead = onOval(s.phi + SHOWCASE_LEAD / metresPerRadian(s.phi));
-    const fx = at.x - lead.x;
-    const fz = at.z - lead.z;
-    const flat = Math.hypot(fx, fz) || 1;
-    this.syncFov();
-    const halfWidth = SHOWCASE_LEAD * Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * this.camera.aspect;
-    const slide = this.camera.aspect > 1.1 ? halfWidth * SHOWCASE_SHIFT : 0;
-    const rx = (-fz / flat) * slide;
-    const rz = (fx / flat) * slide;
-    this.camera.position.set(lead.x + rx, SHOWCASE_HEIGHT + Math.sin(s.clock * 5) * 0.015, lead.z + rz);
-    this.camera.lookAt(at.x + rx, 0.55, at.z + rz);
-    // Face the camera, a little to one side.
-    s.chicken.root.rotation.y = Math.atan2(at.x - this.camera.position.x, at.z - this.camera.position.z) + SHOWCASE_TURN;
+    s.chicken.root.position.copy(PREVIEW_SPOT);
+    s.chicken.animate(dt, 0, true);
+    s.chicken.root.rotation.y = Math.PI + 0.3 + Math.sin(s.clock * 0.35) * 0.035;
+    const fov = this.camera.aspect < 1 ? 50 : 40;
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.camera.position.set(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 0.85, PREVIEW_SPOT.z + 2.8);
+    this.camera.lookAt(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 0.82, PREVIEW_SPOT.z);
   }
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */
@@ -334,7 +318,7 @@ export class Game {
   private applyQuality(preset: QualityPreset): void {
     const shadowsChanged = this.renderer.shadowMap.enabled !== preset.shadowMap > 0;
     this.quality = preset;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio, this.world.map.mesh ? 1 : 2));
     this.renderer.shadowMap.enabled = preset.shadowMap > 0;
     Chicken.blobShadows = preset.shadowMap === 0;
     Effects.flashLights = preset.flashLights;
@@ -348,8 +332,9 @@ export class Game {
         else if (m) m.needsUpdate = true;
       });
     }
-    if (preset.bloom && !this.composer) this.composer = this.createComposer();
-    if (!preset.bloom && this.composer) {
+    const bloom = preset.bloom && !this.world.map.mesh;
+    if (bloom && !this.composer) this.composer = this.createComposer();
+    if (!bloom && this.composer) {
       this.composer.dispose();
       this.composer = null;
     }
@@ -384,20 +369,25 @@ export class Game {
     if (!this.session && !this.preview && !this.showcaseAppearance && this.lastFrameTime !== null && time-this.lastFrameTime < 1000/30 - 0.5) return;
     const dt = this.lastFrameTime === null ? 0 : Math.min((time - this.lastFrameTime) / 1000, MAX_FRAME_DT);
     this.lastFrameTime = time;
+    this.renderer.info.reset();
+    const frameStart = performance.now();
 
     if (this.session) this.session.update(dt, this.fps);
     else if (this.preview) this.updatePreview(dt);
     else if (this.showcaseAppearance) this.updateShowcase(dt);
     else this.updateIdleCamera(dt);
+    const updateMs = performance.now() - frameStart;
 
     this.sky.update(this.camera, dt);
     this.world.update(dt, this.camera.position);
-    this.world.updateShadows(this.session ? this.focusAhead() : null);
+    this.world.updateShadows(this.session ? this.focusAhead() : this.preview?.root.position ?? this.showcase?.chicken.root.position ?? null);
     if (this.composer && !nativeOn(this.session?.hvhVisuals??null,'Visuals.Effects.disablePostProcessing')) this.composer.render(dt);
     else {
       this.renderer.render(this.scene, this.camera);
       this.renderOverlay();
     }
+    this.renderer.domElement.dataset.updateMs = updateMs.toFixed(1);
+    this.renderer.domElement.dataset.frameMs = (performance.now() - frameStart).toFixed(1);
     this.countFrame(time);
   };
 
@@ -449,8 +439,8 @@ export class Game {
     const aspect = this.camera.aspect;
     const halfFov = Math.atan(Math.tan(((this.camera.fov / 2) * Math.PI) / 180) * aspect);
     const shift = aspect > 1.1 ? dist * Math.tan(halfFov) * 0.42 : 0;
-    this.camera.position.set(PREVIEW_SPOT.x - shift, 1.2, PREVIEW_SPOT.z + dist);
-    this.camera.lookAt(PREVIEW_SPOT.x - shift, 0.85, PREVIEW_SPOT.z);
+    this.camera.position.set(PREVIEW_SPOT.x - shift, PREVIEW_SPOT.y + 1.2, PREVIEW_SPOT.z + dist);
+    this.camera.lookAt(PREVIEW_SPOT.x - shift, PREVIEW_SPOT.y + 0.85, PREVIEW_SPOT.z);
   }
 
   /** Outside a match nothing zooms, so the camera just follows the FOV setting. */
@@ -465,6 +455,8 @@ export class Game {
     this.fpsFrames++;
     if (time - this.fpsWindowStart >= 1000) {
       this.fps = Math.round((this.fpsFrames * 1000) / (time - this.fpsWindowStart));
+      this.renderer.domElement.dataset.drawCalls = String(this.renderer.info.render.calls);
+      this.renderer.domElement.dataset.triangles = String(this.renderer.info.render.triangles);
       this.fpsFrames = 0;
       this.fpsWindowStart = time;
     }

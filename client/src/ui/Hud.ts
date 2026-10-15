@@ -1,4 +1,4 @@
-import { ARMS_LADDER, JETPACK, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
+import { ARMS_LADDER, JETPACK, MAPS, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
 import { icon as drawnIcon } from './icons';
 import { watchSettings } from '../settings';
 import { killTags, shapeSvg, tagSvg, weaponShape } from './KillIcons';
@@ -6,6 +6,8 @@ import { gunIcon, prepareGunIcons } from './GunIcons';
 import { CombatFeedback } from '../game/CombatFeedback';
 import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
+import { Radar } from './Radar';
+import { GRENADE_NAMES, grenadeCount, nextGrenade, weaponHotkey, weaponIndexForKey, type HeldGrenade, type GrenadeStock } from '../game/weaponSlots';
 
 const KILLFEED_MS = 6000;
 
@@ -79,6 +81,10 @@ export interface ScoreLine {
 export class Hud {
   readonly root: HTMLElement;
   readonly chatInput: HTMLInputElement;
+  readonly radar = new Radar();
+  readonly buyButton = h('button', { type: 'button', class: 'hud-buy', hidden: true }, 'B · Buy');
+  private readonly roster = h('div', { class: 'team-roster' });
+  private rosterKey = '';
   private readonly timer = h('div', { class: 'match-timer' });
   private readonly teamScores = h('div', { class: 'team-scores' });
   private readonly modeLabel = h('div', { class: 'mode-label' });
@@ -103,7 +109,7 @@ export class Hud {
   private readonly hpText = h('span');
   private readonly armorFill = h('div', { class: 'fill' });
   private readonly armorText = h('span');
-  private readonly armorBar = h('div', { class: 'bar armor' }, this.armorFill, this.armorText);
+  private readonly armorBar = h('div', { class: 'bar armor', title: 'Armor' }, drawnIcon('vest'), this.armorFill, this.armorText);
   private readonly fuelFill = h('div', { class: 'fill' });
   private readonly fuelLabel = h('span', null, 'JETPACK');
   private readonly fuelBar = h('div', { class: 'bar fuel' }, this.fuelFill, this.fuelLabel);
@@ -175,9 +181,9 @@ export class Hud {
 
     this.root = h(
       'div',
-      { id: 'hud', class: 'hud' },
-      h('div', { class: 'hud-top-left' }, this.personalScore, this.stats, this.roomCode, this.miniBoard),
-      h('div', { class: 'hud-top-center' }, this.modeLabel, this.timer, this.teamScores, this.roundLine, this.objective),
+      { id: 'hud', class: 'hud cs-hud' },
+      h('div', { class: 'hud-top-left' }, this.radar.root, this.money, this.buyButton, this.personalScore, this.roomCode, this.miniBoard),
+      h('div', { class: 'hud-top-center' }, this.roster, this.modeLabel, this.timer, this.teamScores, this.roundLine, this.objective),
       h('div', { class: 'hud-top-right' }, this.killfeed),
       this.scope,
       this.vignette,
@@ -190,13 +196,14 @@ export class Hud {
       this.death,
       this.hint,
       this.progress,
-      h('div', { class: 'hud-bottom-left' }, h('div', { class: 'chat' }, this.chatLog, this.chatInput), h('div', { class: 'vitals' }, this.money, this.hopBadge, h('div', { class: 'bar hp' }, this.hpFill, this.hpText), this.armorBar, this.fuelBar)),
+      h('div', { class: 'hud-bottom-left' }, h('div', { class: 'chat' }, this.chatLog, this.chatInput), h('div', { class: 'vitals' }, this.hopBadge, h('div', { class: 'bar hp', title: 'Health' }, drawnIcon('plus'), this.hpFill, this.hpText), this.armorBar, this.fuelBar)),
       h('div', { class: 'hud-bottom-right' }, this.grenades, h('div', { class: 'weapon-panel' }, this.weaponName, this.ammo, this.reloadBar), this.slots),
       this.markerLayer,
       this.announcer,
       this.flashOverlay,
       this.scoreboard,
       this.results,
+      this.stats,
     );
     this.root.hidden = true;
     container.append(this.root);
@@ -211,6 +218,9 @@ export class Hud {
 
   setRoom(room: RoomInfo): void {
     this.mode = MODES[room.mode];
+    this.radar.setMap(MAPS[room.map]);
+    this.buyButton.hidden = !this.mode.bomb;
+    this.rosterKey = '';
     this.miniKey = '';
     this.modeLabel.textContent = this.mode.name;
     this.objective.textContent = this.mode.training ? 'Practice · targets never shoot back · nothing counts' : this.mode.bomb ? 'Plant or defuse · Hold E on a site' : this.mode.id === 'ctf' ? 'Steal their flag. Bring it home.' : this.mode.huntOnly ? 'Find the purple crystals · escape through the portal · the monkeys hear you' : this.mode.zombies ? 'Survive the waves · B shop between waves · C builds a wall (10 s)' : this.mode.building ? 'B to build · X to change block' : `${this.mode.teams ? 'Team' : 'First to'} ${this.mode.scoreLimit} ${this.mode.teams ? 'kills to win' : 'kills wins'}`;
@@ -257,10 +267,10 @@ export class Hud {
     const hpPct = Math.max(0, Math.min(100, (hp / PLAYER.maxHealth) * 100));
     this.hpFill.style.width = `${hpPct}%`;
     this.hpFill.classList.toggle('low', hpPct <= 30);
-    this.hpText.textContent = `${Math.ceil(hp * maxHealth)} HP`;
-    this.armorBar.hidden = armor <= 0;
+    this.hpText.textContent = String(Math.ceil(hp * maxHealth));
+    this.armorBar.hidden = !this.mode.bomb && armor <= 0;
     this.armorFill.style.width = `${Math.min(100, (armor / PLAYER.maxArmor) * 100)}%`;
-    this.armorText.textContent = `${Math.ceil(armor)} ARMOR`;
+    this.armorText.textContent = String(Math.ceil(armor));
     this.fuelBar.hidden = fuel <= 0;
     this.fuelFill.style.width = `${(fuel / JETPACK.maxFuel) * 100}%`;
     this.vignette.style.opacity = String(hpPct < 35 ? (35 - hpPct) / 50 : 0);
@@ -274,18 +284,24 @@ export class Hud {
     this.hopBadge.classList.toggle('max', excessSpeed >= max - 0.01);
   }
 
-  setWeapon(weapon: WeaponId, mag: number, reloading: boolean, reloadProgress: number, loadout: WeaponId[], slot: number): void {
+  setWeapon(weapon: WeaponId, mag: number, reloading: boolean, reloadProgress: number, loadout: WeaponId[], slot: number, grenade: HeldGrenade | null = null, stock: GrenadeStock = { eggs: 0, smokes: 0 }): void {
     const w = WEAPONS[weapon];
     this.weaponName.textContent = w.name;
-    this.ammo.textContent = w.melee ? '∞' : reloading ? 'Reloading…' : `${mag} / ${w.magazine}`;
-    this.ammo.classList.toggle('empty', mag === 0 && !reloading && !w.melee);
-    this.reloadBar.hidden = !reloading;
+    this.ammo.textContent = grenade ? String(grenadeCount(grenade, stock)) : w.melee ? '∞' : reloading ? 'Reloading…' : `${mag} / ${w.magazine}`;
+    this.ammo.classList.toggle('empty', !grenade && mag === 0 && !reloading && !w.melee);
+    this.reloadBar.hidden = !reloading || grenade !== null;
     (this.reloadBar.firstChild as HTMLElement).style.width = `${reloadProgress * 100}%`;
-    const key = `${loadout.join()}|${slot}`;
+    const key = `${loadout.join()}|${slot}|${grenade}|${stock.eggs}|${stock.smokes}|${stock.flashes}`;
     if (key !== this.lastSlotsKey) {
       this.lastSlotsKey = key;
       clear(this.slots);
-      loadout.forEach((id, i) => this.slots.append(h('div', { class: `slot${i === slot ? ' active' : ''}` }, h('kbd', null, i + 1), WEAPONS[id].name)));
+      for (const n of [1, 2, 3]) {
+        const i = weaponHotkey(weapon) === n ? slot : weaponIndexForKey(loadout, n);
+        const id = loadout[i];
+        if (id) this.slots.append(h('div', { class: `slot${!grenade && i === slot ? ' active' : ''}` }, icon(shapeSvg(weaponShape(id)), WEAPONS[id].name), h('span', null, WEAPONS[id].name), h('kbd', null, n)));
+      }
+      const kind = grenade ?? nextGrenade(null, stock);
+      if (kind) this.slots.append(h('div', { class: `slot${grenade ? ' active' : ''}`, title: 'Press 4 again to cycle grenades' }, drawnIcon(kind === 'smoke' ? 'grenade' : kind), h('span', null, GRENADE_NAMES[kind]), h('kbd', null, '4')));
     }
   }
 
@@ -555,6 +571,16 @@ export class Hud {
       this.teamScores.append(
         h('div', { class: `team t${team}${team === selfTeam ? ' mine' : ''}` }, h('span', null, teamName(this.mode, team)), h('b', null, scores[team - 1]), h('small', null, `/ ${this.mode.scoreLimit}`)),
       );
+    }
+  }
+
+  setRoster(players: readonly { info: PlayerInfo; alive: boolean }[], selfPid: number): void {
+    const key = players.map((p) => `${p.info.pid}:${p.info.team}:${p.alive}:${p.info.name}`).join('|');
+    if (key === this.rosterKey) return;
+    this.rosterKey = key;
+    clear(this.roster);
+    for (const team of [2, 1] as const) {
+      this.roster.append(h('div', { class: `roster-side t${team}` }, ...players.filter((p) => p.info.team === team).map((p) => h('span', { class: `roster-player${p.alive ? '' : ' dead'}${p.info.pid === selfPid ? ' self' : ''}`, title: `${p.info.name}${p.alive ? '' : ' · dead'}` }, drawnIcon('chicken')))));
     }
   }
 

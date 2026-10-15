@@ -23,7 +23,7 @@ describe('With bots / Without bots', () => {
         return c;
       };
       const play = async (c: Client, noBots: boolean) => {
-        const res = await c.timeout(3000).emitWithAck('quickPlay', { mode: 'ffa', map: 'farm', ...(noBots ? { noBots: true } : {}) });
+        const res = await c.timeout(3000).emitWithAck('quickPlay', { mode: 'ffa', map: 'mirage', ...(noBots ? { noBots: true } : {}) });
         assert.ok(res.ok);
         return res.ok ? res : (undefined as never);
       };
@@ -64,7 +64,7 @@ describe('With bots / Without bots', () => {
         return c;
       };
       const a = await join();
-      const first = await a.timeout(3000).emitWithAck('quickPlay', { mode: 'tdm', map: 'farm', noBots: true });
+      const first = await a.timeout(3000).emitWithAck('quickPlay', { mode: 'tdm', map: 'mirage', noBots: true });
       assert.ok(first.ok);
       if (!first.ok) return;
       assert.equal(first.match.phase, 'waiting');

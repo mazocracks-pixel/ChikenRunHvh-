@@ -29,6 +29,16 @@ const frame = (seq: number, extra: Partial<InputFrame> = {}): InputFrame => ({
 });
 
 describe('stepPlayer', () => {
+  it('walks up Source-height stairs but cannot step through a low ceiling', () => {
+    const stairs = [0, 1, 2].map((i) => ({ minX: i, maxX: i === 2 ? 10 : i + 1, minY: 0, maxY: (i + 1) * SOURCE_MOVE.stepHeight, minZ: -2, maxZ: 2 }));
+    for (const ceiling of [false, true]) {
+      const world = new CollisionWorld(20, [...stairs, ...(ceiling ? [{ minX: -2, maxX: 4, minY: PLAYER.height + .1, maxY: PLAYER.height + .4, minZ: -2, maxZ: 2 }] : [])]);
+      const state = createMoveState(-1, 0, 0);
+      for (let i = 0; i < 64; i++) stepPlayer(state, frame(i, { right: 1 }), SIM_DT, world);
+      if (ceiling) assert.ok(state.x <= -PLAYER.radius + 1e-4 && state.y === 0);
+      else assert.ok(state.x > 2 && state.y >= 3 * SOURCE_MOVE.stepHeight - 1e-4);
+    }
+  });
   it('jumps to about v²/2g and lands', () => {
     const s = createMoveState(0, 0, 20);
     stepPlayer(s, frame(1, { jump: true }), SIM_DT, farm);

@@ -1,7 +1,7 @@
 import { clamp, wrapAngle } from './math';
 import { CHICKEN_POSE } from './chickenPose';
 
-export const HVH_PANEL_IDS = ['lab', 'skeet', 'manual'] as const;
+export const HVH_PANEL_IDS = ['skeet', 'manual'] as const;
 export type HvhPanelId = typeof HVH_PANEL_IDS[number];
 
 export const HVH_STANCES = ['standing', 'moving', 'slowwalking', 'crouching', 'airborne', 'aircrouch'] as const;
@@ -83,7 +83,7 @@ export function defaultHvhCore(): HvhCoreSettings {
   return { era: 'tickbase', fakeLag: 0, fakeLagMode: 'static', fakeLagBreakOnShot: true, fakeDuck: false, antiBruteforce: true,
     defensive: false, latencyMs: 0, jitterMs: 0, packetLoss: 0 };
 }
-export const HVH = { maxDesync: 58, maxJitter: 45, revealMs: 300, hideMs: 150 } as const;
+export const HVH = { maxDesync: 58, maxJitter: 45, revealMs: 300, hideMs: 300 } as const;
 export function defaultHvhLoadout(): HvhLoadout {
   return { core: defaultHvhCore(), antiAim: { enabled: false, mode: 'backward', desync: 40, jitter: 20, jitterInterval: 180, spinSpeed: 180, pitch: 'look' }, exploit: 'off' };
 }
@@ -128,22 +128,24 @@ export function hvhPose(lookYaw: number, loadout: HvhLoadout, now: number, inver
   const a = loadout.antiAim;
   if (!a.enabled || revealed) return { real: lookYaw, fake: lookYaw };
   const skeet = loadout.skeet;
+  const baseYaw = lookYaw + (loadout.core?.era === 'legacy' ? Math.PI / 2 : 0);
+  const phase = now + ((Math.imul(context.seed ?? 0, 2654435761) >>> 0) / 0x100000000) * 1200;
   if (skeet?.enabled) {
     const state = skeet.states[hvhStance(context)];
-    const cycle = Math.floor(now / skeet.interval);
+    const cycle = Math.floor(phase / skeet.interval);
     const alternate = cycle % 2 ? 1 : -1;
-    const target = skeet.atTargets && context.targetYaw !== undefined ? context.targetYaw : lookYaw;
-    const base = state.mode === 'spin' ? now * a.spinSpeed * Math.PI / 180000 : target + ({ backward: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[state.mode]);
+    const target = skeet.atTargets && context.targetYaw !== undefined ? context.targetYaw : baseYaw;
+    const base = state.mode === 'spin' ? target + phase * a.spinSpeed * Math.PI / 180000 : target + ({ backward: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[state.mode]);
     const noise = ((Math.imul(cycle ^ (context.seed ?? 0), 1103515245) + 12345) >>> 0) / 0xffffffff * 2 - 1;
     const factor = skeet.jitterMode === 'random' ? noise : skeet.jitterMode === 'threeway' ? cycle % 3 - 1 : skeet.jitterMode === 'offset' ? (alternate + 1) / 2 : alternate;
     const coverSide = skeet.freestanding ? clamp(context.coverSide ?? 0, -1, 1) : 0;
-    const side = (inverted ? -1 : 1) * (coverSide || (skeet.desyncMode === 'alternate' ? alternate : skeet.desyncMode === 'sway' ? Math.sin(now * Math.PI / 1000) : 1));
+    const side = (inverted ? -1 : 1) * (coverSide || (skeet.desyncMode === 'alternate' ? alternate : skeet.desyncMode === 'sway' ? Math.sin(phase * Math.PI / 1000) : 1));
     const real = wrapAngle(base + (state.yawOffset + state.jitter * factor) * Math.PI / 180);
     return { real, fake: wrapAngle(real + state.desync * side * Math.PI / 180) };
   }
   const side = inverted ? -1 : 1;
-  const base = a.mode === 'spin' ? now * a.spinSpeed * Math.PI / 180000 : lookYaw + ({ backward: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[a.mode]);
-  const jitter = (Math.floor(now / (a.jitterInterval ?? 180)) % 2 ? 1 : -1) * a.jitter * Math.PI / 180;
+  const base = a.mode === 'spin' ? baseYaw + phase * a.spinSpeed * Math.PI / 180000 : baseYaw + ({ backward: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 }[a.mode]);
+  const jitter = (Math.floor(phase / (a.jitterInterval ?? 180)) % 2 ? 1 : -1) * a.jitter * Math.PI / 180;
   const real = wrapAngle(base + jitter);
   return { real, fake: wrapAngle(real + a.desync * side * Math.PI / 180) };
 }

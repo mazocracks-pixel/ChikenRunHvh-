@@ -1,7 +1,8 @@
 import { clamp } from '../math';
 import { SIM_DT } from '../constants';
 import type { InputFrame } from '../physics';
-import type { HvhCoreSettings } from '../hvh';
+import { HVH, type HvhCoreSettings, type HvhLoadout } from '../hvh';
+import type { WeaponDef } from '../weapons';
 
 /** Shared choke policy for outgoing commands and remote presentation. */
 export function fakeLagTicks(core: HvhCoreSettings, seq: number, speed: number, shooting = false): number {
@@ -58,29 +59,35 @@ export class CommandChoker {
   }
   clear(): void { this.pending = []; }
 }
-/** Stored simulation ticks are spent against normal weapon timers, never by changing fire rate. */
+export function exploitMode(mode: HvhLoadout['exploit'], weapon: WeaponDef, mag: number): HvhLoadout['exploit'] {
+  return weapon.projectile || weapon.melee || weapon.burst || mag < (mode === 'doubleTap' ? 2 : 1) ? 'off' : mode;
+}
+/** Burst, concealment and defensive transitions spend one shared combat resource. */
 export class ExploitResource {
   ticks = 0; playerTick = 0; nextAttackTick = 0; recoveryUntil = 0; protectedUntil = 0; defensiveUntil = 0;
+  private wallTick = 0;
   readonly capacity = 32;
   step(wallTick: number, attacking: boolean, choked: boolean): void {
+    this.wallTick = wallTick;
     this.playerTick++;
-    if (!attacking && !choked && wallTick >= this.recoveryUntil) this.ticks = Math.min(this.capacity, this.ticks + 0.125);
+    if (!attacking && wallTick >= this.recoveryUntil) this.ticks = Math.min(this.capacity, this.ticks + (choked ? 0.125 : 0.25));
   }
-  reset(): void { this.ticks = this.playerTick = this.nextAttackTick = this.recoveryUntil = this.protectedUntil = this.defensiveUntil = 0; }
+  reset(): void { this.ticks = this.playerTick = this.nextAttackTick = this.recoveryUntil = this.protectedUntil = this.defensiveUntil = this.wallTick = 0; }
   get charge(): number { return this.ticks / this.capacity; }
+  get defensive(): boolean { return this.wallTick < this.defensiveUntil; }
+  ready(mode: HvhLoadout['exploit']): boolean { return mode !== 'off' && this.ticks >= (mode === 'doubleTap' ? this.capacity : 14); }
   fire(intervalMs: number, mode: 'off' | 'doubleTap' | 'hideShots', wallTick: number): { shots: number; hidden: boolean } {
     if (this.playerTick < this.nextAttackTick) return { shots: 0, hidden: false };
     const intervalTicks = Math.max(1, Math.ceil(intervalMs / (SIM_DT * 1000)));
     this.nextAttackTick = this.playerTick + intervalTicks;
     const dtCost = this.capacity;
-    if (mode === 'doubleTap' && this.ticks >= dtCost && intervalTicks <= this.capacity) {
+    if (mode === 'doubleTap' && this.ready(mode)) {
       this.ticks -= dtCost;
-      // Execute the stored weapon simulation span, validating shot 2 against the same timer.
-      this.playerTick += intervalTicks; this.nextAttackTick = this.playerTick + intervalTicks;
+      this.nextAttackTick = this.playerTick + Math.max(intervalTicks, 20);
       this.recoveryUntil = wallTick + 32; return { shots: 2, hidden: false };
     }
-    const hidden = mode === 'hideShots' && this.ticks >= 14;
-    if (hidden) { this.ticks -= 14; this.protectedUntil = wallTick + 10; this.recoveryUntil = wallTick + 16; }
+    const hidden = mode === 'hideShots' && this.ready(mode);
+    if (hidden) { this.ticks -= 14; this.protectedUntil = wallTick + Math.ceil(HVH.hideMs / (SIM_DT * 1000)); this.recoveryUntil = wallTick + 16; }
     return { shots: 1, hidden };
   }
   defend(wallTick: number): boolean {

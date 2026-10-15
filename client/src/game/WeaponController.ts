@@ -1,5 +1,5 @@
 import { WEAPONS, WEAPON_SWITCH_MS, defaultHvhLoadout, fireIntervalFor, magazineSize, shotUsesAmmo, takeShot, type FireTiming, type DevMods, type PlayerState, type WeaponDef, type WeaponId, type ShotEvent } from '@game/shared';
-import { ExploitResource, defaultHvhCore, hvhWeapon, trainingMods } from '@game/shared';
+import { ExploitResource, exploitMode, hvhWeapon, trainingMods } from '@game/shared';
 
 /** After firing, trust our own ammo count over (older) snapshots for this long. */
 const AMMO_TRUST_MS = 400;
@@ -145,9 +145,7 @@ export class WeaponController {
       return fresh ? 'empty' : null;
     }
     const interval = fireIntervalFor(w, this.mods);
-    const core = this.hvh.core ?? defaultHvhCore();
-    const mode = (core.era === 'tickbase' || core.era === 'defensive') && !w.melee && !w.projectile && !w.burst
-      && (this.hvh.exploit !== 'doubleTap' || this.mag >= 2) ? this.hvh.exploit : 'off';
+    const mode = exploitMode(this.hvh.exploit, w, this.mag);
     const permission = this.tactical && !w.burst ? this.resource.fire(interval, mode, this.wallTick) : { shots: 1, hidden: false };
     if (!permission.shots || ((!this.tactical || w.burst) && !takeShot(w, interval, this.timing, now))) return null;
     if (this.tactical) this.timing.lastFireAt = now;
@@ -168,6 +166,15 @@ export class WeaponController {
     if (this.tactical && !this.def.burst) return this.resource.playerTick >= this.resource.nextAttackTick ? 'Ready' : 'Cooldown';
     const interval = fireIntervalFor(this.def, this.mods);
     return takeShot(this.def, interval, { ...this.timing }, now) ? 'Ready' : 'Cooldown';
+  }
+
+  get exploitReady(): boolean { return this.tactical && this.resource.ready(exploitMode(this.hvh.exploit, this.def, this.mag)); }
+  exploitState(now: number): string {
+    if (!this.tactical || this.hvh.exploit === 'off') return 'Off';
+    if (this.def.projectile || this.def.melee || this.def.burst) return 'Unavailable for this weapon';
+    const shot = this.shotState(now); if (shot !== 'Ready') return shot;
+    if (this.hvh.exploit === 'doubleTap' && this.mag < 2) return 'Needs two rounds';
+    return this.exploitReady ? this.hvh.exploit === 'doubleTap' ? 'Burst ready' : 'Concealment ready' : 'Charging';
   }
 
   suspend(): void {

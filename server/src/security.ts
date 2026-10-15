@@ -19,7 +19,7 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self'",
-      `connect-src 'self'${sockets}`,
+      `connect-src 'self' blob:${sockets}`,
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

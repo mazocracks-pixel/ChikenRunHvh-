@@ -13,6 +13,7 @@ const RETURN_SCORE = 50;
 interface Flag {
   team: 1 | 2;
   baseX: number;
+  baseY: number;
   baseZ: number;
   x: number;
   y: number;
@@ -28,7 +29,7 @@ export class CtfRoom extends GameRoom {
 
   constructor(io: GameServer, options: RoomOptions, hooks: RoomHooks) {
     super(io, options, hooks);
-    this.flags = this.map.flags.map((f) => ({ team: f.team, baseX: f.x, baseZ: f.z, x: f.x, y: 0, z: f.z, carrier: null, atBase: true, droppedAt: 0 }));
+    this.flags = this.map.flags.map((f) => ({ team: f.team, baseX: f.x, baseY: f.y ?? 0, baseZ: f.z, x: f.x, y: f.y ?? 0, z: f.z, carrier: null, atBase: true, droppedAt: 0 }));
   }
 
   protected override joinExtras(_player: ServerPlayer) {
@@ -118,7 +119,7 @@ export class CtfRoom extends GameRoom {
     flag.carrier = null;
     flag.atBase = true;
     flag.x = flag.baseX;
-    flag.y = 0;
+    flag.y = flag.baseY;
     flag.z = flag.baseZ;
   }
 

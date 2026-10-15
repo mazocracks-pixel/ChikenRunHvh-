@@ -30,7 +30,7 @@ export interface GameServerOptions {
   devPasskey?: string;
   /** Allow developer tools in public rooms (a local dev server). Otherwise: private rooms only. */
   devInPublicRooms?: boolean;
-  /** Equal, balanced HvH panels for every player in HvH matches, no passkey; on by default (false turns it off). */
+  /** Equal, balanced Skeet access for every player in HvH matches, no passkey; on by default (false turns it off). */
   publicHvhPanel?: boolean;
   /** FaceChiken anti-cheat: remove cheaters (default), only log them, or off. */
   antiCheat?: 'enforce' | 'log' | 'off';
@@ -241,7 +241,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
     if (typeof ack !== 'function') return;
     const room = rooms.roomOf(socket.id);
     const player = room?.playerFor(socket.id);
-    ack(room && player ? room.handleBuy(player, itemId) : { ok: false, error: 'Join a match first.', money: 0 });
+    ack(room && player ? room.handleBuy(player, itemId, performance.now()) : { ok: false, error: 'Join a match first.', money: 0 });
   });
   socket.on('build', inRoom((room, player, req: unknown) => room.handleBuild(player, req)));
   socket.on('unbuild', inRoom((room, player, id: unknown) => room.handleUnbuild(player, id)));

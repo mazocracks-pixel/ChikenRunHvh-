@@ -1,4 +1,4 @@
-import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type DailyStatus, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
+import { MAPS, MODES, MODE_IDS, isMapId, rankProgress, type DailyStatus, type FriendEntry, type MapId, type ModeDef, type ModeId, type Profile } from '@game/shared';
 import { clear, h, storage } from './dom';
 import { anyModalOpen } from './Modal';
 import { MODE_ICON, icon, type IconName } from './icons';
@@ -9,7 +9,7 @@ export interface MenuActions {
   browse(): void;
   createRoom(): void;
   joinCode(): void;
-  customize(): void;
+  customize(section: 'inventory' | 'loadout' | 'store'): void;
   friends(): void;
   /** Opens on that mode's tab, or overall. */
   leaderboard(mode?: ModeId): void;
@@ -37,9 +37,9 @@ for (const id of MODE_IDS) if (!CATEGORIES.some((c) => c.modes.includes(id))) CA
 
 /** "What's new" on the title screen: newest first. Edit freely. */
 const WHATS_NEW: readonly { title: string; text: string }[] = [
-  { title: 'Team switch', text: 'Press M to change teams. Not in FaceChiken, where ranked teams are fixed.' },
-  { title: 'Sniper scope', text: 'Right-click to scope, again to zoom in. Sniper and Scout.' },
-  { title: 'Zombie Apocalypse', text: 'Co-op waves with bosses and a shop between rounds.' },
+  { title: 'Mirage', text: 'A lighter Mirage joins the classic maps. Choose your map from the mode menu.' },
+  { title: 'Buy menu', text: 'Five columns, weapon previews and your chicken. Press B in a buy zone during buy time.' },
+  { title: 'Your lobby', text: 'Choose a loadout, invite friends and take your chicken into the next match.' },
 ];
 
 
@@ -61,12 +61,7 @@ function playersLine(m: ModeDef): string {
   return `Free for all · up to ${m.maxPlayers}`;
 }
 
-/**
- * The title screen, laid out like a game lobby: a big PLAY for your mode and a column of menu
- * buttons on the left (your chicken runs on the right), your level and coins up top, today's
- * challenges and what's new below, and how many people are playing. "Change mode" opens the
- * mode select: every mode by tab, the bots choice, the server browser and private rooms.
- */
+/** Mirage lobby with the player's chicken, existing account actions and live friends. */
 export class MainMenu {
   readonly root: HTMLElement;
   private readonly name = h('span', { class: 'profile-name' });
@@ -82,7 +77,9 @@ export class MainMenu {
   private readonly cards = new Map<ModeId, HTMLElement>();
   private readonly playButtons: HTMLButtonElement[] = [];
   private readonly friendsBadge = h('span', { class: 'badge', hidden: true });
-  private readonly partyStrip = h('div', { class: 'party-strip', hidden: true });
+  private readonly friendList = h('div', { class: 'cs-friend-list' });
+  private readonly friendCount = h('span', { class: 'cs-friend-count' }, '0');
+  private readonly partyStrip = h('div', { class: 'cs-party' }, h('span', { class: 'party-title' }, 'Lobby'), h('span', { class: 'muted' }, 'Solo · ready'));
   /** The lobby choice: play with bots (default) or wait for real players. */
   private withoutBots = storage.get(BOTS_KEY) === '1';
   private readonly botsNote = h('p', { class: 'bots-note' });
@@ -90,10 +87,11 @@ export class MainMenu {
 
   // The lobby itself.
   private selected: ModeId = this.savedMode();
-  private readonly playLabel = h('span', { class: 'lobby-play-label' }, 'Play');
-  private readonly playMode = h('span', { class: 'lobby-play-mode' });
+  private readonly playLabel = h('span', null, 'Play');
+  private readonly playMode = h('span', { class: 'cs-match-mode' });
   private readonly playButton: HTMLButtonElement;
   private readonly modePanel: HTMLElement;
+  private readonly newsPanel: HTMLElement;
   private readonly online = h('span', { class: 'lobby-online' }, h('i'), 'Connecting…');
   private readonly daily = h('div', { class: 'lobby-card lobby-daily' });
   private onlineTimer = 0;
@@ -135,8 +133,8 @@ export class MainMenu {
         ),
         h('h3', null, m.name),
         h('p', null, m.description),
-        // (The Backrooms mode lives inside the Graveyard map's file, but it's its own place.)
-        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, m.huntOnly ? m.name : MAPS[m.maps[0]!].name),
+        // Event modes share Mirage but enter their sealed event area.
+        m.maps.length > 1 ? picker : h('div', { class: 'map-pick single' }, MAPS[m.maps[0]!].name),
         this.addPlayButton(button('Play', () => this.play(id), 'play')),
       );
       // Cards sit in their tab's order (FaceChiken first among the competitive ones).
@@ -177,57 +175,60 @@ export class MainMenu {
       if (e.target === this.modePanel) this.openModes(false);
     });
 
-    // ---- The lobby.
-    this.playButton = this.addPlayButton(button('', () => this.play(this.selected), 'lobby-play'));
-    this.playButton.append(h('span', { class: 'lobby-play-arrow' }, icon('play')), h('span', { class: 'lobby-play-text' }, this.playLabel, this.playMode));
-    const changeMode = button('Change mode', () => this.openModes(true), 'lobby-change');
-    const navButton = (name: IconName, label: string, run: () => void) => {
-      const b = button('', run, 'lobby-btn');
-      b.append(icon(name, 'lobby-btn-icon'), h('span', { class: 'lobby-btn-label' }, label));
+    this.playButton = this.addPlayButton(button('', () => this.openModes(true), 'cs-nav-play'));
+    this.playButton.append(this.playLabel);
+    const tool = (name: IconName, label: string, run: () => void) => {
+      const b = button('', run, 'cs-tool');
+      b.setAttribute('aria-label', label);
+      b.title = label;
+      b.append(icon(name));
       return b;
     };
-    const friends = navButton('team', 'Friends', actions.friends);
-    friends.append(this.friendsBadge);
     const news = h('div', { class: 'lobby-card lobby-news' }, h('h3', null, "What's new"), ...WHATS_NEW.map((n) => h('div', { class: 'lobby-news-item' }, h('b', null, n.title), h('span', null, n.text))));
-    const controls = withIcon(button('', actions.guide, 'lobby-link'), 'help', 'How to play · F1');
+    this.newsPanel = h('aside', { class: 'cs-news', hidden: true, 'aria-label': 'News and challenges' }, news, this.daily);
+    const newsButton = button('News', () => {
+      this.newsPanel.hidden = !this.newsPanel.hidden;
+      newsButton.setAttribute('aria-expanded', String(!this.newsPanel.hidden));
+    });
+    newsButton.setAttribute('aria-expanded', 'false');
+    const friends = tool('team', 'Friends and party', actions.friends);
+    friends.append(this.friendCount, this.friendsBadge);
+    const home = tool('chicken', 'Home', () => {
+      this.openModes(false);
+      this.newsPanel.hidden = true;
+      newsButton.setAttribute('aria-expanded', 'false');
+    });
+    home.classList.add('logo');
 
     this.root = h(
       'div',
-      { class: 'screen main-menu lobby' },
+      { class: 'screen cs-lobby' },
       h(
         'header',
-        { class: 'menu-header' },
-        h('h1', { class: 'logo' }, 'ChikenRun', h('span', { class: 'accent' }, 'Hvh')),
-        h('div', { class: 'profile-chip' }, this.rank, h('span', { class: 'who' }, this.name, this.record, this.xpBar), this.coins, this.accountBtn),
-      ),
-      this.partyStrip,
-      h(
-        'div',
-        { class: 'lobby-body' },
-        h(
-          'nav',
-          { class: 'lobby-nav', 'aria-label': 'Main menu' },
+        { class: 'cs-topbar' },
+        h('div', { class: 'cs-tools' }, home, tool('calendar', 'Daily challenges', actions.daily), tool('gear', 'Settings', actions.settings), tool('person', 'Account', actions.account)),
+        h('nav', { class: 'cs-nav', 'aria-label': 'Main menu' },
+          button('Inventory', () => actions.customize('inventory')),
+          button('Loadout', () => actions.customize('loadout')),
           this.playButton,
-          changeMode,
-          navButton('basket', 'Shop', actions.customize),
-          friends,
-          navButton('calendar', 'Daily', actions.daily),
-          navButton('trophy', 'Leaderboard', () => actions.leaderboard()),
-          navButton('gear', 'Settings', actions.settings),
-          this.status,
+          button('Store', () => actions.customize('store')),
+          newsButton,
         ),
-        h('div', { class: 'lobby-cards' }, this.daily, news),
       ),
-      h(
-        'footer',
-        { class: 'lobby-bottom' },
-        this.online,
-        controls,
-        h('button', { type: 'button', class: 'link', onclick: actions.privacy }, 'Cookies & privacy'),
-      ),
-      h('button', { type: 'button', class: 'scene-toggle', title: 'Hide the menu to see the scene', 'aria-label': 'Hide or show the menu', onclick: () => this.root.classList.toggle('scene-only') }, icon('hide')),
+      h('div', { class: 'cs-profile' }, this.name, this.rank, this.record, this.xpBar),
+      h('aside', { class: 'cs-friends', 'aria-label': 'Friends' }, friends, this.friendList, tool('plus', 'Add friends', actions.friends), h('div', { class: 'cs-friends-bottom' }, tool('trophy', 'Leaderboard', () => actions.leaderboard()), tool('help', 'How to play · F1', actions.guide))),
+      this.partyStrip,
+      this.newsPanel,
+      h('div', { class: 'cs-match' }, button('', () => this.openModes(true), 'cs-match-choice'), this.playMode, this.addPlayButton(button('Start match', () => this.play(this.selected), 'cs-match-start'))),
+      this.status,
+      h('footer', { class: 'cs-bottom' }, this.online, this.coins, this.accountBtn, button('Privacy', actions.privacy)),
+      tool('hide', 'Hide or show the menu', () => this.root.classList.toggle('scene-only')),
       this.modePanel,
     );
+    const choice = this.root.querySelector<HTMLButtonElement>('.cs-match-choice')!;
+    choice.append(icon('play'));
+    choice.title = 'Change mode';
+    choice.setAttribute('aria-label', 'Change mode');
     container.append(this.root);
     this.refreshBots();
     this.refreshPlay();
@@ -238,18 +239,19 @@ export class MainMenu {
     // Enter plays, Esc closes the mode select (when nothing else has the keyboard).
     document.addEventListener('keydown', (e) => {
       if (this.root.hidden || anyModalOpen() || e.repeat) return;
-      const typing = e.target instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+      const interactive = e.target instanceof HTMLElement && Boolean(e.target.closest('button, a, input, select, textarea'));
       if (e.key === 'Escape' && !this.modePanel.hidden) this.openModes(false);
-      else if (e.key === 'Enter' && !typing && this.modePanel.hidden && !this.playButton.disabled) {
+      else if (e.key === 'Escape') { this.newsPanel.hidden = true; newsButton.setAttribute('aria-expanded', 'false'); }
+      else if (e.key === 'Enter' && !interactive && this.modePanel.hidden && !this.playButton.disabled) {
         e.preventDefault();
-        this.playButton.click();
+        this.play(this.selected);
       }
     });
   }
 
   private savedMode(): ModeId {
     const saved = storage.get(MODE_KEY);
-    return saved && saved in MODES ? (saved as ModeId) : 'ffa';
+    return saved && MODE_IDS.includes(saved as ModeId) ? (saved as ModeId) : 'bomb';
   }
 
   /** Plays a mode (it becomes the one PLAY starts next time). */
@@ -267,7 +269,7 @@ export class MainMenu {
     if (open) this.showMode(this.selected);
   }
 
-  /** What the big PLAY says under it: your mode, its map, and bots or not. */
+  /** The selected mode, map and bot setting beside Start match. */
   private refreshPlay(): void {
     const m = MODES[this.selected];
     const map = storage.get(mapKey(this.selected));
@@ -350,10 +352,16 @@ export class MainMenu {
    * Friends and party: the badge (requests and invites waiting), who's in your party, and what
    * Play does (the leader brings everyone; members wait for the leader).
    */
-  setFriends(waiting: number, party: { names: string[]; leader: string; isLeader: boolean } | null): void {
+  setFriends(waiting: number, party: { names: string[]; leader: string; isLeader: boolean } | null, friends: readonly FriendEntry[] = []): void {
     this.friendsBadge.hidden = waiting === 0;
     this.friendsBadge.textContent = String(waiting);
-    this.partyStrip.hidden = party === null;
+    this.friendCount.textContent = String(friends.filter((f) => f.online).length);
+    clear(this.friendList);
+    for (const f of [...friends].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))) {
+      const status = f.online ? f.mode ? MODES[f.mode].name : 'In lobby' : 'Offline';
+      this.friendList.append(h('button', { type: 'button', class: `cs-friend${f.online ? ' online' : ''}${f.inParty ? ' in-party' : ''}`, title: `${f.name} · ${status}`, 'aria-label': `${f.name} · ${status}`, onclick: this.actions.friends }, h('span', null, Array.from(f.name)[0]?.toUpperCase() ?? '?'), h('i')));
+    }
+    this.partyStrip.hidden = false;
     if (party) {
       clear(this.partyStrip);
       this.partyStrip.append(
@@ -361,6 +369,9 @@ export class MainMenu {
         ...party.names.map((n) => h('span', { class: 'party-chip' }, n === party.leader ? `${n} (lead)` : n)),
         h('span', { class: 'muted' }, party.isLeader ? 'You pick the mode: everyone plays with you.' : `${party.leader} picks the mode.`),
       );
+    } else {
+      clear(this.partyStrip);
+      this.partyStrip.append(h('span', { class: 'party-title' }, 'Lobby'), h('span', { class: 'muted' }, 'Solo · ready'));
     }
     const label = !party ? 'Play' : party.isLeader ? `Play with party (${party.names.length})` : 'Leader picks';
     for (const b of this.playButtons) {

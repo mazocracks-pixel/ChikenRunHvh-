@@ -52,7 +52,7 @@ const killAll = (room: BombRoom, victims: ServerPlayer[], by: ServerPlayer | nul
 /** Skip warmup and buy time: round 1 is live. */
 const toLive = (s: ReturnType<typeof setup>) => {
   s.step(BOMB.warmupMs + 50);
-  s.step(BOMB.buyMs + 50);
+  s.step(BOMB.freezeMs + 50);
 };
 const named = (events: RecordedEvent[], name: string) => events.filter((e) => e.event === name).map((e) => e.args[0] as Record<string, unknown>);
 
@@ -74,6 +74,31 @@ describe('ChikenBomb rounds', () => {
     s.step(BOMB.buyMs + 50);
     assert.equal(round(s.room).phase, 'live');
     assert.ok([...s.t, ...s.ct].every((p) => !p.frozen));
+  });
+
+  it('keeps buying open for 20 seconds, unlocks movement after 15, and limits purchases to spawn', () => {
+    const s = setup(2);
+    s.step(BOMB.warmupMs + 50);
+    const t = s.t[0]!;
+    const r = round(s.room);
+    const buyEndsAt = r.buyEndsAt!;
+    t.money = 10_000;
+
+    assert.ok(Math.abs((buyEndsAt - r.endsAt!) - (BOMB.buyMs - BOMB.freezeMs)) < 1e-6);
+    s.step(r.endsAt! - s.now - 1);
+    assert.equal(t.frozen, true);
+    s.step(100);
+    assert.equal(round(s.room).phase, 'live');
+    assert.equal(t.frozen, false);
+    assert.equal(s.room.handleBuy(t, 'smg', s.now).ok, true);
+
+    place(t, 0, 0);
+    assert.equal(s.room.handleBuy(t, 'armor', s.now).error, 'Move into your buy zone to buy.');
+    place(t, 38, 0);
+    assert.equal(s.room.handleBuy(t, 'armor', s.now).error, 'Move into your buy zone to buy.');
+    place(t, -38, 0);
+    s.step(buyEndsAt - s.now);
+    assert.equal(s.room.handleBuy(t, 'armor', s.now).error, 'You can only buy during buy time.');
   });
 
   it('dead players wait for the next round; survivors keep their guns', () => {
@@ -120,17 +145,65 @@ describe('ChikenBomb rounds', () => {
     assert.equal(ct1!.money, ECONOMY.start + ECONOMY.loss);
   });
 
-  it('first team to 6 rounds wins the match', () => {
+  it('switches sides after round 15 and keeps the score with each team', () => {
     const s = setup(2);
+    const t = s.t[0]!;
+    const ct = s.ct[0]!;
+    s.step(BOMB.warmupMs + 50);
+    for (let i = 0; i < BOMB.halfTimeAfter; i++) {
+      s.step(BOMB.freezeMs + 50);
+      killAll(s.room, [ct]);
+      if (i < BOMB.halfTimeAfter - 1) s.step(BOMB.roundEndMs + 50);
+    }
+    assert.equal(round(s.room).phase, 'over');
+    t.money = 12_000;
+    t.armor = PLAYER.maxArmor;
+    t.info.loadout = ['rifle', 'pistol', 'knife'];
+    ct.money = 9_000;
+    ct.armor = PLAYER.maxArmor;
+    ct.hasKit = true;
+    s.step(BOMB.roundEndMs + 50);
+    assert.equal(round(s.room).round, BOMB.halfTimeAfter + 1);
+    assert.equal(t.info.team, 2);
+    assert.equal(ct.info.team, 1);
+    assert.equal(t.money, ECONOMY.start);
+    assert.deepEqual(t.info.loadout, ['pistol', 'knife']);
+    assert.equal(t.armor, 0);
+    assert.equal(ct.money, ECONOMY.start);
+    assert.deepEqual(ct.info.loadout, ['pistol', 'knife']);
+    assert.equal(ct.armor, 0);
+    assert.equal(ct.hasKit, false);
+    assert.deepEqual(named(s.events, 'scores').at(-1)!.teamScores, [0, BOMB.halfTimeAfter]);
+  });
+
+  it('ends when one team reaches 16 and draws after 30 rounds at 15-15', () => {
+    const s = setup(2);
+    const t = s.t[0]!;
+    const ct = s.ct[0]!;
     s.step(BOMB.warmupMs + 50);
     for (let i = 0; i < BOMB.roundsToWin; i++) {
-      s.step(BOMB.buyMs + 50);
-      killAll(s.room, s.ct);
+      s.step(BOMB.freezeMs + 50);
+      killAll(s.room, [ct]);
       if (i < BOMB.roundsToWin - 1) s.step(BOMB.roundEndMs + 50);
     }
     assert.equal(s.room.phase, 'ended');
     const match = named(s.events, 'match').at(-1)!;
-    assert.equal(match.winnerTeam, 1);
+    assert.equal(match.winnerTeam, t.info.team);
+    s.room.close();
+
+    const tied = setup(2);
+    const firstT = tied.t[0]!;
+    const firstCT = tied.ct[0]!;
+    tied.step(BOMB.warmupMs + 50);
+    for (let i = 0; i < BOMB.maxRounds; i++) {
+      tied.step(BOMB.freezeMs + 50);
+      killAll(tied.room, [i < BOMB.halfTimeAfter ? firstCT : firstT]);
+      if (i < BOMB.maxRounds - 1) tied.step(BOMB.roundEndMs + 50);
+    }
+    assert.equal(tied.room.phase, 'ended');
+    const draw = named(tied.events, 'match').at(-1)!;
+    assert.equal(draw.winnerTeam, 0);
+    assert.deepEqual(draw.teamScores, [BOMB.halfTimeAfter, BOMB.halfTimeAfter]);
   });
 });
 
@@ -301,6 +374,14 @@ describe('the bomb', () => {
 });
 
 describe('the buy menu', () => {
+  it('puts every spawn on Sandstown and Harbor inside its team buy zone', () => {
+    for (const map of [MAPS.sandstown, MAPS.harbor]) {
+      for (const spawn of map.spawns) {
+        assert.ok(map.buyZones?.some((z) => z.team === spawn.team && Math.hypot(spawn.x - z.x, spawn.z - z.z) <= z.radius), `${map.id} team ${spawn.team} spawn`);
+      }
+    }
+  });
+
   it('only during buy time (free in warmup), only for your team, only with enough money', () => {
     const s = setup(2);
     const t = s.t[0]!;
@@ -319,7 +400,7 @@ describe('the buy menu', () => {
     assert.equal(s.room.handleBuy(t, 'nonsense').error, 'Unknown item.');
     s.step(BOMB.buyMs + 50);
     t.money = 9000;
-    assert.equal(s.room.handleBuy(t, 'smg').error, 'You can only buy during buy time.');
+    assert.equal(s.room.handleBuy(t, 'smg', s.now).error, 'You can only buy during buy time.');
   });
 
   it('a new gun replaces your old one, next to the pistol and knife', () => {
@@ -354,8 +435,39 @@ describe('the buy menu', () => {
 });
 
 describe('ChikenBomb bots', () => {
-  it('a bot carrying the bomb walks to its site and plants it', () => {
+  for (const siteId of ['A', 'B'] as const) it(`a Mirage carrier reaches ${siteId} and plants at the correct elevation`, () => {
     const { io } = fakeIo();
+    const room = createRoom(io, { id: 'mirage', code: 'MIRGE', name: 'Mirage', mode: 'bomb', map: 'mirage', private: true, bots: 1 }, {}) as BombRoom;
+    current = room;
+    clearInterval((room as unknown as { tickTimer: NodeJS.Timeout }).tickTimer);
+    const ct = addPlayer(room, 'Observer');
+    ct.info.team = 2;
+    (room as unknown as { bots: { add(): boolean } }).bots.add();
+    const carrier = [...room.players.values()].find((p) => p.info.bot)!;
+    carrier.info.team = 1;
+    (carrier as unknown as { takeInputToken(): boolean }).takeInputToken = () => true;
+    room.startNow();
+    const update = (room as unknown as { fixedUpdate(now: number): void }).fixedUpdate.bind(room);
+    let now = performance.now();
+    const run = (ms: number, stopOnPlant = false) => {
+      for (const end = now + ms; now < end && (!stopOnPlant || round(room).phase !== 'planted'); ) {
+        now += SIM_DT * 1000; update(now);
+      }
+    };
+    run(BOMB.warmupMs + BOMB.freezeMs + 100);
+    const site = room.map.bombSites!.find((s) => s.id === siteId)!;
+    (room as unknown as { targetSite: typeof site }).targetSite = site;
+    place(ct, 85, 80); ct.shieldUntil = Infinity;
+    run(65_000, true);
+    const state = round(room);
+    const path = (room as unknown as { bots: { brains: Map<number, { path: unknown[] }> } }).bots.brains.get(carrier.pid)?.path.slice(0, 3);
+    assert.equal(state.phase, 'planted', `carrier stopped at ${carrier.state.x},${carrier.state.y},${carrier.state.z}; next ${JSON.stringify(path)}`);
+    assert.equal(state.bomb.site, siteId);
+    assert.ok(Math.abs(state.bomb.y - (site.y ?? 0)) < 1.5);
+  });
+
+  it('a bot carrying the bomb walks to its site and plants it', () => {
+    const { io, events } = fakeIo();
     const room = createRoom(io, { id: 'b', code: 'BOTS1', name: 'Bots', mode: 'bomb', map: 'sandstown', private: true, bots: 2 }, {}) as BombRoom;
     current = room;
     clearInterval((room as unknown as { tickTimer: NodeJS.Timeout }).tickTimer);
@@ -386,7 +498,7 @@ describe('ChikenBomb bots', () => {
     place(ct, 38, 0);
     run(60_000);
     const r = round(room);
-    assert.ok(r.phase === 'planted' || (r.phase === 'over' && r.reason === 'exploded') || r.bomb.site !== null, `bot didn't plant: phase ${r.phase}, carrier at ${carrier.state.x.toFixed(1)},${carrier.state.z.toFixed(1)}`);
+    assert.ok(events.some((e) => e.event === 'round' && (e.args[0] as RoundState).phase === 'planted'), `bot didn't plant: phase ${r.phase}, carrier at ${carrier.state.x.toFixed(1)},${carrier.state.z.toFixed(1)}`);
   });
 });
 

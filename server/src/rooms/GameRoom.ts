@@ -20,6 +20,7 @@ import {
   hopMaxFor,
   hvhPose,
   hvhPitch,
+  exploitMode,
   chickenHeadCenter,
   defaultHvhLoadout,
   HVH,
@@ -82,7 +83,7 @@ import {
   levelFor,
   rankedPoints,
   carAimSpeed,
-  stepAnimation, defaultHvhCore, fakeLagTicks, rayHvhChicken, buildHvhMatrix, traceHvhCover,
+  stepAnimation, maximumBodyDelta, defaultHvhCore, fakeLagTicks, rayHvhChicken, buildHvhMatrix, traceHvhCover,
   hvhHitDamage, auditShot, type ShotAudit,
   hvhWeapon, hvhSpread, unpackPlayer, hvhStance,
   KILL_FLAGS,
@@ -123,6 +124,7 @@ export interface RoomOptions {
 /** Where a bot should go for the mode, and whether to hold use (E) once there. */
 export interface BotGoal {
   x: number;
+  y?: number;
   z: number;
   /** Hold use here (plant / defuse) instead of walking. */
   use?: boolean;
@@ -298,9 +300,13 @@ export class GameRoom {
     for (const [id, mag] of p.mags) p.mags.set(id, Math.min(mag, WEAPONS[id].magazine));
   }
 
-  updateHvhPose(p: ServerPlayer, now: number): void {
-    if (this.mode.id !== 'hvh') return;
-    if (!p.hvhEnabled) { p.yaw = p.fakeYaw = p.lookYaw; p.animation.eyeYaw = p.animation.bodyYaw = p.animation.lowerBodyYaw = p.lookYaw; p.fakePitch = p.pitch; return; }
+  updateHvhPose(p: ServerPlayer, now: number): { real: number; fake: number } {
+    if (this.mode.id !== 'hvh') return { real: p.lookYaw, fake: p.lookYaw };
+    if (!p.hvhEnabled) {
+      p.yaw = p.fakeYaw = p.lookYaw; p.animation.eyeYaw = p.animation.bodyYaw = p.animation.lowerBodyYaw = p.lookYaw; p.fakePitch = p.pitch;
+      return { real: p.lookYaw, fake: p.lookYaw };
+    }
+    const context = { speed: p.state.horizontalSpeed, onGround: p.state.onGround, crouching: p.state.crouching, seed: p.pid };
     const settings = p.hvh.skeet;
     if (settings?.enabled && (settings.atTargets || settings.freestanding) && now - p.hvhCoverAt >= 100) {
       p.hvhCoverAt = now; p.hvhCoverSide = 0; p.hvhTargetYaw = undefined;
@@ -315,8 +321,9 @@ export class GameRoom {
         p.hvhTargetYaw = Math.atan2(-(nearest.x - p.state.x), -(nearest.z - p.state.z));
         if (settings.freestanding) {
           const from = { x: nearest.x, y: nearest.y + eyeHeightOf(nearest), z: nearest.z };
-          const pose = hvhPose(p.lookYaw, p.hvh, now, false, false, { targetYaw: p.hvhTargetYaw });
-          const requested = settings.states[hvhStance({ speed: p.state.horizontalSpeed, crouching: p.state.crouching, onGround: p.state.onGround })].desync * Math.PI / 180;
+          const pose = hvhPose(p.lookYaw, p.hvh, now, false, false, { ...context, targetYaw: p.hvhTargetYaw });
+          const requested = Math.min(settings.states[hvhStance(context)].desync * Math.PI / 180,
+            maximumBodyDelta(p.state.horizontalSpeed, p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), p.state.onGround, moveSpeedFor(p.weapon), p.animation.runFraction));
           const risk = (side: number) => {
             const matrix = buildHvhMatrix(p.state, pose.real + requested * side, bodyScale(p.state), hvhPitch(p.pitch, p.hvh));
             let total = 0;
@@ -333,13 +340,15 @@ export class GameRoom {
         }
       }
     }
-    const revealed = !p.alive || p.vehicle !== 0 || (now >= p.concealUntil && now < p.revealUntil);
-    const pose = hvhPose(p.lookYaw, p.hvh, now, p.lastInput?.invert === true, revealed,
-      { speed: p.state.horizontalSpeed, onGround: p.state.onGround, crouching: p.state.crouching,
-        targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide, seed: p.pid });
+    const onShot = now >= p.concealUntil && now < p.revealUntil;
+    const revealed = !p.alive || p.vehicle !== 0 || onShot;
+    const inverted = (p.lastInput?.invert === true) !== (p.hvh.core?.antiBruteforce === true && p.antiBruteSide < 0);
+    const pose = hvhPose(onShot ? p.revealYaw : p.lookYaw, p.hvh, now, inverted, revealed,
+      { ...context, targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide });
     p.animation.eyeYaw = pose.real;
     p.fakeYaw = pose.real;
-    p.fakePitch = hvhPitch(p.pitch, p.hvh, revealed);
+    p.fakePitch = hvhPitch(onShot ? p.revealPitch : p.pitch, p.hvh, revealed);
+    return pose;
   }
 
   // ---------------------------------------------------------------------------
@@ -432,7 +441,7 @@ export class GameRoom {
   }
 
   /** ChikenBomb buy menu; nothing to buy anywhere else. */
-  handleBuy(p: ServerPlayer, _itemId: unknown): BuyResult {
+  handleBuy(p: ServerPlayer, _itemId: unknown, _now = performance.now()): BuyResult {
     return { ok: false, error: 'There is no buy menu in this mode.', money: p.money };
   }
 
@@ -583,9 +592,7 @@ export class GameRoom {
     if (tactical && (req.t < now - MAX_REWIND_MS || req.t > now + 16)) {
       this.rejectHvhShot(p, req, 'RECORD_INVALID'); return;
     }
-    const core = p.hvh.core ?? defaultHvhCore();
-    const mode = p.hvhEnabled && (core.era === 'tickbase' || core.era === 'defensive') && !w.projectile && !w.melee && !w.burst
-      && (p.hvh.exploit !== 'doubleTap' || p.mag >= 2) ? p.hvh.exploit : 'off';
+    const mode = p.hvhEnabled ? exploitMode(p.hvh.exploit, w, p.mag) : 'off';
     const permission = tactical && !w.burst ? p.resource.fire(w.fireInterval, mode, this.hvhTick) : { shots: 1, hidden: false };
     if (!permission.shots) { this.rejectHvhShot(p, req, 'SERVER_REJECTED'); return; }
     const shotCount = Math.min(permission.shots, p.mag);
@@ -606,12 +613,14 @@ export class GameRoom {
     if (this.mode.id === 'hvh' && p.hvhEnabled) {
       const hidden = permission.hidden;
       p.concealUntil = hidden ? now + HVH.hideMs : 0;
-      p.revealUntil = now + HVH.revealMs + (hidden ? HVH.hideMs : 0);
+      p.revealUntil = hidden ? 0 : now + HVH.revealMs;
       if (!hidden) {
-        p.animation.eyeYaw = Math.atan2(-req.dx, -req.dz);
-        p.animation.bodyYaw = p.animation.eyeYaw;
+        p.revealYaw = Math.atan2(-req.dx, -req.dz);
+        p.revealPitch = Math.asin(clamp(req.dy / Math.hypot(req.dx, req.dy, req.dz), -1, 1));
+        p.animation.eyeYaw = p.animation.bodyYaw = p.animation.lowerBodyYaw = p.revealYaw;
         p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw;
-        p.fakePitch = Math.asin(clamp(req.dy / Math.hypot(req.dx, req.dy, req.dz), -1, 1));
+        p.fakePitch = p.revealPitch;
+        p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state), pitch: p.fakePitch });
       }
     }
 
@@ -740,10 +749,10 @@ export class GameRoom {
     };
     if (p.socket && tactical) {
       p.socket.to(this.channel).emit('shot', event);
-      p.socket.emit('shot', { ...event, audit, mag: p.mag, charge: p.resource.charge,
+      p.socket.emit('shot', { ...event, audit, hidden: permission.hidden, mag: p.mag, charge: p.resource.charge,
         readyAt: now + Math.max(0, p.resource.nextAttackTick - p.resource.playerTick) * SIM_DT * 1000 });
     } else this.io.to(this.channel).emit('shot', event);
-    if (audit) p.resolver.feedback(audit.target, audit.source, audit.reason, now, audit.headshot === true);
+    if (audit) p.resolver.feedback(audit.target, audit.source, audit.reason, now, audit.headshot === true, audit.recordT);
     if (tactical) for (const enemy of this.players.values()) {
       if (enemy === p || !enemy.alive || !enemy.hvhEnabled || this.areTeammates(p, enemy)) continue;
       const { x: hx, y: hy, z: hz } = chickenHeadCenter(enemy.state, enemy.yaw, bodyScale(enemy.state), enemy.fakePitch);
@@ -756,7 +765,7 @@ export class GameRoom {
       if (threatened && this.hvhTick - enemy.lastThreatTick >= 12) {
         enemy.lastThreatTick = this.hvhTick;
         if (enemy.hvh.core?.antiBruteforce) enemy.antiBruteSide *= -1;
-        if (enemy.hvh.core?.defensive && enemy.hvh.core.era === 'defensive' && enemy.resource.defend(this.hvhTick)) enemy.concealUntil = now + 125;
+        if (enemy.hvh.core?.defensive && enemy.hvh.core.era === 'defensive' && enemy.resource.defend(this.hvhTick)) enemy.concealUntil = Math.max(enemy.concealUntil, now + 125);
       }
     }
     for (const [victim, { amount, headshot, flags }] of damageByVictim) this.damage(victim, p, amount, headshot, req.weapon, eye, now, flags);
@@ -1068,19 +1077,20 @@ export class GameRoom {
     this.enforceHvhRules(p);
     this.publicStates.delete(p.pid);
     const point = this.pickSpawn(p);
-    p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs);
+    p.respawn(point.x, point.z, Math.atan2(point.x, point.z), now, this.mode.spawnProtectionMs ?? PLAYER.spawnProtectionMs, point.y ?? 0);
     // Weapon-restricted modes (Knife Fight) have no grenades either.
     if (this.mode.weapons) p.eggs = p.smokes = p.flashes = 0;
-    if (announce) this.io.to(this.channel).emit('spawn', { pid: p.pid, x: point.x, y: 0, z: point.z, yaw: p.yaw });
+    if (announce) this.io.to(this.channel).emit('spawn', { pid: p.pid, x: point.x, y: point.y ?? 0, z: point.z, yaw: p.yaw });
   }
 
   /** Open spots all over the map (spread-spawn modes), worked out once per room. */
   private spread: SpawnPoint[] | null = null;
 
   /** Where free-for-all chickens spawn and bots wander. */
-  roamSpots(): readonly { x: number; z: number }[] {
+  roamSpots(): readonly SpawnPoint[] {
+    if (this.map.navLinks) return this.spread ??= this.map.nav!.slice(0, this.map.navLinks.length);
     if (!this.mode.spreadSpawns || this.mode.building) return [...this.map.spawns, ...this.map.loot, ...this.map.flags];
-    this.spread ??= [...this.map.spawns.map((s) => ({ x: s.x, z: s.z })), ...openSpots(this.map.spawns, this.world, this.map.halfSize)];
+    this.spread ??= [...this.map.spawns, ...openSpots(this.map.spawns, this.world, this.map.halfSize)];
     return this.spread;
   }
 
@@ -1104,10 +1114,10 @@ export class GameRoom {
   }
 
   /** Could `viewer` see a chicken standing at `spot`? */
-  private canSeeSpot(viewer: ServerPlayer, spot: { x: number; z: number }): boolean {
+  private canSeeSpot(viewer: ServerPlayer, spot: SpawnPoint): boolean {
     const eye = { x: viewer.state.x, y: viewer.state.y + eyeHeightOf(viewer.state), z: viewer.state.z };
     const dx = spot.x - eye.x;
-    const dy = 0.9 - eye.y;
+    const dy = (spot.y ?? 0) + 0.9 - eye.y;
     const dz = spot.z - eye.z;
     const dist = Math.hypot(dx, dy, dz);
     if (dist > 70) return false;
@@ -1229,6 +1239,11 @@ export class GameRoom {
     this.emitScores();
   }
 
+  protected swapTeamScores(): void {
+    this.match.teamScores = [this.match.teamScores[1], this.match.teamScores[0]];
+    this.emitScores();
+  }
+
   /** Ends the match. `winner` names the winner for modes that decide it themselves (Arms Race). */
   protected endMatch(now: number, winner?: ServerPlayer): void {
     const players = [...this.players.values()];
@@ -1347,12 +1362,13 @@ export class GameRoom {
         p.resource.step(this.hvhTick, p.fireQueue.length > 0 || now - p.lastFireAt < 250,
           p.hvhEnabled && fakeLagTicks(p.hvh.core ?? defaultHvhCore(), p.lastSeq, p.state.horizontalSpeed) > 0);
       } else p.resource.playerTick++;
-      this.updateHvhPose(p, now);
+      const pose = this.updateHvhPose(p, now);
       if (this.mode.id === 'hvh') {
-        const pose = hvhPose(p.lookYaw, p.hvh, now, (p.lastInput?.invert === true) !== (p.antiBruteSide < 0), !p.hvhEnabled || !p.alive || (now >= p.concealUntil && now < p.revealUntil),
-          { speed: p.state.horizontalSpeed, onGround: p.state.onGround, crouching: p.state.crouching, seed: p.pid, targetYaw: p.hvhTargetYaw, coverSide: p.hvhCoverSide });
         stepAnimation(p.animation, { eyeYaw: pose.real, desiredDelta: wrapAngle(pose.fake - pose.real), speed: p.state.horizontalSpeed,
-          crouch: p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), grounded: p.state.onGround, active: p.hvhEnabled && p.hvh.antiAim.enabled, weaponSpeed: moveSpeedFor(p.weapon) }, this.hvhTick);
+          crouch: p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), grounded: p.state.onGround,
+          active: p.hvhEnabled && p.hvh.antiAim.enabled && p.alive && !p.vehicle && !(now >= p.concealUntil && now < p.revealUntil),
+          concealed: now < p.concealUntil, weaponSpeed: moveSpeedFor(p.weapon),
+          velocity: { x: (p.state.walkVx ?? 0) + p.state.vx, y: p.state.vy, z: (p.state.walkVz ?? 0) + p.state.vz } }, this.hvhTick);
         p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw; p.simulationTime = now;
       }
       p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state),
@@ -1413,14 +1429,14 @@ export class GameRoom {
 
   snapshot(now = performance.now(), viewer = 0): WorldSnapshot {
     return { t: now, p: [...this.players.values()].map((p) => {
-      if (this.mode.id !== 'hvh' || p.pid === viewer) return packPlayer(p.toState());
+      if (this.mode.id !== 'hvh') return packPlayer(p.toState());
+      if (p.pid === viewer) return packPlayer({ ...p.toState(), fakeYaw: p.yaw });
       const core = p.hvh.core ?? defaultHvhCore();
       const choke = p.hvhEnabled ? fakeLagTicks(core,p.lastSeq,p.state.horizontalSpeed) : 0;
       const cached = this.publicStates.get(p.pid);
       if (choke > 0 && cached && now < cached.until && cached.state.alive === p.alive
         && (!(core.fakeLagBreakOnShot || core.fakeLagMode === 'peek') || cached.shot === p.lastShotSeq)) return packPlayer(cached.state);
       const state = p.toState();
-      if (core.era === 'legacy' && p.hvhEnabled) state.yaw = state.fakeYaw = wrapAngle(state.yaw + Math.PI / 2);
       this.publicStates.set(p.pid, { state, shot: p.lastShotSeq, until: now + ((choke + 1) * SIM_DT * 1000) });
       return packPlayer(state);
     }), v: this.vehicles?.packed() ?? [] };

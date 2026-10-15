@@ -127,7 +127,7 @@ export interface ZombieHost {
 const NAV_GRAPHS = new Map<MapDef['id'], NavGraph | null>();
 
 function navGraph(map: MapDef): NavGraph | null {
-  if (!NAV_GRAPHS.has(map.id)) NAV_GRAPHS.set(map.id, map.nav ? buildNavGraph(map.nav, createCollisionWorld(map)) : null);
+  if (!NAV_GRAPHS.has(map.id)) NAV_GRAPHS.set(map.id, map.nav ? buildNavGraph(map.nav, createCollisionWorld(map), map.navLinks) : null);
   return NAV_GRAPHS.get(map.id)!;
 }
 
@@ -299,8 +299,8 @@ export class ZombieBrain {
   /** `goalAt`: walk there instead of at the target (a monkey going back to its lair). */
   private chooseHeading(z: Zombie, target: ServerPlayer, dist: number, now: number, goalAt?: NavPoint): { x: number; z: number } {
     const p = z.p;
-    const from = { x: p.state.x, z: p.state.z };
-    let goal: NavPoint = goalAt ?? { x: target.state.x, z: target.state.z };
+    const from = { x: p.state.x, y: p.state.y, z: p.state.z };
+    let goal: NavPoint = goalAt ?? { x: target.state.x, y: target.state.y, z: target.state.z };
     if (goalAt) dist = Infinity;
 
     // Late waves: some zombies circle round to the side before closing in.
@@ -309,7 +309,7 @@ export class ZombieBrain {
       else {
         const ux = (from.x - goal.x) / dist;
         const uz = (from.z - goal.z) / dist;
-        goal = { x: goal.x + -uz * z.flank * ZOMBIE.smart.flankDistance, z: goal.z + ux * z.flank * ZOMBIE.smart.flankDistance };
+        goal = { x: goal.x + -uz * z.flank * ZOMBIE.smart.flankDistance, y: goal.y, z: goal.z + ux * z.flank * ZOMBIE.smart.flankDistance };
       }
     }
 
@@ -318,7 +318,7 @@ export class ZombieBrain {
     if (dist < SURROUND_RANGE && dist > z.stats.reach * 0.8) {
       const a = Math.atan2(from.z - goal.z, from.x - goal.x) + z.side;
       const r = Math.min(SURROUND_RADIUS, dist * 0.45);
-      const ring = { x: goal.x + Math.cos(a) * r, z: goal.z + Math.sin(a) * r };
+      const ring = { x: goal.x + Math.cos(a) * r, y: goal.y, z: goal.z + Math.sin(a) * r };
       if (walkable(from, ring, this.host.world)) goal = ring;
     }
 
