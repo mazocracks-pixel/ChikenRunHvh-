@@ -346,13 +346,12 @@ export class BuyMenu {
     this.scene.add(floor);
     this.chicken = new Chicken(this.appearance, this.team);
     this.scene.add(this.chicken.root);
-    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-    this.camera.position.set(0, 1.25, 3.9);
-    this.camera.lookAt(0, 0.82, 0);
+    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 30);
 
     this.stage.append(this.renderer.domElement);
     this.resizeObserver = new ResizeObserver(() => this.fitStage());
     this.resizeObserver.observe(this.stage);
+    this.resizeObserver.observe(this.detail);
     this.fitStage();
     this.showItem(this.hovered);
   }
@@ -362,7 +361,16 @@ export class BuyMenu {
     const w = Math.max(1, this.stage.clientWidth);
     const hgt = Math.max(1, this.stage.clientHeight);
     this.renderer.setSize(w, hgt, false);
-    this.camera.aspect = w / hgt;
+    // The chicken goes in the space above the stats box (which sits over the stage's bottom).
+    const free = Math.max(80, hgt - this.detail.offsetHeight - 20);
+    const aspect = w / free;
+    // Chicken with a long gun, turned any way: about 1.9 m tall and 1.8 m across.
+    const tan = Math.tan(THREE.MathUtils.degToRad(15));
+    const dist = Math.max(0.95 / tan, 0.9 / (tan * aspect)) * 1.08;
+    this.camera.aspect = aspect;
+    this.camera.setViewOffset(w, free, 0, 0, w, hgt);
+    this.camera.position.set(0, 0.85 + dist * 0.1, dist);
+    this.camera.lookAt(0, 0.85, 0);
     this.camera.updateProjectionMatrix();
   }
 

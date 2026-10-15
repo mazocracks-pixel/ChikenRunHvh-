@@ -3,6 +3,16 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 24 (15 Oct): buy-menu chicken fits its panel
+
+- The preview camera was fixed (30° view from 3.9 m), so in the tall, narrow side panel the chicken and a long gun were cut off at the sides, and the stats box covered its feet. The camera now backs off to fit a 1.9 m × 1.8 m box (the chicken with a long gun, turned any way) into the space above the stats box, using a view offset. It refits when the panel or the stats box changes size. Checked at 1600×900 and 1100×620 with the Sniper.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | I started the test servers twice; the second pair exited because the ports were taken. | Used the ones already running. |
+
 # Batch 23 (14 Oct): Mirage holes and clips, ladders, CS grenades, the bomb as slot 5, spawn cover, AK-47 / M4A1
 
 - **Walk-through walls:** the importer's collision for diagonal brushes dropped any 16-unit cell poking outside the brush, so thin diagonal walls had none. `tools/patch_mirage_walls.mts` fills open wall faces near walkways with thin boxes (`mirage-walls.json`, 490 boxes). `--check` walks into every open face: 37 holes before, 0 after. Imported nav links that now clip a corner are dropped when the bot graph is built (`nav.ts`); one box was reopened where that link was the only way into an area.
