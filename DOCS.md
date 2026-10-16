@@ -3,6 +3,37 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 26 (15 Oct): grenades reworked (HE egg, smoke, flash), carry limits, hold-and-throw
+
+## Plan
+
+1. Shared: a thrown HE egg as its own projectile (`he`: bounces, bursts 1.5 s after it lands; the Egg Launcher keeps the impact `egg`), smoke 15 s, flash 1–3 s, one launch formula for server, prediction and aiming line.
+2. Carry limits 1 / 1 / 2; buy menu MAX; Training free and unlimited.
+3. Server: throw power checked, pin tracked, a pinned grenade drops live on death.
+4. Client: G / Q / Z take out; left, right or both mouse buttons hold and release; dotted aiming line (thrower only); pin and throw animation and sounds; own throw synced to the server's flight; smooth flash with fading ringing.
+5. Tests and a two-browser check.
+
+## What was done
+
+- **Physics (`shared/src/projectiles.ts`):** `launchVelocity` uses Counter-Strike's throw strengths (100% left, 65% both, 30% right), adds the upward lift, and carries 1.25× the thrower's run and their jump. `throwDrop` makes underhand throws leave 0.3 m lower. `fuseDone` holds the three fuses (HE egg 1.5 s after first landing, flash 1.5 s after the throw, smoke at rest). `predictThrow` draws the aiming line with the same steps as the server. Bounces, rolling and stopping are the existing CS arc.
+- **Flash:** `flashBlindMs` gives 1–3 s looking at it (3 s point blank), a fraction from the side, very little facing away; walls block it as before. The white-out (`Hud.flash`) is one CSS fade from full white, and a new flash only extends it. Sampled every 200 ms in the browser it only ever went down. The ringing (`Audio.ringFor`) lasts as long as the white-out and dies away.
+- **Smoke:** 15 s (`SMOKE_DURATION_MS`); the cloud stays thick that long, then thins over 3 s. Bots and players can't see through it; the HvH wallhack and "remove smoke" are untouched.
+- **Carry limits (`PLAYER`):** 1 HE egg, 1 smoke, 2 flashbangs, in every mode. The buy menu shows MAX (dimmed) at the limit; the server refuses too. ChikenBomb already starts at zero, charges for them and keeps them for survivors (tested). Training throws never use one up, and its B menu says "free" and puts the grenade in your hand.
+- **Hold and throw (`GameSession`):** G / Q / the flashbang key (Z, in the controls list and guide) take the grenade out. Pressing left, right or both pulls the pin (pin sound, `pin` message to the server). Letting go of a button throws with what was held just before. Weapon keys are ignored while the pin is pulled; losing the mouse (a menu) puts the pin back. The aiming line (`ThrowPreview`) is only drawn locally. The first-person arm draws back and then swings (`ViewModel.throwGrenade`), and other players' chickens swing when they throw.
+- **Server authority:** the client sends only the aim direction and one of three powers (anything else is ignored). The server works out the flight, the landing, and who is hurt or blinded. Your own predicted grenade switches to the server's launch when it's confirmed, so it lands where everyone else sees it land.
+- **Dying with the pin pulled:** the grenade drops live at your feet (an HE egg bursts 1.5 s later). Without the pin pulled, nothing drops.
+- **Checked in two browsers:** far / medium / soft landed 32.6 / 14.6 / 5.3 m away. The aiming ring was 3–8 cm from the real burst. Both players' grenades ended within 0–7 cm of the server's spot, and the other player never saw the line. Flash: 2855 ms for the thrower looking at it, 634 ms (a faint veil) for a player facing away.
+- Tests: 522 (16 new: `shared/test/grenades.test.ts`, `server/test/grenades.test.ts`; the old impact-egg test now checks the landing fuse).
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | Python patches failed on non-ASCII text (Windows cp1252), then a Bash heredoc broke on quotes. | UTF-8 reads, and patch scripts written to files. |
+| 2 | The refactor stopped the developer "infinite flashbangs" stack from showing full. | Refilled on each throw again. |
+| 3 | The aiming dots were world-sized, so near ones were big squares; the held egg was twice the size and the pin pose pulled it at the camera. | Round 6 px dots; smaller held grenades; gentler pose. |
+| 4 | Browser test: used the flat map in FFA (not allowed), threw during the match countdown, and created guests faster than the limiter allows. | Farm map, wait for "playing", retry guests. |
+
 # Batch 25 (15 Oct): Mirage from its Hammer source, glitchy floors and walls fixed
 
 The owner put the map's source (`de_mirage_d.vmf`, a BSPSource decompile, in their Downloads) on the PC and asked to rebuild Mirage from it, make it faster, and remove the bugs and glitchy textures. The source has brushes and entities but no textures or models, so the textured model stays, and the collision is rebuilt.

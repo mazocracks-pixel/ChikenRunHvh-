@@ -48,7 +48,8 @@ export function toggleGuide(onClose?: () => void): void {
       row('Reload', k('reload')),
       row('Primary 1 · Pistol 2 · Knife 3 · Grenades 4 (press again to cycle)', fixed('1'), fixed('2'), fixed('3'), fixed('4')),
       row('Inspect your weapon', k('inspect')),
-      row('Egg, smoke, flashbang', k('egg'), k('smoke'), k('flash')),
+      row('Take out an HE egg, smoke, flashbang', k('egg'), k('smoke'), k('flash')),
+      row('Grenade: hold to pull the pin, let go to throw (far / soft toss / medium)', fixed('Left click'), fixed('Right click'), fixed('Both')),
     ),
     section(
       'Other keys',

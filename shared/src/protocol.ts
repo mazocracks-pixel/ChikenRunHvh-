@@ -10,7 +10,7 @@ import { round } from './math';
 import type { ModeId } from './modes';
 import type { InputFrame, MoveState } from './physics';
 import type { LootPhase, DropKind, PickupKind, PowerUpKind } from './pickups';
-import type { ProjectileKind } from './projectiles';
+import type { ProjectileKind, ThrowPower } from './projectiles';
 import { weaponAt, weaponIndex, type WeaponId } from './weapons';
 import type { ZombieGear, ZombieJoin, ZombieKind, ZombieState } from './zombies';
 
@@ -460,12 +460,16 @@ export interface SpawnEvent {
   yaw: number;
 }
 
+export type GrenadeKind = 'egg' | 'smoke' | 'flash';
+
 export interface ThrowRequest {
-  kind: 'egg' | 'smoke' | 'flash';
+  kind: GrenadeKind;
   seq: number;
   dx: number;
   dy: number;
   dz: number;
+  /** Left click 1 (far), both 0.5, right click 0 (underhand). Missing: 1. */
+  power?: ThrowPower;
 }
 
 export interface ExplosionEvent {
@@ -576,6 +580,8 @@ export interface ClientToServerEvents {
   /** Training only: take a gun or knife from the B menu, or refill grenades. The server checks it. */
   trainingGive: (req: import('./training').TrainingGiveRequest, ack: (res: { ok: boolean; error?: string }) => void) => void;
   throw: (req: ThrowRequest) => void;
+  /** Pin pulled on the grenade in hand (null: put back). Dying with it drops it live. */
+  pin: (kind: GrenadeKind | null) => void;
   aim: (aiming: boolean) => void;
   /** `teamOnly`: only your team hears it (in modes without teams it goes to everyone). */
   chat: (text: string, teamOnly?: boolean) => void;

@@ -7,13 +7,15 @@ import {
   chestPoint,
   directionFromAngles,
   makeRay,
-  normalize,
   bodyScale,
   rayChicken,
   raycastWorld,
   round,
   stepProjectile,
-  atRest,
+  fuseDone,
+  launchVelocity,
+  throwerVelocity,
+  type ThrowPower,
   type ProjectileBody,
   type ProjectileDef,
   type ProjectileKind,
@@ -38,13 +40,14 @@ interface Projectile {
   ownerSeq: number;
   body: ProjectileBody;
   bornAt: number;
-  fuseAt: number;
+  /** When it first landed (the HE egg's fuse starts then). */
+  landedAt: number | null;
   cause: KillCause;
   /** Set when it flew into a chicken (bolts use it for direct damage). */
   struck: { target: ServerPlayer; headshot: boolean } | null;
 }
 
-/** Eggs, smoke grenades and rockets: simulated here at 60 Hz, the server is the authority on where they go off. */
+/** Grenades (HE egg, smoke, flash), launcher eggs, rockets and bolts: simulated here at 60 Hz; the server decides where they land and go off. */
 export class ProjectileSystem {
   private readonly room: GameRoom;
   private readonly active = new Map<number, Projectile>();
@@ -55,26 +58,32 @@ export class ProjectileSystem {
     this.room = room;
   }
 
-  /** Launches a projectile from `origin` along `dir` and tells everyone. */
-/**
+  /**
+   * Launches a projectile from `origin` along `dir` and tells everyone. Grenades go with the
+   * thrower's run and jump (as in Counter-Strike); `power` is the throw (see launchVelocity).
    * @param cause what kills count as (thrown eggs: 'egg'; the Egg Launcher's: 'launcher')
    */
-  launch(kind: ProjectileKind, owner: ServerPlayer, origin: Vec3, dir: Vec3, ownerSeq: number, now: number, speedScale = 1, cause: KillCause = kind === 'rocket' ? 'rocket' : kind === 'bolt' ? 'crossbow' : 'egg'): void {
-    const def = PROJECTILES[kind];
-    const d = normalize(dir);
-    const speed = def.speed * speedScale;
-    // Grenades carry some of the thrower's run (and jump) speed, as in Counter-Strike.
-    const s = owner.state, carry = def.carry ?? 0;
-    const run = { x: ((s.walkVx ?? 0) + s.vx) * carry, y: Math.max(0, s.vy) * carry, z: ((s.walkVz ?? 0) + s.vz) * carry };
+  launch(kind: ProjectileKind, owner: ServerPlayer, origin: Vec3, dir: Vec3, ownerSeq: number, now: number, speedScale = 1, cause: KillCause = kind === 'rocket' ? 'rocket' : kind === 'bolt' ? 'crossbow' : 'egg', power: ThrowPower = 1): void {
+    const velocity = launchVelocity(PROJECTILES[kind], dir, power, throwerVelocity(owner.state), speedScale);
+    this.add(kind, owner, origin, velocity, ownerSeq, now, cause);
+  }
+
+  /** A live grenade let go at a player's feet (they died holding it with the pin pulled). */
+  drop(kind: ProjectileKind, owner: ServerPlayer, now: number): void {
+    const s = owner.state;
+    this.add(kind, owner, { x: s.x, y: s.y + 0.3, z: s.z }, { x: 0, y: 0, z: 0 }, 0, now, 'egg');
+  }
+
+  private add(kind: ProjectileKind, owner: ServerPlayer, origin: Vec3, v: Vec3, ownerSeq: number, now: number, cause: KillCause): void {
     const p: Projectile = {
       id: this.nextId++,
       kind,
-      def,
+      def: PROJECTILES[kind],
       ownerPid: owner.pid,
       ownerSeq,
-      body: { x: origin.x, y: origin.y, z: origin.z, vx: d.x * speed + run.x, vy: d.y * speed + def.upBoost + run.y, vz: d.z * speed + run.z },
+      body: { x: origin.x, y: origin.y, z: origin.z, vx: v.x, vy: v.y, vz: v.z },
       bornAt: now,
-      fuseAt: now + def.fuseMs,
+      landedAt: null,
       cause,
       struck: null,
     };
@@ -121,8 +130,8 @@ export class ProjectileSystem {
         this.active.delete(p.id);
         continue;
       }
-      const settled = p.def.restFuse === true && now - p.bornAt > 300 && atRest(b);
-      if (hit || settled || now >= p.fuseAt) this.detonate(p, now);
+      if (b.landed && p.landedAt === null) p.landedAt = now;
+      if (hit || fuseDone(p.def, b, now - p.bornAt, p.landedAt === null ? null : now - p.landedAt)) this.detonate(p, now);
     }
   }
 

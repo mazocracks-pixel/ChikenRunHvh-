@@ -1,6 +1,7 @@
 import { ARMS_LADDER, JETPACK, MAPS, MIN_LEVEL, MODES, PLAYER, TEAM_COLORS, WEAPONS, rankOf, rankProgress, teamName, type ChatMessage, type KillCause, type MatchRewardEvent, type MatchState, type ModeDef, type PlayerInfo, type RoomInfo, type RoundState, type Team, type WeaponId, KILL_FLAGS } from '@game/shared';
 import { icon as drawnIcon } from './icons';
 import { watchSettings } from '../settings';
+import { getKeybinds, keyLabel } from '../keybinds';
 import { killTags, shapeSvg, tagSvg, weaponShape } from './KillIcons';
 import { gunIcon, prepareGunIcons } from './GunIcons';
 import { CombatFeedback } from '../game/CombatFeedback';
@@ -128,6 +129,8 @@ export class Hud {
   /** Flashbanged: the screen goes white and fades back. */
   private readonly flashOverlay = h('div', { class: 'flash-overlay' });
   private flashTimer = 0;
+  /** When the current white-out ends (performance.now ms). */
+  private flashUntil = 0;
   private readonly banner = h('div', { class: 'banner' });
   private readonly toasts = h('div', { class: 'toasts' });
   private readonly death = h('div', { class: 'death-screen' });
@@ -311,21 +314,28 @@ export class Hud {
     if (key === this.lastGrenades) return;
     this.lastGrenades = key;
     clear(this.grenades);
-    this.grenades.append(h('span', { class: eggs ? '' : 'none', title: 'Eggs' }, h('kbd', null, 'G'), drawn('egg'), eggs), h('span', { class: smokes ? '' : 'none', title: 'Smoke' }, h('kbd', null, 'Q'), drawn('smoke'), smokes), h('span', { class: flashes ? '' : 'none', title: 'Flashbangs' }, h('kbd', null, 'Z'), drawn('flash'), flashes));
+    this.grenades.append(h('span', { class: eggs ? '' : 'none', title: 'Eggs' }, h('kbd', null, keyLabel(getKeybinds().egg)), drawn('egg'), eggs), h('span', { class: smokes ? '' : 'none', title: 'Smoke' }, h('kbd', null, keyLabel(getKeybinds().smoke)), drawn('smoke'), smokes), h('span', { class: flashes ? '' : 'none', title: 'Flashbangs' }, h('kbd', null, keyLabel(getKeybinds().flash)), drawn('flash'), flashes));
   }
 
-  /** A flashbang caught you: white for about `ms`, fading back over the last part. */
+  /**
+   * A flashbang caught you: the screen goes white (fully for a strong one, a light veil for a
+   * glance) and fades back smoothly over `ms`. One steady fade, never a flicker: a new flash
+   * only ever brightens it and restarts the same fade.
+   */
   flash(ms: number): void {
     if (!this.showFlash) return;
     const el = this.flashOverlay;
-    const hold = ms * 0.5;
-    const fade = ms - hold;
+    const now = performance.now();
+    // Already whiter from an earlier flash: keep whichever lasts longer.
+    if (now + ms <= this.flashUntil) return;
+    this.flashUntil = now + ms;
+    const hold = Math.min(400, ms * 0.2);
     window.clearTimeout(this.flashTimer);
     el.hidden = false;
     el.style.transition = 'none';
-    el.style.opacity = String(Math.min(1, Math.max(0.55, ms / 2600)));
+    el.style.opacity = String(Math.min(1, Math.max(0.25, ms / 2000)));
     void el.offsetWidth;
-    el.style.transition = `opacity ${Math.round(fade)}ms ease-in ${Math.round(hold)}ms`;
+    el.style.transition = `opacity ${Math.round(ms - hold)}ms cubic-bezier(0.3, 0, 0.6, 1) ${Math.round(hold)}ms`;
     el.style.opacity = '0';
     this.flashTimer = window.setTimeout(() => (el.hidden = true), ms + 80);
   }

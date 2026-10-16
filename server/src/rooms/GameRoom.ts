@@ -68,6 +68,11 @@ import {
   type SpawnPoint,
   type Team,
   type ThrowRequest,
+  type GrenadeKind,
+  type ProjectileKind,
+  type ThrowPower,
+  THROW_POWERS,
+  throwDrop,
   type MeleeTarget,
   type RoundState,
   type ZombieJoin,
@@ -168,6 +173,8 @@ export interface RoomHooks {
 }
 
 const THROW_COOLDOWN_MS = 600;
+/** What each grenade flies as (a thrown egg is the HE egg; the launcher fires 'egg'). */
+const GRENADE_PROJECTILE: Record<GrenadeKind, ProjectileKind> = { egg: 'he', smoke: 'smoke', flash: 'flash' };
 /** Fire-rate checks allow a little jitter: packets bunch up on the way to the server. */
 const FIRE_RATE_TOLERANCE = 0.8;
 const KILL_SCORE = 100;
@@ -858,6 +865,7 @@ export class GameRoom {
     if (!Number.isInteger(slot) || (slot as number) < 0 || (slot as number) >= p.info.loadout.length) return;
     if (slot === p.weaponSlot) return;
     p.weaponSlot = slot as number;
+    p.pinned = null;
     p.reloadUntil = 0;
     p.aiming = false;
     p.switchReadyAt = performance.now() + WEAPON_SWITCH_MS;
@@ -872,19 +880,43 @@ export class GameRoom {
     const req = parseThrow(raw);
     const now = performance.now();
     if (!req || !p.alive || this.match.phase === 'ended' || this.actionsBlocked() || req.seq <= p.lastThrowSeq || now < p.nextThrowAt) return;
-    // Developer "infinite flashbangs": the stack is refilled, so it never runs out.
-    if (req.kind === 'flash' && p.mods?.infiniteFlashes) p.flashes = PLAYER.maxFlashes;
-    if ((req.kind === 'egg' ? p.eggs : req.kind === 'smoke' ? p.smokes : p.flashes) <= 0) return;
-    if (req.kind === 'egg') p.eggs--;
-    else if (req.kind === 'smoke') p.smokes--;
-    else if (p.mods?.infiniteFlashes) p.flashes = PLAYER.maxFlashes;
-    else p.flashes--;
+    if (!this.takeGrenade(p, req.kind)) return;
+    p.pinned = null;
     p.lastThrowSeq = req.seq;
     p.nextThrowAt = now + THROW_COOLDOWN_MS;
     p.shieldUntil = 0;
+    const power = req.power ?? 1;
     const eye = this.eyeOf(p);
+    // Underhand throws leave from lower down.
+    eye.y -= throwDrop(power);
     const dir = { x: req.dx, y: req.dy, z: req.dz };
-    this.projectiles.launch(req.kind, p, this.safeLaunchPoint(eye, dir), dir, req.seq, now);
+    this.projectiles.launch(GRENADE_PROJECTILE[req.kind], p, this.safeLaunchPoint(eye, dir), dir, req.seq, now, 1, 'egg', power);
+  }
+
+  /** Pin pulled on the grenade in hand, or put back (null). Only one you actually carry. */
+  handlePin(p: ServerPlayer, raw: unknown): void {
+    if (raw === null) p.pinned = null;
+    else if ((raw === 'egg' || raw === 'smoke' || raw === 'flash') && p.alive && this.grenadeCount(p, raw) > 0 && !this.actionsBlocked()) p.pinned = raw;
+  }
+
+  private grenadeCount(p: ServerPlayer, kind: GrenadeKind): number {
+    if (this.mode.training || (kind === 'flash' && p.mods?.infiniteFlashes)) return Infinity;
+    return kind === 'egg' ? p.eggs : kind === 'smoke' ? p.smokes : p.flashes;
+  }
+
+  /** Uses up one grenade; false if there's none. Training's (and developer infinite flashbangs) never run out. */
+  private takeGrenade(p: ServerPlayer, kind: GrenadeKind): boolean {
+    const count = this.grenadeCount(p, kind);
+    if (count <= 0) return false;
+    if (count === Infinity) {
+      // The developer's stack shows full.
+      if (kind === 'flash' && p.mods?.infiniteFlashes) p.flashes = PLAYER.maxFlashes;
+      return true;
+    }
+    if (kind === 'egg') p.eggs--;
+    else if (kind === 'smoke') p.smokes--;
+    else p.flashes--;
+    return true;
   }
 
   /** Zombie Apocalypse (C, and the Restart button); nothing in other modes. */
@@ -966,6 +998,9 @@ export class GameRoom {
 
   /** `counted`: false for a death that isn't a kill or a suicide (switching team). */
   protected kill(victim: ServerPlayer, attacker: ServerPlayer | null, cause: KillCause, headshot: boolean, now: number, flags = 0, counted = true): void {
+    // Died with a pin pulled: the grenade falls at their feet and still goes off.
+    if (victim.pinned && this.takeGrenade(victim, victim.pinned)) this.projectiles.drop(GRENADE_PROJECTILE[victim.pinned], victim, now);
+    victim.pinned = null;
     victim.alive = false;
     victim.hp = 0;
     victim.reloadUntil = 0;
@@ -1496,10 +1531,11 @@ function parseFire(raw: unknown): FireRequest | null {
 
 function parseThrow(raw: unknown): ThrowRequest | null {
   if (!isRecord(raw)) return null;
-  const { kind, seq, dx, dy, dz } = raw;
+  const { kind, seq, dx, dy, dz, power } = raw;
+  if (power !== undefined && !THROW_POWERS.includes(power as ThrowPower)) return null;
   if ((kind !== 'egg' && kind !== 'smoke' && kind !== 'flash') || !Number.isSafeInteger(seq)) return null;
   if (!isFiniteNumber(dx) || !isFiniteNumber(dy) || !isFiniteNumber(dz)) return null;
   const len = Math.hypot(dx, dy, dz);
   if (len < 0.5 || len > 1.5) return null;
-  return { kind, seq: seq as number, dx: dx / len, dy: dy / len, dz: dz / len };
+  return { kind, seq: seq as number, dx: dx / len, dy: dy / len, dz: dz / len, power: (power as ThrowPower | undefined) ?? 1 };
 }

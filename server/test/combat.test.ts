@@ -133,12 +133,24 @@ describe('hitscan combat', () => {
 
 describe('explosive eggs', () => {
   it('damages and knocks back chickens in the blast, but not through walls', () => {
-    const { room, a, b } = setup();
-    place(b, 20, -9);
+    const { room, events, a, b } = setup();
+    place(b, 40, -40);
     const now = performance.now();
-    room.handleThrow(a, { kind: 'egg', seq: 1, dx: 0, dy: -0.2, dz: -1 });
+    // A soft underhand toss down the lane: the HE egg lands, rolls, and bursts 1.5 s after landing.
+    room.handleThrow(a, { kind: 'egg', seq: 1, dx: 0, dy: -0.2, dz: -1, power: 0 });
     assert.equal(a.eggs, PLAYER.startEggs - 1);
-    for (let i = 0; i < 120 && b.hp === PLAYER.maxHealth; i++) room.projectiles.update(now + i * 16);
+    const egg = [...(room.projectiles as unknown as { active: Map<number, { body: { x: number; z: number; landed?: boolean } }> }).active.values()][0]!;
+    let landedAt = -1, i = 0;
+    for (; i < 400 && !named(events, 'explode').length; i++) {
+      room.projectiles.update(now + i * 16);
+      if (egg.body.landed && landedAt < 0) {
+        landedAt = i * 16;
+        // Bob is standing where it landed.
+        place(b, egg.body.x + 1, egg.body.z);
+      }
+    }
+    assert.ok(landedAt >= 0, 'it landed');
+    assert.ok(Math.abs(i * 16 - landedAt - 1500) <= 32, `bursts 1.5 s after landing (${i * 16 - landedAt} ms)`);
     assert.ok(b.hp < PLAYER.maxHealth, `egg should hurt Bob (hp ${b.hp})`);
     assert.ok(b.state.vy > 0 || !b.state.onGround, 'knocked into the air');
   });

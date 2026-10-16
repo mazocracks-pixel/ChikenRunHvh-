@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import {
   PROJECTILES,
   SIM_DT,
-  normalize,
   stepProjectile,
   type CollisionWorld,
   type ExplosionEvent,
@@ -30,7 +29,8 @@ interface View {
 export function buildProjectileMesh(kind: ProjectileKind): THREE.Group {
   const g = new THREE.Group();
   switch (kind) {
-    case 'egg': {
+    case 'egg':
+    case 'he': {
       const egg = part(sphere(0.12, 12, 10), solid(0xfff3d6, { flat: false, roughness: 0.35 }));
       egg.scale.set(1, 1.3, 1);
       g.add(egg);
@@ -104,16 +104,9 @@ export class ClientProjectiles {
     return this.views.map((v) => ({ kind: v.kind, x: v.mesh.position.x, y: v.mesh.position.y, z: v.mesh.position.z }));
   }
 
-  predict(kind: ProjectileKind, owner: number, ownerSeq: number, origin: Vec3, dir: Vec3): void {
-    const def = PROJECTILES[kind];
-    const d = normalize(dir);
-    this.add({
-      id: null,
-      owner,
-      ownerSeq,
-      kind,
-      body: { x: origin.x, y: origin.y, z: origin.z, vx: d.x * def.speed, vy: d.y * def.speed + def.upBoost, vz: d.z * def.speed },
-    });
+  /** `velocity`: from launchVelocity, as the server works it out. */
+  predict(kind: ProjectileKind, owner: number, ownerSeq: number, origin: Vec3, velocity: Vec3): void {
+    this.add({ id: null, owner, ownerSeq, kind, body: { x: origin.x, y: origin.y, z: origin.z, vx: velocity.x, vy: velocity.y, vz: velocity.z } });
   }
 
   /** Server confirmed a projectile. `aheadMs` fast-forwards remote ones to roughly "now". */
@@ -121,7 +114,15 @@ export class ClientProjectiles {
     if (e.owner === selfPid) {
       const mine = this.views.find((v) => v.id === null && v.owner === selfPid && v.ownerSeq === e.ownerSeq && v.kind === e.kind);
       if (mine) {
+        // From now on fly the server's throw (same start, same steps), so it lands exactly where
+        // everyone else sees it land; caught up by how long ours has been flying.
         mine.id = e.id;
+        mine.body = { x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz };
+        mine.landed = false;
+        mine.mesh.visible = true;
+        mine.accumulator = 0;
+        const steps = Math.min(30, Math.floor(mine.age / SIM_DT));
+        for (let i = 0; i < steps && !mine.landed; i++) this.step(mine);
         return;
       }
     }
@@ -190,5 +191,74 @@ export class ClientProjectiles {
   private remove(index: number): void {
     const [v] = this.views.splice(index, 1);
     v?.mesh.removeFromParent();
+  }
+}
+
+/** Dots this far apart along the aiming line. */
+const DOT_SPACING = 0.3;
+const MAX_DOTS = 160;
+
+/**
+ * The thrower's aiming line while a pin is pulled: dots along the flight and a ring where the
+ * grenade goes off. Drawn only on your own screen; nothing about it is sent to anyone.
+ */
+export class ThrowPreview {
+  private readonly positions = new Float32Array(MAX_DOTS * 3);
+  private readonly geometry = new THREE.BufferGeometry();
+  private readonly dots: THREE.Points;
+  private readonly ring: THREE.Mesh;
+  private readonly dotTexture: THREE.CanvasTexture;
+
+  constructor(scene: THREE.Scene) {
+    this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    // Round dots a few pixels across, the same size near and far.
+    const dot = document.createElement('canvas');
+    dot.width = dot.height = 32;
+    const g = dot.getContext('2d')!;
+    g.fillStyle = '#fff';
+    g.beginPath();
+    g.arc(16, 16, 13, 0, Math.PI * 2);
+    g.fill();
+    this.dotTexture = new THREE.CanvasTexture(dot);
+    this.dots = new THREE.Points(this.geometry, new THREE.PointsMaterial({ color: 0xfff4d6, size: 6, sizeAttenuation: false, map: this.dotTexture, alphaTest: 0.5, transparent: true, opacity: 0.9, depthWrite: false }));
+    this.dots.frustumCulled = false;
+    const ringGeometry = new THREE.RingGeometry(0.28, 0.36, 28);
+    ringGeometry.rotateX(-Math.PI / 2);
+    this.ring = new THREE.Mesh(ringGeometry, new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
+    this.dots.visible = this.ring.visible = false;
+    scene.add(this.dots, this.ring);
+  }
+
+  show(path: readonly Vec3[], end: Vec3): void {
+    // Even spacing along the flight, whatever its speed.
+    let n = 0, next = DOT_SPACING;
+    for (let i = 1; i < path.length && n < MAX_DOTS; i++) {
+      const a = path[i - 1]!, b = path[i]!;
+      const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+      let t = next;
+      for (; t <= len && n < MAX_DOTS; t += DOT_SPACING) {
+        const k = t / len;
+        this.positions.set([a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k], n++ * 3);
+      }
+      next = t - len;
+    }
+    this.geometry.setDrawRange(0, n);
+    this.geometry.attributes.position!.needsUpdate = true;
+    this.ring.position.set(end.x, end.y + 0.03, end.z);
+    this.dots.visible = this.ring.visible = true;
+  }
+
+  hide(): void {
+    this.dots.visible = this.ring.visible = false;
+  }
+
+  dispose(): void {
+    this.dots.removeFromParent();
+    this.ring.removeFromParent();
+    this.geometry.dispose();
+    (this.dots.material as THREE.Material).dispose();
+    this.dotTexture.dispose();
+    this.ring.geometry.dispose();
+    (this.ring.material as THREE.Material).dispose();
   }
 }

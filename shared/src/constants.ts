@@ -33,10 +33,11 @@ export const PLAYER = {
   /** Fraction of incoming damage that armor soaks up while it lasts. */
   armorAbsorb: 0.5,
   spawnProtectionMs: 1500,
-  startEggs: 2,
-  maxEggs: 5,
+  /** Carry limits: 1 HE egg, 1 smoke, 2 flashbangs (as in Counter-Strike). */
+  startEggs: 1,
+  maxEggs: 1,
   startSmokes: 1,
-  maxSmokes: 2,
+  maxSmokes: 1,
   startFlashes: 1,
   maxFlashes: 2,
 } as const;

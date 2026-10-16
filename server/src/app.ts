@@ -226,6 +226,7 @@ function attachHandlers(socket: GameSocket, rooms: RoomManager, social: Social, 
     ack(error ? { ok: false, error } : { ok: true });
   });
   socket.on('throw', inRoom((room, player, req: unknown) => room.handleThrow(player, req)));
+  socket.on('pin', inRoom((room, player, kind: unknown) => room.handlePin(player, kind)));
   socket.on('aim', inRoom((room, player, aiming: unknown) => room.handleAim(player, aiming)));
   socket.on('chat', inRoom((room, player, text: unknown, teamOnly?: unknown) => room.handleChat(player, text, teamOnly === true)));
   const reportLimiter = new TokenBucket(5, 0.05);

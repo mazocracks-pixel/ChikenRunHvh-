@@ -7,6 +7,7 @@ import {
   defaultHvhLoadout,
   CommandBuffer, ExploitResource, createAnimation, ResolverSystem,
   type DevMods,
+  type GrenadeKind,
   type InputFrame,
   type MoveState,
   type PlayerInfo,
@@ -97,6 +98,8 @@ export class ServerPlayer {
   blindUntil = 0;
   lastThrowSeq = 0;
   nextThrowAt = 0;
+  /** The grenade in hand with its pin pulled: dying drops it live at your feet. */
+  pinned: GrenadeKind | null = null;
 
   /** Vehicle id being driven (0 = on foot). */
   vehicle = 0;
@@ -189,6 +192,7 @@ export class ServerPlayer {
     this.eggs = PLAYER.startEggs;
     this.smokes = PLAYER.startSmokes;
     this.flashes = PLAYER.startFlashes;
+    this.pinned = null;
     this.blindUntil = 0;
     this.vehicle = 0;
     for (const id of this.info.loadout) this.mags.set(id, this.magazineSize(id));

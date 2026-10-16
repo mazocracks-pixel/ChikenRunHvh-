@@ -173,7 +173,7 @@ export class BuyMenu {
       const blocked = v.blocked(item);
       const price = v.secondsLeft === null ? 0 : item.price;
       const poor = !blocked && price > v.money;
-      card.classList.toggle('owned', blocked === 'Owned' || blocked === 'Full');
+      card.classList.toggle('owned', blocked === 'Owned' || blocked === 'Full' || blocked === 'MAX');
       card.classList.toggle('poor', poor);
       card.classList.toggle('locked', over || blocked !== null);
       card.setAttribute('aria-disabled', String(over || blocked !== null || poor));

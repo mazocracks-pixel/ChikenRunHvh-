@@ -217,11 +217,16 @@ const RECOIL: Partial<Record<WeaponId, RecoilFeel>> = {
 };
 const DEFAULT_RECOIL = RECOIL.pistol!;
 
+/** Seconds a grenade throw takes, start to follow-through. */
+const THROW_TIME = 0.38;
+
 export interface ViewModelFrame {
   dt: number;
   camera: THREE.Camera;
   weapon: WeaponId;
   grenade?: HeldGrenade | null;
+  /** The grenade's pin is pulled: the arm draws back, ready to throw. */
+  grenadePin?: boolean;
   /** The bomb is out (slot 5): the C4 in your hands instead of the gun. */
   bomb?: boolean;
   visible: boolean;
@@ -280,6 +285,9 @@ export class ViewModel {
   private swingT = -1;
   /** Seconds into an inspect (F), or -1. */
   private inspectT = -1;
+  /** Seconds into a grenade throw, or -1; and how far the arm is drawn back. */
+  private throwT = -1;
+  private pinBlend = 0;
   /** Where the inspect's magazine check is, so each click plays once. */
   private magCue: 'out' | 'in' | null = null;
   /** Sound cues from the inspect: the magazine sliding out, and back in. */
@@ -318,6 +326,12 @@ export class ViewModel {
     this.flash.scale.setScalar(feel.flash * (0.85 + Math.random() * 0.3) * (this.reducedMotion.matches ? 0.7 : 1));
   }
 
+  /** A grenade leaves the hand: the arm swings forward, then the next one (or the gun) comes up. */
+  throwGrenade(): void {
+    this.inspectT = -1;
+    this.throwT = 0;
+  }
+
   /** Inspect the weapon (F): turn it over to look at it. Shooting, aiming or reloading stops it. */
   inspect(): void {
     if (this.swingT < 0) this.inspectT = 0;
@@ -339,7 +353,9 @@ export class ViewModel {
     const dt = f.dt;
     if (f.weapon !== this.gunId) this.swap(f.weapon);
     this.gun!.group.visible = !f.grenade && !f.bomb;
-    for (const [kind, model] of this.grenades) model.visible = !f.bomb && kind === f.grenade;
+    // Halfway into a throw the grenade has left the hand.
+    const thrown = this.throwT >= THROW_TIME * 0.3;
+    for (const [kind, model] of this.grenades) model.visible = !f.bomb && kind === f.grenade && !thrown;
     if (f.bomb && !this.c4) {
       const view = new BombView(new THREE.Scene());
       view.update(new THREE.Vector3(), 0, 'carried', 0, 0, 0, 0);
@@ -352,9 +368,10 @@ export class ViewModel {
     }
     if (this.c4) this.c4.visible = f.bomb === true;
     if (f.grenade && !this.grenades.has(f.grenade)) {
-      const model = buildProjectileMesh(f.grenade);
-      model.scale.setScalar(2);
-      model.position.set(0, 0, -0.14);
+      const model = buildProjectileMesh(f.grenade === 'egg' ? 'he' : f.grenade);
+      // In the hand: the egg is big for a grenade, so it's held smaller and lower.
+      model.scale.setScalar(f.grenade === 'egg' ? 1.2 : 1.7);
+      model.position.set(0.01, f.grenade === 'egg' ? -0.025 : 0, -0.15);
       this.holder.add(model);
       this.grenades.set(f.grenade, model);
     }
@@ -441,6 +458,21 @@ export class ViewModel {
     } else if (inspectP < 0) this.magCue = null;
     const pose = this.pose;
     for (const k of Object.keys(pose) as (keyof Pose)[]) pose[k] = swing[k] + look[k];
+    // Grenade: drawn back over the shoulder while the pin is pulled, then thrown forward.
+    this.pinBlend = damp(this.pinBlend, f.grenadePin ? 1 : 0, 12, dt);
+    if (this.throwT >= 0) {
+      this.throwT += dt;
+      if (this.throwT >= THROW_TIME) {
+        this.throwT = -1;
+        this.raise = 0;
+      }
+    }
+    const fling = this.throwT >= 0 ? Math.sin((this.throwT / THROW_TIME) * Math.PI) : 0;
+    pose.x += this.pinBlend * 0.035;
+    pose.y += this.pinBlend * 0.035 - fling * 0.1;
+    pose.z += this.pinBlend * 0.015 - fling * 0.16;
+    pose.rx += -this.pinBlend * 0.45 + fling * 1.1;
+    pose.rz += -this.pinBlend * 0.2;
     const hold = HOLD_ANGLES[f.weapon];
 
     const base = this.tmp.copy(HIP).lerp(ADS, this.ads).add(OFFSETS[f.weapon] ?? ZERO);

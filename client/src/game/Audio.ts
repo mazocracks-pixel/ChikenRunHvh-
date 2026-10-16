@@ -17,6 +17,7 @@ export type SoundName =
   | 'jump'
   | 'jet'
   | 'throw'
+  | 'pin'
   | 'pickup'
   | 'death'
   | 'poof'
@@ -333,6 +334,15 @@ export class AudioEngine {
   }
 
   /** Plays a sound, optionally at a world position (attenuated and panned). */
+  /** How long the next ear ringing lasts (seconds); set by ringFor. */
+  private ringSeconds = 2.8;
+
+  /** Ears ringing after a flash: as long as the white-out, fading away, quieter when barely caught. */
+  ringFor(seconds: number, volume: number): void {
+    this.ringSeconds = Math.max(0.6, seconds);
+    this.play('ring', undefined, volume);
+  }
+
   play(name: SoundName, at?: Vec3, volume = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || ctx.state !== 'running' || this.volumeValue === 0 || !Number.isFinite(volume) || volume <= 0) return;
@@ -906,6 +916,12 @@ export class AudioEngine {
       case 'throw':
         this.burst(ctx, out, t, { dur: 0.18, type: 'bandpass', freq: 800, to: 2000, q: 2, gain: 0.5 });
         break;
+      case 'pin':
+        // The pin pulled: a metal click and the ring's little ping.
+        this.burst(ctx, out, t, { dur: 0.03, type: 'highpass', freq: 4200, gain: 0.5 });
+        this.tone(ctx, out, t, { dur: 0.14, type: 'triangle', freq: 2600, to: 2300, gain: 0.12, delay: 0.02 });
+        this.burst(ctx, out, t, { dur: 0.04, type: 'bandpass', freq: 1800, q: 3, gain: 0.3, delay: 0.09 });
+        break;
       case 'pickup':
         [660, 880, 1100].forEach((f, i) => this.tone(ctx, out, t, { dur: 0.09, type: 'sine', freq: f, gain: 0.35, delay: i * 0.06 }));
         break;
@@ -969,9 +985,9 @@ export class AudioEngine {
         this.tone(ctx, out, t, { dur: 0.2, type: 'sine', freq: 120, to: 45, gain: 0.9 });
         break;
       case 'ring':
-        // Ears ringing after a flash.
-        this.tone(ctx, out, t, { dur: 2.8, type: 'sine', freq: 3150, to: 2900, gain: 0.09 });
-        this.tone(ctx, out, t, { dur: 2.2, type: 'sine', freq: 4400, to: 4200, gain: 0.035 });
+        // Ears ringing after a flash, dying away over the white-out.
+        this.tone(ctx, out, t, { dur: this.ringSeconds, type: 'sine', freq: 3150, to: 2900, gain: 0.09 });
+        this.tone(ctx, out, t, { dur: this.ringSeconds * 0.8, type: 'sine', freq: 4400, to: 4200, gain: 0.035 });
         break;
       case 'scream':
         // Jumpscare: a long screeching, wobbling chicken scream (several overlapping squawks).

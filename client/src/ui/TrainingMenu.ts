@@ -2,12 +2,13 @@ import { TRAINING_GUNS, TRAINING_KNIVES, WEAPONS, isMelee, type WeaponId } from 
 import { clear, h } from './dom';
 import { gunPicture } from './GunIcons';
 import { icon, type IconName } from './icons';
+import { getKeybinds, keyLabel } from '../keybinds';
 
 type Grenade = 'egg' | 'smoke' | 'flash';
-const GRENADES: readonly { id: Grenade; name: string; key: string; icon: IconName }[] = [
-  { id: 'egg', name: 'Eggs', key: 'G', icon: 'egg' },
-  { id: 'smoke', name: 'Smoke', key: 'Q', icon: 'smoke' },
-  { id: 'flash', name: 'Flashbang', key: 'Z', icon: 'flash' },
+const GRENADES: readonly { id: Grenade; name: string; icon: IconName }[] = [
+  { id: 'egg', name: 'HE Egg', icon: 'egg' },
+  { id: 'smoke', name: 'Smoke', icon: 'smoke' },
+  { id: 'flash', name: 'Flashbang', icon: 'flash' },
 ];
 
 /**
@@ -86,7 +87,7 @@ export class TrainingMenu {
     this.knives.append(...TRAINING_KNIVES.filter((id) => isMelee(id)).map(item));
     this.grenades.append(
       ...GRENADES.map((g) =>
-        h('button', { type: 'button', class: 'tr-item', onclick: () => this.onGrenade?.(g.id) }, icon(g.icon, 'tr-gicon'), h('span', { class: 'tr-name' }, `${g.name} · refill`), h('kbd', null, g.key)),
+        h('button', { type: 'button', class: 'tr-item', onclick: () => this.onGrenade?.(g.id) }, icon(g.icon, 'tr-gicon'), h('span', { class: 'tr-name' }, `${g.name} · free`), h('kbd', null, keyLabel(getKeybinds()[g.id]))),
       ),
     );
   }

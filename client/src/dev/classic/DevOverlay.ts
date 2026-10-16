@@ -229,7 +229,7 @@ export class DevOverlay {
     }
     if (world.weapons) {
       for (const v of session.vehicles.markers()) marker(v.x, 1, v.z, `Buggy ${Math.ceil(v.hp)} HP${v.driver ? ' (driven)' : ''}`, colors.weapons, 'square');
-      for (const p of session.projectiles.markers()) marker(p.x, p.y, p.z, p.kind === 'egg' ? 'Egg' : p.kind === 'rocket' ? 'Rocket' : 'Smoke', colors.weapons, 'circle');
+      for (const p of session.projectiles.markers()) marker(p.x, p.y, p.z, p.kind === 'egg' || p.kind === 'he' ? 'Egg' : p.kind === 'flash' ? 'Flash' : p.kind === 'rocket' ? 'Rocket' : 'Smoke', colors.weapons, 'circle');
     }
     if (world.spawns) {
       for (const s of session.map.spawns) marker(s.x, 0.2, s.z, s.team ? `${TEAM_NAMES[s.team]} spawn` : 'Spawn', s.team ? hex(TEAM_COLORS[s.team]) : '#d0d6e2', 'circle');

@@ -15,6 +15,13 @@ import {
   MODES,
   PLAYER,
   PROJECTILES,
+  FLASH,
+  launchVelocity,
+  predictThrow,
+  throwDrop,
+  throwerVelocity,
+  type ProjectileKind,
+  type ThrowPower,
   SIM_DT,
   TEAM_NAMES,
   WEAPONS,
@@ -107,7 +114,7 @@ import { Flags } from './Flags';
 import type { Action, Input } from './Input';
 import { LocalPlayer } from './LocalPlayer';
 import { LootView } from './LootView';
-import { ClientProjectiles } from './Projectiles';
+import { ClientProjectiles, ThrowPreview } from './Projectiles';
 import { RemotePlayers, type RemotePlayer } from './RemotePlayers';
 import { Vehicles } from './Vehicles';
 import { ViewModel } from './ViewModel';
@@ -196,6 +203,8 @@ export class GameSession {
   readonly rig: CameraRig;
   private readonly effects: Effects;
   readonly projectiles: ClientProjectiles;
+  /** Your aiming line while a grenade's pin is pulled (only on your screen). */
+  private readonly throwPreview: ThrowPreview;
   readonly loot: LootView;
   readonly weapons: WeaponController;
   /** This session's own collision data (Sandbox blocks get added to it). */
@@ -248,6 +257,10 @@ export class GameSession {
   /** ChikenBomb: the bomb is in your hands (slot 5); holding fire plants it. */
   private bombOut = false;
   private grenadeThrowHeld = false;
+  /** The grenade in hand has its pin pulled (a mouse button is held): letting go throws it. */
+  private pinPulled = false;
+  /** The mouse buttons last frame, for the grenade throw. */
+  private throwButtons = { left: false, right: false };
   private chatOpen = false;
   /** The open chat box sends to the team only (U), not everyone (Y). */
   private chatTeamOnly = false;
@@ -293,6 +306,7 @@ export class GameSession {
     this.remotes = new RemotePlayers(ctx.scene);
     this.rig = new CameraRig(ctx.camera, this.collision);
     this.projectiles = new ClientProjectiles(ctx.scene, this.collision, this.effects);
+    this.throwPreview = new ThrowPreview(ctx.scene);
     this.loot = new LootView(ctx.scene, ctx.world.map, this.effects);
     this.loot.setAll(join.loot);
     for (const d of join.drops) this.loot.addDrop(d, false);
@@ -318,7 +332,8 @@ export class GameSession {
     if (this.trainingMenu) {
       this.trainingMenu.onClose = () => this.toggleTrainingMenu(false);
       this.trainingMenu.onPick = (id) => this.trainingPick(id);
-      this.trainingMenu.onGrenade = (grenade) => this.trainingRequest({ grenade }, 'Refilled');
+      // Free and unlimited, like the guns: picking one puts it in your hand.
+      this.trainingMenu.onGrenade = (grenade) => this.trainingRequest({ grenade }, 'In hand · unlimited', () => this.takeOutGrenade(grenade));
     }
     this.zombieHud = this.mode.zombies ? new ZombieHud(ctx.hud.root) : null;
     if (this.zombieHud) this.zombieHud.huntOnly = this.mode.huntOnly !== undefined;
@@ -476,7 +491,7 @@ export class GameSession {
     this.effects.update(dt);
 
     const def = this.weapons.def;
-    const canAim = input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading && !this.heldGrenade;
+    const canAim = input.active && this.local.alive && !this.local.car && !this.building && !this.weapons.reloading && !this.heldGrenade && !this.grenadeThrowHeld;
     // Snipers (Sniper, Scout): the scope button is a click, not a hold (see stepScope).
     if (def.scope) this.stepScope(canAim && this.scopeWeapon === def.id, input.aiming && !this.aimWasDown);
     else this.scopeLevel = 0;
@@ -509,14 +524,10 @@ export class GameSession {
     this.weapons.update(now, this.mode.id === 'hvh'
       && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed()) > 0);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
-    if (!input.firing) this.grenadeThrowHeld = false;
+    if (!input.firing && !input.aiming) this.grenadeThrowHeld = false;
+    this.stepGrenade(input.active && input.firing, input.active && input.aiming, input.active);
     if (this.bombOut && !this.carryingBomb()) this.bombOut = false;
     const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !this.heldGrenade && !this.bombOut && !this.grenadeThrowHeld && !dev?.blocksShooting();
-    if (this.heldGrenade && input.active && input.firing && !this.fireWasDown) {
-      this.throwGrenade(this.heldGrenade);
-      this.grenadeThrowHeld = true;
-      if (grenadeCount(this.heldGrenade, this.local.server) === 0) this.heldGrenade = null;
-    }
     if (aiming !== this.aimingSent) {
       this.aimingSent = aiming;
       net.socket.emit('aim', aiming);
@@ -588,6 +599,7 @@ export class GameSession {
       camera: this.ctx.camera,
       weapon: w.weapon,
       grenade: this.heldGrenade,
+      grenadePin: this.pinPulled,
       bomb: this.bombOut,
       visible,
       aiming,
@@ -667,6 +679,8 @@ export class GameSession {
 
   private handleAction(action: Action, now: number): void {
     const { net } = this.ctx;
+    // With a pin pulled the grenade stays in hand until it's thrown.
+    if (this.pinPulled && (action.startsWith('slot') || action === 'nextWeapon' || action === 'prevWeapon' || action === 'egg' || action === 'smoke' || action === 'flash')) return;
     switch (action) {
       case 'reload':
         if (!this.heldGrenade) this.startReload(now);
@@ -727,7 +741,7 @@ export class GameSession {
       case 'egg':
       case 'smoke':
       case 'flash':
-        this.throwGrenade(action);
+        this.takeOutGrenade(action);
         break;
       case 'camera':
         this.ctx.hud.toast(this.rig.toggle() === 'first' ? (this.local.car ? 'First-person view (V) once you get out' : 'First-person view (V)') : 'Third-person view (V)');
@@ -955,28 +969,93 @@ export class GameSession {
     return this.mode.bomb === true && this.round?.phase === 'buy';
   }
 
-  private throwGrenade(kind: 'egg' | 'smoke' | 'flash'): void {
-    const { net, audio, hud } = this.ctx;
-    if (!this.local.alive) return;
-    if (this.buyTime) {
-      hud.toast('Buy time: no throwing yet', 'bad');
-      return;
-    }
-    const count = kind === 'egg' ? this.local.server.eggs : kind === 'smoke' ? this.local.server.smokes : (this.local.server.flashes ?? 0);
-    if (count <= 0) {
-      hud.toast(kind === 'egg' ? 'No eggs left — break boxes to find more' : kind === 'smoke' ? 'No smoke grenades left' : 'No flashbangs left', 'bad');
+  /** G, Q or the flashbang key: the grenade comes out; a mouse button then pulls the pin. */
+  private takeOutGrenade(kind: HeldGrenade): void {
+    const { audio, hud } = this.ctx;
+    if (!this.local.alive || this.heldGrenade === kind) return;
+    if (grenadeCount(kind, this.local.server) <= 0) {
+      hud.toast(kind === 'egg' ? 'No eggs left' : kind === 'smoke' ? 'No smoke grenades left' : 'No flashbangs left', 'bad');
       audio.play('empty');
       return;
     }
+    this.heldGrenade = kind;
+    this.bombOut = false;
+    this.scopeLevel = 0;
+    this.weapons.suspend();
+    audio.play('equip');
+  }
+
+  /**
+   * Holding a grenade: left click (far), right click (a soft underhand toss) or both (medium)
+   * pulls the pin; letting go of a button throws with what was held just before. The aiming
+   * line shows meanwhile. Losing the mouse (a menu opening) puts the pin back instead.
+   */
+  private stepGrenade(left: boolean, right: boolean, active: boolean): void {
+    const was = this.throwButtons;
+    this.throwButtons = { left, right };
+    const kind = this.heldGrenade;
+    if (!kind || !this.local.alive || !active) {
+      this.setPin(false);
+      this.throwPreview.hide();
+      return;
+    }
+    if (!this.pinPulled) {
+      if ((left || right) && !was.left && !was.right && !this.grenadeThrowHeld) {
+        if (this.buyTime) {
+          this.ctx.hud.toast('Buy time: no throwing yet', 'bad');
+          this.grenadeThrowHeld = true;
+        } else this.setPin(true);
+      }
+    } else if ((was.left && !left) || (was.right && !right)) {
+      const power: ThrowPower = was.left && was.right ? 0.5 : was.left ? 1 : 0;
+      this.setPin(false, false);
+      this.throwGrenade(kind, power);
+      this.grenadeThrowHeld = true;
+      if (grenadeCount(kind, this.local.server) <= 0) this.heldGrenade = null;
+    }
+    if (!this.pinPulled) {
+      this.throwPreview.hide();
+      return;
+    }
+    const aim = this.throwAim(kind, left && right ? 0.5 : left ? 1 : 0);
+    const { path, end } = predictThrow(PROJECTILES[aim.projectile], aim.origin, aim.velocity, this.collision);
+    this.throwPreview.show(path, end);
+  }
+
+  private setPin(on: boolean, tell = true): void {
+    if (on === this.pinPulled) return;
+    this.pinPulled = on;
+    if (on) {
+      this.ctx.net.socket.emit('pin', this.heldGrenade);
+      this.ctx.audio.play('pin');
+    } else if (tell) this.ctx.net.socket.emit('pin', null);
+  }
+
+  /** Where a throw leaves your hand and how fast, worked out exactly as the server does. */
+  private throwAim(kind: HeldGrenade, power: ThrowPower): { projectile: ProjectileKind; dir: Vec3; origin: Vec3; velocity: Vec3 } {
+    const projectile: ProjectileKind = kind === 'egg' ? 'he' : kind;
     const eye = this.eye();
     const dir = this.aimDirection(eye);
-    this.throwSeq++;
-    net.socket.emit('throw', { kind, seq: this.throwSeq, dx: dir.x, dy: dir.y, dz: dir.z });
+    eye.y -= throwDrop(power);
     const wall = raycastWorld(makeRay(eye, dir), this.collision, 0.6);
     const dist = wall ? Math.max(0, wall.t - 0.2) : 0.5;
-    this.projectiles.predict(kind, this.selfPid, this.throwSeq, { x: eye.x + dir.x * dist, y: eye.y + dir.y * dist, z: eye.z + dir.z * dist }, dir);
-    // Predict the count so a quick double tap doesn't show a stale number.
-    this.local.server = { ...this.local.server, [kind === 'egg' ? 'eggs' : kind === 'smoke' ? 'smokes' : 'flashes']: count - 1 };
+    const origin = { x: eye.x + dir.x * dist, y: eye.y + dir.y * dist, z: eye.z + dir.z * dist };
+    return { projectile, dir, origin, velocity: launchVelocity(PROJECTILES[projectile], dir, power, throwerVelocity(this.local.state)) };
+  }
+
+  private throwGrenade(kind: HeldGrenade, power: ThrowPower): void {
+    const { net, audio } = this.ctx;
+    if (!this.local.alive || this.buyTime) return;
+    const count = grenadeCount(kind, this.local.server);
+    if (count <= 0) return;
+    const aim = this.throwAim(kind, power);
+    this.throwSeq++;
+    net.socket.emit('throw', { kind, seq: this.throwSeq, dx: aim.dir.x, dy: aim.dir.y, dz: aim.dir.z, power });
+    this.projectiles.predict(aim.projectile, this.selfPid, this.throwSeq, aim.origin, aim.velocity);
+    // Predict the count so a quick double tap doesn't show a stale number (Training's never run out).
+    if (!this.mode.training) this.local.server = { ...this.local.server, [kind === 'egg' ? 'eggs' : kind === 'smoke' ? 'smokes' : 'flashes']: count - 1 };
+    this.viewmodel.throwGrenade();
+    this.local.chicken.swing();
     audio.play('throw');
   }
 
@@ -1014,7 +1093,7 @@ export class GameSession {
 
   private hintText(): string | null {
     if (this.bombOut && this.local.alive) return 'Hold left-click on A or B · Plant the bomb · 1–3 · Weapon';
-    if (this.heldGrenade && this.local.alive) return 'Left-click · Throw grenade · 4 · Next grenade · 1–3 · Weapon';
+    if (this.heldGrenade && this.local.alive) return 'Hold left-click · Throw far · Right-click · Toss · Both · Medium · 4 · Next grenade · 1–3 · Weapon';
     const def = this.weapons.def;
     if (def.scope && this.local.alive && this.scopeLevel > 0) {
       const zoom = this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom;
@@ -1105,9 +1184,9 @@ export class GameSession {
           : !inBuyZone ? 'Spawn only'
           : item.kind === 'weapon' && loadout.includes(item.weapon!) ? 'Owned'
           : item.kind === 'armor' && s.armor >= PLAYER.maxArmor ? 'Full'
-          : item.kind === 'eggs' && s.eggs >= PLAYER.maxEggs ? 'Full'
-          : item.kind === 'smoke' && s.smokes >= PLAYER.maxSmokes ? 'Full'
-          : item.kind === 'flash' && (s.flashes ?? 0) >= PLAYER.maxFlashes ? 'Full'
+          : item.kind === 'eggs' && s.eggs >= PLAYER.maxEggs ? 'MAX'
+          : item.kind === 'smoke' && s.smokes >= PLAYER.maxSmokes ? 'MAX'
+          : item.kind === 'flash' && (s.flashes ?? 0) >= PLAYER.maxFlashes ? 'MAX'
           : item.kind === 'kit' && this.hasKit ? 'Owned'
           : null,
       });
@@ -1757,6 +1836,7 @@ export class GameSession {
 
   private respawned(): void {
     this.heldGrenade = null;
+    this.pinPulled = false;
     this.deathPos = null;
     this.weapons.refill();
     this.ctx.hud.hideDeath();
@@ -1775,12 +1855,14 @@ export class GameSession {
 
   private onProjectile(e: ProjectileSpawn): void {
     this.projectiles.spawn(e, this.selfPid, (this.ctx.net.ping ?? 60) / 2);
+    // Someone else's throw: their chicken swings its arm.
+    if (e.owner !== this.selfPid && e.ownerSeq > 0 && (e.kind === 'he' || e.kind === 'smoke' || e.kind === 'flash')) this.remotes.get(e.owner)?.chicken.swing();
   }
 
   /** A flashbang got us: white screen, ears ringing. */
   private onFlashed(e: FlashedEvent): void {
     this.ctx.hud.flash(e.ms);
-    this.ctx.audio.play('ring', undefined, Math.min(1, e.ms / 3000));
+    this.ctx.audio.ringFor(e.ms / 1000, Math.min(1, e.ms / FLASH.maxMs));
   }
 
   private onExplode(e: ExplosionEvent): void {
@@ -1818,7 +1900,8 @@ export class GameSession {
 
   private onSmoke(e: SmokeEvent): void {
     const seconds = (e.until - this.serverNow()) / 1000;
-    if (seconds > 0.5) this.effects.smokeCloud(e, seconds);
+    // Thick for as long as it blocks sight, then thins out over a few more seconds.
+    if (seconds > 0.5) this.effects.smokeCloud(e, seconds + 3);
   }
 
   private onLoot(e: LootState): void {
@@ -1921,6 +2004,7 @@ export class GameSession {
     this.local.dispose();
     this.remotes.dispose();
     this.projectiles.dispose();
+    this.throwPreview.dispose();
     this.loot.dispose();
     this.vehicles.dispose();
     this.ctx.audio.setEngine(null);
