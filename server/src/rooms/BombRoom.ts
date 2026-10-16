@@ -319,7 +319,7 @@ export class BombRoom extends GameRoom {
 
   /** Height of whatever is under (x, y, z): a box top, or the ground. */
   private floorBelow(x: number, y: number, z: number): number {
-    const hit = raycastWorld(makeRay({ x, y: y + 0.1, z }, { x: 0, y: -1, z: 0 }), this.world, y + 0.1);
+    const hit = raycastWorld(makeRay({ x, y: y + 0.1, z }, { x: 0, y: -1, z: 0 }), this.world, y + 0.1, this.world.seeThrough);
     return hit ? Math.max(0, y + 0.1 - hit.t) : 0;
   }
 

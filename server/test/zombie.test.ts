@@ -41,6 +41,7 @@ function setup(map: 'night' | 'mirage' = 'night') {
     queue: unknown[];
     zombies: Map<number, { p: import('../src/rooms/ServerPlayer').ServerPlayer; kind: string; maxHp: number; stats: { reward: number } }>;
     blocks: Map<number, unknown>;
+    lastBuildAt: Map<number, number>;
     upgrades: Map<number, Record<string, number>>;
     match: { phase: string };
   };
@@ -747,14 +748,22 @@ describe('Zombie Apocalypse match', () => {
 
   it('on Mirage the wall stands on the raised street, not under it', () => {
     const t = setup('mirage');
-    t.run(500);
-    assert.ok(t.me.state.y > 2, `spawned up on the street (${t.me.state.y})`);
-    t.room.handleZombieBuild(t.me);
-    const blocks = [...t.priv.blocks.values()] as { state: { cy: number } }[];
-    assert.ok(blocks.length >= 3, `a wall (${blocks.length} blocks)`);
-    const bottom = Math.min(...blocks.map((b) => b.state.cy * BLOCK_SIZE));
-    assert.ok(bottom >= t.me.state.y - 0.01 && bottom < t.me.state.y + BLOCK_SIZE, `starts at your feet (${bottom} vs ${t.me.state.y})`);
-    t.room.close();
+    try {
+      t.run(500);
+      assert.ok(t.me.state.y > 2, `spawned up on the street (${t.me.state.y})`);
+      // The spawn is random: turn until there's room ahead for a wall.
+      for (let k = 0; k < 8 && t.priv.blocks.size < 3; k++) {
+        t.me.yaw = (k * Math.PI) / 4;
+        t.priv.lastBuildAt.clear();
+        t.room.handleZombieBuild(t.me);
+      }
+      const blocks = [...t.priv.blocks.values()] as { state: { cy: number } }[];
+      assert.ok(blocks.length >= 3, `a wall (${blocks.length} blocks)`);
+      const bottom = Math.min(...blocks.map((b) => b.state.cy * BLOCK_SIZE));
+      assert.ok(bottom >= t.me.state.y - 0.01 && bottom < t.me.state.y + BLOCK_SIZE, `starts at your feet (${bottom} vs ${t.me.state.y})`);
+    } finally {
+      t.room.close();
+    }
   });
 
   it('a boss wave sends a boss with a horde; killing it pays a lot', () => {

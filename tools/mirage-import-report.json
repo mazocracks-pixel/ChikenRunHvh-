@@ -1,9 +1,10 @@
 {
-  "source": "de_mirage.bsp v21 / de_mirage.nav v16.1",
-  "boxes": 35623,
+  "source": "de_mirage.bsp v21 / de_mirage.nav v16.1; collision from de_mirage_d.vmf (BSPSource decompile)",
+  "boxes": 29533,
   "spawns": 33,
   "navAreas": 903,
   "textureFallbacks": [],
   "modelFallbacks": [],
-  "connectedNavAreas": 755
+  "connectedNavAreas": 755,
+  "clips": 2229
 }

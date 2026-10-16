@@ -164,13 +164,21 @@ export class TrainingRoom extends GameRoom {
       const across = { x: -(home.z - s.z) / d, z: (home.x - s.x) / d };
       const end = (k: number) => ({ x: home.x + across.x * k, y: home.y, z: home.z + across.z * k });
       // Raised floors (Mirage) slope and streets are tight: the line must keep to level ground,
-      // and a half-width strafe will do where the full one doesn't fit.
-      const fits = (k: number) => home.y === undefined
-        ? [-k, -k / 2, k / 2, k].every((j) => isSpaceFree(home.x + across.x * j, 0, home.z + across.z * j, this.world))
-        : walkable(home, end(-k), this.world) && walkable(home, end(k), this.world);
-      const scale = i === 0 || movers >= MOVERS ? 0 : fits(STRAFE) ? 1 : home.y !== undefined && fits(STRAFE / 2) ? 0.5 : 0;
+      // and a half-width strafe (or one out to a side and back) will do where the full one doesn't fit.
+      const side = (k: number) => home.y === undefined
+        ? [k / 2, k].every((j) => isSpaceFree(home.x + across.x * j, 0, home.z + across.z * j, this.world))
+        : walkable(home, end(k), this.world);
+      let scale = 0, shift = 0;
+      if (i > 0 && movers < MOVERS) {
+        if (side(STRAFE) && side(-STRAFE)) scale = 1;
+        else if (home.y !== undefined) {
+          if (side(STRAFE / 2) && side(-STRAFE / 2)) scale = 0.5;
+          else for (const k of [STRAFE, -STRAFE]) if (!scale && side(k)) { scale = 0.5; shift = k / 2; }
+        }
+      }
       if (scale) movers++;
-      return { home, along: scale ? { x: across.x * scale, z: across.z * scale } : null, phase: i, lastHitAt: -Infinity };
+      const centre = { ...home, x: home.x + across.x * shift, z: home.z + across.z * shift };
+      return { home: centre, along: scale ? { x: across.x * scale, z: across.z * scale } : null, phase: i, lastHitAt: -Infinity };
     });
   }
 }

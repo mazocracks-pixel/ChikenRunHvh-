@@ -1,7 +1,9 @@
+// Collision from the map's source brushes (tools/import_mirage_vmf.mts) plus the old prop boxes.
 import data from './mirage-data.json';
-// Collision the importer missed on diagonal walls (tools/patch_mirage_walls.mts). Kept last: box order sets collision IDs.
+// Drawn walls with no collision behind them (props the source has no shape for; tools/patch_mirage_walls.mts). Kept last: box order sets collision IDs.
 import walls from './mirage-walls.json';
-// Player clips (tools/mirage_clips.mts): shots and sight pass, chickens don't.
+// Invisible boxes that stop shots where nothing is drawn (tools/mirage_clips.mts): made player clips
+// like the source's own (shots, sight and grenades pass; chickens don't).
 import clips from './mirage-clips.json';
 // The upright ladder props (tools/mirage_ladders.mts).
 import ladders from './mirage-ladders.json';

@@ -110,7 +110,7 @@ export function stepProjectile(p: ProjectileBody, def: ProjectileDef, dt: number
   if (speed < 1e-6) return false;
   const dist = speed * dt;
   const ray = makeRay(p, { x: p.vx / speed, y: p.vy / speed, z: p.vz / speed });
-  const hit = raycastWorld(ray, world, dist + def.radius);
+  const hit = raycastWorld(ray, world, dist + def.radius, world.seeThrough); // Player clips stop chickens only, like CS.
   if (!hit) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;

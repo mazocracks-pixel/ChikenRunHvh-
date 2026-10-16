@@ -21,14 +21,22 @@ for (const spawn of data.spawns) {
 }
 const nearby: ReturnType<typeof boxToAabb>[] = [];
 const points = data.nav.filter((point) => {
-  const startY = point.y;
-  // Source navigation lies on slopes; the box approximation stands on the highest nearby step.
-  world.query(point.x - PLAYER.radius, point.z - PLAYER.radius, point.x + PLAYER.radius, point.z + PLAYER.radius, nearby);
-  for (const b of nearby) {
-    if (b.maxX <= point.x - PLAYER.radius || b.minX >= point.x + PLAYER.radius || b.maxZ <= point.z - PLAYER.radius || b.minZ >= point.z + PLAYER.radius) continue;
-    if (b.maxY > point.y && b.maxY <= startY + SOURCE_MOVE.stepHeight) point.y = b.maxY;
+  // A point hugging a wall moves up to 0.4 m clear (a chicken is wider than a Source player).
+  for (const r of [0, 0.1, 0.2, 0.3, 0.4]) for (let k = 0; k < (r ? 8 : 1); k++) {
+    const x = point.x + r * Math.cos(k * Math.PI / 4), z = point.z + r * Math.sin(k * Math.PI / 4);
+    // Source navigation lies on slopes; the box approximation stands on the highest nearby step.
+    let y = point.y;
+    world.query(x - PLAYER.radius, z - PLAYER.radius, x + PLAYER.radius, z + PLAYER.radius, nearby);
+    for (const b of nearby) {
+      if (b.maxX <= x - PLAYER.radius || b.minX >= x + PLAYER.radius || b.maxZ <= z - PLAYER.radius || b.minZ >= z + PLAYER.radius) continue;
+      if (b.maxY > y && b.maxY <= point.y + SOURCE_MOVE.stepHeight) y = b.maxY;
+    }
+    if (isSpaceFree(x, y, z, world)) {
+      Object.assign(point, { x, y, z });
+      return true;
+    }
   }
-  return isSpaceFree(point.x, point.y, point.z, world);
+  return false;
 });
 const links: number[][] = points.map(() => []);
 for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) {

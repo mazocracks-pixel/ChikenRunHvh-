@@ -3,6 +3,29 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 25 (15 Oct): Mirage from its Hammer source, glitchy floors and walls fixed
+
+The owner put the map's source (`de_mirage_d.vmf`, a BSPSource decompile, in their Downloads) on the PC and asked to rebuild Mirage from it, make it faster, and remove the bugs and glitchy textures. The source has brushes and entities but no textures or models, so the textured model stays, and the collision is rebuilt.
+
+- **Collision from the source brushes** (`tools/import_mirage_vmf.mts`, with the reader in `tools/vmf.mts`). Each straight brush becomes one exact box. Slanted brushes become the 8-unit cells whose centres they hold. Displacements (terrain, curved walls) become every cell their surface passes through; the corner order was checked against the model (median 1 mm off). The source's `toolsclip`/`toolsplayerclip` brushes become real player clips: 2,229 boxes where there used to be 42 guessed ones. The breakable boards (Snipers' Nest) are left out. The old boxes that no brush explains are kept as prop collision. Result: 29,533 boxes instead of 35,623 (data file 3.55 → 2.83 MB), and the Mirage zombie tests run in 2.7 s instead of 4.2 s.
+- **Clips are for chickens only, as in CS.** Grenades, flash and explosion sight, melee, the third-person camera and the dropped bomb now pass through clips (there's a clip ceiling over the whole map).
+- **Bot navigation** (`prepare_mirage.ts`): a nav point touching a wall moves up to 0.4 m clear (a chicken is wider than a CS player). All 755 points are kept, and routes between the main areas match the old ones.
+- **Glitchy floors and walls (my bug from batch 23):** the cut-out fix gave `alphaTest` to any texture whose alpha averaged under half. Source keeps blend and shine masks in the alpha of solid textures, so parts of A site's floor, T spawn's cobbles, the blue and salmon plaster, brick and tiles were thrown away, and you saw the sand plane 4–5 m below. Cut-outs now apply only to props of a see-through kind (foliage, fences, scaffolding, lamps…) or ones mostly empty.
+- Training targets on slopes now strafe out to one side and back when only one side fits. The Mirage wall-building test turns until there's room (its random spawn sometimes faced a wall, which failed it 3 times in 8 before this batch too) and always closes its room.
+- Wall-face check: 0 walks through a visible wall. Tests 506/506.
+- Left as is: the model's 128 px textures (the originals aren't on this PC), and the blend layers the model lost (the source names the blends but not their second textures).
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The batch 23 cut-out rule hid parts of solid floors and walls (the "glitchy textures"). | Cut-outs only for see-through props. |
+| 2 | Counting every cell a slanted brush touches made walls up to 0.27 m too thick, which closed Apartments and Palace for bots. | Cell centres inside the brush instead. |
+| 3 | My first displacement corner order was mirrored (44% of points matched). | Checked against the model and reversed it (92% within 5 cm). |
+| 4 | Python patches through Git Bash heredocs mangled `\n` twice more. | Fixed those lines with Edit. |
+| 5 | A failing zombie test left its room running and hung the whole suite for 10 minutes. | The test closes its room in `finally`. |
+| 6 | I blamed missing model geometry for the beige floors before checking materials; the model was fine. | Found the real cause by recolouring and hiding meshes in the live scene. |
+
 # Batch 24 (15 Oct): buy-menu chicken fits its panel
 
 - The preview camera was fixed (30° view from 3.9 m), so in the tall, narrow side panel the chicken and a long gun were cut off at the sides, and the stats box covered its feet. The camera now backs off to fit a 1.9 m × 1.8 m box (the chicken with a long gun, turned any way) into the space above the stats box, using a view offset. It refits when the panel or the stats box changes size. Checked at 1600×900 and 1100×620 with the Sniper.

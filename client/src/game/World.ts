@@ -637,8 +637,13 @@ export class World {
       m.color.set(0xffffff);
       resources.add(m.map);
     }
-    // Mostly see-through textures (scaffolding planks, grates) drew their empty parts as black slabs.
-    if (m.map?.image && !m.transparent && m.alphaTest === 0 && meanAlpha(m.map.image as CanvasImageSource) < 128) m.alphaTest = 0.5;
+    // Cut-outs (foliage, fences, scaffolding) drew their empty parts as black slabs. Source also keeps
+    // blend and shine masks in the alpha of solid textures (walls, floors, cars), and cutting those
+    // punched holes in A site and T spawn: only props, of a see-through kind or mostly empty.
+    if (m.map?.image && !m.transparent && m.alphaTest === 0 && /^models/i.test(m.name)) {
+      const clear = clearShare(m.map.image as CanvasImageSource);
+      if (clear > 0.6 || (clear > 0.1 && CUTOUT.test(m.name))) m.alphaTest = 0.5;
+    }
     if (m.map) {
       this.detail ??= this.track(detailTexture());
       addDetail(m, this.detail);
@@ -936,18 +941,20 @@ function planarUvs(geometry: THREE.BufferGeometry): void {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
+/** Props whose textures are cut-outs. */
+const CUTOUT = /foliage|tree|branch|plant|flower|palm|vine|leaf|leaves|fence|scaffold|rung|grate|rail|wire|gate|net|lamp|light/i;
 const alphaCanvas = typeof document === 'undefined' ? null : document.createElement('canvas');
-/** Average alpha (0–255) of an image, read from a tiny copy. */
-function meanAlpha(image: CanvasImageSource): number {
+/** The share of an image that is see-through (alpha under 16), read from a small copy. */
+function clearShare(image: CanvasImageSource): number {
   const ctx = alphaCanvas?.getContext('2d', { willReadFrequently: true });
-  if (!alphaCanvas || !ctx) return 255;
-  alphaCanvas.width = alphaCanvas.height = 8;
-  ctx.clearRect(0, 0, 8, 8);
-  ctx.drawImage(image, 0, 0, 8, 8);
-  const d = ctx.getImageData(0, 0, 8, 8).data;
-  let sum = 0;
-  for (let i = 3; i < d.length; i += 4) sum += d[i]!;
-  return sum / 64;
+  if (!alphaCanvas || !ctx) return 0;
+  alphaCanvas.width = alphaCanvas.height = 32;
+  ctx.clearRect(0, 0, 32, 32);
+  ctx.drawImage(image, 0, 0, 32, 32);
+  const d = ctx.getImageData(0, 0, 32, 32).data;
+  let clear = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i]! < 16) clear++;
+  return clear / 1024;
 }
 
 /** Multiplies a fine grain over the base texture at 8× its scale (Source-style detail texture). */

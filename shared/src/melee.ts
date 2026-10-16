@@ -31,7 +31,7 @@ export interface MeleeHit<T> {
 export function meleeHit<T>(eye: Vec3, aim: Vec3, w: WeaponDef, targets: readonly MeleeTarget<T>[], world: CollisionWorld): MeleeHit<T> | null {
   const reach = w.range;
   const ray = makeRay(eye, aim);
-  const wall = raycastWorld(ray, world, reach);
+  const wall = raycastWorld(ray, world, reach, world.seeThrough);
   let maxT = wall ? wall.t : reach;
   let best: MeleeHit<T> | null = null;
   for (const t of targets) {
@@ -58,7 +58,7 @@ export function meleeHit<T>(eye: Vec3, aim: Vec3, w: WeaponDef, targets: readonl
     if (d < 1e-6 || surface > reach || d >= bestDistance) continue;
     const dir = { x: dx / d, y: dy / d, z: dz / d };
     if (dir.x * aim.x + dir.y * aim.y + dir.z * aim.z < minDot) continue;
-    if (raycastWorld(makeRay(eye, dir), world, d)) continue;
+    if (raycastWorld(makeRay(eye, dir), world, d, world.seeThrough)) continue;
     bestDistance = d;
     const at = Math.max(0, surface);
     best = { key: t.key, headshot: false, point: { x: eye.x + dir.x * at, y: eye.y + dir.y * at, z: eye.z + dir.z * at } };

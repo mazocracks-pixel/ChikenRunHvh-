@@ -193,7 +193,7 @@ export class ProjectileSystem {
       const dz = at.z - eye.z;
       const dist = Math.hypot(dx, dy, dz);
       if (dist > FLASH.range) continue;
-      if (dist > 0.3 && raycastWorld(makeRay(eye, { x: dx / dist, y: dy / dist, z: dz / dist }), this.room.world, dist - 0.2)) continue;
+      if (dist > 0.3 && raycastWorld(makeRay(eye, { x: dx / dist, y: dy / dist, z: dz / dist }), this.room.world, dist - 0.2, this.room.world.seeThrough)) continue;
       const ms = flashBlindMs(eye, directionFromAngles(target.lookYaw, target.pitch), at);
       if (ms <= 0) continue;
       target.blindUntil = Math.max(target.blindUntil, now + ms);
@@ -216,7 +216,7 @@ export class ProjectileSystem {
       const falloff = blastFalloff(def, dist);
       if (falloff <= 0) continue;
       if (dist > 0.05) {
-        const wall = raycastWorld(makeRay(centre, { x: dx / dist, y: dy / dist, z: dz / dist }), this.room.world, dist - 0.05);
+        const wall = raycastWorld(makeRay(centre, { x: dx / dist, y: dy / dist, z: dz / dist }), this.room.world, dist - 0.05, this.room.world.seeThrough);
         if (wall) continue;
       }
 

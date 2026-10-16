@@ -102,7 +102,7 @@ export class CameraRig {
       const maxDistance = driving ? DRIVE_DISTANCE : DISTANCE;
       this.focus.set(target.x + Math.cos(yaw) * shoulder, target.y + (driving ? 1.6 : HEAD_HEIGHT * (0.4 + 0.6 * bodyScale)), target.z - Math.sin(yaw) * shoulder);
       let wanted = maxDistance;
-      const hit = raycastWorld(makeRay(this.focus, this.back), this.world, maxDistance);
+      const hit = raycastWorld(makeRay(this.focus, this.back), this.world, maxDistance, this.world.seeThrough);
       if (hit) wanted = Math.max(MIN_DISTANCE, hit.t - WALL_PADDING);
       // Snap in immediately (never show the inside of a wall), ease back out smoothly.
       this.distance = wanted < this.distance ? wanted : damp(this.distance, wanted, 6, dt);
@@ -118,7 +118,7 @@ export class CameraRig {
     this.deathAngle += dt * 0.4;
     const r = 6;
     const pos = new THREE.Vector3(centre.x + Math.sin(this.deathAngle) * r, centre.y + 3.5, centre.z + Math.cos(this.deathAngle) * r);
-    const hit = raycastWorld(makeRay(centre, new THREE.Vector3().subVectors(pos, centre).normalize()), this.world, r + 1);
+    const hit = raycastWorld(makeRay(centre, new THREE.Vector3().subVectors(pos, centre).normalize()), this.world, r + 1, this.world.seeThrough);
     if (hit) pos.lerpVectors(centre, pos, Math.max(0.2, (hit.t - 0.3) / (r + 1)));
     this.camera.position.copy(pos);
     this.camera.lookAt(centre.x, centre.y + 0.5, centre.z);
