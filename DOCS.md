@@ -3,6 +3,16 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 28 (15 Oct): two failed Railway deploys fixed
+
+Both the batch 26 and batch 27 deploys failed in `vite build`: `shared/src/projectiles.ts` wasn't valid UTF-8 ("stream did not contain valid UTF-8").
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | In batch 26 I patched `projectiles.ts` with Python's default (Windows cp1252) encoding, so the new "–" and "×" were written as single cp1252 bytes. The typecheck and tests read the file fine; only the production build refuses it, and I didn't run `npm run build`. | Converted the two bytes to UTF-8 (`npm run build` passes). New test `shared/test/encoding.test.ts` fails on any non-UTF-8 source file (checked with a planted bad byte). From now on: patch with `encoding='utf-8'`, and run `npm run build` before pushing. |
+
 # Batch 27 (15 Oct): CS2-style guns, shell casings, one weapon list with CS / special categories
 
 ## Plan

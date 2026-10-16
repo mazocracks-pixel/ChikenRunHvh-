@@ -88,7 +88,7 @@ export const FLASH = {
 
 /**
  * How long (ms) a flash at `at` blinds someone at `eye` looking along `view` (unit vector), if
- * nothing is in the way: 1–3 s looking at it (longer the closer), less from the side, barely
+ * nothing is in the way: 1â€“3 s looking at it (longer the closer), less from the side, barely
  * anything facing away.
  */
 export function flashBlindMs(eye: Vec3, view: Vec3, at: Vec3): number {
@@ -132,7 +132,7 @@ export function throwDrop(power: ThrowPower): number {
 
 /**
  * A projectile's launch velocity. Grenades (with `carry`) are thrown at Counter-Strike's 30%,
- * 65% or 100% for the three throws and carry 1.25× the thrower's run, and their jump if rising.
+ * 65% or 100% for the three throws and carry 1.25Ã— the thrower's run, and their jump if rising.
  * The server, your own prediction and the aiming line all use this.
  */
 export function launchVelocity(def: ProjectileDef, dir: Vec3, power: ThrowPower = 1, mover: Vec3 = { x: 0, y: 0, z: 0 }, speedScale = 1): Vec3 {
