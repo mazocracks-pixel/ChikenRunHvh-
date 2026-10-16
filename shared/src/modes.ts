@@ -28,6 +28,8 @@ export interface ModeDef {
   wallhack?: boolean;
   /** Bullets go through boxes (crates, hay, wood) with less damage. */
   wallbang?: boolean;
+  /** CS2's arsenal only: special guns can't be bought, carried, given or fired (see weaponAllowed). */
+  csOnly?: boolean;
   /** Everyone starts with only these weapons, and there are no free grenades or egg pickups. */
   weapons?: readonly WeaponId[];
   /** Team names instead of Red / Blue (ChikenBomb: chikenT / chikenCT). */
@@ -108,13 +110,13 @@ const DEFS: ModeDef[] = [
     id: 'bomb', name: 'ChikenBomb', description: 'Plant or defuse in 30-round matches. First to 16; sides switch after 15.',
     teams: true, maxPlayers: 10, scoreLimit: 16, timeLimitMs: 0, respawnMs: 2000, minPlayers: 2,
     maps: ['mirage', 'sandstown', 'harbor'], building: false, vehicles: false, wallbang: true, fillBots: 10,
-    weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true,
+    weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true, csOnly: true,
   },
   {
     id: 'face', name: 'FaceChiken', description: 'Ranked 5 vs 5 bomb. Real players only, anti-cheat on, no bots, no dev tools. The only mode that moves your level.',
     teams: true, maxPlayers: 10, scoreLimit: 16, timeLimitMs: 0, respawnMs: 2000, minPlayers: 4,
     maps: ['mirage', 'sandstown', 'harbor'], building: false, vehicles: false, wallbang: true,
-    weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true, ranked: true,
+    weapons: ['pistol', 'knife'], teamNames: ['chikenT', 'chikenCT'], noDrops: true, bomb: true, ranked: true, csOnly: true,
   },
   {
     id: 'arms', name: 'Arms Race', description: 'Every kill gives you the next gun, 17 in all. First kill with the Golden Knife wins.',

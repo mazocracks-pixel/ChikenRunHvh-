@@ -8,6 +8,7 @@ import {
   PROJECTILES,
   WEAPONS,
   canTeamBuy,
+  canBuy,
   isKnifeSkin,
   isMelee,
   isSidearm,
@@ -24,6 +25,7 @@ import {
   bombHoldsPlayer,
   makeRay,
   raycastWorld,
+  weaponAllowed,
 } from '@game/shared';
 import { GameRoom, type BotGoal } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
@@ -403,6 +405,7 @@ export class BombRoom extends GameRoom {
     const fail = (error: string): BuyResult => ({ ok: false, error, money: p.money });
     const item = typeof itemId === 'string' ? BUY_ITEMS_BY_ID.get(itemId) : undefined;
     if (!item) return fail('Unknown item.');
+    if (item.weapon && !weaponAllowed(item.weapon, this.mode.csOnly)) return fail(`The ${item.name} isn’t allowed in ${this.mode.name}.`);
     const free = this.state.phase === 'warmup';
     const buying = (this.state.phase === 'buy' || this.state.phase === 'live') && this.state.buyEndsAt !== null && now < this.state.buyEndsAt;
     if (this.phase !== 'playing' || (!buying && !free)) return fail('You can only buy during buy time.');
@@ -458,7 +461,7 @@ export class BombRoom extends GameRoom {
   /** Bots spend their money at the start of a round: the best gun they can afford, then armor. */
   private botBuy(p: ServerPlayer, now: number): void {
     // Bots stick to the classic guns: no explosives or heavy spray.
-    const guns = BUY_ITEMS.filter((i) => i.kind === 'weapon' && !isSidearm(i.weapon!) && (i.category === 'rifle' || i.weapon === 'smg' || i.weapon === 'shotgun') && canTeamBuy(i, p.info.team)).sort((a, b) => b.price - a.price);
+    const guns = BUY_ITEMS.filter((i) => i.kind === 'weapon' && !isSidearm(i.weapon!) && (i.category === 'rifle' || i.weapon === 'smg' || i.weapon === 'shotgun') && canBuy(i, p.info.team, this.mode.csOnly)).sort((a, b) => b.price - a.price);
     const best = guns.find((g) => g.price <= p.money - 650) ?? guns.find((g) => g.price <= p.money);
     if (best && !p.info.loadout.includes(best.weapon!) && !p.info.loadout.some((w) => !isSidearm(w) && !isMelee(w))) this.handleBuy(p, best.id, now);
     if (p.money >= 650) this.handleBuy(p, 'armor', now);

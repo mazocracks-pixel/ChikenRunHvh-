@@ -12,11 +12,21 @@ export const WEAPON_IDS = [
 ] as const;
 export type WeaponId = typeof WEAPON_IDS[number];
 
+/**
+ * `cs`: a CS2-style standard gun, in every mode. `special`: one of our own (not in CS2), kept out
+ * of the CS-only modes (ChikenBomb, FaceChiken).
+ */
+export type WeaponCategory = 'cs' | 'special';
+/** What kind of weapon it is (the loadout screen's groups, the buy menu's columns). */
+export type WeaponKind = 'pistol' | 'smg' | 'rifle' | 'sniper' | 'shotgun' | 'heavy' | 'melee';
+
 export type WeaponSound = 'pistol' | 'rifle' | 'shotgun' | 'sniper' | 'smg' | 'minigun' | 'rocket' | 'knife' | 'pan' | 'katana' | 'revolver' | 'battle' | 'lmg' | 'crossbow' | 'launcher' | 'deagle' | 'silenced' | 'scout';
 
 export interface WeaponDef {
   id: WeaponId;
   name: string;
+  category: WeaponCategory;
+  kind: WeaponKind;
   /** Damage per bullet (per pellet for shotguns). Projectile weapons deal damage via their projectile. */
   damage: number;
   headshotMultiplier: number;
@@ -63,14 +73,16 @@ export interface WeaponDef {
   model: { length: number; color: number; accent: number; barrels?: number };
 }
 
-const KNIFE: WeaponDef = {
+type BaseDef = Omit<WeaponDef, 'category' | 'kind'>;
+
+const KNIFE: BaseDef = {
   id: 'knife', name: 'Knife', damage: 35, headshotMultiplier: 1.5, fireInterval: 420, automatic: true,
   magazine: 1, reloadTime: 0, pellets: 1, spread: 0, moveSpread: 0, airSpread: 0,
   range: 2.3, falloffStart: 2.3, minDamageScale: 1, zoom: 1, scope: false, recoil: 0.01,
   melee: { arc: 0.6 }, price: 0, sound: 'knife', model: { length: 0.3, color: 0x2a2c31, accent: 0xd5dae2 },
 };
 
-const DEFS: WeaponDef[] = [
+const DEFS: BaseDef[] = [
   {
     id: 'pistol', name: 'Pistol', damage: 24, headshotMultiplier: 2, fireInterval: 220, automatic: false,
     magazine: 12, reloadTime: 1100, pellets: 1, spread: 0.012, moveSpread: 0.02, airSpread: 0.05,
@@ -252,7 +264,66 @@ const DEFS: WeaponDef[] = [
   },
 ];
 
-export const WEAPONS = Object.fromEntries(DEFS.map((w) => [w.id, w])) as Record<WeaponId, WeaponDef>;
+/**
+ * The one weapon list every mode, menu and loadout reads: what kind each weapon is, whether it's a
+ * CS2-style gun or one of our specials, and the CS2 name of the gun a CS one is modelled on.
+ */
+const ARSENAL: Record<WeaponId, { kind: WeaponKind; category: WeaponCategory; name?: string }> = {
+  pistol: { kind: 'pistol', category: 'cs', name: 'Glock-18' },
+  silenced: { kind: 'pistol', category: 'cs', name: 'USP-S' },
+  dualies: { kind: 'pistol', category: 'cs', name: 'Dual Berettas' },
+  fiveseven: { kind: 'pistol', category: 'cs', name: 'Five-SeveN' },
+  mpistol: { kind: 'pistol', category: 'cs', name: 'CZ75-Auto' },
+  revolver: { kind: 'pistol', category: 'cs', name: 'R8 Revolver' },
+  deagle: { kind: 'pistol', category: 'cs', name: 'Desert Eagle' },
+  smg: { kind: 'smg', category: 'cs', name: 'MAC-10' },
+  rifle: { kind: 'rifle', category: 'cs', name: 'Galil AR' },
+  burst: { kind: 'rifle', category: 'cs', name: 'FAMAS' },
+  battle: { kind: 'rifle', category: 'cs', name: 'SG 553' },
+  ak47: { kind: 'rifle', category: 'cs' },
+  m4a1: { kind: 'rifle', category: 'cs' },
+  scout: { kind: 'sniper', category: 'cs', name: 'SSG 08' },
+  sniper: { kind: 'sniper', category: 'cs', name: 'AWP' },
+  shotgun: { kind: 'shotgun', category: 'cs', name: 'Nova' },
+  autoshotgun: { kind: 'shotgun', category: 'cs', name: 'XM1014' },
+  lmg: { kind: 'heavy', category: 'cs', name: 'M249' },
+  minigun: { kind: 'heavy', category: 'special' },
+  golden: { kind: 'rifle', category: 'special' },
+  rocket: { kind: 'heavy', category: 'special' },
+  crossbow: { kind: 'sniper', category: 'special' },
+  launcher: { kind: 'heavy', category: 'special' },
+  knife: { kind: 'melee', category: 'cs' },
+  butterfly: { kind: 'melee', category: 'cs' },
+  karambit: { kind: 'melee', category: 'cs' },
+  m9: { kind: 'melee', category: 'cs' },
+  daggers: { kind: 'melee', category: 'cs' },
+  goldknife: { kind: 'melee', category: 'special' },
+  pan: { kind: 'melee', category: 'special' },
+  katana: { kind: 'melee', category: 'special' },
+};
+
+export const WEAPONS = Object.fromEntries(DEFS.map((w) => [w.id, { ...w, ...ARSENAL[w.id] }])) as Record<WeaponId, WeaponDef>;
+
+/** True if `id` may be used where `csOnly` is set (ChikenBomb, FaceChiken): CS2-style guns only. */
+export function weaponAllowed(id: WeaponId, csOnly: boolean | undefined): boolean {
+  return !csOnly || WEAPONS[id].category === 'cs';
+}
+
+/** The loadout screen's groups: by kind, with every special gun in its own group at the end. */
+export type LoadoutGroup = Exclude<WeaponKind, 'melee'> | 'special';
+export const LOADOUT_GROUPS: readonly { id: LoadoutGroup; name: string }[] = [
+  { id: 'pistol', name: 'Pistols' },
+  { id: 'smg', name: 'SMGs' },
+  { id: 'rifle', name: 'Rifles' },
+  { id: 'sniper', name: 'Snipers' },
+  { id: 'shotgun', name: 'Shotguns' },
+  { id: 'heavy', name: 'Heavy' },
+  { id: 'special', name: 'Special' },
+];
+export function loadoutGroup(id: WeaponId): LoadoutGroup | 'melee' {
+  const w = WEAPONS[id];
+  return w.kind === 'melee' ? 'melee' : w.category === 'special' ? 'special' : w.kind;
+}
 
 export const DEFAULT_LOADOUT: readonly WeaponId[] = ['rifle', 'shotgun', 'sniper', 'pistol'];
 /** Guns in a loadout (keys 1-4). A melee weapon always comes after them. */

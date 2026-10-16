@@ -5,10 +5,13 @@ import type { WeaponId } from './weapons';
  * (the Golden Knife) wins the match. Index = level.
  */
 export const ARMS_LADDER: readonly WeaponId[] = [
+  // Every CS2-style gun is on it, rifles down to pistols, with our specials mixed in.
+  'ak47',
+  'm4a1',
   'rifle',
-  'golden',
   'burst',
   'battle',
+  'golden',
   'lmg',
   'minigun',
   'smg',
@@ -19,7 +22,11 @@ export const ARMS_LADDER: readonly WeaponId[] = [
   'scout',
   'crossbow',
   'launcher',
+  'deagle',
   'revolver',
+  'fiveseven',
+  'dualies',
+  'silenced',
   'pistol',
   'goldknife',
 ];

@@ -115,6 +115,7 @@ import type { Action, Input } from './Input';
 import { LocalPlayer } from './LocalPlayer';
 import { LootView } from './LootView';
 import { ClientProjectiles, ThrowPreview } from './Projectiles';
+import { CASING_FOR, CYCLE_OF, Casings, ejectDelayMs } from './Casings';
 import { RemotePlayers, type RemotePlayer } from './RemotePlayers';
 import { Vehicles } from './Vehicles';
 import { ViewModel } from './ViewModel';
@@ -272,6 +273,8 @@ export class GameSession {
   private lastResultsKey = '';
   /** First-person gun, attached to the camera. */
   private readonly viewmodel: ViewModel;
+  /** Spent cases flying out of every gun nearby. */
+  private readonly casings: Casings;
   private readonly lastViewPos = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
   private readonly camDir = new THREE.Vector3();
@@ -320,10 +323,19 @@ export class GameSession {
     this.weapons.reloadScale = upgrades?.reload ?? 1;
     this.maxHealth = upgrades?.maxHealth ?? 1;
     this.viewmodel = new ViewModel(ctx.overlay);
+    this.casings = new Casings(ctx.scene, this.collision, getSettings().quality, (kind, at, loud) =>
+      ctx.audio.play(kind === 'nova' || kind === 'xm1014' || kind === 'mag7' ? 'shellThud' : 'shellClink', at, 0.5 * loud));
+    // First person: the case leaves the view model's ejection port when the action opens.
+    this.viewmodel.onEject = (at, dir) => {
+      const kind = CASING_FOR[this.weapons.weapon];
+      if (!kind) return;
+      const s = this.local.state, speed = 2.2 + Math.random() * 0.9;
+      this.casings.eject(kind, at, { x: dir.x * speed + s.vx, y: dir.y * speed + Math.max(0, s.vy), z: dir.z * speed + s.vz });
+    };
     this.viewmodel.skin = meInfo.appearance.gun ?? 'none';
     this.viewmodel.onInspectCue = (cue) => ctx.audio.play(cue === 'in' ? 'reload' : 'click', undefined, 0.55);
     this.bombView = this.mode.bomb ? new BombView(ctx.scene) : null;
-    this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root, meInfo.appearance) : null;
+    this.buyMenu = this.mode.bomb ? new BuyMenu(ctx.hud.root, meInfo.appearance, this.mode.csOnly) : null;
     if (this.buyMenu) {
       this.buyMenu.onBuy = (item) => this.buy(item);
       this.buyMenu.onClose = () => this.closeBuyMenu();
@@ -487,6 +499,7 @@ export class GameSession {
     }
     this.updateXray();
     this.projectiles.update(dt);
+    this.casings.update(dt);
     this.loot.update(dt);
     this.effects.update(dt);
 
@@ -918,7 +931,8 @@ export class GameSession {
     this.effects.muzzleFlash(muzzlePos, w.pellets > 1 || w.id === 'sniper');
     audio.play(w.sound);
     if (w.projectile) return;
-    this.effects.shell({ x: muzzlePos.x - aim.x * 0.3, y: muzzlePos.y - aim.y * 0.3, z: muzzlePos.z - aim.z * 0.3 }, input.yaw);
+    // Third person: the case comes out of the chicken's gun (in first person the view model throws it).
+    if (!this.viewmodel.visible) this.thirdPersonCase(w.id, muzzlePos, aim, input.yaw, this.local.state);
 
     // Draw our own tracers immediately, with the same pellet pattern the server will use.
     const spread = (this.mode.id === 'hvh' ? hvhSpread(w, this.horizontalSpeed(), !this.local.onGround, aiming, Math.max(0, this.weapons.heat - this.weapons.lastShotBurst * 0.25))
@@ -1057,6 +1071,17 @@ export class GameSession {
     this.viewmodel.throwGrenade();
     this.local.chicken.swing();
     audio.play('throw');
+  }
+
+  /** A case out of a chicken's gun: a little behind the muzzle, thrown out to the right (after the pump or bolt is worked). */
+  private thirdPersonCase(weapon: WeaponId, muzzle: Vec3, aim: Vec3, yaw: number, mover: { vx: number; vy: number; vz: number }): void {
+    const kind = CASING_FOR[weapon];
+    if (!kind) return;
+    const back = weapon === 'sniper' || weapon === 'scout' ? 0.45 : 0.28;
+    const at = { x: muzzle.x - aim.x * back, y: muzzle.y - aim.y * back + 0.02, z: muzzle.z - aim.z * back };
+    const speed = 2.2 + Math.random() * 0.9;
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    this.casings.eject(kind, at, { x: rx * speed + mover.vx, y: 1.6 + Math.max(0, mover.vy), z: rz * speed + mover.vz }, ejectDelayMs(CYCLE_OF[weapon]));
   }
 
   private skinColor(pid: number): number {
@@ -1746,6 +1771,11 @@ export class GameSession {
     }
     remote?.chicken.kick();
     this.effects.muzzleFlash(from);
+    if (remote && !def.projectile && e.ends.length >= 3 && this.ctx.camera.position.distanceTo(origin) < 25) {
+      const dx = e.ends[0]! - from.x, dy = e.ends[1]! - from.y, dz = e.ends[2]! - from.z;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      this.thirdPersonCase(def.id, from, { x: dx / len, y: dy / len, z: dz / len }, remote.yaw, { vx: 0, vy: 0, vz: 0 });
+    }
     this.ctx.audio.play(remote?.latest ? WEAPONS[remote.latest.weapon].sound : 'rifle', from, 0.9);
     for (let i = 0; i < e.hits.length; i++) {
       const end = { x: e.ends[i * 3]!, y: e.ends[i * 3 + 1]!, z: e.ends[i * 3 + 2]! };
@@ -2004,6 +2034,7 @@ export class GameSession {
     this.local.dispose();
     this.remotes.dispose();
     this.projectiles.dispose();
+    this.casings.dispose();
     this.throwPreview.dispose();
     this.loot.dispose();
     this.vehicles.dispose();

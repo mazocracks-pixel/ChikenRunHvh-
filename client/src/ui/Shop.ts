@@ -1,7 +1,9 @@
 import {
   DEFAULT_MELEE,
   ITEMS,
+  LOADOUT_GROUPS,
   LOADOUT_SIZE,
+  loadoutGroup,
   NAME_MAX_LENGTH,
   RARITY_COLORS,
   UPGRADES,
@@ -164,10 +166,14 @@ export class ShopScreen {
       this.body.append(h('p', { class: 'muted shop-note' }, 'A gun skin paints the body of every gun you carry. Everyone sees it.'), this.grid(ITEMS.filter((i) => i.slot === 'gun'), p));
     } else {
       const knives = this.tab === 'knives';
-      this.body.append(
-        h('p', { class: 'muted shop-note' }, knives ? 'Your knife uses key 3.' : `Tap an owned gun to put it in your loadout (up to ${LOADOUT_SIZE}). Primary: 1 · Pistol: 2 · Knife: 3 · Grenades: 4. Use the wheel for additional guns.`),
-        this.grid(ITEMS.filter((i) => i.slot === 'weapon' && isMelee(i.key as WeaponId) === knives), p),
-      );
+      const weapons = ITEMS.filter((i) => i.slot === 'weapon' && isMelee(i.key as WeaponId) === knives);
+      this.body.append(h('p', { class: 'muted shop-note' }, knives ? 'Your knife uses key 3.' : `Tap an owned gun to put it in your loadout (up to ${LOADOUT_SIZE}). Primary: 1 · Pistol: 2 · Knife: 3 · Grenades: 4. Use the wheel for additional guns.`));
+      if (knives) this.body.append(this.grid(weapons, p));
+      // Guns by type, from the shared weapon list; our special guns last, in their own group.
+      else for (const group of LOADOUT_GROUPS) {
+        const items = weapons.filter((i) => loadoutGroup(i.key as WeaponId) === group.id);
+        if (items.some((i) => this.section === 'store' || i.price === 0 || p.owned.includes(i.id))) this.body.append(h('h3', { class: 'shop-section' }, group.name), this.grid(items, p));
+      }
     }
     this.renderDetail(p);
   }
@@ -278,6 +284,7 @@ export class ShopScreen {
       const rpm = Math.round(60000 / w.fireInterval);
       card.append(h('small', { class: 'stats' }, w.melee ? `${w.damage} dmg · ${w.range} m reach` : w.projectile ? 'Explosive' : `${w.damage}${w.pellets > 1 ? `×${w.pellets}` : ''} dmg · ${rpm} rpm · ${w.magazine} mag`));
     }
+    if (item.slot === 'weapon' && WEAPONS[item.key as WeaponId].category === 'special') card.append(h('span', { class: 'special-tag' }, 'Not in FaceChiken / ChikenBomb'));
     card.append(h('span', { class: 'status-tag' }, status ?? h('span', null, icon('coin', 'coin-icon'), price)));
     if (deal && !owned) card.append(h('span', { class: 'deal-badge' }, `-${Math.round(deal.discount * 100)}%`));
     card.addEventListener('click', () => {

@@ -18,6 +18,8 @@ export type SoundName =
   | 'jet'
   | 'throw'
   | 'pin'
+  | 'shellClink'
+  | 'shellThud'
   | 'pickup'
   | 'death'
   | 'poof'
@@ -915,6 +917,16 @@ export class AudioEngine {
         break;
       case 'throw':
         this.burst(ctx, out, t, { dur: 0.18, type: 'bandpass', freq: 800, to: 2000, q: 2, gain: 0.5 });
+        break;
+      case 'shellClink':
+        // A brass case hitting the floor: a bright tink and its ring.
+        this.tone(ctx, out, t, { dur: 0.09, type: 'triangle', freq: 4300 + Math.random() * 600, to: 3900, gain: 0.16 });
+        this.tone(ctx, out, t, { dur: 0.05, type: 'sine', freq: 6400 + Math.random() * 500, gain: 0.07, delay: 0.004 });
+        break;
+      case 'shellThud':
+        // A plastic shotgun shell: a hollow tock.
+        this.tone(ctx, out, t, { dur: 0.06, type: 'triangle', freq: 1100 + Math.random() * 200, to: 700, gain: 0.18 });
+        this.burst(ctx, out, t, { dur: 0.03, type: 'bandpass', freq: 2400, q: 2, gain: 0.2 });
         break;
       case 'pin':
         // The pin pulled: a metal click and the ring's little ping.

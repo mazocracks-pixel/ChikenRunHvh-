@@ -1,4 +1,4 @@
-import { TRAINING_GUNS, TRAINING_KNIVES, WEAPONS, isMelee, type WeaponId } from '@game/shared';
+import { LOADOUT_GROUPS, TRAINING_GUNS, TRAINING_KNIVES, WEAPONS, isMelee, loadoutGroup, type WeaponId } from '@game/shared';
 import { clear, h } from './dom';
 import { gunPicture } from './GunIcons';
 import { icon, type IconName } from './icons';
@@ -18,7 +18,7 @@ const GRENADES: readonly { id: Grenade; name: string; icon: IconName }[] = [
 export class TrainingMenu {
   readonly root = h('div', { class: 'tr-overlay', hidden: true, role: 'dialog', 'aria-label': 'Training weapons' });
   private readonly status = h('p', { class: 'tr-status', role: 'status', 'aria-live': 'polite' });
-  private readonly guns = h('div', { class: 'tr-grid' });
+  private readonly guns = h('div', { class: 'tr-groups' });
   private readonly knives = h('div', { class: 'tr-grid' });
   private readonly grenades = h('div', { class: 'tr-grid tr-grenades' });
   private loadout: readonly WeaponId[] = [];
@@ -83,7 +83,11 @@ export class TrainingMenu {
     clear(this.guns);
     clear(this.knives);
     clear(this.grenades);
-    this.guns.append(...TRAINING_GUNS.map(item));
+    // By type, from the shared weapon list (special guns last).
+    for (const group of LOADOUT_GROUPS) {
+      const ids = TRAINING_GUNS.filter((id) => loadoutGroup(id) === group.id);
+      if (ids.length) this.guns.append(h('h4', { class: 'tr-group' }, group.name), h('div', { class: 'tr-grid' }, ...ids.map(item)));
+    }
     this.knives.append(...TRAINING_KNIVES.filter((id) => isMelee(id)).map(item));
     this.grenades.append(
       ...GRENADES.map((g) =>

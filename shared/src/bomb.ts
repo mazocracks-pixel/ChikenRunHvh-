@@ -1,5 +1,5 @@
 import type { Team } from './maps/types';
-import type { WeaponId } from './weapons';
+import { WEAPONS, weaponAllowed, type WeaponId } from './weapons';
 
 /** ChikenBomb: chikenT (team 1) plant the bomb, chikenCT (team 2) defuse it. */
 export const BOMB = {
@@ -73,33 +73,33 @@ export interface BuyItem {
   team?: 1 | 2;
 }
 
-const gun = (weapon: WeaponId, name: string, price: number, category: BuyCategory, team?: 1 | 2): BuyItem => ({ id: weapon, name, price, kind: 'weapon', category, weapon, ...(team ? { team } : {}) });
+const gun = (weapon: WeaponId, price: number, category: BuyCategory, team?: 1 | 2): BuyItem => ({ id: weapon, name: WEAPONS[weapon].name, price, kind: 'weapon', category, weapon, ...(team ? { team } : {}) });
 
 /** The buy menu, column by column (prices roughly like CS2's). */
 export const BUY_ITEMS: readonly BuyItem[] = [
-  gun('pistol', 'Pistol', 200, 'pistol'),
-  gun('silenced', 'Silenced Pistol', 200, 'pistol'),
-  gun('dualies', 'Dual Pistols', 300, 'pistol'),
-  gun('fiveseven', 'Five-Seven', 500, 'pistol'),
-  gun('mpistol', 'Machine Pistol', 500, 'pistol'),
-  gun('revolver', 'Revolver', 600, 'pistol'),
-  gun('deagle', 'Deagle', 700, 'pistol'),
-  gun('smg', 'SMG', 1_250, 'mid'),
-  gun('shotgun', 'Shotgun', 1_100, 'mid'),
-  gun('autoshotgun', 'Auto Shotgun', 2_000, 'mid'),
-  gun('lmg', 'LMG', 5_200, 'mid'),
-  gun('minigun', 'Minigun', 6_000, 'mid'),
-  gun('burst', 'Burst Rifle', 2_050, 'rifle'),
-  gun('ak47', 'AK-47', 2_700, 'rifle', 1),
-  gun('m4a1', 'M4A1', 3_100, 'rifle', 2),
-  gun('rifle', 'Rifle', 2_700, 'rifle', 1),
-  gun('golden', 'Golden Rifle', 3_100, 'rifle', 2),
-  gun('battle', 'Battle Rifle', 3_000, 'rifle'),
-  gun('scout', 'Scout', 1_700, 'rifle'),
-  gun('crossbow', 'Crossbow', 1_900, 'rifle'),
-  gun('sniper', 'Sniper', 4_750, 'rifle'),
-  gun('launcher', 'Egg Launcher', 3_500, 'mid'),
-  gun('rocket', 'Rocket Launcher', 5_000, 'mid'),
+  gun('pistol', 200, 'pistol'),
+  gun('silenced', 200, 'pistol'),
+  gun('dualies', 300, 'pistol'),
+  gun('fiveseven', 500, 'pistol'),
+  gun('mpistol', 500, 'pistol'),
+  gun('revolver', 600, 'pistol'),
+  gun('deagle', 700, 'pistol'),
+  gun('smg', 1_250, 'mid'),
+  gun('shotgun', 1_100, 'mid'),
+  gun('autoshotgun', 2_000, 'mid'),
+  gun('lmg', 5_200, 'mid'),
+  gun('minigun', 6_000, 'mid'),
+  gun('burst', 2_050, 'rifle'),
+  gun('ak47', 2_700, 'rifle', 1),
+  gun('m4a1', 3_100, 'rifle', 2),
+  gun('rifle', 2_700, 'rifle', 1),
+  gun('golden', 3_100, 'rifle', 2),
+  gun('battle', 3_000, 'rifle'),
+  gun('scout', 1_700, 'rifle'),
+  gun('crossbow', 1_900, 'rifle'),
+  gun('sniper', 4_750, 'rifle'),
+  gun('launcher', 3_500, 'mid'),
+  gun('rocket', 5_000, 'mid'),
   { id: 'armor', name: 'Kevlar Vest', price: 650, kind: 'armor', category: 'equipment' },
   { id: 'kit', name: 'Defuse Kit', price: 400, kind: 'kit', category: 'equipment', team: 2 },
   { id: 'flash', name: 'Flashbang', price: 200, kind: 'flash', category: 'grenade' },
@@ -183,4 +183,9 @@ export function noBomb(): BombState {
 /** Can this team buy this item at all? */
 export function canTeamBuy(item: BuyItem, team: Team): boolean {
   return item.team === undefined || item.team === team;
+}
+
+/** On sale for `team` in a mode: its team's items, and no special guns where the mode is CS-only. */
+export function canBuy(item: BuyItem, team: Team, csOnly: boolean | undefined): boolean {
+  return canTeamBuy(item, team) && (!item.weapon || weaponAllowed(item.weapon, csOnly));
 }

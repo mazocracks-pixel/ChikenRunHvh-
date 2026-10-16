@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WEAPONS, clamp, damp, isSidearm, wrapAngle, type WeaponId } from '@game/shared';
 import { buildGun, type GunModel } from './models/Guns';
 import { BombView } from './BombView';
+import { CYCLE } from './Casings';
 import { buildProjectileMesh } from './Projectiles';
 import type { HeldGrenade } from './weaponSlots';
 
@@ -285,6 +286,17 @@ export class ViewModel {
   private swingT = -1;
   /** Seconds into an inspect (F), or -1. */
   private inspectT = -1;
+  /** Seconds since the last shot, while the gun's moving part is cycling, or -1. */
+  private actionT = -1;
+  /** This shot's case is out already. */
+  private ejected = false;
+  /** Revolver: where the cylinder should be turned to, and where it is. */
+  private cylinderTurn = 0;
+  private cylinderAngle = 0;
+  private readonly ejectPos = new THREE.Vector3();
+  private readonly ejectDir = new THREE.Vector3();
+  /** A spent case leaves the ejection port (world position, and the way it's thrown, a unit vector). */
+  onEject: ((at: THREE.Vector3, dir: THREE.Vector3) => void) | null = null;
   /** Seconds into a grenade throw, or -1; and how far the arm is drawn back. */
   private throwT = -1;
   private pinBlend = 0;
@@ -319,6 +331,9 @@ export class ViewModel {
       return;
     }
     const feel = (this.gunId && RECOIL[this.gunId]) || DEFAULT_RECOIL;
+    this.actionT = 0;
+    this.ejected = false;
+    if (this.gun?.action?.kind === 'cylinder') this.cylinderTurn += this.gun.action.travel;
     this.kick = this.suppressRecoil ? 0 : Math.min(1.35, this.kick + 1);
     this.roll = this.suppressRecoil ? 0 : (Math.random() - 0.5) * feel.roll;
     this.flashLife = feel.flashLife;
@@ -441,6 +456,7 @@ export class ViewModel {
       }
     }
     this.gun?.animate?.(inspectP);
+    this.animateAction(dt, f.reload);
     // Magazine check: out a little, then slapped back in (with a click each way).
     let magCheck = 0;
     if (inspectP >= 0 && move.magCheck) {
@@ -543,8 +559,66 @@ export class ViewModel {
     });
   }
 
+  /**
+   * The gun's moving part: a slide or bolt snaps back and returns with each shot (the case flies
+   * out then); a pump or bolt action is worked just after the shot (the case flies out as it opens);
+   * a revolver's cylinder turns a chamber. At the end of a reload it's racked once more.
+   */
+  private animateAction(dt: number, reload: number | null): void {
+    const a = this.gun?.action;
+    if (!a) return;
+    if (a.kind === 'cylinder') {
+      this.cylinderAngle = damp(this.cylinderAngle, this.cylinderTurn, 18, dt);
+      a.part.rotation.z = a.restRotation.z + this.cylinderAngle;
+      return;
+    }
+    let back = 0, lift = 0;
+    if (this.actionT >= 0) {
+      this.actionT += dt;
+      if (a.kind === 'slide' || a.kind === 'bolt') {
+        const p = this.actionT / 0.075;
+        back = p < 0.3 ? p / 0.3 : Math.max(0, 1 - (p - 0.3) / 0.7);
+        if (!this.ejected) this.eject();
+        if (p >= 1) this.actionT = -1;
+      } else {
+        const c = CYCLE[a.kind];
+        const p = (this.actionT - c.delayMs / 1000) / (c.ms / 1000);
+        if (p >= 0) {
+          if (a.kind === 'pump') back = p < 0.5 ? p / 0.5 : Math.max(0, 1 - (p - 0.5) / 0.5);
+          else {
+            // Lift the handle, draw the bolt back, push it home, lower the handle.
+            lift = p < 0.2 ? p / 0.2 : p < 0.8 ? 1 : Math.max(0, 1 - (p - 0.8) / 0.2);
+            back = p < 0.2 ? 0 : p < 0.5 ? (p - 0.2) / 0.3 : p < 0.8 ? 1 - (p - 0.5) / 0.3 : 0;
+          }
+          if (p >= 0.5 && !this.ejected) this.eject();
+          if (p >= 1) this.actionT = -1;
+        }
+      }
+    }
+    if (reload !== null && reload > 0.78 && reload < 0.98) {
+      const p = (reload - 0.78) / 0.2;
+      back = Math.max(back, p < 0.45 ? p / 0.45 : 1 - (p - 0.45) / 0.55);
+      if (a.kind === 'boltAction') lift = Math.max(lift, Math.min(1, back * 2));
+    }
+    a.part.position.set(a.rest.x, a.rest.y, a.rest.z + back * a.travel);
+    a.part.rotation.set(a.restRotation.x, a.restRotation.y, a.restRotation.z + lift * 1.1);
+  }
+
+  /** The case leaves the port: out to the right, a little up and back, in the camera's frame. */
+  private eject(): void {
+    this.ejected = true;
+    const port = this.gun?.ejection;
+    if (!port || !this.onEject || !this.root.visible) return;
+    this.root.updateMatrixWorld(true);
+    port.getWorldPosition(this.ejectPos);
+    this.ejectDir.set(1, 0.75, 0.3).normalize().applyQuaternion(this.root.quaternion);
+    this.onEject(this.ejectPos, this.ejectDir);
+  }
+
   private swap(id: WeaponId): void {
     if (this.gun?.magazine) this.gun.magazine.position.copy(this.magRest);
+    this.actionT = -1;
+    this.cylinderTurn = this.cylinderAngle = 0;
     this.gun?.group.removeFromParent();
     let gun = this.guns.get(id);
     if (!gun) this.guns.set(id, (gun = buildGun(id, this.skin)));

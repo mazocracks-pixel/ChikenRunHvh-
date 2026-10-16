@@ -1,4 +1,4 @@
-import { DEV_MAX_LOADOUT, JUMPSCARE, PLAYER, WEAPONS, clamp, createMoveState, type DevAction, type DevResult } from '@game/shared';
+import { DEV_MAX_LOADOUT, JUMPSCARE, PLAYER, WEAPONS, clamp, weaponAllowed, createMoveState, type DevAction, type DevResult } from '@game/shared';
 import type { GameRoom } from '../rooms/GameRoom';
 import type { ServerPlayer } from '../rooms/ServerPlayer';
 
@@ -74,6 +74,7 @@ export function runDevAction(room: GameRoom, actor: ServerPlayer, action: DevAct
       target.armor = clamp(action.value, 0, PLAYER.maxArmor);
       return ok;
     case 'giveWeapon': {
+      if (!weaponAllowed(action.weapon, room.mode.csOnly)) return fail(`The ${WEAPONS[action.weapon].name} isn’t allowed in ${room.mode.name}.`);
       const loadout = target.info.loadout;
       if (loadout.includes(action.weapon)) {
         target.weaponSlot = loadout.indexOf(action.weapon);

@@ -390,7 +390,8 @@ describe('the buy menu', () => {
     s.step(BOMB.warmupMs + 50);
     assert.equal(t.money, ECONOMY.start);
     assert.equal(s.room.handleBuy(t, 'rifle').error, 'Not enough money.');
-    assert.equal(s.room.handleBuy(t, 'golden').error, 'Only chikenCT can buy that.');
+    assert.equal(s.room.handleBuy(t, 'm4a1').error, 'Only chikenCT can buy that.');
+    assert.equal(s.room.handleBuy(ct, 'golden').error, 'The Golden Rifle isn’t allowed in ChikenBomb.', 'special guns are not sold');
     assert.equal(s.room.handleBuy(t, 'kit').error, 'Only chikenCT can buy that.');
     assert.equal(s.room.handleBuy(ct, 'rifle').error, 'Only chikenT can buy that.');
     const res = s.room.handleBuy(t, 'armor');

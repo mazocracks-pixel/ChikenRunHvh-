@@ -3,6 +3,40 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 27 (15 Oct): CS2-style guns, shell casings, one weapon list with CS / special categories
+
+## Plan
+
+1. One weapon list (`shared/src/weapons.ts`, `ARSENAL`): kind, category (`cs` / `special`) and CS2 name for every weapon; `weaponAllowed`; modes flagged `csOnly` (ChikenBomb, FaceChiken). The categories are in CHECK_REPORT.md for the owner to check.
+2. Server: special guns refused in CS-only modes (buy, bot buys, dev give, switch, fire).
+3. Arms Race has every CS gun; Training and the loadout screen grouped by type, specials tagged.
+4. Casings: the owner's 17 textures as WebP, pooled casing models with ORM materials, ejected from the port (pump and bolt timing), bouncing, clinking, capped by quality.
+5. CS2-style gun models with normal maps, edge wear and moving parts.
+6. Tests, gallery, in-game check, FPS.
+
+## What was done
+
+- **Weapon list:** every mode, menu and loadout reads `WEAPONS[id].kind / category / name`. CS2 names for the CS guns (Glock-18, USP-S, AWP, Nova, ...); ids, stats and prices are unchanged. Specials: Minigun, Golden Rifle, Rocket Launcher, Crossbow, Egg Launcher, Golden Knife, Frying Pan, Katana.
+- **Enforcement (server):** `BombRoom.handleBuy` (and the bots' buying) refuses specials in CS-only modes, the dev "give weapon" action refuses them there, and `handleSwitch` / `handleFire` ignore a special gun in those modes however it got into a loadout. The buy menu filters them out (`canBuy`). ChikenBomb's team guns stay (AK-47 and Galil for chikenT, M4A1 and the kit for chikenCT); the CT-only Golden Rifle is special, so it's gone from there.
+- **Arms Race:** 23 levels, every CS gun plus the specials, the Golden Knife last.
+- **Loadout screen and Training B menu:** guns grouped Pistols / SMGs / Rifles / Snipers / Shotguns / Heavy / Special, each card with its model picture; specials tagged "Not in FaceChiken / ChikenBomb".
+- **Casings (`client/src/game/Casings.ts`):** the PNGs converted to WebP (922 KB → 114 KB) in `client/public/textures/casings/`. Each kind is a lathe (bottlenecked rifle cases) or cylinder with the base cap (and for shells the brass head and the crimp), its UVs placed on the texture's own strip and circles. The AWP case is long, the Glock's short, the Deagle's wide. ORM is used as glTF (AO R, roughness G, metalness B); nova and mag7 get a flat finish. Other guns borrow the closest case. Cases fly out of the ejection port (first person: from the view model; third person and other players within 25 m: from the chicken's gun), tumble, bounce and roll on the grenades' physics, clink (brass) or tock (plastic), and shrink away after 3.5 s. One pool, one geometry and material per kind; at most 10 / 24 / 40 by graphics quality.
+- **Guns (`client/src/game/models/Guns.ts`):** the 18 CS guns rebuilt as their CS2 counterparts, all made here. Each has its moving part (`GunModel.action`) and ejection port: slides (pistols), bolts and charging handles (rifles, SMG, XM1014, M249), the Nova's pump, the AWP and SSG 08 bolt actions, the R8's cylinder. Every gun material now has a normal map (from the stipple, knurl, brushed and wood height textures) and worn edges: the shader measures how sharply the surface bends and rubs the finish through there. Materials stay shared; triangle counts are about the same as before.
+- **Animation (`ViewModel`):** a slide or bolt snaps back and returns with every shot; the pump is racked 180 ms after the shot and the bolt action worked 300 ms after it, each throwing its case as it opens; the cylinder turns a chamber; reloads end with a rack. Checked in the browser: slides out at once, the Nova's case at 362 ms, the AWP's at 660 ms (handle lifted 1.1 rad, drawn back 8.5 cm).
+- **Performance:** 175–180 fps on High with 30 cases out (the headless cap), Low keeps 10 cases at 57 draw calls.
+- Tests: 529 (7 new in `server/test/arsenal.test.ts`; the bomb buy test now expects the Golden Rifle to be refused).
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The textures weren't in a `gun_shell_textures` folder. | Found them in `Downloads\Downloads` and flagged where they seem to come from. |
+| 2 | My material patch assumed the definitions were next to each other (there are comments between). | Patched one definition at a time. |
+| 3 | The builder-removal script dropped the line above every definition, comment or not. | Rewrote it to walk up only over comment lines (it had stopped before writing). |
+| 4 | Bash heredocs mangled `\n` in Python again, twice. | Edit tool for those lines; patch scripts as files. |
+| 5 | The CZ75's extended magazine leaned forward (rotation sign); the FAMAS was a tall blue slab; the Nova's stock outline was jagged. | Fixed after the first gallery. |
+| 6 | The remote case used a `dx` the shot event doesn't have. | Direction from the muzzle to the first bullet's end. |
+
 # Batch 26 (15 Oct): grenades reworked (HE egg, smoke, flash), carry limits, hold-and-throw
 
 ## Plan

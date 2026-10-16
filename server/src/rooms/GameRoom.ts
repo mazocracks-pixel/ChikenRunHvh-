@@ -98,6 +98,7 @@ import {
   type PowerUpKind,
   upgradeEffects,
   type UpgradeLevels,
+  weaponAllowed,
 } from '@game/shared';
 import type { GameServer, GameSocket } from '../types';
 import { isFiniteNumber, isRecord, sanitizeText } from '../util';
@@ -575,6 +576,8 @@ export class GameRoom {
     this.enforceHvhRules(p);
     const req = parseFire(raw);
     if (!req || !p.alive || p.removedForCheating || this.match.phase === 'ended' || this.actionsBlocked()) return;
+    // CS-only modes (ChikenBomb, FaceChiken): a special gun never fires, however it got there.
+    if (!weaponAllowed(p.weapon, this.mode.csOnly)) return;
     // A shot waits for the movement it was fired after (`command`): the client aims from where it
     // stands after that input, so firing from an older server position (moving, airborne) shifts
     // every bullet away from where the crosshair was, even with no spread at all.
@@ -863,6 +866,7 @@ export class GameRoom {
 
   handleSwitch(p: ServerPlayer, slot: unknown): void {
     if (!Number.isInteger(slot) || (slot as number) < 0 || (slot as number) >= p.info.loadout.length) return;
+    if (!weaponAllowed(p.info.loadout[slot as number]!, this.mode.csOnly)) return;
     if (slot === p.weaponSlot) return;
     p.weaponSlot = slot as number;
     p.pinned = null;

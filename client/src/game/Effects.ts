@@ -11,7 +11,6 @@ const SHOCKWAVE_LIFE = 0.42;
 /** Bright colours go above 1 so they glow (bloom) and survive tone mapping as near-white. */
 const TRACER_GLOW = 2.5;
 const SPARK = new THREE.Color(4, 2.6, 1.1);
-const BRASS = 0xc9a33a;
 const BLAST_INTENSITY = 60;
 const BLAST_LIFE = 0.4;
 
@@ -189,13 +188,6 @@ export class Effects {
     const k = 0.75 + Math.random() * 0.5;
     this.holes.setMatrixAt(i, this.matrix.compose(this.posV, this.quat, this.scaleV.set(k, k, k)));
     this.holes.instanceMatrix.needsUpdate = true;
-  }
-
-  /** An empty shell flying out of the right side of the gun. */
-  shell(at: Vec3, yaw: number): void {
-    const side = 1.6 + Math.random() * 0.8;
-    const v = { x: Math.cos(yaw) * side + (Math.random() - 0.5) * 0.6, y: 2 + Math.random() * 1.2, z: -Math.sin(yaw) * side + (Math.random() - 0.5) * 0.6 };
-    this.particle(at, v, BRASS, 0.045, 0.9 + Math.random() * 0.4, 14, 0.6);
   }
 
   /** Feathers flying off a chicken. */

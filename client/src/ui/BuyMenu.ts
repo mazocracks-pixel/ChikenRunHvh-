@@ -4,7 +4,7 @@ import {
   BUY_CATEGORIES,
   BUY_ITEMS,
   WEAPONS,
-  canTeamBuy,
+  canBuy,
   isMelee,
   isSidearm,
   type Appearance,
@@ -75,6 +75,8 @@ export class BuyMenu {
   constructor(
     container: HTMLElement,
     private appearance: Appearance,
+    /** CS-only mode (ChikenBomb, FaceChiken): no special guns on sale. */
+    private readonly csOnly = false,
   ) {
     const close = h('button', { type: 'button', class: 'buy-close', 'aria-label': 'Close the buy menu' }, '✕');
     close.addEventListener('click', () => this.onClose?.());
@@ -197,7 +199,7 @@ export class BuyMenu {
 
   /** Your team's items: the other team's exclusives are left out. */
   private items(): BuyItem[] {
-    return BUY_ITEMS.filter((i) => canTeamBuy(i, this.team));
+    return BUY_ITEMS.filter((i) => canBuy(i, this.team, this.csOnly));
   }
 
   private buildColumns(): void {
