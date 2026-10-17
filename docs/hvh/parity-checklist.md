@@ -17,7 +17,7 @@ Branch `hvh-v2` (worktree `ChikenRunHvh-hvh-v2`). Baseline taken from the untouc
 - Name filter: `npx tsx --test --test-name-pattern "<regex>" <file>`.
 - Existing HvH tests: `shared/test/{hvh,hvh-core,hvh-mechanics,auto-stop,skeet,shot-timing,chicken-pose}.test.ts`, `server/test/{hvh,hvh-core,hvh-mechanics,hvh-benchmark,hvh-bot-movement,skeet}.test.ts`, `client/test/{hvh-config,hvh-runtime,hvh-tactics,hvh-weapons,skeet,fake-lag,classic-antiaim,auto-stop-config,dev-combine}.test.ts`.
 - **Plan-path mismatch:** the plan's test paths `shared/src/hvh/__tests__/*.test.ts` are NOT matched by the glob (only `*/test/**`). Recommendation: put new tests in `shared/test/hvh-v2-<area>.test.ts`, `server/test/hvh-v2-<area>.test.ts`, `client/test/hvh-v2-<area>.test.ts` (flat names; subfolders such as `shared/test/hvh/` are also matched by `**`). Alternative: widen the glob to add `shared/src/**/__tests__/**/*.test.ts`. `package.json` was not changed; the controller rules on it. `shared/tsconfig.test.json` and `client/tsconfig.test.json` typecheck tests, so new test locations must be included there.
-- Server test helper `server/test/helpers.ts:29` advances one authoritative tick without wall-clock sleeps (use it for deterministic server tests).
+- Server test helper `server/test/helpers.ts:30` advances one authoritative tick without wall-clock sleeps (use it for deterministic server tests).
 
 ## 3. Constants for later tasks
 
@@ -39,7 +39,7 @@ Shared
 - Re-exports `shared/src/index.ts:9-18,37`. Wire: `shared/src/protocol.ts` fields `hvhDefensive :49`, `hvhCharge :54`, `hvhBurst :55`, `hvhConcealed :56`, `hvhRevealed :58`, `hvhPreparing :61`; pack `:138-149`, unpack `:189-200`; `FireRequest.intent :386`, shot event `charge :403`, `audit :405`; socket events `hvhReady :600`, `devHvh :601`. Mode def `shared/src/modes.ts:105`. Dev status `shared/src/dev.ts:165-173`.
 
 Server
-- `server/src/rooms/GameRoom.ts` (HvH branches): `enforceHvhRules :304`, `updateHvhPose :311`, input handling with CommandBuffer/assist `:541-576`, `executeFire :593` (exploit permission `:605-607`, reveal/conceal `:623-626`, spread `:656`, intent vs actual `:666-667`, autowall `:684`, hits/damage `:692-724`, audit `:738`, shot emit with charge `:762`, anti-bruteforce/defensive reaction `:767-778`), `rejectHvhShot :801`, lag-comp rewind `:823-835`, `finishHvhSetup :1054`, `fixedUpdate :1383` (`hvhTick++ :1384`, `resource.step :1399-1402`, pose `:1404`), `snapshot :1469` (choke-cached public state `:1471-1479`).
+- `server/src/rooms/GameRoom.ts` (HvH branches): `enforceHvhRules :304`, `updateHvhPose :311`, input handling with CommandBuffer/assist `:541-576`, `executeFire :593` (exploit permission `:605-607`, reveal/conceal `:623-626`, spread `:656`, intent vs actual `:666-667`, autowall `:684`, hits/damage `:692-724`, audit `:738`, shot emit with charge `:762`, anti-bruteforce/defensive reaction `:767-778`), `rejectHvhShot :801`, lag-comp rewind `:823-835`, `hvhMode set :391`, `finishHvhSetup :1054`, other `enforceHvhRules` call sites `:860,:967-968,:1116`, `fixedUpdate :1383` (`hvhTick++ :1384`, `resource.step :1399-1402`, physics HvH flag `:1395`, pose `:1404`, animation step and fake pitch `:1405-1414`, `hvhPreparing` blocks respawn `:1419`), `snapshot :1469` (choke-cached public state `:1471-1479`), and the `this.mode.id !== 'hvh'` check at `:1486` that forces per-viewer snapshots instead of the shared broadcast.
 - `server/src/rooms/ServerPlayer.ts`: HvH fields `:48-60` (`hvh`, `hvhEnabled`, `hvhPanel`, `hvhPreparing`, `commands = CommandBuffer :55`, `resource = ExploitResource :56`, `resolver :58`), reset `:176-177`, history push `:200`, `toState` charge/defensive/conceal/reveal `:224-237`.
 - `server/src/rooms/History.ts:20` lag-comp history (`push :28`, `atValid :39`, `at :47`). `server/src/rooms/BotSystem.ts`: HvH bot setup `:109-117`, `thinkHvh :332` (uses `p.resolver`, `p.resource`).
 - `server/src/app.ts`: dev/HvH access `:263-281`, `hvhReady :325`, `devHvh :335`. `server/src/index.ts:44` `HVH_PUBLIC_PANEL`. `server/src/dev/devActions.ts:15` HvH admin blocking.
@@ -68,6 +68,7 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Panel switch never restores health/ammo/charge | GameRoom `:1054-1062` | replace with tickbase not refilled by panel change (Task 3, Task 8) |
 | Public panel access (`HVH_PUBLIC_PANEL`), passkey fallback | app.ts `:263-281`, index.ts `:44` | rebuild (Task 8) |
 | Equal stats, no multipliers/ammo/fly/noclip, admin actions blocked in HvH | devActions.ts `:15`, app.ts `:316` | rebuild (Task 13 isolation gates) |
+| Everyone sees enemies through walls (`wallhack: true`; also `wallbang: true`, `teamKills: true`) | shared/src/modes.ts `:107`; README `:118`; GameSession `:383,:602` | rebuild (Task 8): HvhRoom must keep the mode flags |
 | HvH has no vehicles; friendly fire blocked; kills score for team | GameRoom, modes.ts `:105` | rebuild (Task 8) |
 | Mode isolation (legacy modifiers cleared on every HvH path) | `enforceHvhRules :304` | rebuild (Task 13) |
 
@@ -78,8 +79,8 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Tabs: Rage, Anti-aim, Fake lag, Trigger, Visuals, Misc, Skins, Configs, Extensions | skeet/tabs.ts `:32-85`, NativeMenu.ts | rebuild (Task 11) |
 | Fake lag tab: enable, limit, mode, break on shot | skeet/model.ts `:23,59` | replace with tickbase choke controls (Task 11) |
 | Seven weapon profiles, geometric safe points | skeet/model.ts, skeet/points.ts | rebuild (Task 11) |
-| Visuals tab / native values (glow, tracers, fog, FOV, hitmarker) | skeet/nativeFields.ts, visualValues.ts, GameSession `:582-603` | drop: out of scope (look & feel plan) |
-| Skins tab (tint first-person weapon) | skeet tabs | drop: out of scope (look & feel plan) |
+| Visuals tab / native values (glow, tracers, fog, FOV, hitmarker) | skeet/nativeFields.ts, visualValues.ts, GameSession `:582-603` | keep: not mechanics; preserve unchanged through Task 11 and Task 15 (not in the out-of-scope list) |
+| Skins tab (tint first-person weapon) | skeet tabs | keep: not mechanics; preserve unchanged through Task 11 and Task 15 (not in the out-of-scope list) |
 | Configs tab (browser-saved configs, import/export) | dev/config.ts `:368`, panels/configs.ts | replace with migrated config schema (Task 11) |
 | Extensions tab (native recipes, no CSGO Lua) | hvh/hooks.ts `:18`, skeet/tabs.ts `:84` | rebuild (Task 11) |
 | Config migration, fake-lag key move | config.ts `:256` | replace with v2 migration (Task 11) |
@@ -103,7 +104,7 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Silent aim: camera and movement independent; smooth targeting; trigger | DevRuntime `:178`, GameSession `:902` | rebuild (Task 9) |
 | Shot intent (record time, hypothesis source, yaw) sent with fire | protocol `:386`, GameSession `:900-941` | rebuild (Task 8) |
 | Auto-scope | skeet profiles | rebuild (Task 11) |
-| Players tab per-match target overrides | dev/tabs.ts | drop: out of scope (look & feel plan) UI; targeting overrides folded into Task 11 profiles |
+| Players tab per-match target overrides | dev/tabs.ts | rebuild (Task 11): per-match targeting overrides re-wired to the v2 config |
 
 ### 5.4 Autowall and ballistics
 
@@ -194,7 +195,7 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Shot audit (target, source, reason, damage, headshot) | rage `ShotAudit :129`; protocol `:405` | rebuild (Task 7) |
 | Debug 3D hitbox matrices (hypothesis, actual, selected) | HvhDebug.ts, DevDebug3D.ts | rebuild (Task 12) |
 | Indicators (readiness, charging, cooldown) | WeaponController `:172` | replace with tickbase HUD indicators (Task 10) |
-| Inaccuracy overlay, ESP, glow | DevOverlay.ts `:222`, DevDebug3D | drop: out of scope (look & feel plan) |
+| Inaccuracy overlay, ESP, glow | DevOverlay.ts `:222`, DevDebug3D | keep: not mechanics; preserve unchanged through Task 11 and Task 15 (not in the out-of-scope list) |
 | Killcam | n/a | drop: out of scope (look & feel plan) |
 | Sounds / hitmarker sound | Audio.ts, GameSession `:1813` | drop: out of scope (look & feel plan) |
 | Benchmark tooling `npm run benchmark:hvh` | server/src/tools | rebuild (Task 14) |
