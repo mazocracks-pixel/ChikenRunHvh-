@@ -14,10 +14,12 @@ it('never links elevated routes across an unsupported gap', () => {
 it('offers Mirage alongside the original maps and rejects inherited object keys', () => {
   assert.deepEqual(MAP_IDS, ['mirage', 'farm', 'town', 'sandstown', 'harbor', 'frostbite', 'factory', 'flat', 'night', 'lobby']);
   for (const id of MAP_IDS) assert.equal(isMapId(id), true);
-  for (const mode of Object.values(MODES)) assert.ok(mode.maps.includes('mirage'));
+  // Every mode but the zombie ones (one map each: the Graveyard) offers Mirage.
+  for (const mode of Object.values(MODES)) assert.ok(mode.zombies || mode.maps.includes('mirage'), mode.id);
   assert.deepEqual(MODES.bomb.maps, ['mirage', 'sandstown', 'harbor']);
   assert.deepEqual(MODES.sandbox.maps, ['mirage', 'flat', 'farm', 'town']);
-  assert.deepEqual(MODES.zombie.maps, ['night', 'mirage']);
+  assert.deepEqual(MODES.zombie.maps, ['night']);
+  assert.deepEqual(MODES.backrooms.maps, ['night']);
   for (const invalid of ['constructor', '__proto__', 'toString', 'missing', null, 1]) assert.equal(isMapId(invalid), false);
 });
 

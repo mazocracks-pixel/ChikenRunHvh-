@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { BLOCK_SIZE, CRYSTAL_HUNT, MAPS, SMALL_TEST, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
+import { CRYSTAL_HUNT, MAPS, SMALL_TEST, MODES, PLAYER, SIM_DT, ZOMBIE, bossNumber, buildNavGraph, createCollisionWorld, isBloodMoon, isBossWave, reachableCount, upgradeMultiplier, waveCount, waveKinds, zombieStats } from '@game/shared';
 import type { GameRoom } from '../src/rooms/GameRoom';
 import { createRoom } from '../src/rooms/modes';
 import type { ZombieRoom } from '../src/rooms/ZombieRoom';
@@ -17,7 +17,7 @@ after(() => {
 });
 
 /** A zombie room with a manual clock: `run(ms)` plays that much time. */
-function setup(map: 'night' | 'mirage' = 'night') {
+function setup(map: 'night' = 'night') {
   const { io, events } = fakeIo();
   const room = createRoom(io, { id: 'z', code: 'ZOMBI', name: 'Z', mode: 'zombie', map, private: true, bots: 0 }, {}) as ZombieRoom;
   clearInterval((room as unknown as { tickTimer: NodeJS.Timeout }).tickTimer);
@@ -76,11 +76,11 @@ describe('Zombie Apocalypse rules', () => {
     assert.ok(upgradeMultiplier(5) > upgradeMultiplier(1));
   });
 
-  it('the mode is a team of survivors with a cap, on the night map or Mirage, with no bots', () => {
+  it('the mode is a team of survivors with a cap, on the night map only, with no bots', () => {
     assert.equal(MODES.zombie.zombies, true);
     assert.equal(MODES.zombie.noBots, true);
     assert.equal(MODES.zombie.maxHumans, ZOMBIE.maxHumans);
-    assert.deepEqual(MODES.zombie.maps, ['night', 'mirage']);
+    assert.deepEqual(MODES.zombie.maps, ['night']);
   });
 });
 
@@ -744,26 +744,6 @@ describe('Zombie Apocalypse match', () => {
     (t.room as unknown as { damageBlock(id: number, d: number): void }).damageBlock(id, ZOMBIE.build.blockHp + 1);
     assert.equal(t.priv.blocks.has(id), false);
     t.room.close();
-  });
-
-  it('on Mirage the wall stands on the raised street, not under it', () => {
-    const t = setup('mirage');
-    try {
-      t.run(500);
-      assert.ok(t.me.state.y > 2, `spawned up on the street (${t.me.state.y})`);
-      // The spawn is random: turn until there's room ahead for a wall.
-      for (let k = 0; k < 8 && t.priv.blocks.size < 3; k++) {
-        t.me.yaw = (k * Math.PI) / 4;
-        t.priv.lastBuildAt.clear();
-        t.room.handleZombieBuild(t.me);
-      }
-      const blocks = [...t.priv.blocks.values()] as { state: { cy: number } }[];
-      assert.ok(blocks.length >= 3, `a wall (${blocks.length} blocks)`);
-      const bottom = Math.min(...blocks.map((b) => b.state.cy * BLOCK_SIZE));
-      assert.ok(bottom >= t.me.state.y - 0.01 && bottom < t.me.state.y + BLOCK_SIZE, `starts at your feet (${bottom} vs ${t.me.state.y})`);
-    } finally {
-      t.room.close();
-    }
   });
 
   it('a boss wave sends a boss with a horde; killing it pays a lot', () => {

@@ -3,6 +3,11 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 29 (17 Oct): one map for Zombie Apocalypse and Backrooms
+
+- Both modes now play only on the Graveyard (`maps: ['night']`). Mirage no longer carries the sealed Backrooms and Facility levels, which could be seen standing in the desert next to it; its half-size is 110 (its outermost collision is at x = -104.5) instead of 226.
+- Tests updated: the zombie modes are the only ones without Mirage; the "wall on Mirage's raised street" test is gone with Mirage. 529 pass; `npm run build` passes.
+
 # Batch 28 (15 Oct): two failed Railway deploys fixed
 
 Both the batch 26 and batch 27 deploys failed in `vite build`: `shared/src/projectiles.ts` wasn't valid UTF-8 ("stream did not contain valid UTF-8").

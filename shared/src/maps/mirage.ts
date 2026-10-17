@@ -8,7 +8,6 @@ import clips from './mirage-clips.json';
 // The upright ladder props (tools/mirage_ladders.mts).
 import ladders from './mirage-ladders.json';
 import { type MapBox, type MapDef, type SpawnPoint } from './types';
-import { BACKROOMS_SPEC, FACILITY_SPEC, buildZone } from './zones';
 
 const clipIds = new Set(clips);
 /**
@@ -20,8 +19,6 @@ const LADDER_BOARDS: MapBox[] = [
   { kind: 'wood', x: -26.275, y: 8.92, z: 3.9, w: 3.35, h: 0.05, d: 0.4 },
   { kind: 'wood', x: -26.675, y: 8.92, z: 4.55, w: 2.55, h: 0.05, d: 0.8 },
 ];
-const backrooms = buildZone(BACKROOMS_SPEC);
-const facility = buildZone(FACILITY_SPEC);
 const index = new Map(data.nav.map((p, i) => [p.id, i]));
 const bases = [1, 2].map((team) => {
   const spawn = data.spawns.find((p) => p.team === team)!;
@@ -32,10 +29,11 @@ const bases = [1, 2].map((team) => {
 export const MIRAGE: MapDef = {
   id: 'mirage', name: 'Mirage', ground: 'sand', mesh: '/maps/mirage.glb',
   radar: { image: '/maps/mirage-radar.png', x: -80.75, z: -42.825, size: 128 },
-  halfSize: Math.ceil(Math.max(86, backrooms.zone.maxX, -backrooms.zone.minZ, facility.zone.maxZ) + 6),
-  // The playable part; the event levels lie sealed beyond it.
+  // Its outermost collision reaches x = -104.5.
+  halfSize: 110,
+  // The playable part.
   grassHalf: 66,
-  boxes: [...(data.boxes as MapBox[]).map((box, i) => clipIds.has(i) ? { ...box, clip: true } : box), ...backrooms.boxes, ...facility.boxes, ...LADDER_BOARDS, ...walls as MapBox[]],
+  boxes: [...(data.boxes as MapBox[]).map((box, i) => clipIds.has(i) ? { ...box, clip: true } : box), ...LADDER_BOARDS, ...walls as MapBox[]],
   spawns: data.spawns as SpawnPoint[],
   loot: [], vehicles: [],
   flags: bases.map((p, i) => ({ team: (i + 1) as 1 | 2, x: p.x, y: p.y, z: p.z })),
@@ -47,10 +45,7 @@ export const MIRAGE: MapDef = {
     { team: 1, x: 31.2, z: 3.4, radius: 8.3 },
     { team: 2, x: -45.6, z: 46.6, radius: 11.9 },
   ],
-  nav: [...data.nav, ...backrooms.nav, ...facility.nav],
+  nav: data.nav,
   navLinks: data.nav.map((p) => p.links.flatMap((id) => index.has(id) ? [index.get(id)!] : [])),
-  // Existing PvE events stay sealed outside the competitive map.
-  zones: [backrooms.zone, facility.zone],
-  lamps: [...backrooms.lamps, ...facility.lamps],
   ladders,
 };

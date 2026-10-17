@@ -41,7 +41,7 @@ describe('The Backrooms (game mode)', () => {
     assert.equal(m.huntOnly, 'backrooms');
     assert.equal(m.pve, true);
     assert.equal(m.maxHumans, 4);
-    assert.deepEqual(m.maps, ['night', 'mirage']);
+    assert.deepEqual(m.maps, ['night']);
   });
 
   it('starts inside the Backrooms with the hunt on: no waves, the entrance is where you appear', () => {
