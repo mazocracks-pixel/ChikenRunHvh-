@@ -223,32 +223,57 @@ describe('PredictedTickbase', () => {
 });
 
 describe('CommandClock (clock correction)', () => {
-  const run = (clock: CommandClock, ticks: number) => { let skipped = 0; for (let i = 0; i < ticks; i++) if (clock.skip()) skipped++; return skipped; };
-
-  it('never skips while the server queue stays small, even with bursts', () => {
+  /**
+   * A client and a server `oneWay` ticks apart. The server starts with `backlog` of our commands
+   * queued, runs one per tick (budget refill 1) and reports { lastAckSeq, queued }; the client
+   * produces one command per tick unless the clock says skip.
+   */
+  function simulate(oneWay: number, backlog: number, ticks = 800) {
     const clock = new CommandClock();
-    for (let i = 0; i < 200; i++) clock.observe(i % 15 === 0 ? 14 : i % 2); // fake-lag batches and jitter
-    assert.equal(run(clock, 200), 0);
-  });
-
-  it('skips one command in four while the server has held a backlog for the whole window, and stops once it drains', () => {
-    const clock = new CommandClock();
-    let queued = 31;
-    let skipped = 0;
-    for (let tick = 0; tick < 400; tick++) {
-      clock.observe(queued);
-      if (clock.skip()) { skipped++; queued--; } // a skipped command is one less in the server queue
+    let nextSeq = backlog + 1, lastAck = 0, budget = 0, skips = 0, coasts = 0, started = false;
+    const queue: number[] = Array.from({ length: backlog }, (_, i) => i + 1);
+    const up: number[][] = [], down: ({ lastAckSeq: number; queued: number } | null)[] = [];
+    for (let t = 0; t < ticks; t++) {
+      const batch: number[] = [];
+      if (clock.skip(nextSeq)) skips++; else batch.push(nextSeq++);
+      up.push(batch);
+      for (const seq of up.length > oneWay ? up.shift()! : []) queue.push(seq);
+      budget = Math.min(16, budget + 1);
+      let ran = 0;
+      while (budget >= 1 && queue.length && ran < 16) { lastAck = queue.shift()!; budget--; ran++; }
+      if (ran) started = true; else if (started) coasts++;
+      down.push(ran ? { lastAckSeq: lastAck, queued: queue.length } : null);
+      const report = down.length > oneWay ? down.shift()! : null;
+      if (report) clock.observe(report.queued, report.lastAckSeq + report.queued);
     }
-    assert.equal(queued, 1, 'drained to the target');
-    assert.equal(skipped, 30);
+    return { skips, coasts, queued: queue.length };
+  }
+
+  it('drains a backlog to the target without overshooting, whatever the network delay', () => {
+    for (const oneWay of [0, 3, 6, 10, 16]) {
+      const r = simulate(oneWay, 31);
+      assert.equal(r.coasts, 0, `one-way ${oneWay}: the server never runs dry (${JSON.stringify(r)})`);
+      assert.ok(r.queued <= 1, `one-way ${oneWay}: drained (${JSON.stringify(r)})`);
+      assert.ok(r.skips <= 30, `one-way ${oneWay}: never more skips than the excess (${r.skips})`);
+    }
   });
 
-  it('needs a full window of observations first, and reset forgets them', () => {
+  it('never skips while the server queue stays small, even with fake-lag batches and jitter', () => {
     const clock = new CommandClock();
-    for (let i = 0; i < 10; i++) clock.observe(30);
-    assert.equal(run(clock, 8), 0);
-    for (let i = 0; i < 40; i++) clock.observe(30);
+    for (let i = 0; i < 200; i++) clock.observe(i % 15 === 0 ? 14 : i % 2, 1000 + i);
+    let skipped = 0;
+    for (let i = 0; i < 200; i++) if (clock.skip(2000 + i)) skipped++;
+    assert.equal(skipped, 0);
+  });
+
+  it('needs a full window of reports first, and reset forgets them', () => {
+    const clock = new CommandClock();
+    for (let i = 0; i < 10; i++) clock.observe(30, 100 + i);
+    let skipped = 0;
+    for (let i = 0; i < 8; i++) if (clock.skip(200)) skipped++;
+    for (let i = 0; i < 40; i++) clock.observe(30, 300 + i);
     clock.reset();
-    assert.equal(run(clock, 8), 0);
+    for (let i = 0; i < 8; i++) if (clock.skip(400)) skipped++;
+    assert.equal(skipped, 0);
   });
 });

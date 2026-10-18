@@ -134,30 +134,41 @@ export function shotReference(v2Hitscan: boolean, nextSeq: number, ack: number):
 /**
  * Clock correction (as CS:GO's): the server runs one of our commands per tick on average, so after
  * any server stall the commands that piled up stay queued for good (input delay, and 'command flood'
- * drops at the cap). When every hvhState in the last `window` reported more than `target` queued, the
+ * drops at the cap). When every hvhState in the last `window` showed more than `target` queued, the
  * client skips one command in `every` until the backlog is gone. Short bursts (fake-lag batches,
  * jitter) never trigger it: the window's minimum drops to 0 between them.
+ *
+ * Reports arrive a round trip late, so each one is corrected by the skips it cannot see yet: a report
+ * covers every command up to lastAckSeq + queued, and a skip made while `nextSeq` was beyond that
+ * point had not reached the server when it reported.
  */
 export class CommandClock {
-  private readonly seen: number[] = [];
+  private readonly reports: { queued: number; received: number }[] = [];
+  /** The nextSeq at each recent skip (the gap sits just before that seq). */
+  private skips: number[] = [];
   private sinceSkip = 0;
   constructor(private readonly target = 1, private readonly window = 32, private readonly every = 4) {}
-  /** One hvhState's `queued`. */
-  observe(queued: number): void {
-    this.seen.push(queued);
-    if (this.seen.length > this.window) this.seen.shift();
+  /** One hvhState: `queued`, and the newest seq the server had (lastAckSeq + queued). */
+  observe(queued: number, received: number): void {
+    this.reports.push({ queued, received });
+    if (this.reports.length > this.window) this.reports.shift();
+    const oldest = this.reports[0]!.received;
+    this.skips = this.skips.filter((seq) => seq > oldest);
   }
-  /** Asked once per command tick: true means do not produce this tick's command. */
-  skip(): boolean {
+  /** Asked once per command tick, with the seq the next command would get: true means do not produce it. */
+  skip(nextSeq: number): boolean {
     this.sinceSkip++;
-    if (this.seen.length < this.window || this.sinceSkip < this.every || Math.min(...this.seen) <= this.target) return false;
+    if (this.reports.length < this.window || this.sinceSkip < this.every) return false;
+    let backlog = Infinity;
+    for (const r of this.reports) backlog = Math.min(backlog, r.queued - this.skips.filter((seq) => seq > r.received).length);
+    if (backlog <= this.target) return false;
     this.sinceSkip = 0;
-    // The skipped command is one less in the queue; count it until the server confirms.
-    this.seen.forEach((q, i) => { this.seen[i] = q - 1; });
+    this.skips.push(nextSeq);
     return true;
   }
   reset(): void {
-    this.seen.length = 0;
+    this.reports.length = 0;
+    this.skips = [];
     this.sinceSkip = 0;
   }
 }

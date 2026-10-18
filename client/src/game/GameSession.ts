@@ -446,7 +446,8 @@ export class GameSession {
       this.accumulator -= SIM_DT;
       if (!this.local.alive) { this.commandClock.reset(); continue; }
       // v2 clock correction: the server is holding a backlog of our commands; send this tick's later.
-      if (this.local.hvhV2 && this.commandClock.skip()) continue;
+      // Never delay a command that carries a shot.
+      if (this.local.hvhV2 && this.shotCommand !== this.nextSeq && this.commandClock.skip(this.nextSeq)) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
       if (this.mode.id !== 'hvh') frame = { ...frame, autoHop: false, subtickStrafe: false };
@@ -1670,7 +1671,7 @@ export class GameSession {
     this.on('snapshot', (s) => this.onSnapshot(s));
     this.on('hvhState', (e) => {
       this.tickClock.sample(e.tick, this.serverNow());
-      this.commandClock.observe(e.queued ?? 0);
+      this.commandClock.observe(e.queued ?? 0, e.lastAckSeq + (e.queued ?? 0));
       this.local.onHvhState(e);
       if (this.local.hvhV2) {
         initHvhV2Ui(
