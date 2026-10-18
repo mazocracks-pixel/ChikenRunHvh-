@@ -69,7 +69,7 @@ describe('HitLog', () => {
     let nowTime = 1000;
     const now = () => nowTime;
     const nameOf = (id: string) => id;
-    const hitLog = new HitLog(nameOf, now);
+    const hitLog = new HitLog(nameOf, { now });
 
     const v1: ShotVerdict = {
       shooterId: 'me',

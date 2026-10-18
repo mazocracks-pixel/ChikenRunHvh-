@@ -1,5 +1,6 @@
-import { LATE_CSGO, shiftBudget, type EraTable, type TickbaseState } from '@game/shared/hvh/v2';
+import { LATE_CSGO, shiftBudget, type EraTable, type ShotVerdict, type TickbaseState } from '@game/shared/hvh/v2';
 import { h } from '../dom';
+import type { HitLog } from './HitLog';
 
 export interface IndicatorToggles {
   dt: boolean;
@@ -105,4 +106,30 @@ export class Indicators {
   dispose(): void {
     this.root?.remove();
   }
+}
+
+export interface HvhV2UiTarget {
+  hitLog: HitLog | null;
+  indicators: Indicators | null;
+}
+
+/**
+ * Lazily creates HitLog and Indicators on the first v2 hvhState event and registers the shotVerdict listener.
+ * In legacy rooms and non-HvH rooms where hvhState never arrives, this is never called.
+ * Verdicts that arrive before the first hvhState are dropped because hitLog is null until then.
+ */
+export function initHvhV2Ui(
+  target: HvhV2UiTarget,
+  create: () => { hitLog: HitLog; indicators: Indicators },
+  registerShotVerdict: (handler: (v: ShotVerdict) => void) => void,
+): boolean {
+  if (target.hitLog !== null || target.indicators !== null) {
+    return false;
+  }
+  const created = create();
+  target.hitLog = created.hitLog;
+  target.indicators = created.indicators;
+  // Verdicts that arrive before the first hvhState are dropped because hitLog is null until now.
+  registerShotVerdict((v) => target.hitLog?.push(v));
+  return true;
 }

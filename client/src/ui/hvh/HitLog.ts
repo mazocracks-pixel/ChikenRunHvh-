@@ -6,16 +6,22 @@ export interface HitLogEntry {
   timestamp: number;
 }
 
+export interface HitLogModelOptions {
+  maxLines?: number;
+  fadeMs?: number;
+  now: () => number;
+}
+
 export class HitLogModel {
   readonly maxLines: number;
   readonly fadeMs: number;
   private readonly now: () => number;
   private entries: HitLogEntry[] = [];
 
-  constructor(options?: { maxLines?: number; fadeMs?: number; now?: () => number }) {
-    this.maxLines = options?.maxLines ?? 8;
-    this.fadeMs = options?.fadeMs ?? 5000;
-    this.now = options?.now ?? (() => performance.now());
+  constructor(options: HitLogModelOptions) {
+    this.maxLines = options.maxLines ?? 8;
+    this.fadeMs = options.fadeMs ?? 5000;
+    this.now = options.now;
   }
 
   push(text: string): void {
@@ -40,28 +46,26 @@ export class HitLogModel {
   }
 }
 
+export interface HitLogOptions {
+  now?: () => number;
+  container?: HTMLElement;
+  maxLines?: number;
+  fadeMs?: number;
+}
+
 export class HitLog {
   readonly model: HitLogModel;
   readonly nameOf: (id: string) => string;
   readonly root?: HTMLElement;
 
-  constructor(
-    nameOf: (id: string) => string,
-    nowOrContainer?: (() => number) | HTMLElement,
-    container?: HTMLElement,
-  ) {
+  constructor(nameOf: (id: string) => string, options?: HitLogOptions) {
     this.nameOf = nameOf;
-    let now: (() => number) | undefined;
-    let targetContainer: HTMLElement | undefined;
-
-    if (typeof nowOrContainer === 'function') {
-      now = nowOrContainer;
-      targetContainer = container;
-    } else if (nowOrContainer && typeof nowOrContainer === 'object') {
-      targetContainer = nowOrContainer;
-    }
-
-    this.model = new HitLogModel({ now });
+    const now = options?.now ?? (() => performance.now());
+    this.model = new HitLogModel({
+      maxLines: options?.maxLines,
+      fadeMs: options?.fadeMs,
+      now,
+    });
 
     if (typeof document !== 'undefined') {
       this.root = h('div', {
@@ -69,7 +73,7 @@ export class HitLog {
         style:
           'position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:3px;font-family:monospace;font-size:12px;font-weight:600;color:#e8e8e8;text-shadow:1px 1px 1px #000;pointer-events:none;z-index:30;',
       });
-      if (targetContainer) targetContainer.append(this.root);
+      if (options?.container) options.container.append(this.root);
     }
   }
 

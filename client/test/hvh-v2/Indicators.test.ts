@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { LATE_CSGO, type TickbaseState } from '@game/shared/hvh/v2';
-import { indicatorModel } from '../../src/ui/hvh/Indicators';
+import { LATE_CSGO, type ShotVerdict, type TickbaseState } from '@game/shared/hvh/v2';
+import { HitLog } from '../../src/ui/hvh/HitLog';
+import { Indicators, indicatorModel, initHvhV2Ui } from '../../src/ui/hvh/Indicators';
 
 describe('indicatorModel', () => {
   const era = LATE_CSGO;
@@ -93,5 +94,81 @@ describe('indicatorModel', () => {
       ticksSinceShift: 16,
     };
     assert.equal(indicatorModel(s, { dt: false, hs: false }, era).defensive, true);
+  });
+});
+
+describe('initHvhV2Ui gating', () => {
+  it('legacy room (no hvhState) creates nothing and registers no listener', () => {
+    const target: { hitLog: HitLog | null; indicators: Indicators | null } = {
+      hitLog: null,
+      indicators: null,
+    };
+    let createdCount = 0;
+    let registeredCount = 0;
+    const create = () => {
+      createdCount++;
+      return {
+        hitLog: new HitLog((id) => id, { now: () => 0 }),
+        indicators: new Indicators(),
+      };
+    };
+    const register = () => {
+      registeredCount++;
+    };
+
+    // Mirror of the GameSession hvhState handler: only v2 rooms call initHvhV2Ui.
+    const onHvhState = (hvhV2: boolean) => {
+      if (hvhV2) initHvhV2Ui(target, create, register);
+    };
+    // Legacy HvH room: hvhState arrives but hvhV2 is false; non-HvH rooms get no event at all.
+    onHvhState(false);
+    onHvhState(false);
+    assert.equal(target.hitLog, null);
+    assert.equal(target.indicators, null);
+    assert.equal(createdCount, 0);
+    assert.equal(registeredCount, 0);
+  });
+
+  it('first v2 hvhState creates exactly one of each and registers shotVerdict', () => {
+    const target: { hitLog: HitLog | null; indicators: Indicators | null } = {
+      hitLog: null,
+      indicators: null,
+    };
+    let createdCount = 0;
+    let registeredHandler: ((v: ShotVerdict) => void) | null = null;
+    const create = () => {
+      createdCount++;
+      return {
+        hitLog: new HitLog((id) => id, { now: () => 0 }),
+        indicators: new Indicators(),
+      };
+    };
+    const register = (handler: (v: ShotVerdict) => void) => {
+      registeredHandler = handler;
+    };
+
+    // First hvhState arrives: creates exactly one of each
+    const firstResult = initHvhV2Ui(target, create, register);
+    assert.equal(firstResult, true);
+    assert.equal(createdCount, 1);
+    assert.notEqual(target.hitLog, null);
+    assert.notEqual(target.indicators, null);
+    assert.notEqual(registeredHandler, null);
+
+    // Second hvhState arrives: does not create again
+    const secondResult = initHvhV2Ui(target, create, register);
+    assert.equal(secondResult, false);
+    assert.equal(createdCount, 1);
+
+    // shotVerdict arrives and routes to hitLog
+    registeredHandler!({
+      shooterId: 'me',
+      targetId: 'enemy',
+      tick: 50,
+      bullet: 1,
+      cause: 'spread',
+    });
+    assert.equal(target.hitLog?.lines.length, 1);
+    assert.equal(target.hitLog?.lines[0], 'Missed shot due to spread');
   });
 });
