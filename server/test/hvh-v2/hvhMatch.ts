@@ -1,0 +1,193 @@
+/*
+ * Headless, seeded 5v5 HvH v2 match for the Task 13 gates (replay and network).
+ *
+ * HvH rooms have no bots, so ten scripted players (two teams of five) drive the room through its
+ * real command path (handleInput -> queue -> processPlayerTick). Every script decision comes from
+ * a seeded PRNG and the authoritative state the script can see, so the same seed always produces
+ * the same commands as long as the room itself is deterministic.
+ *
+ * The driver owns the clock: every tick is stepped with an explicit `now` (base + tick * TICK_MS),
+ * and every message that takes a time (reload) is given that same clock.
+ */
+import { DEFAULT_APPEARANCE, DEFAULT_LOADOUT, SIM_DT, type InputFrame, type MapId, type MoveState } from '@game/shared';
+import type { CommandIntent, PoseState, TickbaseState } from '@game/shared/hvh/v2';
+import { HvhRoom, type HvhPlayerV2 } from '../../src/rooms/HvhRoom';
+import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
+import { fakeIo, type RecordedEvent } from '../helpers';
+
+export const TICK_MS = SIM_DT * 1000;
+export const CLOCK_BASE = 1_000_000;
+
+/** mulberry32: small, fast, and identical on every platform. */
+export function prng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface Match {
+  room: HvhRoom;
+  players: ServerPlayer[];
+  /** Per-player socket sinks (only when `sockets` was requested). */
+  sent: Map<number, { event: string; data: unknown }[]>;
+  /** Room broadcasts (fakeIo). */
+  events: RecordedEvent[];
+}
+
+/** Ten socket-less players, five per team, spawned, AA tools on, input limiter stubbed (R25). */
+export function makeMatch(seed: number, opts: { map?: MapId; sockets?: boolean } = {}): Match {
+  const { io, events } = fakeIo();
+  const room = new HvhRoom(io, {
+    id: `hvh-gate-${seed}`, code: 'GATE1', name: 'HvH gate', mode: 'hvh', map: opts.map ?? 'farm', private: true, hvhEngine: 'v2', seed,
+  }, {});
+  const players: ServerPlayer[] = [];
+  const sent = new Map<number, { event: string; data: unknown }[]>();
+  for (let i = 0; i < 10; i++) {
+    const res = room.join(null, { userId: null, name: `P${i}`, appearance: { ...DEFAULT_APPEARANCE }, loadout: [...DEFAULT_LOADOUT], team: i < 5 ? 1 : 2 });
+    if (!res.ok) throw new Error(res.error);
+    const p = room.players.get(res.selfPid)!;
+    p.takeInputToken = () => true;
+    p.hvhEnabled = true;
+    p.hvh.antiAim = { ...p.hvh.antiAim, enabled: true };
+    if (opts.sockets) {
+      const sink: { event: string; data: unknown }[] = [];
+      sent.set(p.pid, sink);
+      const socket = { emit(event: string, data: unknown) { sink.push({ event, data }); }, to() { return { emit() {} }; }, leave() {}, volatile: { emit() {} } };
+      Object.defineProperty(p, 'socket', { value: socket });
+    }
+    players.push(p);
+  }
+  room.startNow(CLOCK_BASE);
+  return { room, players, sent, events };
+}
+
+/** What a script wants for one command. */
+export interface ScriptStep {
+  frame: InputFrame;
+  /** This command carries a hitscan shot. */
+  fire: boolean;
+  exploit: 'off' | 'doubleTap' | 'hideShots';
+  defensive: boolean;
+  /** Replay gate: this command is a choke command. */
+  choke: boolean;
+  /** Network gate: the fake-lag setting (choke ticks) the client's CommandChoker uses. */
+  fakeLag: number;
+}
+
+const AA_MODES = ['backward', 'left', 'right', 'spin'] as const;
+const JITTERS = [0, 20, 45];
+const DESYNCS = [0, 30, 58];
+const EXPLOITS = ['off', 'doubleTap', 'hideShots'] as const;
+const FAKE_LAGS = [0, 0, 4, 14];
+
+/**
+ * A seeded script for one player: moves, aims at the nearest living enemy, fires, chokes, uses
+ * DT / HS / defensive, and toggles jitter / desync / inverted AA. Reads only state a client sees.
+ */
+export class Script {
+  private readonly rand: () => number;
+  private forward = 0;
+  private right = 0;
+  private moveLeft = 0;
+  private chokeLeft = 0;
+  private exploit: ScriptStep['exploit'] = 'off';
+  private fakeLag = 0;
+  private invert = false;
+
+  constructor(seed: number) {
+    this.rand = prng(seed);
+  }
+
+  private pick<T>(xs: readonly T[]): T {
+    return xs[Math.floor(this.rand() * xs.length)]!;
+  }
+
+  /** Called once per tick before the command; may change the AA config (the client's loadout message). */
+  step(room: HvhRoom, p: ServerPlayer, seq: number, now: number): ScriptStep {
+    const r = this.rand;
+    if (this.moveLeft-- <= 0) {
+      this.moveLeft = 20 + Math.floor(r() * 40);
+      this.forward = this.pick([-1, 0, 1, 1]);
+      this.right = this.pick([-1, 0, 1]);
+    }
+    if (r() < 0.006) this.exploit = this.pick(EXPLOITS);
+    if (r() < 0.006) this.fakeLag = this.pick(FAKE_LAGS);
+    if (r() < 0.007) {
+      p.hvh.antiAim = { ...p.hvh.antiAim, enabled: true, mode: this.pick(AA_MODES), jitter: this.pick(JITTERS), desync: this.pick(DESYNCS) };
+    }
+    if (r() < 0.03) this.invert = !this.invert;
+
+    // Aim at the nearest living enemy (positions are what snapshots show), with a little noise.
+    const eye = room.eyeOf(p);
+    let best: ServerPlayer | undefined;
+    let bestD = Infinity;
+    for (const q of room.players.values()) {
+      if (q === p || !q.alive || q.info.team === p.info.team) continue;
+      const d = Math.hypot(q.state.x - eye.x, q.state.z - eye.z);
+      if (d < bestD) { bestD = d; best = q; }
+    }
+    let yaw = (r() * 2 - 1) * Math.PI;
+    let pitch = 0;
+    if (best) {
+      const dx = best.state.x - eye.x;
+      const dy = best.state.y + 0.6 + r() * 0.5 - eye.y;
+      const dz = best.state.z - eye.z;
+      yaw = Math.atan2(-dx, -dz) + (r() - 0.5) * 0.06;
+      pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
+    }
+
+    let fire = false;
+    if (p.mag <= 0) room.handleReload(p, now);
+    else if (best && p.reloadUntil === 0 && r() < 0.2) fire = true;
+    const defensive = r() < 0.01;
+    if (this.chokeLeft <= 0 && r() < 0.03) this.chokeLeft = 1 + Math.floor(r() * 14);
+    const choke = this.chokeLeft-- > 0 && !fire;
+
+    const frame: InputFrame = {
+      seq, forward: this.forward, right: this.right, jump: r() < 0.02, crouch: r() < 0.1, yaw, pitch, invert: this.invert,
+    };
+    return { frame, fire, exploit: this.exploit, defensive, choke, fakeLag: this.fakeLag };
+  }
+}
+
+export function intentOf(s: ScriptStep): CommandIntent {
+  return { fire: s.fire, choke: s.choke, doubleTap: s.exploit === 'doubleTap', hideShots: s.exploit === 'hideShots', defensive: s.defensive };
+}
+
+/** What the room did for one player in one processPlayerTick call. */
+export interface PlayerTickRecord {
+  aliveBefore: boolean;
+  tickbaseBefore: TickbaseState;
+  poseBefore: PoseState;
+  /** Movement state before the tick (the client's reconciled movement). */
+  stateBefore: MoveState;
+  executed: { frame: InputFrame; intent: CommandIntent }[];
+  tickbaseAfter: TickbaseState;
+  poseAfter: PoseState;
+  antiAim: ServerPlayer['hvh']['antiAim'];
+  weapon: ServerPlayer['weapon'];
+}
+
+/**
+ * Wraps the processPlayerTick seam: records the commands each call executed (the head of the
+ * queue, in order) and the tickbase / pose around it. Pure observation; the room is unchanged.
+ */
+export function recordTicks(room: HvhRoom, sink: (pid: number, r: PlayerTickRecord) => void): void {
+  const original = room.processPlayerTick.bind(room);
+  room.processPlayerTick = (playerId: string, now?: number) => {
+    const p = room.players.get(Number(playerId))!;
+    const s = room.v2State(p.pid) as HvhPlayerV2;
+    const queued = s.queue.map((c) => ({ frame: { ...c.frame }, intent: { ...c.intent } }));
+    const before = {
+      aliveBefore: p.alive, tickbaseBefore: { ...s.tickbase }, poseBefore: { ...s.pose }, stateBefore: structuredClone(p.state),
+      antiAim: { ...p.hvh.antiAim }, weapon: p.weapon,
+    };
+    original(playerId, now);
+    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
+  };
+}
