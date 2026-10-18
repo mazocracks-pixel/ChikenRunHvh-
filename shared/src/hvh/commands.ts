@@ -57,6 +57,8 @@ export class CommandChoker {
     if (!flush && this.pending.length <= clamp(Math.round(choke), 0, 12)) return [];
     const batch = this.pending; this.pending = []; return batch;
   }
+  /** True when push(frame, choke, flush) would hold the frame back instead of releasing a batch. */
+  wouldHold(choke: number, flush = false): boolean { return !flush && this.pending.length + 1 <= clamp(Math.round(choke), 0, 12); }
   clear(): void { this.pending = []; }
 }
 export function exploitMode(mode: HvhLoadout['exploit'], weapon: WeaponDef, mag: number): HvhLoadout['exploit'] {

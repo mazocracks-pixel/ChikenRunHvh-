@@ -14,6 +14,7 @@ export class PredictedTickbase {
   private current: TickbaseState;
   private unacked: Entry[] = [];
   private mismatchCount = 0;
+  private lastApplied = -Infinity;
   /** False until we hold a server state; until then nothing can be compared. */
   private synced: boolean;
 
@@ -26,11 +27,18 @@ export class PredictedTickbase {
   get mismatches(): number { return this.mismatchCount; }
   get pendingCount(): number { return this.unacked.length; }
 
-  /** Run one outgoing command locally. Call once per command, in seq order. */
-  apply(seq: number, intent: CommandIntent): void {
+  /**
+   * Run one command the server can execute, in seq order. The server drops a command whose seq is
+   * not above the last one it accepted, so we skip those too; commands lost on the way (never
+   * emitted) are simply never applied. Returns false when skipped.
+   */
+  apply(seq: number, intent: CommandIntent): boolean {
+    if (seq <= this.lastApplied) return false;
+    this.lastApplied = seq;
     this.current = stepTickbase(this.current, intent, this.era).next;
     this.unacked.push({ seq, intent, after: this.current });
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
+    return true;
   }
 
   /**
@@ -54,5 +62,42 @@ export class PredictedTickbase {
       e.after = s;
     }
     this.current = s;
+  }
+}
+
+/**
+ * Intent for one outgoing command.
+ * - fire: only the command that carries a shot (`shotSeq` is the seq the `fire` message references),
+ *   and only for hitscan weapons. Holding the trigger without a shot never sets it.
+ * - choke: only a frame the CommandChoker holds back; the frame that releases a batch is not choke.
+ */
+export function commandIntent(o: {
+  seq: number; shotSeq: number | null; hitscan: boolean; held: boolean;
+  exploit: 'off' | 'doubleTap' | 'hideShots';
+}): CommandIntent {
+  const fire = o.hitscan && o.shotSeq === o.seq;
+  return {
+    fire,
+    choke: o.held && !fire,
+    doubleTap: o.exploit === 'doubleTap',
+    hideShots: o.exploit === 'hideShots',
+    defensive: false,
+  };
+}
+
+/**
+ * Maps client server-time (ms) to the server's tick counter, which advances at the era tick rate.
+ * Each hvhState gives (tick, arrival time); the estimate is therefore biased ahead by the one-way
+ * network delay, which is small next to the interpolation delay it is used with.
+ */
+export class TickClock {
+  private tick = 0;
+  private at = 0;
+  private known = false;
+  constructor(private readonly tickRate: number = LATE_CSGO.tickRate) {}
+  sample(tick: number, serverTimeMs: number): void { this.tick = tick; this.at = serverTimeMs; this.known = true; }
+  /** The server tick the client is displaying at `renderTimeMs` (= serverNow() - INTERP_DELAY_MS). */
+  viewedTick(renderTimeMs: number): number {
+    return this.known ? Math.max(0, this.tick + Math.floor(((renderTimeMs - this.at) * this.tickRate) / 1000)) : 0;
   }
 }

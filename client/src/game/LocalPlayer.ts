@@ -98,8 +98,14 @@ export class LocalPlayer {
 
   /** Predicts the tickbase for this command and, on a v2 room, attaches the intent for the server. */
   command(frame: InputFrame, intent: CommandIntent, clientTick: number): InputCommand {
-    this.tickbase.apply(frame.seq, intent);
-    return this.hvhV2 ? { ...frame, intent, clientTick } : frame;
+    return { ...frame, intent, clientTick };
+  }
+
+  /** Called when a command leaves for the server: predicts exactly what the server will execute. */
+  emitted(cmd: InputCommand): InputCommand | InputFrame {
+    if (!this.hvhV2 || !cmd.intent) { const { intent: _i, clientTick: _t, ...frame } = cmd; return frame; }
+    this.tickbase.apply(cmd.seq, cmd.intent);
+    return cmd;
   }
 
   onHvhState(e: HvhStateEvent): void {

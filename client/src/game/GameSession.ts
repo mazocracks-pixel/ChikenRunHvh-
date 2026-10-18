@@ -41,6 +41,7 @@ import {
   rayChicken,
   rayHvhChicken, CommandChoker, NetworkSimulator, defaultHvhCore, fakeLagTicks,
   hvhSpread,
+  type WeaponDef,
   exploitMode,
   raycastPenetrating,
   raycastWorld,
@@ -96,6 +97,7 @@ import {
   isPowerUp,
 } from '@game/shared';
 import type { Network } from '../net/Network';
+import { TickClock, commandIntent } from '../hvh/PredictedTickbase';
 import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
@@ -193,8 +195,10 @@ export class GameSession {
   private readonly commandChoker = new CommandChoker();
   private commandNetwork: NetworkSimulator<readonly InputFrame[]> | null = null;
   private networkKey = '';
-  /** Latest server tick from hvhState (v2 rooms), sent back as each command's clientTick. */
-  private hvhTick = 0;
+  /** Server tick being displayed (render time), sent as each command's clientTick. */
+  private readonly tickClock = new TickClock();
+  /** Seq of the command that carries the latest hitscan shot (the `fire` message references it). */
+  private shotCommand: number | null = null;
   readonly room: RoomInfo;
   readonly selfPid: number;
   readonly mode: ModeDef;
@@ -447,16 +451,21 @@ export class GameSession {
         const speed = this.horizontalSpeed();
         const shooting = input.firing || dev?.wantsFire(now) === true;
         const choke = fakeLagTicks(core,frame.seq,speed,shooting);
-        const flush = !input.active || (core.fakeLagBreakOnShot && shooting);
+        // A command carrying a shot is released at once (a choked command is not recordable).
+        const shot = this.shotCommand === frame.seq;
+        const flush = !input.active || (core.fakeLagBreakOnShot && shooting) || shot;
         // Melee and projectile weapons never fire a hitscan shot (the server rejects them as 'wrong weapon').
         const def = this.weapons.def;
-        const mode = exploitMode(this.weapons.hvh.exploit, def, this.weapons.mag);
-        const intent = { fire: shooting && !def.melee && !def.projectile, choke: choke > 0 && !flush, doubleTap: mode === 'doubleTap', hideShots: mode === 'hideShots', defensive: false };
-        const batch = this.commandChoker.push(this.local.command(frame, intent, this.hvhTick), choke, flush);
+        const intent = commandIntent({
+          seq: frame.seq, shotSeq: this.shotCommand, hitscan: !def.melee && !def.projectile,
+          held: this.commandChoker.wouldHold(choke, flush),
+          exploit: exploitMode(this.weapons.hvh.exploit, def, this.weapons.mag),
+        });
+        const batch = this.commandChoker.push(this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS)), choke, flush);
         if (batch.length) this.commandNetwork!.send(batch, now);
       } else net.socket.emit('input', frame);
     }
-    if (this.mode.id === 'hvh') for (const batch of this.commandNetwork?.receive(now) ?? []) for (const frame of batch) net.socket.emit('input', frame);
+    if (this.mode.id === 'hvh') for (const batch of this.commandNetwork?.receive(now) ?? []) for (const frame of batch) net.socket.emit('input', this.local.emitted(frame));
 
     const state = this.local.state;
     if (this.local.alive) {
@@ -902,6 +911,13 @@ export class GameSession {
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
   }
 
+  /** The next command to be built carries this shot (intent.fire); non-hitscan weapons keep the acked seq. */
+  private markShot(w: WeaponDef): number {
+    if (w.melee || w.projectile) return this.local.server.ack;
+    this.shotCommand = this.nextSeq;
+    return this.shotCommand;
+  }
+
   private fire(aiming: boolean, assisted = false): void {
     const { net, audio, input } = this.ctx;
     const w = this.weapons.def;
@@ -919,7 +935,7 @@ export class GameSession {
       t: (assisted ? this.ctx.dev?.shotIntent?.()?.recordT : undefined) ?? this.serverNow() - INTERP_DELAY_MS,
       // Weapon requests execute from authoritative movement already acknowledged by the server.
       // Referencing a future choked command kept every shot waiting until its target record expired.
-      command: this.mode.id === 'hvh' ? this.local.server.ack : this.nextSeq - 1,
+      command: this.mode.id === 'hvh' ? this.markShot(w) : this.nextSeq - 1,
       intent: assisted ? this.ctx.dev?.shotIntent?.() : undefined,
       aiming,
     });
@@ -1625,7 +1641,7 @@ export class GameSession {
 
   private bindNetwork(): void {
     this.on('snapshot', (s) => this.onSnapshot(s));
-    this.on('hvhState', (e) => { this.hvhTick = e.tick; this.local.onHvhState(e); });
+    this.on('hvhState', (e) => { this.tickClock.sample(e.tick, this.serverNow()); this.local.onHvhState(e); });
     this.on('playerJoined', (info) => this.onPlayerInfo(info));
     this.on('playerUpdated', (info) => this.onPlayerInfo(info));
     this.on('round', (r) => this.onRound(r));
