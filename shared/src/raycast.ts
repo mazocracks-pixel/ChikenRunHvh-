@@ -86,8 +86,8 @@ export function raySphere(ray: Ray, cx: number, cy: number, cz: number, radius: 
 
 /** Nearest hit against the ground plane (y = 0) and every solid box (except `skip`), within `maxT`. */
 export function raycastWorld(ray: Ray, world: CollisionWorld, maxT: number, skip?: { has(id: number): boolean }): RayHit | null {
-  // A non-finite ray hits nothing (and must not walk the grid forever).
-  if (!Number.isFinite(ray.ox + ray.oz + ray.dx + ray.dz)) return null;
+  // A non-finite ray, or a NaN or negative range, hits nothing (and must not walk the grid forever).
+  if (!Number.isFinite(ray.ox + ray.oz + ray.dx + ray.dz) || !(maxT >= 0)) return null;
   let best: RayHit | null = null;
   if (ray.dy < 0 && ray.oy >= 0) {
     const t = -ray.oy / ray.dy;
