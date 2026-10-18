@@ -39,16 +39,21 @@ export interface Match {
   events: RecordedEvent[];
 }
 
-/** Ten socket-less players, five per team, spawned, AA tools on, input limiter stubbed (R25). */
-export function makeMatch(seed: number, opts: { map?: MapId; sockets?: boolean } = {}): Match {
+/**
+ * Socket-less players (by default ten, five per team; `teams` lists each player's team instead),
+ * spawned, AA tools on, input limiter stubbed (R25). The balance sweep (tools/hvh-sweep.ts) builds
+ * its 1v1 duels with `teams: [1, 2]`.
+ */
+export function makeMatch(seed: number, opts: { map?: MapId; sockets?: boolean; teams?: readonly (1 | 2)[] } = {}): Match {
   const { io, events } = fakeIo();
   const room = new HvhRoom(io, {
     id: `hvh-gate-${seed}`, code: 'GATE1', name: 'HvH gate', mode: 'hvh', map: opts.map ?? 'farm', private: true, hvhEngine: 'v2', seed,
   }, {});
   const players: ServerPlayer[] = [];
   const sent = new Map<number, { event: string; data: unknown }[]>();
-  for (let i = 0; i < 10; i++) {
-    const res = room.join(null, { userId: null, name: `P${i}`, appearance: { ...DEFAULT_APPEARANCE }, loadout: [...DEFAULT_LOADOUT], team: i < 5 ? 1 : 2 });
+  const teams = opts.teams ?? [1, 1, 1, 1, 1, 2, 2, 2, 2, 2];
+  for (let i = 0; i < teams.length; i++) {
+    const res = room.join(null, { userId: null, name: `P${i}`, appearance: { ...DEFAULT_APPEARANCE }, loadout: [...DEFAULT_LOADOUT], team: teams[i]! });
     if (!res.ok) throw new Error(res.error);
     const p = room.players.get(res.selfPid)!;
     p.takeInputToken = () => true;
