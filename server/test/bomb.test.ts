@@ -229,6 +229,70 @@ describe('the bomb', () => {
     assert.equal(round(s.room).reason, 'exploded');
   });
 
+  it('slot 5: only the carrier can take the bomb out; grenades only if you have them', () => {
+    const s = setup(2);
+    toLive(s);
+    const carrier = s.t.find((p) => p.pid === round(s.room).bomb.carrier)!;
+    const ct = s.ct[0]!;
+    s.room.handleHold(ct, 'bomb');
+    assert.equal(ct.held, 'gun', 'chikenCT has no bomb to hold');
+    s.room.handleHold(carrier, 'bomb');
+    assert.equal(carrier.held, 'bomb');
+    carrier.flashes = 0;
+    s.room.handleHold(carrier, 'flash');
+    assert.equal(carrier.held, 'bomb', 'no flashbang to take out');
+    carrier.flashes = 1;
+    s.room.handleHold(carrier, 'flash');
+    assert.equal(carrier.held, 'flash');
+    s.room.handleHold(carrier, 'nonsense');
+    assert.equal(carrier.held, 'flash');
+  });
+
+  it('G drops the bomb in hand; a teammate picks it up, the dropper not straight away', () => {
+    const s = setup(4);
+    toLive(s);
+    const carrier = s.t.find((p) => p.pid === round(s.room).bomb.carrier)!;
+    const mate = s.t.find((p) => p !== carrier)!;
+    place(carrier, -38, 0);
+    place(mate, 20, 20);
+    s.room.handleDropBomb(carrier);
+    assert.equal(round(s.room).bomb.carrier, carrier.pid, 'not in hand: nothing drops');
+    s.room.handleHold(carrier, 'bomb');
+    s.room.handleDropBomb(carrier);
+    const bomb = round(s.room).bomb;
+    assert.equal(bomb.carrier, 0, 'dropped');
+    assert.equal(carrier.held, 'gun');
+    assert.ok(Math.hypot(bomb.x - -38, bomb.z - 0) < 1.2, 'just in front');
+    s.step(200);
+    assert.equal(round(s.room).bomb.carrier, 0, 'the dropper doesn’t snatch it back');
+    place(mate, bomb.x, bomb.z);
+    s.step(100);
+    assert.equal(round(s.room).bomb.carrier, mate.pid, 'a teammate walks over it');
+  });
+
+  it('planting with the bomb in hand is called off by moving; with E you stay put', () => {
+    const s = setup(2);
+    toLive(s);
+    const carrier = s.t.find((p) => p.pid === round(s.room).bomb.carrier)!;
+    place(carrier, SITE_A.x, SITE_A.z);
+    s.room.handleHold(carrier, 'bomb');
+    holdUse(carrier);
+    s.step(500);
+    assert.equal(round(s.room).bomb.action?.kind, 'plant', 'planting with left click');
+    carrier.lastInput = { ...carrier.lastInput!, forward: 1 };
+    s.step(100);
+    assert.equal(round(s.room).bomb.action, null, 'moving calls it off');
+    // With the gun in hand, E plants and holds you still.
+    s.room.handleHold(carrier, 'gun');
+    place(carrier, SITE_A.x, SITE_A.z);
+    holdUse(carrier);
+    s.step(300);
+    assert.equal(round(s.room).bomb.action?.kind, 'plant');
+    carrier.lastInput = { ...carrier.lastInput!, forward: 1 };
+    s.step(BOMB.plantMs);
+    assert.equal(round(s.room).phase, 'planted', 'E keeps planting');
+  });
+
   it('the explosion kills chickens nearby once, and the round ends once', () => {
     const s = setup(4);
     toLive(s);

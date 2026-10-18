@@ -56,6 +56,11 @@ export class BombRoom extends GameRoom {
   private lossStreak: [number, number] = [0, 0];
   /** The site chikenT bots go for this round. */
   private targetSite: BombSite | null = null;
+  /** Who dropped the bomb with G, and until when they can't pick it straight back up. */
+  private droppedBy = 0;
+  private dropBlockUntil = 0;
+  /** The last tick's time (the room's clock). */
+  private clock = 0;
 
   /** The current round (for tests and the client on joining). */
   get roundState(): RoundState {
@@ -81,6 +86,7 @@ export class BombRoom extends GameRoom {
   }
 
   protected override fixedUpdate(now: number): void {
+    this.clock = now;
     super.fixedUpdate(now);
     if (this.phase === 'waiting' || this.phase === 'countdown') {
       if (this.state.phase !== 'warmup' || this.state.endsAt !== null) this.idle(now);
@@ -217,7 +223,11 @@ export class BombRoom extends GameRoom {
       if (carrier) {
         const site = this.siteAt(carrier);
         const planting = bomb.action?.kind === 'plant' && bomb.action.pid === carrier.pid;
-        const can = carrier.alive && carrier.useHeld && site !== null && (planting || carrier.state.onGround);
+        // Planting with the bomb in hand (left click) is called off by moving or jumping, as in
+        // Counter-Strike; planting with E keeps you still instead (see bombHoldsPlayer).
+        const input = carrier.lastInput;
+        const moving = carrier.held === 'bomb' && (!carrier.state.onGround || (input !== null && (input.forward !== 0 || input.right !== 0 || input.jump)));
+        const can = carrier.alive && carrier.useHeld && site !== null && (planting || carrier.state.onGround) && !moving;
         if (!planting && carrier.info.bot) this.handOver(carrier, now);
         if (planting && !can) this.setAction(null);
         else if (planting && now >= bomb.action!.endsAt) this.plant(carrier, site!, now);
@@ -226,6 +236,8 @@ export class BombRoom extends GameRoom {
         // Dropped: the first chikenT to reach it picks it up.
         for (const p of this.players.values()) {
           if (p.info.team !== 1 || !p.alive || p.frozen) continue;
+          // Whoever just dropped it doesn't snatch it straight back.
+          if (p.pid === this.droppedBy && now < this.dropBlockUntil) continue;
           if (Math.hypot(p.state.x - bomb.x, p.state.z - bomb.z) > BOMB.pickupRange || Math.abs(p.state.y - bomb.y) > 1.5) continue;
           this.state = { ...this.state, bomb: { ...bomb, carrier: p.pid } };
           this.emitRound();
@@ -257,9 +269,9 @@ export class BombRoom extends GameRoom {
     return p.alive && p.useHeld && Math.hypot(p.state.x - bomb.x, p.state.z - bomb.z) <= BOMB.defuseRange && Math.abs(p.state.y - bomb.y) < 2;
   }
 
-/** Planting or defusing: you stay put (see bombHoldsPlayer). */
+  /** Planting or defusing: you stay put (see bombHoldsPlayer), except planting with the bomb in hand. */
   protected override movementLocked(p: ServerPlayer): boolean {
-    if (this.phase !== 'playing') return false;
+    if (this.phase !== 'playing' || p.held === 'bomb') return false;
     return bombHoldsPlayer(this.state, { pid: p.pid, team: p.info.team, x: p.state.x, y: p.state.y, z: p.state.z, onGround: p.state.onGround, useHeld: p.useHeld }, this.map.bombSites ?? []);
   }
 
@@ -274,6 +286,25 @@ export class BombRoom extends GameRoom {
       void now;
       return;
     }
+  }
+
+  protected override carriesBomb(p: ServerPlayer): boolean {
+    return this.state.bomb.carrier === p.pid && !this.state.bomb.site;
+  }
+
+  /** G with the bomb in hand: it lands a step in front of you (at your feet if a wall is there) for a teammate. */
+  override handleDropBomb(p: ServerPlayer): void {
+    const bomb = this.state.bomb;
+    if (!p.alive || bomb.carrier !== p.pid || p.held !== 'bomb' || bomb.site) return;
+    const ahead = { x: -Math.sin(p.yaw), z: -Math.cos(p.yaw) };
+    const wall = raycastWorld(makeRay({ x: p.state.x, y: p.state.y + 0.5, z: p.state.z }, { x: ahead.x, y: 0, z: ahead.z }), this.world, 1.1, this.world.seeThrough);
+    const step = wall ? 0 : 0.9;
+    const x = p.state.x + ahead.x * step, z = p.state.z + ahead.z * step;
+    p.held = 'gun';
+    this.droppedBy = p.pid;
+    this.dropBlockUntil = this.clock + 1500;
+    this.state = { ...this.state, bomb: { ...bomb, carrier: 0, action: null, x: round(x, 2), y: round(this.floorBelow(x, p.state.y + 0.5, z), 2), z: round(z, 2) } };
+    this.emitRound();
   }
 
   /** The bomb site a player stands on, or null. */

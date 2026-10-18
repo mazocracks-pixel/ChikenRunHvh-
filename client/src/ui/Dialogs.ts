@@ -560,6 +560,7 @@ function controlsTab(rerender: () => void): HTMLElement {
     slider('set-zoom-sens', 'Zoom / scope sensitivity', L.zoomSensitivity, s.zoomSensitivity, 2, (v) => updateSettings({ zoomSensitivity: v }), 'Aiming already slows down with the zoom level; this scales it further.'),
     slider('set-touch-sens', 'Touch look sensitivity (phones & tablets)', L.sensitivity, s.touchSensitivity, 2, (v) => updateSettings({ touchSensitivity: v })),
     checkbox('set-invert', 'Invert vertical look', s.invertY, (v) => updateSettings({ invertY: v })),
+    checkbox('set-invert-scroll', 'Flip the weapon scroll wheel', s.invertScroll, (v) => updateSettings({ invertScroll: v })),
     checkbox('set-jumpscares', 'Jumpscares (developer pranks, zombie deaths)', s.jumpscares, (v) => updateSettings({ jumpscares: v })),
     h(
       'div',
@@ -584,7 +585,7 @@ function controlsTab(rerender: () => void): HTMLElement {
         class: 'secondary',
         onclick: () => {
           const d = defaultSettings();
-          updateSettings({ mouseSensitivity: d.mouseSensitivity, zoomSensitivity: d.zoomSensitivity, touchSensitivity: d.touchSensitivity, invertY: d.invertY, fullscreen: d.fullscreen });
+          updateSettings({ mouseSensitivity: d.mouseSensitivity, zoomSensitivity: d.zoomSensitivity, touchSensitivity: d.touchSensitivity, invertY: d.invertY, invertScroll: d.invertScroll, fullscreen: d.fullscreen });
           rerender();
         },
       },

@@ -870,6 +870,7 @@ export class GameRoom {
     if (slot === p.weaponSlot) return;
     p.weaponSlot = slot as number;
     p.pinned = null;
+    p.held = 'gun';
     p.reloadUntil = 0;
     p.aiming = false;
     p.switchReadyAt = performance.now() + WEAPON_SWITCH_MS;
@@ -900,8 +901,32 @@ export class GameRoom {
   /** Pin pulled on the grenade in hand, or put back (null). Only one you actually carry. */
   handlePin(p: ServerPlayer, raw: unknown): void {
     if (raw === null) p.pinned = null;
-    else if ((raw === 'egg' || raw === 'smoke' || raw === 'flash') && p.alive && this.grenadeCount(p, raw) > 0 && !this.actionsBlocked()) p.pinned = raw;
+    else if ((raw === 'egg' || raw === 'smoke' || raw === 'flash') && p.alive && this.grenadeCount(p, raw) > 0 && !this.actionsBlocked()) {
+      p.pinned = raw;
+      p.held = raw;
+    }
   }
+
+  /**
+   * Taking something in hand (key 4 grenades, key 5 bomb, back to the gun). Only what you have:
+   * a grenade you carry, the bomb if you're its carrier (ChikenBomb); anything else is ignored.
+   */
+  handleHold(p: ServerPlayer, raw: unknown): void {
+    if (!p.alive) return;
+    if (raw === 'gun') p.held = 'gun';
+    else if ((raw === 'egg' || raw === 'smoke' || raw === 'flash') && this.grenadeCount(p, raw) > 0) p.held = raw;
+    else if (raw === 'bomb' && this.carriesBomb(p)) p.held = 'bomb';
+    else return;
+    if (p.pinned && p.pinned !== p.held) p.pinned = null;
+  }
+
+  /** ChikenBomb only: is `p` carrying the bomb? */
+  protected carriesBomb(_p: ServerPlayer): boolean {
+    return false;
+  }
+
+  /** ChikenBomb only (G with the bomb in hand). */
+  handleDropBomb(_p: ServerPlayer): void {}
 
   private grenadeCount(p: ServerPlayer, kind: GrenadeKind): number {
     if (this.mode.training || (kind === 'flash' && p.mods?.infiniteFlashes)) return Infinity;

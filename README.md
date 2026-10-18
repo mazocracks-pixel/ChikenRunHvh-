@@ -320,8 +320,9 @@ or first person (`V`). Synthesized sound effects.
 | Space         | Jump (hold with Bunny hop helper); drift (driving) | Click | Shoot (on foot or driving) |
 | Space in air  | Glide / jetpack outside HvH | V     | First / third person (saved) |
 | Right-click   | Zoom / sniper scope       | R       | Reload                       |
-| 1–4, wheel    | Switch gun                | 5       | Melee weapon                 |
-| F             | Inspect weapon            | G       | Throw explosive egg          |
+| 1 / 2 / 3     | Primary / pistol / knife  | 4       | Grenades (again: next one)   |
+| Mouse wheel   | Next / previous item      | 5       | Bomb (ChikenBomb carrier)    |
+| F             | Inspect weapon            | G       | HE egg; drops the bomb if it is in hand |
 | Q / Z         | Smoke grenade / flashbang | E       | Get in / out of a buggy      |
 | Tab           | Scoreboard                | Shift   | Slow walk (on foot); nitro (driving) |
 | Y / U         | All / team chat           | Esc     | Pause                        |

@@ -6539,3 +6539,10 @@ code {
   white-space: normal;
 }
 .tr-groups .tr-group { margin: 8px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
+
+/* The weapon list (bottom right): fades a few seconds after a switch, the new slot pops. */
+#hud-layer .weapon-slots { transition: opacity 0.5s ease; }
+#hud-layer .weapon-slots.idle { opacity: 0; transition-duration: 1.2s; }
+#hud-layer .weapon-slots > .active { animation: slot-pop 0.22s ease-out; }
+#hud-layer .weapon-slots .slot-count { font-weight: 700; }
+@keyframes slot-pop { from { transform: translateX(-6px) scale(1.06); } to { transform: none; } }

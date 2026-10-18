@@ -286,6 +286,8 @@ export class ViewModel {
   private swingT = -1;
   /** Seconds into an inspect (F), or -1. */
   private inspectT = -1;
+  /** What was in hand last frame (gun, grenade, bomb), to raise the hand when it changes. */
+  private inHand = '';
   /** Seconds since the last shot, while the gun's moving part is cycling, or -1. */
   private actionT = -1;
   /** This shot's case is out already. */
@@ -367,6 +369,12 @@ export class ViewModel {
     }
     const dt = f.dt;
     if (f.weapon !== this.gunId) this.swap(f.weapon);
+    // Taking out a grenade or the bomb (or putting it away) brings the hand up like a weapon switch.
+    const inHand = `${f.weapon}|${f.grenade ?? ''}|${f.bomb ? 1 : 0}`;
+    if (inHand !== this.inHand) {
+      if (this.inHand !== '') this.raise = 0;
+      this.inHand = inHand;
+    }
     this.gun!.group.visible = !f.grenade && !f.bomb;
     // Halfway into a throw the grenade has left the hand.
     const thrown = this.throwT >= THROW_TIME * 0.3;

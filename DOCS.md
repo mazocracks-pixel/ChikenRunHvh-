@@ -3,6 +3,23 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 30 (17 Oct): CS2 weapon slots, scroll wheel, bomb on 5, weapon list
+
+- **Slots:** 1 primary, 2 pistol, 3 knife, 4 grenades (again: the next kind), 5 the bomb, only for its carrier (ChikenBomb, FaceChiken); other keys do nothing (key 5 used to be the knife). README controls table and the F1 guide updated.
+- **Scroll wheel** (`weaponSlots.ts` `slotItems` / `stepSlot`): guns by key, then each grenade you carry, then the bomb, round and round, skipping what you don't have. Settings → "Flip the weapon scroll wheel". Ignored while the buy / Training / zombie shop menu or chat is open, while scoped, and with a pin pulled.
+- **Grenades:** G / Q / the flashbang key still take one out directly; the last one thrown puts your gun back.
+- **Bomb:** key 5 takes the C4 out; hold left click on a site to plant (the same 3 s); off a site: "You must be in a bomb site to plant". Planting with the bomb in hand is called off by moving or jumping; E still plants, holding you still as before. G with the bomb in hand drops it a step ahead for a teammate (the dropper can't take it back for 1.5 s); otherwise G is the egg.
+- **Server:** a new `hold` message says what's in hand and is checked (a grenade you carry, the bomb only if you're its carrier); `dropBomb` only works with the bomb in hand.
+- **HUD:** the bottom-right list shows every slot (each grenade, "x2" for two flashbangs, C4 when carried), highlights the one in hand with a small pop, and fades 3 s after a change. The hand comes up again when a grenade or the bomb is taken out.
+- Checked in the browser on both teams. Tests: 534 (5 new); `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | One BombRoom patch line had the wrong indent, so that file's patch stopped (the other files were already written). | Re-ran only that part. |
+| 2 | The drop cooldown used the real clock; the room runs on its own tick time. | The room's clock. |
+
 # Batch 29 (17 Oct): one map for Zombie Apocalypse and Backrooms
 
 - Both modes now play only on the Graveyard (`maps: ['night']`). Mirage no longer carries the sealed Backrooms and Facility levels, which could be seen standing in the desert next to it; its half-size is 110 (its outermost collision is at x = -104.5) instead of 226.
