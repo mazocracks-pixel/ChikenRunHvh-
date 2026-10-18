@@ -1,6 +1,10 @@
 # HvH v2 balance report (Task 14)
 
-**Result: the balance rule cannot be met by tuning the three tunables. The R40 stop condition applies.**
+**Result (after R41): the balance rule still cannot be met by tuning the three tunables. The stop condition applies again.**
+The sections up to "Noise note" describe the first sweep, before R41. The current state is in
+"Fix round 1 (R41)" at the end.
+
+**Result before R41: the balance rule cannot be met by tuning the three tunables. The R40 stop condition applies.**
 `LATE_CSGO` is unchanged (`hideShotsShift 8`, `defensiveShift 12`, `rechargeDelayTicks 16`). The rest of
 this report gives the evidence. The cause is a non-tunable tickbase mechanic, so a controller ruling is
 needed (see "What would have to change").
@@ -30,7 +34,7 @@ editing `era.ts`. The harness is in `tools/hvh-sweep.ts`, and its header documen
   inverter is a seeded coin flip per round. Spawns are 15 units apart and swap sides every round.
   Spawn protection is off.
 - **Script.** Both players run the same script. They strafe in seeded spells and fire as soon as the
-  rifle's fire interval allows (tracked through the player's own tickbase).
+  rifle's fire interval allows (server ticks since the player's own last shot, R41).
 - **Aimbot.** It sees only what a client can see:
   - the newest lag record's position, duck, eye yaw and pitch, which is the snapshot;
   - the observation feed;
@@ -175,3 +179,112 @@ aggregates show there is no real counter to `fakelag14`. Its best counters are o
 field rate averages 59 cells, giving an SE of about 0.01, so the dominance findings are robust. A
 counter verdict you can trust needs about 400 rounds per cell (SE 0.025). At the measured rate that
 is about 16 minutes for the full grid.
+
+## Fix round 1 (R41)
+
+**Ruling R41.** Bullet 1's weapon fire interval is measured in server ticks since the shooter's last
+shot, not in tickbase. Banking therefore never blocks firing. DT bullet 2 keeps
+`ticksSinceLastShot = action.ticks`. This is implemented in `HvhRoom`, which replaces
+`lastShotTickbase` with `lastShotTick`, and pinned by a new `HvhRoom.test.ts` test. `stepTickbase` and
+the era values are unchanged. The sweep bots' readiness check uses the same server-tick rule.
+
+### Before and after R41 (current tunables 8 / 12 / 16, full grid)
+
+| | Before R41 (60 rounds per cell) | After R41 (400 rounds per cell) |
+| --- | --- | --- |
+| Rounds, mean length | 106,200, 26.8 ticks | 708,000, 15.8 ticks |
+| Runtime | 148 s | 657 s |
+| Field rate max / min | 68.2% / 27.7% | 64.5% / 34.5% |
+| Mean field rate by exploit | none 40.0, dt 42.7, hs 38.5, fakelag14 **66.9**, defensive **61.9** | none 46.2, dt 47.4, hs 46.1, fakelag14 53.0, defensive **57.3** |
+| Mean field rate by base | backward 53.4, left 48.0, right 47.9, spin 50.7 | backward 54.2, left 47.4, right 47.4, spin 51.0 |
+| Mean field rate by jitter | 0: 47.2, 30: 50.9, 45: 51.9 | 0: 46.2, 30: 51.2, 45: 52.5 |
+| Dominant | 22 (12 fakelag14 + 10 defensive) | 10 (all defensive) |
+| Uncountered | none (noise at 60 rounds per cell) | `backward/j0/defensive` (best counter 0.495), `backward/j30/defensive` (0.545) |
+| `checkBalance` ok | false | false |
+
+Exploit against exploit after R41 at 8 / 12 / 16, as the row's mean win rate:
+
+|  | none | dt | hs | fakelag14 | defensive |
+| --- | --- | --- | --- | --- | --- |
+| none | 50.0 | 48.6 | 50.2 | 43.5 | 38.8 |
+| dt | 51.4 | 50.0 | 51.3 | 45.4 | 39.0 |
+| hs | 49.8 | 48.7 | 50.0 | 43.5 | 38.9 |
+| fakelag14 | 56.5 | 54.6 | 56.5 | 50.0 | 47.2 |
+| defensive | 61.2 | 61.0 | 61.1 | 52.8 | 50.0 |
+
+R41 removed the fakelag dominance: fakelag14 now averages 53.0%, and no fakelag config is dominant.
+It also halved round length, because every player now fires on interval. Quick sweep after R41 at
+8 / 12 / 16 (100 rounds per cell, 4.7 s): ok false. Dominant: `backward/j0/defensive` and
+`spin/j45/defensive`. Uncountered: `backward/j0/defensive`.
+
+### Tuning after R41
+
+**Quick grid, 100 rounds per cell, 82 combinations:**
+
+- `hideShotsShift` ∈ {6, 8}
+- `defensiveShift` ∈ {6..14}
+- `rechargeDelayTicks` ∈ {8, 12, 16, 24, 32, 48, 64}
+
+No combination is ok.
+
+- `hideShotsShift` changes nothing measurable. HS stays at 45–49%.
+- `rechargeDelayTicks` matters little. Rounds are now about 16 ticks, so a defensive player usually
+  shifts once per life.
+- `defensiveShift` is the only lever. The defensive mean is 65–70% at 6–7, about 56% at 8–9, 60–62%
+  at 10–12, about 53% at 13 and about 52% at 14. The best quick setting, 14 / 32, still has 1
+  dominant and 2 uncountered configs.
+
+**Full grid, 100 rounds per cell, `hideShotsShift 8`:**
+
+| `defensiveShift` / `rechargeDelayTicks` | Max field rate | Dominant |
+| --- | --- | --- |
+| 12 / 16 | 64.3% | 10 |
+| 12 / 32 | 63.8% | 10 |
+| 13 / 16 | 60.0% | 7 |
+| 13 / 32 | 59.6% | 5 |
+| 14 / 16 | 58.6% | 4 |
+| 14 / 32 | 58.0% | 4 |
+
+**Final full run of the best candidate (8 / 14 / 32, 400 rounds per cell, 708,000 rounds, 635 s): ok false.**
+
+- Dominant: `backward/j0/defensive` 58.3%, `backward/j45/defensive` 56.8%,
+  `backward/j30/defensive` 56.7% and `left/j45/defensive` 55.6%.
+- Uncountered (best counter in brackets): `backward/j0/none` (0.547), `backward/j0/defensive` (0.518),
+  `backward/j30/none` (0.545), `backward/j45/defensive` (0.527) and `right/j45/defensive` (0.540).
+- Mean field rate by exploit: none 47.7, dt 48.8, hs 47.6, fakelag14 54.1, defensive 51.8.
+- The base and jitter spread is unchanged: backward 54.2, left and right 47.5, j0 46.3.
+
+The tunables were **not changed**. Because the rule is still not met, R41 point 4 applies. The
+candidate is recorded here for the controller. `defensiveShift 14` is inside the 11–14 range cited
+for cheats, but `rechargeDelayTicks 32` is unsourced. It would require updating the pinned tests:
+`era.test.ts`, the tickbase and recharge tests, and the client PredictedTickbase and Indicators
+tests.
+
+### Remaining evidence: what blocks the rule after R41
+
+1. **AA geometry favours the backward base, and this is not tunable.**
+   - Backward is +7 points over left or right on every exploit, with the same values before and after
+     tuning.
+   - Static left and right at jitter 0 sit at 34–36% field rate.
+   - Every remaining dominant and uncountered config is backward-based, or a 45-degree jitter
+     defensive.
+   - The cause is the head hitbox position under desync (`buildHvhMatrix`'s head forward offset
+     with `maxDesyncDeg 58`). With a side base, both desync sides put the head on the same side of
+     the line of sight. With backward, the two sides split it, so a wrong resolver guess misses.
+     None of the three tunables touches this.
+2. **The counter half needs a non-transitive matrix.** With reliable samples (400 rounds per cell,
+   SE about 0.025), the strongest configs have no opponent at ≥ 0.55. The matrix is close to
+   transitive: AA strength stacks with exploit strength, and no exploit beats defensive or fakelag
+   while losing to the weaker configs. The tunables only scale defensive's strength. They cannot
+   create a counter cycle.
+3. **DT and HS barely engage, partly a mechanic.** After R41, rounds last about 16 ticks. Every life
+   spawns with an empty bank (`EMPTY_TICKBASE`), and a 14-tick DT charge rarely completes before the
+   duel ends. 46% of DT requests and 45% of HS requests are "not charged". This is a non-tunable spawn
+   rule, and `doubleTapShift 14` is fixed.
+
+Possible next rulings, for the controller:
+
+- spawn with a charged bank;
+- make the AA head geometry (or the aimbot model) base-neutral;
+- accept the "counter" half as unattainable for a transitive design and keep only the dominance half;
+- apply the 14 / 32 candidate as a partial improvement.
