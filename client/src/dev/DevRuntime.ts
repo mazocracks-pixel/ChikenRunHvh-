@@ -98,7 +98,7 @@ export class DevRuntime implements DevHooks {
   private get active(): boolean { return this.dev.active && this.session?.mode.id === 'hvh'; }
   private get rageTiming(): boolean { return this.policy.rage.aim.enabled; }
   private get playing(): boolean { return this.active && this.dev.input.active && !this.dev.menuOpen && this.session!.local.alive && !this.session!.local.car; }
-  attach(session: GameSession): void { this.session = session; this.debug3d = new DevDebug3D(session, this.coreResolver, () => this.coreTarget); this.reset(); this.dev.sessionStarted(); }
+  attach(session: GameSession): void { this.session = session; this.debug3d = new DevDebug3D(session, this.coreResolver, () => this.coreTarget, this.dev.hvhDebugFeed); this.reset(); this.dev.sessionStarted(); }
   detach(session: GameSession): void {
     if (this.session !== session) return;
     session.setSkeetVisuals(null);

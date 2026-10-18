@@ -203,6 +203,8 @@ export class HvhRoom extends GameRoom {
   private readonly v2Players = new Map<number, HvhPlayerV2>();
   private readonly verdictListeners = new Set<(v: ShotVerdict) => void>();
   private tracer: WorldTracer | null = null;
+  /** Dev overlay viewers (pid -> still-authorized check, re-evaluated every tick). */
+  private readonly debugViewers = new Map<number, () => boolean>();
 
   constructor(io: GameServer, options: RoomOptions, hooks: RoomHooks = {}) {
     super(io, options, hooks);
@@ -223,6 +225,37 @@ export class HvhRoom extends GameRoom {
   v2State(pid: number): Readonly<HvhPlayerV2> | undefined {
     const p = this.players.get(pid);
     return this.v2 && p ? this.stateOf(p) : undefined;
+  }
+
+  /**
+   * Turns the authoritative debug feed (hvhDebug) on or off for a developer. `authorized` is the
+   * caller's live DevAccess check; it is re-run every tick, and the feed only ever flows in
+   * private v2 rooms. Pass null to stop.
+   */
+  setDebugViewer(p: ServerPlayer, authorized: (() => boolean) | null): void {
+    if (authorized) this.debugViewers.set(p.pid, authorized);
+    else this.debugViewers.delete(p.pid);
+  }
+
+  /** One hvhDebug message per other player per tick, to each authorized viewer. Pure reads: peekResolve, never resolve. */
+  private sendDebugFeed(): void {
+    if (this.debugViewers.size === 0 || !this.info.private) return;
+    for (const [pid, authorized] of this.debugViewers) {
+      const viewer = this.players.get(pid);
+      if (!viewer?.socket) continue;
+      if (!authorized()) { this.debugViewers.delete(pid); continue; }
+      const memory = this.stateOf(viewer).resolver;
+      for (const target of this.players.values()) {
+        if (target === viewer) continue;
+        const t = this.stateOf(target);
+        viewer.socket.emit('hvhDebug', {
+          playerId: target.pid,
+          realPose: { ...t.pose },
+          records: t.history.records().map((r) => ({ ...r })),
+          resolver: peekResolve(memory, String(target.pid), t.observations, this.hvhTick),
+        });
+      }
+    }
   }
 
   queuedCommands(pid: number): number {
@@ -324,6 +357,7 @@ export class HvhRoom extends GameRoom {
       const s = this.stateOf(p);
       if (s.executed > 0) p.socket?.emit('hvhState', hvhStateEvent(s.tickbase, this.era, p.lastSeq, this.hvhTick));
     }
+    this.sendDebugFeed();
   }
 
   protected override simulatePlayer(p: ServerPlayer, now: number): void {
@@ -709,6 +743,7 @@ export class HvhRoom extends GameRoom {
 
   protected override onPlayerLeave(player: ServerPlayer): void {
     super.onPlayerLeave(player);
+    this.debugViewers.delete(player.pid);
     this.v2Players.delete(player.pid);
   }
 }

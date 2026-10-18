@@ -7,6 +7,7 @@ import { clearMigrationNotice, defaultConfig, getPath, loadConfigsMigrated, load
 import { HVH_PANELS } from './panels';
 import { NativeMenu } from './skeet/NativeMenu';
 import { DevRuntime } from './DevRuntime';
+import type { HvhDebugFeed } from './HvhAuthDebug';
 import { showPasskeyPrompt } from './passkey';
 import './dev.css';
 
@@ -182,6 +183,18 @@ export class Dev {
     window.clearTimeout(this.syncTimer);
     this.syncTimer = window.setTimeout(() => this.syncNow(), MODS_SYNC_MS);
   }
+
+  /** Feed for the HvH v2 authoritative overlay: the server only sends it to authorized devs in private rooms. */
+  readonly hvhDebugFeed: HvhDebugFeed = {
+    subscribe: (handler) => {
+      this.socket.on('hvhDebug', handler);
+      return () => { this.socket.off('hvhDebug', handler); };
+    },
+    request: (on) => {
+      if (!this.socket.connected) return;
+      this.socket.timeout(REQUEST_TIMEOUT_MS).emitWithAck('devHvhDebug', on).catch(() => undefined);
+    },
+  };
 
   /** Sends the gameplay modifiers to the server; prediction uses whatever it confirms. */
   syncNow(): void {

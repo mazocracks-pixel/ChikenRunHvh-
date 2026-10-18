@@ -5,6 +5,8 @@ import type { DevAction, DevMods, DevResult, DevStatus, JumpscareStyle } from '.
 import type { UpgradeLevels } from './upgrades';
 import type { HvhLoadout } from './hvh';
 import type { EraTable } from './hvh/v2/era';
+import type { PoseState, Side } from './hvh/v2/pose';
+import type { LagRecord } from './hvh/v2/records';
 import type { ShotVerdict } from './hvh/v2/shot';
 import type { CommandIntent, TickbaseState } from './hvh/v2/tickbase';
 import type { Appearance } from './items';
@@ -635,6 +637,8 @@ export interface ClientToServerEvents {
   devMods: (mods: Partial<DevMods>, ack: (status: DevStatus) => void) => void;
   hvhReady: (panel: import('./hvh').HvhPanelId, ack: (result: DevResult) => void) => void;
   devHvh: (loadout: HvhLoadout, ack: (status: DevStatus) => void) => void;
+  /** HvH v2 authoritative debug overlay on/off (developer-authorized, private rooms only). */
+  devHvhDebug: (on: boolean, ack: (res: DevResult) => void) => void;
   devAction: (action: DevAction, ack: (res: DevResult) => void) => void;
   /** Round-trip probe; the server just calls `ack` with its clock. */
   latency: (ack: (serverTime: number) => void) => void;
@@ -655,6 +659,14 @@ export interface ClientToServerEvents {
   partyKick: (userId: number, ack: (res: SocialResult) => void) => void;
 }
 
+/** Dev-only: the server's real pose, lag records and this viewer's resolver guess for one player. */
+export interface HvhDebugEvent {
+  playerId: number;
+  realPose: PoseState;
+  records: LagRecord[];
+  resolver: { side: Side; confidence: number };
+}
+
 export interface ServerToClientEvents {
   snapshot: (snapshot: WorldSnapshot) => void;
   playerJoined: (player: PlayerInfo) => void;
@@ -666,6 +678,8 @@ export interface ServerToClientEvents {
   shotVerdict: (v: ShotVerdict) => void;
   /** HvH v2: the owner's tickbase and command acknowledgement. */
   hvhState: (s: HvhStateEvent) => void;
+  /** HvH v2 dev overlay: the server's truth about one other player (one message per player per tick). */
+  hvhDebug: (e: HvhDebugEvent) => void;
   damage: (e: DamageEvent) => void;
   kill: (e: KillEvent) => void;
   spawn: (e: SpawnEvent) => void;

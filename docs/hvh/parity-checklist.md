@@ -193,7 +193,7 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Target info: hypothesis, confidence, predicted damage/hitchance | DevRuntime `:378-402` | rebuild (Task 10) |
 | Shot log: hit/spread/resolver/obstruction/invalid record/weapon rejection | resolver `ShotReason :6`, rage `auditShot :131` | rebuild (Task 7); text (Task 10) |
 | Shot audit (target, source, reason, damage, headshot) | rage `ShotAudit :129`; protocol `:405` | rebuild (Task 7) |
-| Debug 3D hitbox matrices (hypothesis, actual, selected) | HvhDebug.ts, DevDebug3D.ts | rebuild (Task 12) |
+| Debug 3D hitbox matrices (hypothesis, actual, selected) | HvhDebug.ts, DevDebug3D.ts | done (Task 12) |
 | Indicators (readiness, charging, cooldown) | WeaponController `:172` | replace with tickbase HUD indicators (Task 10) |
 | Inaccuracy overlay, ESP, glow | DevOverlay.ts `:222`, DevDebug3D | keep: not mechanics; preserve unchanged through Task 11 and Task 15 (not in the out-of-scope list) |
 | Killcam | n/a | drop: out of scope (look & feel plan) |
