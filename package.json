@@ -16,7 +16,7 @@
     "developer": "npm run developer -w server --",
     "benchmark:hvh": "tsx server/src/tools/runHvhBenchmark.ts",
     "sweep": "tsx tools/hvh-sweep.ts",
-    "sweep:quick": "tsx tools/hvh-sweep.ts --quick",
+    "sweep:quick": "tsx tools/hvh-sweep.ts --quick --check",
     "anticheat": "npm run anticheat -w server --",
     "reports": "npm run reports -w server --",
     "typecheck": "npm run typecheck --workspaces --if-present",

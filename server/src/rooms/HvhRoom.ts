@@ -113,6 +113,10 @@ import type { ServerPlayer } from './ServerPlayer';
  * - R41: bullet 1's weapon fire interval is measured in server ticks since the shooter's last
  *   shot, not in tickbase, so bank ticks (which do not advance tickbase) never block firing. DT
  *   bullet 2 keeps ticksSinceLastShot = the shifted ticks (slow weapons still cannot double tap).
+ *   Within one server tick, the first shot is accepted once the interval has passed in server
+ *   ticks, however many queued commands (a choke batch, a burst) ran before it in that tick; a
+ *   second bullet-1 shot in the same tick sees 0 ticks since the last shot and is rejected
+ *   'fire interval' (DT bullet 2 is the only accepted same-tick second bullet).
  */
 
 export type HvhEngine = 'legacy' | 'v2';
