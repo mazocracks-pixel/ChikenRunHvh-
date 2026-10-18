@@ -97,7 +97,7 @@ import {
   isPowerUp,
 } from '@game/shared';
 import type { Network } from '../net/Network';
-import { TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
+import { CommandClock, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
 import { LATE_CSGO } from '@game/shared/hvh/v2';
 import { HitLog } from '../ui/hvh/HitLog';
 import { Indicators, indicatorModel, initHvhV2Ui } from '../ui/hvh/Indicators';
@@ -202,6 +202,7 @@ export class GameSession {
   private networkKey = '';
   /** Server tick being displayed (render time), sent as each command's clientTick. */
   private readonly tickClock = new TickClock();
+  private readonly commandClock = new CommandClock();
   /** Seq of the command that carries the latest hitscan shot (the `fire` message references it). */
   private shotCommand: number | null = null;
   readonly room: RoomInfo;
@@ -443,7 +444,9 @@ export class GameSession {
     this.accumulator += dt;
     while (this.accumulator >= SIM_DT) {
       this.accumulator -= SIM_DT;
-      if (!this.local.alive) continue;
+      if (!this.local.alive) { this.commandClock.reset(); continue; }
+      // v2 clock correction: the server is holding a backlog of our commands; send this tick's later.
+      if (this.local.hvhV2 && this.commandClock.skip()) continue;
       let frame = input.sample(this.nextSeq++);
       if (dev) frame = dev.modifyFrame(this, frame);
       if (this.mode.id !== 'hvh') frame = { ...frame, autoHop: false, subtickStrafe: false };
@@ -1667,6 +1670,7 @@ export class GameSession {
     this.on('snapshot', (s) => this.onSnapshot(s));
     this.on('hvhState', (e) => {
       this.tickClock.sample(e.tick, this.serverNow());
+      this.commandClock.observe(e.queued ?? 0);
       this.local.onHvhState(e);
       if (this.local.hvhV2) {
         initHvhV2Ui(

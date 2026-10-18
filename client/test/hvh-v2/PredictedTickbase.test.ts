@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type TickbaseState } from '@game/shared/hvh/v2';
 import { CommandChoker } from '@game/shared';
-import { PredictedTickbase, TickClock, commandIntent, shotReference } from '../../src/hvh/PredictedTickbase';
+import { CommandClock, PredictedTickbase, TickClock, commandIntent, shotReference } from '../../src/hvh/PredictedTickbase';
 
 const era = LATE_CSGO;
 const NONE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false };
@@ -219,5 +219,36 @@ describe('PredictedTickbase', () => {
       if (batch.length) sent.push(batch.map((c) => ({ seq: c.seq, fire: c.intent.fire })));
     }
     assert.deepEqual(sent, [[{ seq: 1, fire: false }, { seq: 2, fire: true }, { seq: 3, fire: false }, { seq: 4, fire: false }]]);
+  });
+});
+
+describe('CommandClock (clock correction)', () => {
+  const run = (clock: CommandClock, ticks: number) => { let skipped = 0; for (let i = 0; i < ticks; i++) if (clock.skip()) skipped++; return skipped; };
+
+  it('never skips while the server queue stays small, even with bursts', () => {
+    const clock = new CommandClock();
+    for (let i = 0; i < 200; i++) clock.observe(i % 15 === 0 ? 14 : i % 2); // fake-lag batches and jitter
+    assert.equal(run(clock, 200), 0);
+  });
+
+  it('skips one command in four while the server has held a backlog for the whole window, and stops once it drains', () => {
+    const clock = new CommandClock();
+    let queued = 31;
+    let skipped = 0;
+    for (let tick = 0; tick < 400; tick++) {
+      clock.observe(queued);
+      if (clock.skip()) { skipped++; queued--; } // a skipped command is one less in the server queue
+    }
+    assert.equal(queued, 1, 'drained to the target');
+    assert.equal(skipped, 30);
+  });
+
+  it('needs a full window of observations first, and reset forgets them', () => {
+    const clock = new CommandClock();
+    for (let i = 0; i < 10; i++) clock.observe(30);
+    assert.equal(run(clock, 8), 0);
+    for (let i = 0; i < 40; i++) clock.observe(30);
+    clock.reset();
+    assert.equal(run(clock, 8), 0);
   });
 });

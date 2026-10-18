@@ -132,6 +132,37 @@ export function shotReference(v2Hitscan: boolean, nextSeq: number, ack: number):
 }
 
 /**
+ * Clock correction (as CS:GO's): the server runs one of our commands per tick on average, so after
+ * any server stall the commands that piled up stay queued for good (input delay, and 'command flood'
+ * drops at the cap). When every hvhState in the last `window` reported more than `target` queued, the
+ * client skips one command in `every` until the backlog is gone. Short bursts (fake-lag batches,
+ * jitter) never trigger it: the window's minimum drops to 0 between them.
+ */
+export class CommandClock {
+  private readonly seen: number[] = [];
+  private sinceSkip = 0;
+  constructor(private readonly target = 1, private readonly window = 32, private readonly every = 4) {}
+  /** One hvhState's `queued`. */
+  observe(queued: number): void {
+    this.seen.push(queued);
+    if (this.seen.length > this.window) this.seen.shift();
+  }
+  /** Asked once per command tick: true means do not produce this tick's command. */
+  skip(): boolean {
+    this.sinceSkip++;
+    if (this.seen.length < this.window || this.sinceSkip < this.every || Math.min(...this.seen) <= this.target) return false;
+    this.sinceSkip = 0;
+    // The skipped command is one less in the queue; count it until the server confirms.
+    this.seen.forEach((q, i) => { this.seen[i] = q - 1; });
+    return true;
+  }
+  reset(): void {
+    this.seen.length = 0;
+    this.sinceSkip = 0;
+  }
+}
+
+/**
  * Maps client server-time (ms) to the server's tick counter, which advances at the era tick rate.
  * Each hvhState gives (tick, arrival time). The state was produced one network delay before it
  * arrived, so the estimate lags the true tick by about that delay (the view tick is slightly

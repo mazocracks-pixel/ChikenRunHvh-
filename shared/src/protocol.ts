@@ -408,14 +408,21 @@ export interface HvhStateEvent {
   tickbase: TickbaseState;
   era: string;
   lastAckSeq: number;
+  /**
+   * The owner's commands still waiting in the server queue after this tick. The server runs one per
+   * tick on average, so a backlog never drains by itself; the client's CommandClock uses this to
+   * send a few less until it does (clock correction).
+   */
+  queued: number;
 }
 
-export function hvhStateEvent(tickbase: TickbaseState, era: EraTable, lastAckSeq: number, tick: number): HvhStateEvent {
+export function hvhStateEvent(tickbase: TickbaseState, era: EraTable, lastAckSeq: number, tick: number, queued = 0): HvhStateEvent {
   return {
     tick,
     tickbase: { ...tickbase, ticksSinceShift: Math.min(tickbase.ticksSinceShift, era.rechargeDelayTicks) },
     era: era.id,
     lastAckSeq,
+    queued,
   };
 }
 

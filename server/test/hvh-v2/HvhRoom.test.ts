@@ -451,6 +451,23 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.ok(state.tickbase.ticksSinceShift <= LATE_CSGO.rechargeDelayTicks, 'ticksSinceShift is capped');
   });
 
+  it('hvhState reports how many of the owner commands are still queued (for client clock correction)', (t) => {
+    const { room, a } = duel();
+    t.after(() => room.close());
+    const sent: { event: string; data: unknown }[] = [];
+    Object.defineProperty(a, 'socket', { value: { emit(event: string, data: unknown) { sent.push({ event, data }); }, to() { return { emit() {} }; }, leave() {}, volatile: { emit() {} } } });
+    a.takeInputToken = () => true; // the legacy input limiter is not under test
+    const now = performance.now();
+    // Spend the burst budget, then five commands arrive in one tick: one runs, four wait.
+    for (let seq = 1; seq <= 16; seq++) room.handleInput(a, command(seq, {}));
+    stepRoom(room, now + TICK_MS);
+    for (let seq = 17; seq <= 21; seq++) room.handleInput(a, command(seq, {}));
+    stepRoom(room, now + 2 * TICK_MS);
+    const state = sent.filter((s) => s.event === 'hvhState').at(-1)?.data as { queued: number; lastAckSeq: number };
+    assert.equal(state.lastAckSeq, 17);
+    assert.equal(state.queued, 4);
+  });
+
   it('legacy flag untouched', (t) => {
     // Same scripted inputs through a plain GameRoom and an HvhRoom on the legacy engine.
     const run = (legacyRoom: GameRoom) => {

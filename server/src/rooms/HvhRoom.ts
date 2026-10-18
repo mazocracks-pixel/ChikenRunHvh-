@@ -368,7 +368,7 @@ export class HvhRoom extends GameRoom {
     this.flushPendingBullets(now);
     for (const p of this.players.values()) {
       const s = this.stateOf(p);
-      if (s.executed > 0) p.socket?.emit('hvhState', hvhStateEvent(s.tickbase, this.era, p.lastSeq, this.hvhTick));
+      if (s.executed > 0) p.socket?.emit('hvhState', hvhStateEvent(s.tickbase, this.era, p.lastSeq, this.hvhTick, s.queue.length));
     }
     this.sendDebugFeed();
   }
