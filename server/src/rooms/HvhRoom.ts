@@ -34,7 +34,9 @@ import {
   RecordHistory,
   collisionWorldTracer,
   createResolverMemory,
+  guessedPose,
   learnFromVerdict,
+  peekResolve,
   poseMatrix,
   processShot,
   publicObservation,
@@ -88,14 +90,16 @@ import type { ServerPlayer } from './ServerPlayer';
  *   or when no body is intersected. Nothing intersected and no hint: no target ('spread').
  * - R26: an accepted fire request is never dropped silently. A pending fire consumed while the
  *   player is dead / preparing / removed, or fired while dead, is 'rejected / actions blocked';
- *   one whose weapon became projectile or melee is 'rejected / wrong weapon'; pending fires
+ *   one whose weapon became projectile or melee, and a command-level intent.fire stripped for a
+ *   projectile or melee weapon (R30), is 'rejected / wrong weapon'; pending fires
  *   cleared by death are 'actions blocked'; overflow beyond MAX_PENDING_FIRES is 'fire flood'.
- *   Silent drops are only malformed packets and stale or duplicate seq. (intent.fire on a
- *   projectile or melee weapon is ignored: those weapons fire through the legacy `fire` message.)
+ *   Silent drops are only malformed packets and stale or duplicate seq. (Projectile and melee
+ *   weapons fire through the legacy `fire` message.)
  * - Snapshots (R28): other viewers get v2 public state: yaw from the last publicObservation (eye
  *   yaw, never bodyYaw), and while choking, the state frozen at the last pushed record. The
  *   legacy fakeLag cache does not apply in v2 rooms.
- * - A hit on a spawn-protected target is 'rejected / spawn protection' and deals no damage.
+ * - A hit on a spawn-protected target is 'rejected / spawn protection' and deals no damage, but
+ *   the shot was fired: ammo, fire interval and the shooter's own spawn shield are spent.
  * - Defensive shift of N ticks at server tick T: markDefensive(T - N) on the player's history,
  *   and records pushed for ticks T .. T + N - 1 are pushed valid:false / 'defensive'.
  * - Projectile and melee weapons are excluded from v2: their `fire` messages take the legacy
@@ -381,7 +385,8 @@ export class HvhRoom extends GameRoom {
       return null;
     }
     if (!hitscan(WEAPONS[p.weapon])) {
-      if (fireReq) this.emitVerdict(p, this.rejected(p, 'wrong weapon'));
+      // R26 / R30: a fire message or a command-level intent.fire stripped here is answered.
+      if (fireReq || intent.fire) this.emitVerdict(p, this.rejected(p, 'wrong weapon'));
       fireReq = null;
       intent = { ...intent, fire: false, doubleTap: false, hideShots: false };
     }
@@ -556,14 +561,17 @@ export class HvhRoom extends GameRoom {
   }
 
   /**
-   * R24: the first enemy body the un-deviated aim ray intersects, nearest along the ray, traced
-   * against each enemy's lag record at the view tick (real pose, crouch scale). `hint` (a client-
-   * named target) counts only when it is that body or when the ray intersects no body.
+   * R24 / R29: the first enemy body the un-deviated aim ray intersects, nearest along the ray,
+   * traced against each enemy's lag record at the view tick (crouch scale), in both the real pose
+   * and the pose this shooter's resolver would guess (peekResolve, pure; guessedPose as in
+   * shot.ts), so a shot through only the fake body still names its target (a resolver miss).
+   * `hint` (a client-named target) counts only when it is that body or when nothing is hit.
    */
   private pickTarget(p: ServerPlayer, origin: Vec3, dir: Vec3, viewTick: number, weaponId: string, hint?: number): number | undefined {
     const def = isWeaponId(weaponId) ? WEAPONS[weaponId] : undefined;
     const range = def ? hvhWeapon(def).range : 0;
     const ray = makeRay(origin, dir);
+    const resolver = this.stateOf(p).resolver;
     let best: { pid: number; t: number } | undefined;
     for (const t of this.players.values()) {
       if (t === p || !t.alive || this.areTeammates(p, t)) continue;
@@ -573,8 +581,11 @@ export class HvhRoom extends GameRoom {
         if (records[i]!.tick <= viewTick) { record = records[i]; break; }
       }
       if (!record) continue;
-      const hit = rayHvhMatrix(ray, poseMatrix(record, record.pose), range);
-      if (hit && (!best || hit.t < best.t)) best = { pid: t.pid, t: hit.t };
+      const side = peekResolve(resolver, String(t.pid), this.stateOf(t).observations, viewTick).side;
+      for (const pose of [record.pose, guessedPose(record.pose, side)]) {
+        const hit = rayHvhMatrix(ray, poseMatrix(record, pose), range);
+        if (hit && (!best || hit.t < best.t)) best = { pid: t.pid, t: hit.t };
+      }
     }
     if (best) return best.pid;
     return hint !== undefined && this.isEnemy(p, hint) ? hint : undefined;
@@ -620,10 +631,8 @@ export class HvhRoom extends GameRoom {
       if (verdict.guessed !== undefined && verdict.targetId !== undefined) {
         learnFromVerdict(s.resolver, verdict.targetId, verdict.guessed, verdict.cause);
       }
-      if (verdict.cause === 'hit' && target && now < target.shieldUntil) {
-        verdict = { shooterId: String(p.pid), targetId: String(target.pid), tick, bullet: n, cause: 'rejected', reason: 'spawn protection' };
-      }
     }
+    // Bookkeeping for every shot that was really fired and traced (spawn-protected hits included).
     if (verdict.cause !== 'rejected') {
       const w = WEAPONS[p.weapon];
       if (shotUsesAmmo(w, p.mods)) p.mags.set(p.weapon, p.mag - 1);
@@ -631,6 +640,9 @@ export class HvhRoom extends GameRoom {
       p.lastFireAt = now;
       p.shieldUntil = 0;
       p.weaponHeat = Math.min(3, p.weaponHeat + 0.25);
+    }
+    if (verdict.cause === 'hit' && target && now < target.shieldUntil) {
+      verdict = { shooterId: String(p.pid), targetId: String(target.pid), tick, bullet: n, cause: 'rejected', reason: 'spawn protection' };
     }
     // R27: the verdict keeps `real` for the shooter too. The plan's hit-log copy ("Missed shot due
     // to resolver (guessed X, real Y)") needs it; the trade-off is that a shooter learns the

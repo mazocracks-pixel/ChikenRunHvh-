@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { SIM_DT, makeRay, normalize, rayHvhMatrix, unpackPlayer, type InputFrame, type Vec3 } from '@game/shared';
-import { LATE_CSGO, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
+import { LATE_CSGO, guessedPose, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
 import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { GameRoom } from '../../src/rooms/GameRoom';
 import { HvhRoom, hvhEngineFrom, type HvhEngine } from '../../src/rooms/HvhRoom';
@@ -97,14 +97,80 @@ describe('HvhRoom v2 tick pipeline', () => {
   it('bank ticks still simulate movement and reach a full bank', (t) => {
     const { room, a } = duel();
     t.after(() => room.close());
+    a.takeInputToken = () => true;
     let now = performance.now();
     for (let seq = 1; seq <= 20; seq++) {
       const z = a.state.z;
       room.handleInput(a, { ...command(seq, {}), forward: 1 });
       stepRoom(room, (now += TICK_MS));
+      assert.equal(a.lastSeq, seq, `command ${seq} executed this tick (no coasting)`);
       assert.ok(a.state.z < z, `command ${seq} moved the player`);
     }
+    assert.equal(a.lastSeq, 20);
     assert.equal(room.tickbaseOf(a.pid)?.bank, LATE_CSGO.doubleTapShift);
+  });
+
+  it('a ray through only the guessed body names that target and is a resolver miss', (t) => {
+    const { room, a, b, verdicts } = duel();
+    t.after(() => room.close());
+    b.hvh.antiAim = { ...b.hvh.antiAim, enabled: true, mode: 'backward', desync: 58, jitter: 0 };
+    const seqs = new Map<number, number>();
+    let now = performance.now();
+    // Inverted desync: the real body is on the right; with no eye offset the resolver guesses left.
+    for (let i = 0; i < 3; i++) {
+      for (const p of [a, b]) {
+        const seq = (seqs.get(p.pid) ?? 0) + 1;
+        seqs.set(p.pid, seq);
+        room.handleInput(p, { ...command(seq, {}), invert: p === b });
+      }
+      stepRoom(room, (now += TICK_MS));
+    }
+    const r = recordOf(room, b.pid);
+    assert.equal(r.pose.realSide, 'right');
+    const guessed = poseMatrix(r, guessedPose(r.pose, 'left'));
+    const real = poseMatrix(r, r.pose);
+    const eye = room.eyeOf(a);
+    const aim = guessed.boxes.map((box) => anglesTo(eye, box.center))
+      .find((x) => rayHvhMatrix(makeRay(eye, x.dir), real, 100) === null && rayHvhMatrix(makeRay(eye, x.dir), guessed, 100) !== null);
+    assert.ok(aim, 'precondition: some guessed hitbox is clear of the real body');
+    room.handleInput(a, { ...command(seqs.get(a.pid)! + 1, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+    room.handleInput(b, { ...command(seqs.get(b.pid)! + 1, {}), invert: true });
+    stepRoom(room, (now += TICK_MS));
+    const shot = verdicts.find((v) => v.shooterId === String(a.pid));
+    assert.deepEqual([shot?.targetId, shot?.cause, shot?.guessed, shot?.real], [String(b.pid), 'resolver', 'left', 'right']);
+  });
+
+  it('a command-level fire with a melee weapon is rejected as wrong weapon', (t) => {
+    const { room, a, verdicts } = duel();
+    t.after(() => room.close());
+    a.info.loadout.push('knife');
+    a.weaponSlot = a.info.loadout.length - 1;
+    room.handleInput(a, command(1, { fire: true }));
+    stepRoom(room, performance.now() + TICK_MS);
+    assert.deepEqual(verdicts.map((v) => [v.cause, v.reason]), [['rejected', 'wrong weapon']]);
+  });
+
+  it('a shot at a spawn-protected target still spends ammo, the fire interval and the own shield', (t) => {
+    const { room, a, b, verdicts } = duel();
+    t.after(() => room.close());
+    place(b, 20, 17);
+    const seqs = new Map<number, number>();
+    let now = performance.now();
+    for (let i = 0; i < 3; i++) idleTick(room, [a, b], seqs, (now += TICK_MS));
+    b.shieldUntil = now + 60_000;
+    a.shieldUntil = now + 60_000;
+    const mag = a.mag;
+    const aim = anglesTo(room.eyeOf(a), boxCentre(room, b.pid, 'chest'));
+    let seq = seqs.get(a.pid)!;
+    room.handleInput(a, { ...command(++seq, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+    stepRoom(room, (now += TICK_MS));
+    room.handleInput(a, { ...command(++seq, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+    stepRoom(room, (now += TICK_MS));
+    const shots = verdicts.filter((v) => v.shooterId === String(a.pid));
+    assert.deepEqual(shots.map((v) => v.reason), ['spawn protection', 'fire interval']);
+    assert.equal(a.mag, mag - 1, 'the protected shot spent one round');
+    assert.equal(a.shieldUntil, 0, 'firing ends the shooter\'s own spawn shield');
+    assert.equal(b.hp, 100);
   });
 
   it('a near enemy beside the line does not steal a head shot on a far enemy', (t) => {
