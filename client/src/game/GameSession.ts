@@ -98,6 +98,9 @@ import {
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
+import { LATE_CSGO } from '@game/shared/hvh/v2';
+import { HitLog } from '../ui/hvh/HitLog';
+import { Indicators, indicatorModel } from '../ui/hvh/Indicators';
 import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
@@ -285,6 +288,8 @@ export class GameSession {
   private readonly lastViewPos = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
   private readonly camDir = new THREE.Vector3();
+  private readonly hitLog: HitLog;
+  private readonly indicators: Indicators;
 
   constructor(ctx: SessionContext) {
     this.ctx = ctx;
@@ -377,6 +382,10 @@ export class GameSession {
       if (join.zombie?.hunt) this.hunt.setState(join.zombie.hunt);
       if (join.zombie) this.night.setBloodMoon(join.zombie.state.bloodMoon);
     }
+    this.hitLog = new HitLog((id) => this.infos.get(Number(id))?.name ?? id, ctx.hud.root);
+    this.hitLog.setVisible(false);
+    this.indicators = new Indicators(ctx.hud.root);
+    this.indicators.setVisible(false);
     ctx.input.yaw = me.yaw;
     ctx.input.pitch = -0.15;
 
@@ -680,6 +689,21 @@ export class GameSession {
     hud.setScoreboardVisible(input.scoreboardHeld && this.match.phase !== 'ended');
     if (input.scoreboardHeld) hud.renderScoreboard(this.scoreLines(), this.teamScores, net.ping);
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
+    if (this.local.hvhV2) {
+      this.hitLog.setVisible(true);
+      this.hitLog.update();
+      this.indicators.setVisible(true);
+      this.indicators.render(
+        indicatorModel(
+          this.local.tickbase.state,
+          {
+            dt: this.weapons.hvh.exploit === 'doubleTap',
+            hs: this.weapons.hvh.exploit === 'hideShots',
+          },
+          LATE_CSGO,
+        ),
+      );
+    }
   }
 
   /** How fast you are going, for weapon spread (a moving buggy shakes your aim like walking). */
@@ -1641,6 +1665,7 @@ export class GameSession {
   private bindNetwork(): void {
     this.on('snapshot', (s) => this.onSnapshot(s));
     this.on('hvhState', (e) => { this.tickClock.sample(e.tick, this.serverNow()); this.local.onHvhState(e); });
+    this.on('shotVerdict', (v) => { if (this.local.hvhV2) this.hitLog.push(v); });
     this.on('playerJoined', (info) => this.onPlayerInfo(info));
     this.on('playerUpdated', (info) => this.onPlayerInfo(info));
     this.on('round', (r) => this.onRound(r));
@@ -2066,6 +2091,8 @@ export class GameSession {
     this.blocks?.dispose();
     this.flags?.dispose();
     this.effects.dispose();
+    this.hitLog.dispose();
+    this.indicators.dispose();
     this.ctx.hud.setVisible(false);
     this.ctx.hud.hideDeath();
   }
