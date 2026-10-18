@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { Observation, Side } from '../../src/hvh/v2/pose';
+import { LATE_CSGO } from '../../src/hvh/v2/era';
+import {
+  type AntiAimConfig,
+  type Motion,
+  type Observation,
+  type PoseState,
+  type Side,
+  INITIAL_POSE,
+  publicObservation,
+  stepPose,
+} from '../../src/hvh/v2/pose';
 import {
   BREAK_CONFIDENCE,
   DEFAULT_SIDE,
@@ -10,6 +20,7 @@ import {
   type VerdictCause,
   createResolverMemory,
   learnFromVerdict,
+  peekResolve,
   resolve,
 } from '../../src/hvh/v2/resolver';
 
@@ -185,4 +196,70 @@ describe('Resolver (v2)', () => {
     };
     assert.deepEqual(run(), run());
   });
+  it('peekResolve is pure and agrees with resolve', () => {
+    const mem = createResolverMemory();
+    const jitter = seq([30, -30, 30, -30]);
+    resolve(mem, 'a', jitter, 5);
+    learnFromVerdict(mem, 'a', resolve(mem, 'a', jitter, 5).side, 'resolver');
+    const cases: Array<[string, Observation[], number]> = [
+      ['a', jitter, 5],
+      ['a', jitter, 6],
+      ['a', seq([0, 0]), 2], // different pattern: resolve would clear the flip, peek must not
+      ['a', [...jitter, ob(5, -30), ob(6, -30)], 7],
+      ['unseen', jitter, 5],
+    ];
+    for (const [id, obs, at] of cases) {
+      const before = structuredClone(mem);
+      const p = peekResolve(mem, id, obs, at);
+      assert.deepStrictEqual(mem, before, `peek mutated memory for ${id}@${at}`);
+      assert.equal(mem.byTarget.has('unseen'), false, 'peek allocates no map entry');
+      const copy = structuredClone(mem);
+      assert.deepEqual(resolve(copy, id, obs, at), p, `peek disagrees with resolve for ${id}@${at}`);
+    }
+  });
+
+  it('stale or duplicate resolver verdicts are ignored', () => {
+    const mem = createResolverMemory();
+    const obs = seq([0, 0]);
+    assert.equal(resolve(mem, 'a', obs, 2).side, 'left');
+    learnFromVerdict(mem, 'a', 'right', 'resolver'); // stale: we did not guess right
+    assert.equal(resolve(mem, 'a', obs, 2).side, 'left');
+    learnFromVerdict(mem, 'a', 'left', 'resolver');
+    learnFromVerdict(mem, 'a', 'left', 'resolver'); // duplicate for the same guess
+    assert.equal(resolve(mem, 'a', obs, 2).side, 'right');
+    learnFromVerdict(createResolverMemory(), 'never', 'left', 'resolver'); // no throw on unseen target
+  });
+
+  for (const inverted of [false, true]) {
+    for (const base of ['backward', 'left', 'spin'] as const) {
+      it(`end-to-end vs stepPose (R18): jitter 30, desync 58, inverted=${inverted}, base=${base}`, () => {
+        const aa: AntiAimConfig = { base, jitterDeg: 30, desyncDeg: 58, inverted };
+        const motion: Motion = { speedFraction: 0, duck: 0, onGround: true };
+        const mem = createResolverMemory();
+        const obs: Observation[] = [];
+        let pose: PoseState = INITIAL_POSE;
+        let misses = 0;
+        let firstMissTick = -1;
+        for (let t = 1; t <= 200; t++) {
+          pose = stepPose(pose, 0.3, aa, motion, t, LATE_CSGO);
+          // Prediction one tick ahead from the past feed must also match once learned.
+          if (misses > 0 || !inverted) {
+            if (t > 4) {
+              assert.equal(peekResolve(mem, 'e', obs, t).side, pose.realSide, `peek-ahead at tick ${t}`);
+            }
+          }
+          obs.push(publicObservation(pose, motion, t));
+          const r = resolve(mem, 'e', obs, t);
+          if (r.side !== pose.realSide) {
+            misses++;
+            if (firstMissTick < 0) firstMissTick = t;
+            learnFromVerdict(mem, 'e', r.side, 'resolver');
+          }
+        }
+        assert.ok(misses <= 1, `misses ${misses} (first at tick ${firstMissTick})`);
+        assert.equal(misses, inverted ? 1 : 0);
+        assert.ok(resolve(mem, 'e', obs, 200).confidence >= 0.6);
+      });
+    }
+  }
 });

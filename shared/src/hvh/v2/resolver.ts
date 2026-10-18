@@ -19,14 +19,27 @@ import type { Observation, Side } from './pose';
  * - Otherwise: the last observation's offset suggests the side at START_CONFIDENCE, or, if it is
  *   0 / there are no observations, DEFAULT_SIDE at NO_INFO_CONFIDENCE.
  *
- * Learning: only a 'resolver' miss changes memory. It toggles a per-target flip that inverts the
- * guess. The flip is bound to the observed pattern (signature: jitter / break / pos / neg / none)
- * seen by the most recent resolve for that target, and persists until the next resolver miss
- * (toggles again) or until resolve sees a different pattern (the flip is cleared). All other
- * causes leave memory untouched. Targets have independent memories.
+ * Assumptions (checked end-to-end against stepPose under ruling R18 in the test):
+ * - One observation per tick. The jitter phase at atTick is extrapolated from tick-gap parity,
+ *   so choked or skipped ticks in the feed would mispredict the phase.
+ * - eyeOffsetDeg is the jitter-only offset (no base yaw, no spin). Under R18 the real side is
+ *   tied to the jitter phase (inverted=false: phase 1 / +offset -> 'right', phase 0 / -offset ->
+ *   'left'), which is exactly the eye-offset rule above; inverted configs are the flipped mapping.
  *
- * resolve() only records the current pattern signature (and clears a stale flip); calling it
- * repeatedly with the same inputs returns the same result. No randomness, no clock.
+ * Learning: only a 'resolver' miss changes memory. It toggles a per-target flip that inverts the
+ * guess. The flip is bound to the observed pattern class seen by the most recent resolve: 'offset'
+ * (any informative offset: static, jitter or break, which all use the same offset-sign mapping) or
+ * 'none' (no informative offset; default side). It persists until the next resolver miss (toggles
+ * again) or until resolve sees the other class (the flip is cleared). A resolver verdict counts
+ * only if `guessed` equals the side the latest resolve returned for that target and that guess has
+ * not been judged yet, so stale or duplicate verdicts cannot undo a flip. All other causes leave
+ * memory untouched. Targets have independent memories.
+ *
+ * Replay rule: only the sim's per-shot call sequence may drive a ResolverMemory through
+ * resolve / learnFromVerdict (resolve records the pattern class and last guess, and may clear a
+ * stale flip). Displays such as the debug overlay must use peekResolve, which is pure: it never
+ * mutates memory or allocates map entries, so extra display calls cannot make a server run and a
+ * replay diverge. No randomness, no clock.
  */
 
 export type VerdictCause =
@@ -38,7 +51,7 @@ export type VerdictCause =
   | 'tickbase'
   | 'rejected';
 
-type Signature = 'jitter' | 'break' | 'pos' | 'neg' | 'none';
+type Signature = 'offset' | 'none';
 
 interface TargetMemory {
   flipped: boolean;
@@ -46,6 +59,8 @@ interface TargetMemory {
   flipSignature: Signature | null;
   /** Pattern seen by the latest resolve. */
   lastSignature: Signature | null;
+  /** Side returned by the latest resolve, until a verdict consumes it. */
+  lastSide: Side | null;
 }
 
 export interface ResolverMemory {
@@ -70,7 +85,7 @@ export function createResolverMemory(): ResolverMemory {
 function target(mem: ResolverMemory, id: string): TargetMemory {
   let t = mem.byTarget.get(id);
   if (!t) {
-    t = { flipped: false, flipSignature: null, lastSignature: null };
+    t = { flipped: false, flipSignature: null, lastSignature: null, lastSide: null };
     mem.byTarget.set(id, t);
   }
   return t;
@@ -122,18 +137,34 @@ function analyse(obs: readonly Observation[], atTick: number): Analysis {
       JITTER_MAX_CONFIDENCE,
       JITTER_BASE_CONFIDENCE + JITTER_CONFIDENCE_STEP * (trailing - JITTER_MIN_RUN),
     );
-    return { signature: 'jitter', side: suggested(predicted), confidence };
+    return { signature: 'offset', side: suggested(predicted), confidence };
   }
 
   for (let i = n - 2; i >= 0 && n - 1 - i < BREAK_WINDOW; i--) {
     if (run[i]! >= JITTER_MIN_RUN) {
       const side = last.s !== 0 ? suggested(last.s) : DEFAULT_SIDE;
-      return { signature: 'break', side, confidence: BREAK_CONFIDENCE };
+      return { signature: last.s !== 0 ? 'offset' : 'none', side, confidence: BREAK_CONFIDENCE };
     }
   }
 
   if (last.s === 0) return { signature: 'none', side: DEFAULT_SIDE, confidence: NO_INFO_CONFIDENCE };
-  return { signature: last.s > 0 ? 'pos' : 'neg', side: suggested(last.s), confidence: START_CONFIDENCE };
+  return { signature: 'offset', side: suggested(last.s), confidence: START_CONFIDENCE };
+}
+
+function effectiveFlip(t: TargetMemory | undefined, a: Analysis): boolean {
+  return t !== undefined && t.flipped && t.flipSignature === a.signature;
+}
+
+/** Pure: same result as resolve() on the same memory and inputs, without touching memory. */
+export function peekResolve(
+  mem: ResolverMemory,
+  targetId: string,
+  obs: readonly Observation[],
+  atTick: number,
+): { side: Side; confidence: number } {
+  const a = analyse(obs, atTick);
+  const side = effectiveFlip(mem.byTarget.get(targetId), a) ? opposite(a.side) : a.side;
+  return { side, confidence: a.confidence };
 }
 
 export function resolve(
@@ -144,12 +175,14 @@ export function resolve(
 ): { side: Side; confidence: number } {
   const t = target(mem, targetId);
   const a = analyse(obs, atTick);
-  if (t.flipped && t.flipSignature !== a.signature) {
+  if (t.flipped && !effectiveFlip(t, a)) {
     t.flipped = false;
     t.flipSignature = null;
   }
   t.lastSignature = a.signature;
-  return { side: t.flipped ? opposite(a.side) : a.side, confidence: a.confidence };
+  const side = t.flipped ? opposite(a.side) : a.side;
+  t.lastSide = side;
+  return { side, confidence: a.confidence };
 }
 
 export function learnFromVerdict(
@@ -159,7 +192,9 @@ export function learnFromVerdict(
   cause: VerdictCause,
 ): void {
   if (cause !== 'resolver' || guessed === 'center') return;
-  const t = target(mem, targetId);
+  const t = mem.byTarget.get(targetId);
+  if (!t || t.lastSide !== guessed) return;
+  t.lastSide = null;
   t.flipped = !t.flipped;
   t.flipSignature = t.flipped ? (t.lastSignature ?? 'none') : null;
 }
