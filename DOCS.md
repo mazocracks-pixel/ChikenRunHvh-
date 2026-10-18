@@ -3,6 +3,20 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 33 (18 Oct): the PLAY tab works
+
+- **Cause:** nothing covered the nav bar. Every tab (on the lobby and in the shop) was the top element under the mouse and got its clicks. On the lobby, PLAY's click only closed the News page, so on the lobby itself it did nothing you could see.
+- **PLAY tab:** from Inventory, Loadout or Store it goes back to the lobby (as before). On the lobby it now flashes the play panel with a short yellow glow and focuses the big PLAY button (Enter then starts). The active tab's underline is yellow.
+- **Mode tab:** the lobby opens on the selected mode's tab (Casual / Competitive / Fun) with its card highlighted; before, whichever tab you looked at last stayed open (Fun with ChikenBomb selected).
+- Checked in the browser: every tab from the lobby, News, Inventory, Loadout and Store; the glow, focus and underline; a drag on the scene turns the chicken, a drag on the play panel doesn't; PLAY in the panel starts a match. Tests: 536; `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | Batch 32 wired the PLAY tab to "close the News page", which does nothing on the lobby itself. | It points at the play panel. |
+| 2 | Batch 32 only picked the mode's tab once, when the menu was built. | Every time the lobby opens. |
+
 # Batch 32 (18 Oct): a polished main menu
 
 ## Plan

@@ -99,6 +99,7 @@ export class MainMenu {
   private readonly playButton: HTMLButtonElement;
   private readonly playLabel = h('span', null, 'Play');
   private readonly cancelButton: HTMLButtonElement;
+  private readonly playPanel: HTMLElement;
   // Friends and party.
   private readonly friendsBadge = h('span', { class: 'badge', hidden: true });
   private readonly friendList = h('div', { class: 'cs-friend-list' });
@@ -170,7 +171,7 @@ export class MainMenu {
     this.playButton.append(icon('play'), this.playLabel);
     // Cancel stays usable while everything else is busy.
     this.cancelButton = h('button', { type: 'button', class: 'cs-cancel', hidden: true, onclick: () => this.actions.cancelSearch() }, 'Cancel');
-    const playPanel = h(
+    const playPanel = (this.playPanel = h(
       'section',
       { class: 'cs-play', 'aria-label': 'Play' },
       this.status,
@@ -187,7 +188,10 @@ export class MainMenu {
         tool('plus', 'Create room', actions.createRoom, 'Create room'),
         tool('key', 'Join with code', actions.joinCode, 'Join with code'),
       ),
-    );
+    ));
+    playPanel.addEventListener('animationend', (e) => {
+      if (e.animationName === 'cs-glow') playPanel.classList.remove('glow');
+    });
 
     // ---- Top bar.
     const logo = button('', () => this.home(), 'logo', 'ChikenRunHvh · home');
@@ -196,7 +200,7 @@ export class MainMenu {
     for (const [id, label, run] of [
       ['inventory', 'Inventory', () => actions.customize('inventory')],
       ['loadout', 'Loadout', () => actions.customize('loadout')],
-      ['play', 'Play', () => this.home()],
+      ['play', 'Play', () => this.showPlay()],
       ['store', 'Store', () => actions.customize('store')],
       ['news', 'News', () => this.openNews(true)],
     ] as const) {
@@ -331,6 +335,16 @@ export class MainMenu {
   private home(): void {
     this.openNews(false);
     this.root.classList.remove('scene-only');
+  }
+
+  /** The PLAY tab: back to the lobby, then point at the play panel (a short glow, focus on PLAY). */
+  private showPlay(): void {
+    this.home();
+    this.playPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    this.playPanel.classList.remove('glow');
+    void this.playPanel.offsetWidth; // restart the animation
+    this.playPanel.classList.add('glow');
+    this.playButton.focus({ preventScroll: true });
   }
 
   private openNews(open: boolean): void {
@@ -580,6 +594,8 @@ export class MainMenu {
       return;
     }
     this.openNews(false);
+    // Open on the selected mode's tab, with its card highlighted (not whichever tab was open last).
+    this.showMode(this.selected);
     // While the title screen is up: today's challenges and the player count, kept fresh.
     this.refreshLive();
     this.onlineTimer = window.setInterval(() => this.refreshLive(), ONLINE_EVERY_MS);

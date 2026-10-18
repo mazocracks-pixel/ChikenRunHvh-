@@ -5940,7 +5940,7 @@ code {
 .cs-nav { display: flex; justify-content: center; align-self: stretch; }
 .cs-nav button { align-self: stretch; padding-inline: clamp(12px, 1.7vw, 32px); font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; border-bottom: 2px solid transparent; }
 .cs-nav button + button { border-left: 1px solid rgba(255, 255, 255, 0.08); }
-.cs-nav button.active { color: #fff; border-bottom-color: var(--accent); background: rgba(139, 205, 221, 0.08); }
+.cs-nav button.active { color: #fff; border-bottom-color: var(--play); background: rgba(242, 194, 48, 0.08); }
 .cs-top-right { justify-self: end; display: flex; align-items: center; gap: 4px; padding-right: 10px; }
 .cs-top-right .coins { display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; color: var(--gold); font-weight: 700; font-size: 14px; }
 .cs-lobby .cs-me { display: flex; align-items: center; gap: 8px; padding: 4px 10px; text-align: left; }
@@ -6126,6 +6126,13 @@ code {
 .cs-play .status:empty { display: none; }
 .cs-play .status.error { color: #ffb4a7; border-left-color: #e0705f; }
 .cs-lobby .cs-narrow-only { display: none; }
+
+/* The PLAY tab points here: a short yellow glow. */
+.cs-lobby:not([hidden]) > .cs-play.glow { animation: cs-glow 1.3s ease; }
+@keyframes cs-glow {
+  0%, 100% { box-shadow: none; border-color: var(--panel-border); }
+  25% { box-shadow: 0 0 0 2px var(--play), 0 0 32px rgba(242, 194, 48, 0.55); border-color: var(--play); }
+}
 
 /* Footer: players online, account (save progress), privacy, hide the menu. */
 .cs-bottom { position: absolute; inset: auto 0 0 0; display: flex; align-items: center; gap: 14px; height: var(--foot); padding-inline: 16px; background: rgba(22, 25, 27, 0.6); font-size: 12px; }
