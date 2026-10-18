@@ -5,7 +5,7 @@ import { hvhSpread } from './weapons';
 import { CSGO_HITGROUP } from './v2/arsenal';
 import { makeRay, rayAabb, raycastWorld, type Ray } from '../raycast';
 import type { Vec3 } from '../math';
-import { rayHvhMatrix, type HvhHit, type HvhMatrix } from './geometry';
+import { rayHvhMatrix, type HvhHit, type HvhHitgroup, type HvhMatrix } from './geometry';
 
 export interface BallisticTrace { wallDistance: number; passages: { entry: number; exit: number; loss: number }[] }
 /** Thickness-based penetration shared by server execution and every targeting prediction. */
@@ -48,9 +48,12 @@ export function traceHvhMatrices(ray: Ray, matrices: readonly HvhMatrix[], world
 export function coverDamageScale(cover: BallisticTrace, t: number): number {
   return cover.passages.filter(p => p.entry < t).reduce((n, p) => n * p.loss, 1);
 }
+function csgoHitgroup(group: HvhHitgroup): number {
+  return group === 'stomach' || group === 'pelvis' || group === 'leg' ? CSGO_HITGROUP[group] : CSGO_HITGROUP.other;
+}
 export function hvhHitDamage(w: WeaponDef, hit: HvhHit, cover: BallisticTrace): number {
-  const stomach = w.csgo ? CSGO_HITGROUP.stomach : 1.15;
-  const multiplier = hit.headshot ? w.headshotMultiplier : hit.group === 'stomach' ? stomach : hit.group === 'leg' ? 0.75 : 1;
+  const multiplier = hit.headshot ? w.headshotMultiplier : w.csgo ? csgoHitgroup(hit.group)
+    : hit.group === 'stomach' ? 1.15 : hit.group === 'leg' ? 0.75 : 1;
   return damageAt(w, hit.t) * multiplier * coverDamageScale(cover, hit.t);
 }
 export function afterArmor(damage: number, armor: number): number { return damage - Math.min(armor, damage * PLAYER.armorAbsorb); }

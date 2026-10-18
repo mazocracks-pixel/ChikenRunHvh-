@@ -71,8 +71,9 @@ export interface WeaponDef {
    * The v2 HvH arsenal's CS:GO numbers (hvh/v2/arsenal.ts): armor penetration (CS:GO armor ratio
    * / 2), damage × rangeModifier per 12.5 m (500 Source units) instead of the linear falloff, and
    * for the R8 the hammer pull: the shot goes out `hammerMs` after the press while it is held.
+   * `scopedSpread` (radians) replaces `spread` and the legacy ×0.25 while scoped.
    */
-  csgo?: { armorPen: number; rangeModifier: number; hammerMs?: number };
+  csgo?: { armorPen: number; rangeModifier: number; hammerMs?: number; scopedSpread?: number };
   /** Shop price in coins; 0 = everyone owns it. */
   price: number;
   sound: WeaponSound;
@@ -271,21 +272,22 @@ const DEFS: BaseDef[] = [
   },
   // ---- The v2 HvH arsenal (hvh/v2/arsenal.ts): HvH-only, free, kept out of every shop and list ----
   // Final CS:GO items_game.txt (source URL in arsenal.ts). Spread = (spread + inaccuracy stand) / 1000,
-  // moveSpread = inaccuracy move / 1000, airSpread = inaccuracy jump / 1000 (radians). Zoom = 90° / zoom fov.
+  // moveSpread = inaccuracy move / 1000, airSpread = inaccuracy jump / 1000 (radians), and scoped
+  // scopedSpread = (spread alt + inaccuracy stand alt) / 1000. Zoom = 90° / zoom fov.
   // Move speed = max player speed / 250. Range = 8192 or 4096 units at 40 per metre. Reload times are
   // the animation lengths (not in items_game). Models and sounds are the Scout's, AWP's, Deagle's, R8's.
   {
     id: 'ssg08', name: 'SSG 08', damage: 88, headshotMultiplier: 4, fireInterval: 1250, automatic: false,
     magazine: 10, reloadTime: 3700, pellets: 1, spread: 0.03198, moveSpread: 0.12345, airSpread: 0.00572,
     range: 204.8, falloffStart: 204.8, minDamageScale: 1, zoom: 2.25, zoom2: 6, scope: true, recoil: 0.05,
-    moveSpeed: 0.92, csgo: { armorPen: 0.85, rangeModifier: 0.98 },
+    moveSpeed: 0.92, csgo: { armorPen: 0.85, rangeModifier: 0.98, scopedSpread: 0.00323 },
     price: 0, sound: 'scout', model: { length: 0.95, color: 0x3d4f3a, accent: 0x1c1e21 },
   },
   {
     id: 'scar20', name: 'SCAR-20', damage: 80, headshotMultiplier: 4, fireInterval: 250, automatic: true,
     magazine: 20, reloadTime: 3100, pellets: 1, spread: 0.0261, moveSpread: 0.15048, airSpread: 0.15377,
     range: 204.8, falloffStart: 204.8, minDamageScale: 1, zoom: 2.25, zoom2: 6, scope: true, recoil: 0.03,
-    moveSpeed: 0.86, csgo: { armorPen: 0.825, rangeModifier: 0.98 },
+    moveSpeed: 0.86, csgo: { armorPen: 0.825, rangeModifier: 0.98, scopedSpread: 0.0023 },
     price: 0, sound: 'sniper', model: { length: 0.95, color: 0x2f3b2f, accent: 0x111111 },
   },
   {
@@ -443,8 +445,10 @@ export function weaponAt(index: number): WeaponId {
 export function spreadFor(w: WeaponDef, horizontalSpeed: number, airborne: boolean, aiming: boolean): number {
   // Slow walk, crouching, hops and knockback all use the same continuous curve.
   const speed = Number.isFinite(horizontalSpeed) ? clamp(horizontalSpeed / PLAYER.speed, 0, 3) : 0;
-  let s = w.spread + w.moveSpread * speed + (airborne ? w.airSpread : 0);
-  if (aiming) s *= w.scope ? 0.25 : 0.6;
+  // The CS:GO snipers have their own scoped inaccuracy in place of the ×0.25.
+  const scoped = aiming && w.scope ? w.csgo?.scopedSpread : undefined;
+  let s = (scoped ?? w.spread) + w.moveSpread * speed + (airborne ? w.airSpread : 0);
+  if (aiming && scoped === undefined) s *= w.scope ? 0.25 : 0.6;
   return s;
 }
 

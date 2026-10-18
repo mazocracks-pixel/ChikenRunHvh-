@@ -142,10 +142,10 @@ export class WeaponController {
     const hammerMs = w.csgo?.hammerMs;
     if (hammerMs !== undefined) {
       // The R8: a press pulls the hammer, and the shot goes out hammerMs later if it is still held.
+      // The hammer stays back (through a cooldown or reload) until the shot or dry click happens.
       if (!down) this.hammerFrom = null;
       else if (fresh) this.hammerFrom = now;
       if (this.hammerFrom === null || now - this.hammerFrom < hammerMs) return null;
-      this.hammerFrom = null;
       fresh = true;
     }
     if (this.assistedBurst && !down && !assisted && w.burst) this.timing.burstShots = w.burst.count;
@@ -155,6 +155,7 @@ export class WeaponController {
     if (now < this.switchReadyAt || this.reloading || (this.tactical && now < this.confirmedReadyAt)) return null;
     if (this.mag <= 0) {
       this.timing.burstShots = 0;
+      if (fresh) this.hammerFrom = null;
       return fresh ? 'empty' : null;
     }
     const interval = fireIntervalFor(w, this.mods);
@@ -167,6 +168,7 @@ export class WeaponController {
     if (w.burst && this.timing.burstShots === 1) this.assistedBurst = assisted;
     if (shotUsesAmmo(this.def, this.mods)) this.mags.set(this.weapon, Math.max(0, this.mag - permission.shots));
     this.shotSeq++;
+    this.hammerFrom = null;
     return 'fire';
   }
 

@@ -18,5 +18,8 @@ export function isHvhArsenal(id: WeaponId): boolean {
   return ARSENAL_IDS.has(id);
 }
 
-/** CS:GO hitgroup damage multipliers (head is the weapon's `headshotMultiplier`). */
-export const CSGO_HITGROUP = { head: 4, stomach: 1.25, leg: 0.75, other: 1 } as const;
+/**
+ * CS:GO hitgroup damage multipliers. Head is the weapon's `headshotMultiplier` (the Deagle's is
+ * 3.9); CS:GO's stomach hitgroup includes the pelvis.
+ */
+export const CSGO_HITGROUP = { head: 4, stomach: 1.25, pelvis: 1.25, leg: 0.75, other: 1 } as const;
