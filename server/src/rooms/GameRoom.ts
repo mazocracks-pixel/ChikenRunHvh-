@@ -28,6 +28,7 @@ import {
   openSpots,
   isWeaponId,
   makeRay,
+  mulberry32,
   meleeHit,
   packPlayer,
   pelletDirections,
@@ -126,6 +127,11 @@ export interface RoomOptions {
   antiCheat?: AntiCheatMode;
   /** HvH mode only: which HvH engine the room runs (see HvhRoom; env HVH_ENGINE). Default 'legacy'. */
   hvhEngine?: 'legacy' | 'v2';
+  /**
+   * Seeds the room's own random choices (team picks, spawn points, loot) so a headless match
+   * replays bit-identically. Unset (live rooms): Math.random, as before.
+   */
+  seed?: number;
 }
 
 /** What the room needs to know about a player joining (loaded from their account). */
@@ -223,11 +229,14 @@ export class GameRoom {
   private accumulator = 0;
   private closed = false;
   hvhTick = 0;
+  /** The room's random source: seeded when RoomOptions.seed is set, else Math.random. */
+  readonly random: () => number;
   private readonly publicStates = new Map<number, { until: number; shot: number; state: import('@game/shared').PlayerState }>();
 
   constructor(io: GameServer, options: RoomOptions, hooks: RoomHooks = {}) {
     this.io = io;
     this.hooks = hooks;
+    this.random = options.seed !== undefined ? mulberry32(options.seed >>> 0) : () => Math.random();
     this.mode = MODES[options.mode];
     this.map = MAPS[options.map];
     this.world = createCollisionWorld(this.map);
@@ -532,7 +541,7 @@ export class GameRoom {
     if (red !== blue) return red < blue ? 1 : 2;
     const [rs, bs] = this.match.teamScores;
     if (rs !== bs) return rs < bs ? 1 : 2;
-    return Math.random() < 0.5 ? 1 : 2;
+    return this.random() < 0.5 ? 1 : 2;
   }
 
   // ---------------------------------------------------------------------------
@@ -858,11 +867,12 @@ export class GameRoom {
     if (hit) this.damage(hit.key, p, w.damage * (hit.headshot ? w.headshotMultiplier : 1), hit.headshot, w.id, eye, now, this.shooterFlags(p, now));
   }
 
-  handleReload(p: ServerPlayer): void {
+  /** `now`: the room clock (live sockets: arrival time; bots and headless drivers: the tick's time). */
+  handleReload(p: ServerPlayer, now = performance.now()): void {
     this.enforceHvhRules(p);
     const w = WEAPONS[p.weapon];
     if (!p.alive || p.reloadUntil > 0 || p.mag >= p.magazineSize(w.id)) return;
-    p.reloadUntil = performance.now() + (p.mods?.instantReload ? 0.001 : w.reloadTime * (p.upgrades?.reload ?? 1));
+    p.reloadUntil = now + (p.mods?.instantReload ? 0.001 : w.reloadTime * (p.upgrades?.reload ?? 1));
     p.aiming = false;
   }
 
@@ -1145,7 +1155,7 @@ export class GameRoom {
       // Beyond SPREAD_SAFE metres every spot is as good as any other, so spawns vary.
       let nearest = SPREAD_SAFE;
       for (const e of enemies) nearest = Math.min(nearest, Math.hypot(e.state.x - spot.x, e.state.z - spot.z));
-      return { spot, score: nearest + Math.random() * 6 };
+      return { spot, score: nearest + this.random() * 6 };
     });
     scored.sort((a, b) => b.score - a.score);
     // Of the furthest few, the first that no enemy can see.
@@ -1184,7 +1194,7 @@ export class GameRoom {
       for (const other of this.players.values()) {
         if (other !== p && other.alive && Math.hypot(other.state.x - spawn.x, other.state.z - spawn.z) < PLAYER.radius * 3) taken = true;
       }
-      const score = nearest + Math.random() * 4 - (taken ? 1000 : 0);
+      const score = nearest + this.random() * 4 - (taken ? 1000 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = spawn;
@@ -1223,9 +1233,9 @@ export class GameRoom {
     }
   }
 
-  /** Skips waiting/countdown (private-room hosts, tests). */
-  startNow(): void {
-    if (!this.mode.building) this.startMatch(performance.now());
+  /** Skips waiting/countdown (private-room hosts, tests). `now`: the room clock (headless drivers pass their tick time). */
+  startNow(now = performance.now()): void {
+    if (!this.mode.building) this.startMatch(now);
   }
 
   private setPhase(phase: MatchPhase, endsAt: number | null): void {
