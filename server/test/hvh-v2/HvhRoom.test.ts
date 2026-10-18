@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { SIM_DT, type InputFrame } from '@game/shared';
-import { LATE_CSGO, type CommandIntent, type ShotVerdict } from '@game/shared/hvh/v2';
+import { SIM_DT, makeRay, normalize, rayHvhMatrix, unpackPlayer, type InputFrame, type Vec3 } from '@game/shared';
+import { LATE_CSGO, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
+import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { GameRoom } from '../../src/rooms/GameRoom';
 import { HvhRoom, hvhEngineFrom, type HvhEngine } from '../../src/rooms/HvhRoom';
 import { createRoom } from '../../src/rooms/modes';
@@ -40,10 +41,209 @@ function command(seq: number, intent?: Partial<CommandIntent>): InputFrame & { i
   return frame;
 }
 
+function recordOf(room: HvhRoom, pid: number): LagRecord {
+  const r = room.v2State(pid)!.history.records().at(-1);
+  assert.ok(r, 'the player has a lag record');
+  return r;
+}
+
+function boxCentre(room: HvhRoom, pid: number, group: string): Vec3 {
+  const r = recordOf(room, pid);
+  return poseMatrix(r, r.pose).boxes.find((b) => b.group === group)!.center;
+}
+
+function anglesTo(from: Vec3, to: Vec3): { dir: Vec3; yaw: number; pitch: number } {
+  const dir = normalize({ x: to.x - from.x, y: to.y - from.y, z: to.z - from.z });
+  return { dir, yaw: Math.atan2(-dir.x, -dir.z), pitch: Math.asin(dir.y) };
+}
+
+function intersects(room: HvhRoom, pid: number, origin: Vec3, dir: Vec3): boolean {
+  const r = recordOf(room, pid);
+  return rayHvhMatrix(makeRay(origin, dir), poseMatrix(r, r.pose), 100) !== null;
+}
+
+/** One tick of idle commands for every listed player. */
+function idleTick(room: HvhRoom, players: ServerPlayer[], seqs: Map<number, number>, now: number): void {
+  for (const p of players) {
+    const seq = (seqs.get(p.pid) ?? 0) + 1;
+    seqs.set(p.pid, seq);
+    room.handleInput(p, command(seq, {}));
+  }
+  stepRoom(room, now);
+}
+
+type Sent = { event: string; data: unknown };
+function fakeSocket(p: ServerPlayer, sink: Sent[]): void {
+  const socket = { emit(event: string, data: unknown) { sink.push({ event, data }); }, to() { return { emit() {} }; }, leave() {}, volatile: { emit() {} } };
+  Object.defineProperty(p, 'socket', { value: socket });
+}
+
+function threePlayers(nearX: number) {
+  const made = duel();
+  const { room, a, b } = made;
+  const c = addPlayer(room, 'C');
+  c.info.team = 2;
+  room.respawnPlayer(c, performance.now());
+  place(b, nearX, 15);
+  place(c, 20, 10);
+  b.shieldUntil = c.shieldUntil = 0;
+  const seqs = new Map<number, number>();
+  let now = performance.now();
+  for (let i = 0; i < 3; i++) idleTick(room, [a, b, c], seqs, (now += TICK_MS));
+  return { ...made, c, seqs, now };
+}
+
 describe('HvhRoom v2 tick pipeline', () => {
+  it('bank ticks still simulate movement and reach a full bank', (t) => {
+    const { room, a } = duel();
+    t.after(() => room.close());
+    let now = performance.now();
+    for (let seq = 1; seq <= 20; seq++) {
+      const z = a.state.z;
+      room.handleInput(a, { ...command(seq, {}), forward: 1 });
+      stepRoom(room, (now += TICK_MS));
+      assert.ok(a.state.z < z, `command ${seq} moved the player`);
+    }
+    assert.equal(room.tickbaseOf(a.pid)?.bank, LATE_CSGO.doubleTapShift);
+  });
+
+  it('a near enemy beside the line does not steal a head shot on a far enemy', (t) => {
+    const { room, a, b, c, seqs, now } = threePlayers(20.75);
+    t.after(() => room.close());
+    const eye = room.eyeOf(a);
+    const aim = anglesTo(eye, boxCentre(room, c.pid, 'head'));
+    assert.equal(intersects(room, b.pid, eye, aim.dir), false, 'precondition: the ray misses B');
+    const verdicts: ShotVerdict[] = [];
+    room.addVerdictListener((v) => verdicts.push(v));
+    room.handleInput(a, { ...command(seqs.get(a.pid)! + 1, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+    stepRoom(room, now + TICK_MS);
+    assert.equal(verdicts.find((v) => v.shooterId === String(a.pid))?.targetId, String(c.pid));
+  });
+
+  it('a client naming a far enemy behind a near intersected enemy gets the near enemy', (t) => {
+    const { room, a, b, c, seqs, now: last } = threePlayers(20);
+    t.after(() => room.close());
+    const eye = room.eyeOf(a);
+    const aim = anglesTo(eye, boxCentre(room, c.pid, 'head'));
+    assert.equal(intersects(room, b.pid, eye, aim.dir), true, 'precondition: B is in the way');
+    const verdicts: ShotVerdict[] = [];
+    room.addVerdictListener((v) => verdicts.push(v));
+    const seq = seqs.get(a.pid)! + 1;
+    const now = last + TICK_MS;
+    room.handleFire(a, { shot: 1, weapon: a.weapon, dx: aim.dir.x, dy: aim.dir.y, dz: aim.dir.z, t: now, aiming: false, command: seq,
+      intent: { target: c.pid, source: 'CENTER', recordT: now, yaw: 0 } });
+    room.handleInput(a, { ...command(seq, {}), yaw: aim.yaw, pitch: aim.pitch });
+    stepRoom(room, now);
+    assert.equal(verdicts.find((v) => v.shooterId === String(a.pid))?.targetId, String(b.pid));
+  });
+
+  it('flood verdicts reach only the sender', (t) => {
+    const { room, a, b } = duel();
+    t.after(() => room.close());
+    const toA: Sent[] = [];
+    const toB: Sent[] = [];
+    fakeSocket(a, toA);
+    fakeSocket(b, toB);
+    room.damage(b, a, 1000, false, a.weapon, room.eyeOf(a), performance.now());
+    assert.equal(b.alive, false, 'B is a spectator');
+    a.takeInputToken = () => true;
+    for (let seq = 1; seq <= 40; seq++) room.handleInput(a, command(seq, {}));
+    assert.equal(toA.filter((e) => e.event === 'shotVerdict').length, 8);
+    assert.equal(toB.filter((e) => e.event === 'shotVerdict').length, 0);
+  });
+
+  it('the input limiter still applies in v2', (t) => {
+    const { room, a } = duel();
+    t.after(() => room.close());
+    a.takeInputToken = () => false;
+    room.handleInput(a, command(1, {}));
+    assert.equal(room.queuedCommands(a.pid), 0);
+  });
+
+  it('a pending fire consumed while preparing is rejected as actions blocked', (t) => {
+    const { room, a, verdicts } = duel();
+    t.after(() => room.close());
+    room.handleInput(a, command(1, {}));
+    room.handleFire(a, { shot: 1, weapon: a.weapon, dx: 0, dy: 0, dz: -1, t: performance.now(), aiming: false, command: 1 });
+    a.hvhPreparing = true;
+    stepRoom(room, performance.now() + TICK_MS);
+    assert.deepEqual(verdicts.map((v) => [v.cause, v.reason]), [['rejected', 'actions blocked']]);
+  });
+
+  it('pending fires cleared by death, and fires while dead, are rejected as actions blocked', (t) => {
+    const { room, a, b, verdicts } = duel();
+    t.after(() => room.close());
+    room.handleFire(a, { shot: 1, weapon: a.weapon, dx: 0, dy: 0, dz: -1, t: performance.now(), aiming: false, command: 5 });
+    room.damage(a, b, 1000, false, b.weapon, room.eyeOf(b), performance.now());
+    assert.deepEqual(verdicts.map((v) => [v.cause, v.reason]), [['rejected', 'actions blocked']]);
+    room.handleFire(a, { shot: 2, weapon: a.weapon, dx: 0, dy: 0, dz: -1, t: performance.now(), aiming: false });
+    assert.deepEqual(verdicts.map((v) => v.reason), ['actions blocked', 'actions blocked']);
+  });
+
+  it('a pending fire whose weapon became melee is rejected as wrong weapon', (t) => {
+    const { room, a, verdicts } = duel();
+    t.after(() => room.close());
+    room.handleInput(a, command(1, {}));
+    room.handleFire(a, { shot: 1, weapon: a.weapon, dx: 0, dy: 0, dz: -1, t: performance.now(), aiming: false, command: 1 });
+    a.info.loadout.push('knife');
+    a.weaponSlot = a.info.loadout.length - 1;
+    stepRoom(room, performance.now() + TICK_MS);
+    assert.deepEqual(verdicts.map((v) => [v.cause, v.reason]), [['rejected', 'wrong weapon']]);
+  });
+
+  it('a v2 choke freezes the public snapshot until the flush', (t) => {
+    const { room, a, b } = duel();
+    t.after(() => room.close());
+    const seqs = new Map<number, number>();
+    let now = performance.now();
+    for (let i = 0; i < 3; i++) idleTick(room, [b], seqs, (now += TICK_MS));
+    const view = () => room.snapshot(now, a.pid).p.find((s) => s[0] === b.pid)!;
+    const before = view();
+    let seq = seqs.get(b.pid)!;
+    for (let i = 0; i < 10; i++) {
+      room.handleInput(b, { ...command(++seq, { choke: true }), forward: 1, yaw: 0.5 });
+      stepRoom(room, (now += TICK_MS));
+      assert.equal(room.tickbaseOf(b.pid)?.choked, i + 1);
+      assert.deepEqual(view(), before, `choke tick ${i + 1}: public state frozen`);
+    }
+    room.handleInput(b, { ...command(++seq, {}), forward: 1, yaw: 0.5 });
+    stepRoom(room, (now += TICK_MS));
+    const after = unpackPlayer(view());
+    assert.notDeepEqual([after.x, after.z], [unpackPlayer(before).x, unpackPlayer(before).z], 'the flush publishes the new position');
+    assert.ok(Math.abs(after.yaw - 0.5) < 1e-3, 'public yaw is the observed eye yaw');
+  });
+
+  it('a hit on a spawn-protected target is rejected and deals no damage', (t) => {
+    const { room, a, b, verdicts } = duel();
+    t.after(() => room.close());
+    place(b, 20, 17);
+    const seqs = new Map<number, number>();
+    let now = performance.now();
+    for (let i = 0; i < 3; i++) idleTick(room, [a, b], seqs, (now += TICK_MS));
+    b.shieldUntil = now + 60_000;
+    const aim = anglesTo(room.eyeOf(a), boxCentre(room, b.pid, 'chest'));
+    room.handleInput(a, { ...command(seqs.get(a.pid)! + 1, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+    stepRoom(room, (now += TICK_MS));
+    const shot = verdicts.find((v) => v.shooterId === String(a.pid) && v.bullet === 1);
+    assert.deepEqual([shot?.cause, shot?.reason, shot?.targetId], ['rejected', 'spawn protection', String(b.pid)]);
+    assert.equal(b.hp, 100);
+  });
+
+  it('calling processPlayerTick twice in one tick pushes one record and does not throw', (t) => {
+    const { room, a } = duel();
+    t.after(() => room.close());
+    room.handleInput(a, command(1, {}));
+    room.handleInput(a, command(2, {}));
+    room.processPlayerTick(String(a.pid));
+    room.processPlayerTick(String(a.pid));
+    assert.equal(room.v2State(a.pid)!.history.records().length, 1);
+    stepRoom(room, performance.now() + TICK_MS);
+  });
+
   it('burst is capped at maxProcessTicks', (t) => {
     const { room, a } = duel();
     t.after(() => room.close());
+    a.takeInputToken = () => true;
     for (let seq = 1; seq <= 30; seq++) room.handleInput(a, command(seq, {}));
     stepRoom(room, performance.now() + TICK_MS);
     assert.equal(LATE_CSGO.maxProcessTicks, 16);
@@ -54,6 +254,7 @@ describe('HvhRoom v2 tick pipeline', () => {
   it('flood drops oldest with verdict', (t) => {
     const { room, a, verdicts } = duel();
     t.after(() => room.close());
+    a.takeInputToken = () => true;
     for (let seq = 1; seq <= 40; seq++) room.handleInput(a, command(seq, {}));
     const flood = verdicts.filter((v) => v.cause === 'rejected' && v.reason === 'command flood');
     assert.equal(flood.length, 8);
@@ -97,12 +298,25 @@ describe('HvhRoom v2 tick pipeline', () => {
     room.processPlayerTick(String(a.pid), now);
     assert.deepEqual(verdicts.filter((v) => v.shooterId === String(a.pid)).map((v) => v.bullet), [1]);
     // B kills A in the same server tick, before bullet 2 is processed.
+    assert.notEqual(room.v2State(a.pid)?.pendingBullet, null, 'bullet 2 is pending before the death');
     room.damage(a, b, 1000, true, b.weapon, room.eyeOf(b), now);
     assert.equal(a.alive, false);
+    assert.equal(room.v2State(a.pid)?.pendingBullet, null, 'death cancels bullet 2');
     room.flushPendingBullets(now);
     assert.equal(verdicts.filter((v) => v.shooterId === String(a.pid) && v.bullet === 2).length, 0, 'no bullet-2 verdict');
     room.respawnPlayer(a, now);
     assert.equal(a.alive, true);
+    assert.equal(room.tickbaseOf(a.pid)?.bank, 0);
+    // A death with a non-empty bank, then a respawn: the new life starts empty.
+    for (let i = 0; i < 5; i++) {
+      room.handleInput(a, command(++seq, {}));
+      stepRoom(room, (now += TICK_MS));
+    }
+    assert.ok(room.tickbaseOf(a.pid)!.bank > 0);
+    a.shieldUntil = 0;
+    room.damage(a, b, 1000, true, b.weapon, room.eyeOf(b), now);
+    assert.equal(a.alive, false);
+    room.respawnPlayer(a, now);
     assert.equal(room.tickbaseOf(a.pid)?.bank, 0);
   });
 

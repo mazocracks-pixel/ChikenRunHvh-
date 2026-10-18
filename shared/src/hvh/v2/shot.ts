@@ -121,7 +121,8 @@ function finite(v: Vec3): boolean {
   return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 }
 
-function poseMatrix(record: LagRecord, pose: PoseState): HvhMatrix {
+/** Hitbox matrix of a lag record in `pose` (crouch-scaled); the tracing processShot uses. */
+export function poseMatrix(record: LagRecord, pose: PoseState): HvhMatrix {
   const duck = clamp(Number.isFinite(record.duck) ? record.duck! : 0, 0, 1);
   return buildHvhMatrix(record.position, pose.bodyYaw, 1 - duck * 0.3, pose.pitch);
 }

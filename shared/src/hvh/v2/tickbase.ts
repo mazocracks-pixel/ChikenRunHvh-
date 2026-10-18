@@ -53,7 +53,7 @@ function requestedShift(
 // Shift priority: defensive > doubleTap > hideShots; DT/HS only when intent.fire, defensive whether firing or not (R10).
 // Any tick that is not 'choke' flushes choked to 0 (run, bank, shift and reject all send).
 // ticksSinceShift increments on every non-shift tick (including reject) and resets to 0 on a shift.
-// tickbase advances +1 for run/choke/reject/shift ticks, plus the shifted ticks for DT only; a bank tick is not simulated, so it does not advance.
+// tickbase advances +1 for run/choke/reject/shift ticks, plus the shifted ticks for DT only; a bank tick does not advance tickbase.
 // A reject tick still runs the command (state evolves as 'run': no bank, no choke) but returns the reject action.
 // Reject reason is chokeTooHigh when bank alone would have covered the shift, else the matching *NotCharged.
 // Choke and bank are mutually exclusive: intent.choke blocks banking even when the choke cap is reached (that tick runs).

@@ -12,14 +12,20 @@ import {
   hvhSpread,
   hvhWeapon,
   hvhStateEvent,
+  isWeaponId,
+  makeRay,
   moveSpeedFor,
+  packPlayer,
+  rayHvhMatrix,
   shotSeed,
   shotUsesAmmo,
   stepPlayer,
   type FireRequest,
   type InputFrame,
+  type PlayerState,
   type Vec3,
   type WeaponDef,
+  type WorldSnapshot,
 } from '@game/shared';
 import {
   EMPTY_TICKBASE,
@@ -29,6 +35,7 @@ import {
   collisionWorldTracer,
   createResolverMemory,
   learnFromVerdict,
+  poseMatrix,
   processShot,
   publicObservation,
   stepPose,
@@ -37,6 +44,7 @@ import {
   type AntiAimConfig,
   type CommandIntent,
   type EraTable,
+  type LagRecord,
   type Motion,
   type Observation,
   type PoseState,
@@ -63,16 +71,31 @@ import type { ServerPlayer } from './ServerPlayer';
  *   DT bullet 2 is held until every player has been simulated, then fired in the same server tick.
  *
  * Decisions:
- * - Queue cap 2 x maxProcessTicks; overflow drops the oldest with a 'rejected / command flood'
- *   verdict. The per-tick budget (refills 1 per tick, cap maxProcessTicks) replaces the legacy
- *   input token bucket: a burst of up to 16 runs at once, the sustained rate is one per tick.
+ * - Input passes the legacy per-player token limiter first (R25; rejected input is dropped
+ *   silently, as in legacy). Queue cap 2 x maxProcessTicks; overflow drops the oldest with a
+ *   'rejected / command flood' verdict sent to the sender only. A per-tick budget (refills 1 per
+ *   tick, cap maxProcessTicks) bounds execution: a burst of up to 16 runs at once.
  * - Records are keyed by server tick (RecordHistory needs strictly increasing ticks), so several
  *   commands in one tick produce one record: the state after the last recordable command.
- *   Choke and bank commands are not recordable. A command that fires with a hide-shots shift is
+ *   Choke commands are not recordable. A command that fires with a hide-shots shift is
  *   not recordable either (its on-shot pose is skipped, not pushed invalid); a plain shot records
  *   the on-shot pose (eyes and body on the aim, side 'center').
- * - A bank command is not simulated (stepTickbase: it does not advance tickbase): it is
- *   acknowledged, but the player does not move and no pose step runs.
+ * - A bank command (R23) runs movement, pose and record capture like any other; only the
+ *   tickbase counter does not advance (stepTickbase).
+ * - Targets (R24): the first enemy body the un-deviated aim ray intersects, traced against each
+ *   enemy's lag record at the view tick (real pose, crouch scale; poseMatrix, as processShot).
+ *   A client-named target (legacy fire intent.target) is only a hint: used when it is that body,
+ *   or when no body is intersected. Nothing intersected and no hint: no target ('spread').
+ * - R26: an accepted fire request is never dropped silently. A pending fire consumed while the
+ *   player is dead / preparing / removed, or fired while dead, is 'rejected / actions blocked';
+ *   one whose weapon became projectile or melee is 'rejected / wrong weapon'; pending fires
+ *   cleared by death are 'actions blocked'; overflow beyond MAX_PENDING_FIRES is 'fire flood'.
+ *   Silent drops are only malformed packets and stale or duplicate seq. (intent.fire on a
+ *   projectile or melee weapon is ignored: those weapons fire through the legacy `fire` message.)
+ * - Snapshots (R28): other viewers get v2 public state: yaw from the last publicObservation (eye
+ *   yaw, never bodyYaw), and while choking, the state frozen at the last pushed record. The
+ *   legacy fakeLag cache does not apply in v2 rooms.
+ * - A hit on a spawn-protected target is 'rejected / spawn protection' and deals no damage.
  * - Defensive shift of N ticks at server tick T: markDefensive(T - N) on the player's history,
  *   and records pushed for ticks T .. T + N - 1 are pushed valid:false / 'defensive'.
  * - Projectile and melee weapons are excluded from v2: their `fire` messages take the legacy
@@ -93,10 +116,9 @@ export function hvhEngineFrom(env: Readonly<Record<string, string | undefined>>)
 
 const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false });
 const TICK_MS = SIM_DT * 1000;
-/** A target is picked when the aim passes this close to its body centre. */
-const TARGET_PICK_RADIUS = 1;
-const BODY_CENTRE_Y = PLAYER.eyeHeight * 0.6;
 const OBSERVATIONS_KEPT = 32;
+/** Hitscan `fire` messages waiting for their command. */
+const MAX_PENDING_FIRES = 4;
 
 interface QueuedCommand {
   frame: Readonly<InputFrame>;
@@ -138,12 +160,16 @@ export interface HvhPlayerV2 {
   lastShotTickbase: number;
   /** Records pushed for server ticks below this are invalid ('defensive'). */
   defensiveUntilTick: number;
-  /** A legacy `fire` message for a hitscan weapon, waiting for its command. */
-  pendingFire: FireRequest | null;
+  /** Legacy `fire` messages for a hitscan weapon, waiting for their command, oldest first. */
+  pendingFires: FireRequest[];
   /** DT bullet 2, fired after every player has been simulated this tick. */
   pendingBullet: PendingBullet | null;
   /** Commands executed this tick. */
   executed: number;
+  /** Server tick of the newest pushed record. */
+  lastRecordTick: number;
+  /** What other viewers saw at the newest pushed record (frozen while choking). */
+  publicState: PlayerState | null;
 }
 
 function parseIntent(raw: unknown): CommandIntent {
@@ -217,9 +243,11 @@ export class HvhRoom extends GameRoom {
         resolver: createResolverMemory(),
         lastShotTickbase: -Infinity,
         defensiveUntilTick: 0,
-        pendingFire: null,
+        pendingFires: [],
         pendingBullet: null,
         executed: 0,
+        lastRecordTick: -Infinity,
+        publicState: null,
       };
       this.v2Players.set(p.pid, s);
     }
@@ -241,6 +269,7 @@ export class HvhRoom extends GameRoom {
     const parsed = parseInput(raw);
     const s = this.stateOf(p);
     if (!parsed || p.removedForCheating || parsed.seq <= Math.max(p.lastSeq, s.lastQueuedSeq)) return;
+    if (!p.takeInputToken(performance.now())) return; // R25: the legacy limiter, silent as in legacy
     const assisted = p.hvhEnabled && !p.hvhPreparing;
     const frame: InputFrame = { ...parsed, autoHop: assisted && parsed.autoHop === true, subtickStrafe: assisted && parsed.subtickStrafe === true };
     const r = raw as Record<string, unknown>;
@@ -250,7 +279,7 @@ export class HvhRoom extends GameRoom {
     s.queue.push(command);
     while (s.queue.length > 2 * this.era.maxProcessTicks) {
       s.queue.shift();
-      this.emitVerdict(p, { shooterId: String(p.pid), tick: this.hvhTick, bullet: 1, cause: 'rejected', reason: 'command flood' });
+      this.emitVerdict(p, this.rejected(p, 'command flood'), { senderOnly: true });
     }
   }
 
@@ -260,10 +289,23 @@ export class HvhRoom extends GameRoom {
     if (!hitscan(WEAPONS[p.weapon])) return super.handleFire(p, raw);
     this.enforceHvhRules(p);
     const req = parseFire(raw);
-    if (!req || !p.alive || p.removedForCheating) return;
+    if (!req) return;
     const s = this.stateOf(p);
-    if (req.shot <= p.lastShotSeq || (s.pendingFire && req.shot <= s.pendingFire.shot)) return;
-    s.pendingFire = req;
+    if (req.shot <= p.lastShotSeq || s.pendingFires.some((f) => f.shot >= req.shot)) return;
+    if (!p.alive || p.removedForCheating || p.hvhPreparing) {
+      p.lastShotSeq = req.shot;
+      this.emitVerdict(p, this.rejected(p, 'actions blocked'));
+      return;
+    }
+    s.pendingFires.push(req);
+    while (s.pendingFires.length > MAX_PENDING_FIRES) {
+      p.lastShotSeq = Math.max(p.lastShotSeq, s.pendingFires.shift()!.shot);
+      this.emitVerdict(p, this.rejected(p, 'fire flood'), { senderOnly: true });
+    }
+  }
+
+  private rejected(p: ServerPlayer, reason: string, bullet: 1 | 2 = 1): ShotVerdict {
+    return { shooterId: String(p.pid), tick: this.hvhTick, bullet, cause: 'rejected', reason };
   }
 
   // ---------------------------------------------------------------------------
@@ -309,7 +351,7 @@ export class HvhRoom extends GameRoom {
     p.animation.eyeYaw = p.animation.lowerBodyYaw = p.fakeYaw = s.pose.eyeYaw;
     p.animation.bodyYaw = p.yaw = s.pose.bodyYaw;
     p.fakePitch = s.pose.pitch;
-    if (capture && p.alive) this.pushRecord(s, capture);
+    if (capture && p.alive) this.pushRecord(p, s, capture);
   }
 
   /** DT bullet 2 for everyone still alive; a shooter killed since bullet 1 fires nothing. */
@@ -327,17 +369,22 @@ export class HvhRoom extends GameRoom {
     const frame = command.frame;
     let intent = command.intent;
     let fireReq: FireRequest | null = null;
-    if (s.pendingFire && (s.pendingFire.command === undefined || s.pendingFire.command <= frame.seq)) {
-      fireReq = s.pendingFire;
-      s.pendingFire = null;
+    const queued = s.pendingFires[0];
+    if (queued && (queued.command === undefined || queued.command <= frame.seq)) {
+      fireReq = s.pendingFires.shift()!;
       p.lastShotSeq = fireReq.shot;
       intent = { ...intent, fire: true };
     }
     if (!p.alive || p.hvhPreparing || p.removedForCheating) {
+      if (fireReq) this.emitVerdict(p, this.rejected(p, 'actions blocked'));
       this.move(p, frame);
       return null;
     }
-    if (!hitscan(WEAPONS[p.weapon])) intent = { ...intent, fire: false, doubleTap: false, hideShots: false };
+    if (!hitscan(WEAPONS[p.weapon])) {
+      if (fireReq) this.emitVerdict(p, this.rejected(p, 'wrong weapon'));
+      fireReq = null;
+      intent = { ...intent, fire: false, doubleTap: false, hideShots: false };
+    }
     if (!p.hvhEnabled) intent = { ...IDLE, fire: intent.fire };
 
     const before = s.tickbase;
@@ -346,12 +393,6 @@ export class HvhRoom extends GameRoom {
     if (action.kind === 'reject') {
       this.emitVerdict(p, { shooterId: String(p.pid), tick: this.hvhTick, bullet: 1, cause: 'tickbase', reason: tickbaseVerdictReason(action.reason) });
     }
-    if (action.kind === 'bank') {
-      // Not simulated: acknowledged, but no movement, no pose step.
-      this.acknowledge(p, frame);
-      return null;
-    }
-
     this.move(p, frame);
     const motion = this.motionOf(p);
     s.pose = this.stepPoseFor(p, s, frame, motion);
@@ -433,8 +474,11 @@ export class HvhRoom extends GameRoom {
     return { ...stepPose(s.pose, frame.yaw, config, motion, s.tickbase.tickbase, this.era), pitch };
   }
 
-  private pushRecord(s: HvhPlayerV2, c: RecordCapture): void {
+  private pushRecord(p: ServerPlayer, s: HvhPlayerV2, c: RecordCapture): void {
     const tick = this.hvhTick;
+    // One record per server tick, even if processPlayerTick runs twice in a tick (headless drivers).
+    if (tick <= s.lastRecordTick) return;
+    s.lastRecordTick = tick;
     const defensive = tick < s.defensiveUntilTick;
     s.history.push({
       tick,
@@ -446,6 +490,31 @@ export class HvhRoom extends GameRoom {
     });
     s.observations.push(publicObservation(c.pose, c.motion, tick));
     if (s.observations.length > OBSERVATIONS_KEPT) s.observations.splice(0, s.observations.length - OBSERVATIONS_KEPT);
+    s.publicState = this.publicView(p.toState(), c.pose.eyeYaw);
+  }
+
+  private publicView(state: PlayerState, eyeYaw: number): PlayerState {
+    return { ...state, yaw: eyeYaw, fakeYaw: eyeYaw, lowerBodyYaw: eyeYaw };
+  }
+
+  /**
+   * R28: other viewers see v2 public state. While choking, the state frozen at the last pushed
+   * record (as the server's records); otherwise the live state with the last observed eye yaw.
+   */
+  private publicStateOf(p: ServerPlayer): PlayerState {
+    const s = this.stateOf(p);
+    if (s.tickbase.choked > 0 && s.publicState && s.publicState.alive === p.alive) return s.publicState;
+    const live = p.toState();
+    return this.publicView(live, s.observations.at(-1)?.eyeYaw ?? live.yaw);
+  }
+
+  override snapshot(now = performance.now(), viewer = 0): WorldSnapshot {
+    if (!this.v2) return super.snapshot(now, viewer);
+    return {
+      t: now,
+      p: [...this.players.values()].map((p) => packPlayer(p.pid === viewer ? { ...p.toState(), fakeYaw: p.yaw } : this.publicStateOf(p))),
+      v: this.vehicles?.packed() ?? [],
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -476,8 +545,7 @@ export class HvhRoom extends GameRoom {
       shotTickbase,
       spread,
     };
-    const intended = fireReq?.intent?.target;
-    const targetPid = intended !== undefined && this.isEnemy(p, intended) ? intended : this.pickTarget(p, origin, dir, viewTick);
+    const targetPid = this.pickTarget(p, origin, dir, viewTick, bullet.weaponId, fireReq?.intent?.target);
     if (targetPid !== undefined) bullet.targetPid = targetPid;
     return bullet;
   }
@@ -487,23 +555,29 @@ export class HvhRoom extends GameRoom {
     return !!t && t !== p && !this.areTeammates(p, t);
   }
 
-  /** The enemy whose body the aim passes closest in front, as of the shooter's view tick. */
-  private pickTarget(p: ServerPlayer, origin: Vec3, dir: Vec3, viewTick: number): number | undefined {
-    let best: { pid: number; along: number } | undefined;
+  /**
+   * R24: the first enemy body the un-deviated aim ray intersects, nearest along the ray, traced
+   * against each enemy's lag record at the view tick (real pose, crouch scale). `hint` (a client-
+   * named target) counts only when it is that body or when the ray intersects no body.
+   */
+  private pickTarget(p: ServerPlayer, origin: Vec3, dir: Vec3, viewTick: number, weaponId: string, hint?: number): number | undefined {
+    const def = isWeaponId(weaponId) ? WEAPONS[weaponId] : undefined;
+    const range = def ? hvhWeapon(def).range : 0;
+    const ray = makeRay(origin, dir);
+    let best: { pid: number; t: number } | undefined;
     for (const t of this.players.values()) {
       if (t === p || !t.alive || this.areTeammates(p, t)) continue;
       const records = this.stateOf(t).history.records();
-      let at: Vec3 = t.state;
+      let record: LagRecord | undefined;
       for (let i = records.length - 1; i >= 0; i--) {
-        if (records[i]!.tick <= viewTick) { at = records[i]!.position; break; }
+        if (records[i]!.tick <= viewTick) { record = records[i]; break; }
       }
-      const cx = at.x - origin.x, cy = at.y + BODY_CENTRE_Y - origin.y, cz = at.z - origin.z;
-      const along = cx * dir.x + cy * dir.y + cz * dir.z;
-      if (along <= 0) continue;
-      const off = Math.hypot(cx - along * dir.x, cy - along * dir.y, cz - along * dir.z);
-      if (off <= TARGET_PICK_RADIUS && (!best || along < best.along)) best = { pid: t.pid, along };
+      if (!record) continue;
+      const hit = rayHvhMatrix(ray, poseMatrix(record, record.pose), range);
+      if (hit && (!best || hit.t < best.t)) best = { pid: t.pid, t: hit.t };
     }
-    return best?.pid;
+    if (best) return best.pid;
+    return hint !== undefined && this.isEnemy(p, hint) ? hint : undefined;
   }
 
   private rejectReason(p: ServerPlayer, weaponId: string, now: number): string | null {
@@ -546,6 +620,9 @@ export class HvhRoom extends GameRoom {
       if (verdict.guessed !== undefined && verdict.targetId !== undefined) {
         learnFromVerdict(s.resolver, verdict.targetId, verdict.guessed, verdict.cause);
       }
+      if (verdict.cause === 'hit' && target && now < target.shieldUntil) {
+        verdict = { shooterId: String(p.pid), targetId: String(target.pid), tick, bullet: n, cause: 'rejected', reason: 'spawn protection' };
+      }
     }
     if (verdict.cause !== 'rejected') {
       const w = WEAPONS[p.weapon];
@@ -555,18 +632,26 @@ export class HvhRoom extends GameRoom {
       p.shieldUntil = 0;
       p.weaponHeat = Math.min(3, p.weaponHeat + 0.25);
     }
-    this.emitVerdict(p, verdict, target);
+    // R27: the verdict keeps `real` for the shooter too. The plan's hit-log copy ("Missed shot due
+    // to resolver (guessed X, real Y)") needs it; the trade-off is that a shooter learns the
+    // target's real side after each resolved shot (an oracle the in-game resolver never reads).
+    this.emitVerdict(p, verdict, { target });
     if (verdict.cause === 'hit' && target && verdict.damage !== undefined) {
       this.damage(target, p, verdict.damage, verdict.hitgroup === 'head', p.weapon, bullet.aim.origin, now);
     }
   }
 
-  /** To the shooter, the target and spectators (players not alive), plus verdict listeners. */
-  private emitVerdict(shooter: ServerPlayer, v: ShotVerdict, target?: ServerPlayer): void {
+  /**
+   * To the shooter, the target and spectators (players not alive), plus verdict listeners.
+   * `senderOnly` (flood verdicts, R25): to the sender and listeners only.
+   */
+  private emitVerdict(shooter: ServerPlayer, v: ShotVerdict, opts: { target?: ServerPlayer; senderOnly?: boolean } = {}): void {
     for (const fn of this.verdictListeners) fn(v);
     const to = new Set<ServerPlayer>([shooter]);
-    if (target) to.add(target);
-    for (const q of this.players.values()) if (!q.alive) to.add(q);
+    if (!opts.senderOnly) {
+      if (opts.target) to.add(opts.target);
+      for (const q of this.players.values()) if (!q.alive) to.add(q);
+    }
     for (const q of to) q.socket?.emit('shotVerdict', v);
   }
 
@@ -579,8 +664,16 @@ export class HvhRoom extends GameRoom {
     if (!this.v2) return;
     const s = this.stateOf(victim);
     s.pendingBullet = null;
-    s.pendingFire = null;
+    this.blockPendingFires(victim, s);
     s.tickbase = EMPTY_TICKBASE(this.hvhTick, this.era);
+  }
+
+  /** R26: fire requests still waiting when a life ends are answered, not dropped. */
+  private blockPendingFires(p: ServerPlayer, s: HvhPlayerV2): void {
+    for (const f of s.pendingFires.splice(0)) {
+      p.lastShotSeq = Math.max(p.lastShotSeq, f.shot);
+      this.emitVerdict(p, this.rejected(p, 'actions blocked'));
+    }
   }
 
   protected override spawn(p: ServerPlayer, now: number, announce: boolean): void {
@@ -596,8 +689,10 @@ export class HvhRoom extends GameRoom {
     s.observations = [];
     s.lastShotTickbase = -Infinity;
     s.defensiveUntilTick = 0;
-    s.pendingFire = null;
+    this.blockPendingFires(p, s);
     s.pendingBullet = null;
+    s.lastRecordTick = -Infinity;
+    s.publicState = null;
   }
 
   protected override onPlayerLeave(player: ServerPlayer): void {
