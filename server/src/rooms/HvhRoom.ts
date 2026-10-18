@@ -110,6 +110,9 @@ import type { ServerPlayer } from './ServerPlayer';
  * - Exploit intents (choke, DT, HS, defensive) need the HvH tools on (hvhEnabled); Manual play
  *   keeps plain fire only.
  * - Ack: hvhState.lastAckSeq is ServerPlayer.lastSeq, the same value as the snapshot's `ack`.
+ * - R41: bullet 1's weapon fire interval is measured in server ticks since the shooter's last
+ *   shot, not in tickbase, so bank ticks (which do not advance tickbase) never block firing. DT
+ *   bullet 2 keeps ticksSinceLastShot = the shifted ticks (slow weapons still cannot double tap).
  */
 
 export type HvhEngine = 'legacy' | 'v2';
@@ -135,7 +138,6 @@ interface PendingBullet {
   aim: { origin: Vec3; dir: Vec3 };
   viewTick: number;
   ticksSinceLastShot: number;
-  shotTickbase: number;
   spread: number;
   targetPid?: number;
 }
@@ -160,7 +162,11 @@ export interface HvhPlayerV2 {
   observations: Observation[];
   /** This player's resolver, as a shooter. Only the sim drives it. */
   resolver: ResolverMemory;
-  lastShotTickbase: number;
+  /**
+   * Server tick of the last shot fired (R41): bullet 1's fire interval counts server ticks since
+   * it, not tickbase, so bank ticks (which freeze tickbase) never block firing.
+   */
+  lastShotTick: number;
   /** Records pushed for server ticks below this are invalid ('defensive'). */
   defensiveUntilTick: number;
   /** Legacy `fire` messages for a hitscan weapon, waiting for their command, oldest first. */
@@ -281,7 +287,7 @@ export class HvhRoom extends GameRoom {
         history: new RecordHistory(this.era, PLAYER_HULL_WIDTH),
         observations: [],
         resolver: createResolverMemory(),
-        lastShotTickbase: -Infinity,
+        lastShotTick: -Infinity,
         defensiveUntilTick: 0,
         pendingFires: [],
         pendingBullet: null,
@@ -447,12 +453,10 @@ export class HvhRoom extends GameRoom {
     let recordPose = s.pose;
     if (intent.fire) {
       const dt = action.kind === 'shift' && action.reason === 'doubleTap';
-      const shotTickbase = dt ? before.tickbase + 1 : next.tickbase;
-      const bullet = this.prepareBullet(p, s, frame, command, fireReq, shotTickbase, now);
+      const bullet = this.prepareBullet(p, s, frame, command, fireReq, now);
       this.fireBullet(p, s, bullet, 1, now);
-      if (dt) {
-        s.pendingBullet = { ...bullet, ticksSinceLastShot: action.ticks, shotTickbase: next.tickbase };
-      }
+      // DT bullet 2: its interval is the shifted ticks (slow weapons cannot double tap).
+      if (dt) s.pendingBullet = { ...bullet, ticksSinceLastShot: action.ticks };
       if (action.kind === 'shift' && action.reason === 'hideShots') return null;
       // On-shot pose: eyes and body on the aim.
       const aimYaw = Math.atan2(-bullet.aim.dir.x, -bullet.aim.dir.z);
@@ -564,7 +568,7 @@ export class HvhRoom extends GameRoom {
   // ---------------------------------------------------------------------------
 
   private prepareBullet(p: ServerPlayer, s: HvhPlayerV2, frame: Readonly<InputFrame>, command: QueuedCommand,
-    fireReq: FireRequest | null, shotTickbase: number, now: number): PendingBullet {
+    fireReq: FireRequest | null, now: number): PendingBullet {
     const origin = this.eyeOf(p);
     let dir = aimFromAngles(frame.yaw, frame.pitch);
     if (fireReq) {
@@ -583,8 +587,7 @@ export class HvhRoom extends GameRoom {
       weaponId: fireReq && fireReq.weapon !== p.weapon ? fireReq.weapon : p.weapon,
       aim: { origin, dir },
       viewTick,
-      ticksSinceLastShot: shotTickbase - s.lastShotTickbase,
-      shotTickbase,
+      ticksSinceLastShot: tick - s.lastShotTick,
       spread,
     };
     const targetPid = this.pickTarget(p, origin, dir, viewTick, bullet.weaponId, fireReq?.intent?.target);
@@ -673,7 +676,7 @@ export class HvhRoom extends GameRoom {
     if (verdict.cause !== 'rejected') {
       const w = WEAPONS[p.weapon];
       if (shotUsesAmmo(w, p.mods)) p.mags.set(p.weapon, p.mag - 1);
-      s.lastShotTickbase = bullet.shotTickbase;
+      s.lastShotTick = tick;
       p.lastFireAt = now;
       p.shieldUntil = 0;
       p.weaponHeat = Math.min(3, p.weaponHeat + 0.25);
@@ -736,7 +739,7 @@ export class HvhRoom extends GameRoom {
     s.pose = INITIAL_POSE;
     s.history = new RecordHistory(this.era, PLAYER_HULL_WIDTH);
     s.observations = [];
-    s.lastShotTickbase = -Infinity;
+    s.lastShotTick = -Infinity;
     s.defensiveUntilTick = 0;
     this.blockPendingFires(p, s);
     s.pendingBullet = null;

@@ -225,9 +225,8 @@ function botCommand(room: HvhRoom, bot: Bot, enemy: ServerPlayer, shotTicks: Sho
   const move: InputFrame = { seq: bot.seq + 1, forward: 0, right: bot.strafe, jump: false, crouch: false, yaw: towards, pitch: 0 };
   const aim = aimAt(room, bot, predictedEye(room, bot, move), enemy, shotTicks, era, tick);
   if (p.mag <= 0) room.handleReload(p, now);
-  // Readiness from the bot's own (client-predicted) state: commands it still holds run first.
-  const nextTickbase = s.tickbase.tickbase + 1 + bot.held.length;
-  const ready = p.reloadUntil === 0 && p.mag > 0 && nextTickbase - s.lastShotTickbase >= fireIntervalTicks(WEAPONS[WEAPON]);
+  // Readiness (R41): server ticks since the bot's own last shot, at the tick this command runs.
+  const ready = p.reloadUntil === 0 && p.mag > 0 && tick - s.lastShotTick >= fireIntervalTicks(WEAPONS[WEAPON]);
   const fire = aim !== null && ready && enemy.alive;
   const intent: CommandIntent = { ...IDLE, fire };
   if (fire && config.exploit === 'dt') intent.doubleTap = true;

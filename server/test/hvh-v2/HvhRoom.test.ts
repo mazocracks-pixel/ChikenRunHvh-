@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { SIM_DT, makeRay, normalize, rayHvhMatrix, unpackPlayer, type InputFrame, type Vec3 } from '@game/shared';
-import { LATE_CSGO, guessedPose, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
+import { SIM_DT, WEAPONS, makeRay, normalize, rayHvhMatrix, unpackPlayer, type InputFrame, type Vec3 } from '@game/shared';
+import { LATE_CSGO, fireIntervalTicks, guessedPose, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
 import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { GameRoom } from '../../src/rooms/GameRoom';
 import { HvhRoom, hvhEngineFrom, type HvhEngine } from '../../src/rooms/HvhRoom';
@@ -329,6 +329,43 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.equal(room.queuedCommands(a.pid), 32);
     stepRoom(room, performance.now() + TICK_MS);
     assert.equal(a.lastSeq, 8 + 16, 'the 8 oldest were dropped, so execution starts at seq 9');
+  });
+
+  it('R41: banking never blocks fire (the fire interval counts server ticks, not tickbase)', (t) => {
+    const { room, a, b, verdicts } = duel();
+    t.after(() => room.close());
+    assert.equal(room.tickbaseOf(a.pid)?.bank, 0, 'a fresh spawn has an empty bank');
+    const interval = fireIntervalTicks(WEAPONS[a.weapon]);
+    assert.ok(interval > 1 && interval - 1 < LATE_CSGO.doubleTapShift);
+    let now = performance.now();
+    let seq = 0;
+    let bSeq = 0;
+    // b idles every tick (one lag record per tick).
+    const step = (): void => {
+      room.handleInput(b, command(++bSeq, {}));
+      stepRoom(room, (now += TICK_MS));
+    };
+    const fire = (): void => {
+      const aim = anglesTo(room.eyeOf(a), boxCentre(room, b.pid, 'chest'));
+      room.handleInput(a, { ...command(++seq, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+      step();
+    };
+    step();
+    fire();
+    const firstTick = room.hvhTick;
+    const tickbase = room.tickbaseOf(a.pid)!.tickbase;
+    // Idle for interval - 1 ticks: every one is a bank tick (tickbase frozen).
+    for (let i = 0; i < interval - 1; i++) {
+      room.handleInput(a, command(++seq, {}));
+      step();
+    }
+    assert.equal(room.tickbaseOf(a.pid)?.bank, interval - 1, 'the idle ticks banked');
+    assert.equal(room.tickbaseOf(a.pid)?.tickbase, tickbase, 'bank ticks did not advance tickbase');
+    fire();
+    assert.equal(room.hvhTick, firstTick + interval, 'the first tick the weapon interval allows');
+    const shots = verdicts.filter((v) => v.shooterId === String(a.pid));
+    assert.equal(shots.length, 2);
+    assert.ok(shots.every((v) => v.cause !== 'rejected'), `both shots fired (${shots.map((v) => `${v.cause}${v.reason ? `:${v.reason}` : ''}`).join(', ')})`);
   });
 
   it('dt fires two bullets same tick', (t) => {
