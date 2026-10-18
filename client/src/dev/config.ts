@@ -293,7 +293,8 @@ function leafPaths(o: unknown, prefix = ''): string[] {
 
 /**
  * Legacy settings with no v2 meaning: v2 runs anti-aim from AntiAimConfig (base, jitter, desync,
- * invert) and exploits from CommandIntent bits, so these go back to their defaults.
+ * invert) and exploits from CommandIntent bits. Legacy rooms (the default until Task 15) still use
+ * them, so migration keeps their values and only reports them as unused in v2 rooms.
  */
 const UNMAPPED = [
   'hvh.core.defensive', // automatic defensive transition on threat; v2 uses the Exploits tab Defensive bind
@@ -304,10 +305,17 @@ const UNMAPPED = [
   'skeet.antiAim.interval', 'skeet.antiAim.desyncMode', 'skeet.antiAim.states',
 ] as const;
 
+/** True for a `reset` entry (optionally "<config name>: <path>") that names a kept legacy-only setting. */
+function isLegacyOnly(entry: string): boolean {
+  const path = entry.slice(entry.lastIndexOf(': ') + 1).trim();
+  return UNMAPPED.some((p) => path === p || path.startsWith(`${p}.`));
+}
+
 /**
  * Brings any saved config to the current schema. Clean mappings are kept (anti-aim base, jitter and
  * desync, fake-lag limit clamped to maxChoke, the Double Tap / Hide Shots choice, and everything
- * that is not HvH mechanics). `reset` names each setting that was changed back to its default.
+ * that is not HvH mechanics). `reset` lists each customised setting v2 rooms cannot use; their
+ * values are kept for legacy rooms. Unreadable values are dropped to defaults by sanitizeConfig.
  * A corrupt or non-object config gives the defaults with every field in `reset`.
  */
 export function migrateConfig(old: unknown): { config: DevConfig; reset: string[] } {
@@ -317,13 +325,11 @@ export function migrateConfig(old: unknown): { config: DevConfig; reset: string[
   const defaults = defaultConfig(), reset: string[] = [];
   for (const prefix of UNMAPPED) {
     for (const path of leafPaths(getPath(defaults, prefix), prefix)) {
-      const d = getPath(defaults, path);
-      if (getPath(config, path) !== d) { setPath(config, path, d); reset.push(path); }
+      if (getPath(config, path) !== getPath(defaults, path)) reset.push(path);
     }
   }
-  // The legacy era profile is one of the era tables (ERAS); the server still runs LATE_CSGO.
-  const era = (old as { hvh?: { core?: { era?: unknown } } }).hvh?.core?.era;
-  config.skeet.era = typeof era === 'string' && Object.hasOwn(ERAS, era) ? era : DEFAULT_ERA_ID;
+  // The v2 era selection starts at the default; legacy hvh.core.era stays as loaded for legacy rooms.
+  config.skeet.era = DEFAULT_ERA_ID;
   return { config, reset };
 }
 
@@ -443,8 +449,30 @@ export function importConfig(text: string): NamedConfig & { reset: string[] } {
   return { name: cleanName(typeof raw.name === 'string' ? raw.name : 'Imported'), config, reset };
 }
 
-/** One-line notice for a migration that reset settings. */
+/** One-line notice for a migration's `reset` entries. */
 export function migrationNotice(reset: readonly string[]): string {
   if (leafPaths(defaultConfig()).every((f) => reset.includes(f))) return 'Saved config was unreadable: all settings were reset to defaults';
-  return `Config updated for HvH v2. Reset to defaults: ${reset.join(', ')}`;
+  const kept = reset.filter(isLegacyOnly), dropped = reset.filter((e) => !isLegacyOnly(e));
+  return ['Config updated for HvH v2.', kept.length ? `Not used in v2 rooms (kept for legacy): ${kept.join(', ')}.` : '',
+    dropped.length ? `Reset to defaults: ${dropped.join(', ')}.` : ''].filter(Boolean).join(' ');
+}
+
+const NOTICE_KEY = 'chikengun:dev-migration-notice';
+/** Migration notice entries not shown yet; they survive reloads until clearMigrationNotice. */
+export function pendingMigrationNotice(): string[] {
+  try {
+    const raw = JSON.parse(storage.get(NOTICE_KEY) ?? '[]') as unknown;
+    return Array.isArray(raw) ? raw.filter((e): e is string => typeof e === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+/** Adds entries to the pending notice (deduplicated) and returns the whole pending list. */
+export function queueMigrationNotice(entries: readonly string[]): string[] {
+  const all = [...new Set([...pendingMigrationNotice(), ...entries])];
+  if (entries.length) storage.set(NOTICE_KEY, JSON.stringify(all));
+  return all;
+}
+export function clearMigrationNotice(): void {
+  storage.remove(NOTICE_KEY);
 }

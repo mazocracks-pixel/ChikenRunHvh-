@@ -9,7 +9,8 @@ import { DevDebug3D } from './DevDebug3D';
 import { DevOverlay } from './DevOverlay';
 import { peekSteering } from './tactics';
 import type { DevConfig } from './config';
-import { shotRecordUsable } from '@game/shared';
+import { LEGACY_MAX_CHOKE, shotRecordUsable } from '@game/shared';
+import { LATE_CSGO } from '@game/shared/hvh/v2';
 import { nativeOn, nativeValue, nativeColor } from './skeet/visualValues';
 import { skeetEffectiveConfig, skeetProfile } from './skeet/model';
 import { ResolverSystem, scanRage, buildHvhMatrix, hvhHitchance, afterArmor, directionFromAngles, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
@@ -213,7 +214,9 @@ export class DevRuntime implements DevHooks {
     this.defensiveDown = defensiveDown;
     const out = this.extensions.command({ ...frame, invert: this.keyHeld(c.hvh.invertKey, false) });
     const core = c.hvh.core ?? defaultHvhCore();
-    if (session.mode.id === 'hvh' && core.fakeDuck && core.fakeLag > 1) out.crouch = frame.seq % (core.fakeLag + 1) < (core.fakeLag + 1) / 2;
+    // Same engine-scoped choke cap as the command choker, so a stored 13/14 never changes legacy rooms.
+    const duckLag = Math.min(core.fakeLag, session.local.hvhV2 ? LATE_CSGO.maxChoke : LEGACY_MAX_CHOKE);
+    if (session.mode.id === 'hvh' && core.fakeDuck && duckLag > 1) out.crouch = frame.seq % (duckLag + 1) < (duckLag + 1) / 2;
     const now = performance.now();
     const moving = frame.forward !== 0 || frame.right !== 0;
     if (c.legit.move.jumpAssist) {

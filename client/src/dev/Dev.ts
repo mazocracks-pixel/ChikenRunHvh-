@@ -3,7 +3,7 @@ import type { AudioEngine } from '../game/Audio';
 import type { Input } from '../game/Input';
 import type { GameSocket } from '../net/Network';
 import type { Hud } from '../ui/Hud';
-import { defaultConfig, getPath, loadConfigsMigrated, loadCurrentMigrated, migrationNotice, sanitizeConfig, saveConfigs, saveCurrent, setPath, type DevConfig, type NamedConfig } from './config';
+import { clearMigrationNotice, defaultConfig, getPath, loadConfigsMigrated, loadCurrentMigrated, migrationNotice, queueMigrationNotice, sanitizeConfig, saveConfigs, saveCurrent, setPath, type DevConfig, type NamedConfig } from './config';
 import { HVH_PANELS } from './panels';
 import { NativeMenu } from './skeet/NativeMenu';
 import { DevRuntime } from './DevRuntime';
@@ -42,8 +42,8 @@ export class Dev {
   config: DevConfig = this.loadedCurrent.config;
   panelId: HvhPanelId = 'skeet';
   configs: NamedConfig[] = this.loadedConfigs.configs;
-  /** Settings the v2 config migration reset; shown once when the menu next opens, then saved. */
-  private migrationReset: string[] = [...this.loadedCurrent.reset, ...this.loadedConfigs.reset];
+  /** v2 migration notice entries; persisted until shown (the next menu open, even after reloads). */
+  private migrationReset: string[] = queueMigrationNotice([...this.loadedCurrent.reset, ...this.loadedConfigs.reset]);
   status: DevStatus = { granted: false, allowedHere: false, profile: 'off', publicHvh: false, mods: { ...DEFAULT_MODS } };
   readonly runtime: DevRuntime;
   readonly input: Input;
@@ -258,6 +258,7 @@ export class Dev {
     if (!this.migrationReset.length) return;
     this.notify(migrationNotice(this.migrationReset), 'bad', 12000);
     this.migrationReset = [];
+    clearMigrationNotice();
     saveCurrent(this.config, 'skeet');
   }
 

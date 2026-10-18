@@ -4,7 +4,7 @@ import { CommandChoker, defaultHvhCore, fakeLagTicks } from '@game/shared';
 import { DEFAULT_ERA_ID, ERAS, LATE_CSGO } from '@game/shared/hvh/v2';
 import { commandIntent } from '../../src/hvh/PredictedTickbase';
 import {
-  CONFIG_VERSION, defaultConfig, exportConfig, importConfig, loadConfigs, loadCurrentMigrated, migrateConfig, presetConfigs, saveCurrent,
+  CONFIG_VERSION, clearMigrationNotice, defaultConfig, migrationNotice, pendingMigrationNotice, queueMigrationNotice, exportConfig, importConfig, loadConfigs, loadCurrentMigrated, migrateConfig, presetConfigs, saveCurrent,
 } from '../../src/dev/config';
 import { HVH_PANELS } from '../../src/dev/panels';
 import { BINDS } from '../../src/keybinds';
@@ -52,17 +52,31 @@ describe('migrateConfig', () => {
     assert.equal(migrateConfig(mid).config.skeet.fakeLag.limit, 13);
   });
 
-  it('lists the unmappable fields in reset and restores their defaults', () => {
-    const { config, reset } = migrateConfig(legacySaved());
-    const def = defaultConfig();
-    for (const path of ['hvh.core.defensive', 'hvh.core.antiBruteforce', 'hvh.core.fakeDuck', 'skeet.antiAim.jitterMode', 'skeet.antiAim.states.standing.desync'])
+  it('lists the legacy-only fields in reset but keeps their values for legacy rooms', () => {
+    const old = legacySaved() as Record<string, any>;
+    old.skeet.antiAim.enabled = false;
+    const { config, reset } = migrateConfig(old);
+    for (const path of ['hvh.core.defensive', 'hvh.core.antiBruteforce', 'hvh.core.fakeDuck', 'skeet.antiAim.enabled', 'skeet.antiAim.jitterMode', 'skeet.antiAim.states.standing.desync'])
       assert.ok(reset.includes(path), `${path} listed (got ${reset.join(', ')})`);
-    assert.equal(config.hvh.core!.defensive, def.hvh.core!.defensive);
-    assert.equal(config.hvh.core!.antiBruteforce, def.hvh.core!.antiBruteforce);
-    assert.equal(config.hvh.core!.fakeDuck, def.hvh.core!.fakeDuck);
-    assert.equal(config.skeet.antiAim.jitterMode, def.skeet.antiAim.jitterMode);
-    assert.equal(config.skeet.antiAim.states.standing.desync, def.skeet.antiAim.states.standing.desync);
+    assert.equal(config.hvh.core!.defensive, true);
+    assert.equal(config.hvh.core!.antiBruteforce, false);
+    assert.equal(config.hvh.core!.fakeDuck, true);
+    assert.equal(config.skeet.antiAim.enabled, false, 'stance builder stays off');
+    assert.equal(config.skeet.antiAim.jitterMode, 'threeway');
+    assert.equal(config.skeet.antiAim.states.standing.desync, 12);
     assert.equal(new Set(reset).size, reset.length, 'no duplicates');
+    const notice = migrationNotice(reset);
+    assert.match(notice, /Not used in v2 rooms \(kept for legacy\): .*hvh\.core\.antiBruteforce/);
+    assert.doesNotMatch(notice, /Reset to defaults/);
+  });
+
+  it('kept legacy settings survive a save/load round-trip', () => {
+    const old = legacySaved() as Record<string, any>;
+    old.skeet.antiAim.enabled = false;
+    const back = migrateConfig(JSON.parse(JSON.stringify(migrateConfig(old).config)));
+    assert.deepEqual(back.reset, []);
+    assert.equal(back.config.skeet.antiAim.enabled, false);
+    assert.equal(back.config.hvh.core!.antiBruteforce, false);
   });
 
   it('lists only fields that actually changed: an untouched legacy config resets nothing', () => {
@@ -71,10 +85,16 @@ describe('migrateConfig', () => {
     assert.deepEqual(migrateConfig(c).reset, []);
   });
 
-  it('maps the legacy era profile onto the era table selection', () => {
+  it('migrated and untouched configs select the default era table; legacy hvh.core.era is untouched', () => {
     const { config } = migrateConfig(legacySaved());
-    assert.equal(config.skeet.era, 'defensive');
-    assert.ok(ERAS[config.skeet.era]);
+    assert.equal(config.skeet.era, DEFAULT_ERA_ID);
+    assert.equal(config.hvh.core!.era, 'defensive');
+    const untouched = structuredClone(defaultConfig()) as unknown as Record<string, any>;
+    delete untouched.version; delete untouched.skeet.era;
+    const u = migrateConfig(untouched).config;
+    assert.equal(u.skeet.era, 'late-csgo');
+    assert.equal(u.hvh.core!.era, 'tickbase');
+    assert.ok(ERAS[u.skeet.era]);
     assert.equal(defaultConfig().skeet.era, DEFAULT_ERA_ID);
   });
 
@@ -133,6 +153,20 @@ describe('config loading with migration', () => {
     const after = loadCurrentMigrated('skeet');
     assert.deepEqual(after.reset, []);
     assert.deepEqual(after.config, first.config);
+  });
+
+  it('pending notice entries survive a reload and clear after they are shown', () => {
+    assert.deepEqual(pendingMigrationNotice(), []);
+    queueMigrationNotice(['Old: hvh.core.fakeDuck']);
+    queueMigrationNotice(['hvh.core.defensive', 'Old: hvh.core.fakeDuck']);
+    // A reload re-reads storage only.
+    assert.deepEqual(pendingMigrationNotice(), ['Old: hvh.core.fakeDuck', 'hvh.core.defensive']);
+    assert.deepEqual(queueMigrationNotice([]), ['Old: hvh.core.fakeDuck', 'hvh.core.defensive']);
+    assert.match(migrationNotice(pendingMigrationNotice()), /kept for legacy\): Old: hvh\.core\.fakeDuck, hvh\.core\.defensive/);
+    clearMigrationNotice();
+    assert.deepEqual(pendingMigrationNotice(), []);
+    store.set('chikengun:dev-migration-notice', '{broken');
+    assert.deepEqual(pendingMigrationNotice(), []);
   });
 
   it('a missing config is not a migration; unreadable JSON resets everything', () => {
