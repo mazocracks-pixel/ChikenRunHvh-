@@ -41,6 +41,7 @@ import {
   rayChicken,
   rayHvhChicken, CommandChoker, NetworkSimulator, defaultHvhCore, fakeLagTicks,
   hvhSpread,
+  exploitMode,
   raycastPenetrating,
   raycastWorld,
   softBoxTest,
@@ -192,6 +193,8 @@ export class GameSession {
   private readonly commandChoker = new CommandChoker();
   private commandNetwork: NetworkSimulator<readonly InputFrame[]> | null = null;
   private networkKey = '';
+  /** Latest server tick from hvhState (v2 rooms), sent back as each command's clientTick. */
+  private hvhTick = 0;
   readonly room: RoomInfo;
   readonly selfPid: number;
   readonly mode: ModeDef;
@@ -444,7 +447,12 @@ export class GameSession {
         const speed = this.horizontalSpeed();
         const shooting = input.firing || dev?.wantsFire(now) === true;
         const choke = fakeLagTicks(core,frame.seq,speed,shooting);
-        const batch = this.commandChoker.push(frame, choke, !input.active || (core.fakeLagBreakOnShot && shooting));
+        const flush = !input.active || (core.fakeLagBreakOnShot && shooting);
+        // Melee and projectile weapons never fire a hitscan shot (the server rejects them as 'wrong weapon').
+        const def = this.weapons.def;
+        const mode = exploitMode(this.weapons.hvh.exploit, def, this.weapons.mag);
+        const intent = { fire: shooting && !def.melee && !def.projectile, choke: choke > 0 && !flush, doubleTap: mode === 'doubleTap', hideShots: mode === 'hideShots', defensive: false };
+        const batch = this.commandChoker.push(this.local.command(frame, intent, this.hvhTick), choke, flush);
         if (batch.length) this.commandNetwork!.send(batch, now);
       } else net.socket.emit('input', frame);
     }
@@ -1617,6 +1625,7 @@ export class GameSession {
 
   private bindNetwork(): void {
     this.on('snapshot', (s) => this.onSnapshot(s));
+    this.on('hvhState', (e) => { this.hvhTick = e.tick; this.local.onHvhState(e); });
     this.on('playerJoined', (info) => this.onPlayerInfo(info));
     this.on('playerUpdated', (info) => this.onPlayerInfo(info));
     this.on('round', (r) => this.onRound(r));

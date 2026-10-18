@@ -10,7 +10,9 @@ import {
   stepPlayer,
   type CarState,
   type CollisionWorld,
+  type InputCommand,
   type InputFrame,
+  type HvhStateEvent,
   type MoveMods,
   type MoveState,
   type PlayerInfo,
@@ -20,6 +22,8 @@ import {
   DEFAULT_MODS,
   type UpgradeEffects,
 } from '@game/shared';
+import type { CommandIntent } from '@game/shared/hvh/v2';
+import { PredictedTickbase } from '../hvh/PredictedTickbase';
 import { Chicken } from './models/Chicken';
 
 /** Beyond this prediction error (metres) we teleport instead of smoothing, e.g. after a respawn. */
@@ -60,6 +64,10 @@ export class LocalPlayer {
   upgrades: UpgradeEffects | null = null;
   /** A story event's speed-ups (1 = normal), as the server applies them. */
   eventSpeed = 1;
+  /** HvH v2 tickbase prediction; the server only reports it (hvhState) when running the v2 engine. */
+  readonly tickbase = new PredictedTickbase();
+  /** True after the first hvhState, i.e. the room runs the v2 engine. */
+  hvhV2 = false;
 
   constructor(scene: THREE.Scene, info: PlayerInfo, spawn: PlayerState) {
     this.server = spawn;
@@ -86,6 +94,17 @@ export class LocalPlayer {
     this.speed = Math.hypot(this.state.x - this.prev.x, this.state.z - this.prev.z) / SIM_DT;
     this.pending.push({ frame, hopMax, speed });
     if (this.pending.length > MAX_PENDING) this.pending.shift();
+  }
+
+  /** Predicts the tickbase for this command and, on a v2 room, attaches the intent for the server. */
+  command(frame: InputFrame, intent: CommandIntent, clientTick: number): InputCommand {
+    this.tickbase.apply(frame.seq, intent);
+    return this.hvhV2 ? { ...frame, intent, clientTick } : frame;
+  }
+
+  onHvhState(e: HvhStateEvent): void {
+    this.hvhV2 = true;
+    this.tickbase.reconcile(e.tickbase, e.lastAckSeq);
   }
 
   private step(frame: InputFrame, world: CollisionWorld, hopMax: number, speed: number): void {
