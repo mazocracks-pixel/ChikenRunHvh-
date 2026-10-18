@@ -24,7 +24,7 @@ export interface CommandIntent {
 
 export type TickbaseReject = 'dtNotCharged' | 'hsNotCharged' | 'defensiveNotCharged' | 'chokeTooHigh';
 
-type ShiftReason = 'doubleTap' | 'hideShots' | 'defensive';
+export type ShiftReason = 'doubleTap' | 'hideShots' | 'defensive';
 
 export type TickAction =
   | { kind: 'run' }

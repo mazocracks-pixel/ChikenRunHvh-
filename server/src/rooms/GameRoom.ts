@@ -124,6 +124,8 @@ export interface RoomOptions {
   noBots?: boolean;
   /** Ranked rooms: what the anti-cheat does about cheaters (default: removes them). */
   antiCheat?: AntiCheatMode;
+  /** HvH mode only: which HvH engine the room runs (see HvhRoom; env HVH_ENGINE). Default 'legacy'. */
+  hvhEngine?: 'legacy' | 'v2';
 }
 
 /** What the room needs to know about a player joining (loaded from their account). */
@@ -1384,32 +1386,7 @@ export class GameRoom {
     this.hvhTick++;
     for (const p of this.players.values()) {
       this.enforceHvhRules(p);
-      const command = p.commands.next();
-      if (command) this.applyInput(p, command);
-      // Missing commands cannot invent presses or run assistance without new input.
-      else if (p.alive && !p.immobile && !p.vehicle && p.lastInput) {
-        // A held key is remembered, but a missing command never makes the chicken hop on landing.
-        const held = p.state.jumpHeld;
-        stepPlayer(p.state,
-          { ...p.lastInput, forward: 0, right: 0, jump: held && !p.state.onGround, autoHop: false, subtickStrafe: false }, SIM_DT,
-          this.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
-        p.state.jumpHeld = held;
-      }
-      p.simulationTime = now;
-      if (this.mode.id === 'hvh') {
-        p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);
-        p.resource.step(this.hvhTick, p.fireQueue.length > 0 || now - p.lastFireAt < 250,
-          p.hvhEnabled && fakeLagTicks(p.hvh.core ?? defaultHvhCore(), p.lastSeq, p.state.horizontalSpeed) > 0);
-      } else p.resource.playerTick++;
-      const pose = this.updateHvhPose(p, now);
-      if (this.mode.id === 'hvh') {
-        stepAnimation(p.animation, { eyeYaw: pose.real, desiredDelta: wrapAngle(pose.fake - pose.real), speed: p.state.horizontalSpeed,
-          crouch: p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), grounded: p.state.onGround,
-          active: p.hvhEnabled && p.hvh.antiAim.enabled && p.alive && !p.vehicle && !(now >= p.concealUntil && now < p.revealUntil),
-          concealed: now < p.concealUntil, weaponSpeed: moveSpeedFor(p.weapon),
-          velocity: { x: (p.state.walkVx ?? 0) + p.state.vx, y: p.state.vy, z: (p.state.walkVz ?? 0) + p.state.vz } }, this.hvhTick);
-        p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw; p.simulationTime = now;
-      }
+      this.simulatePlayer(p, now);
       p.history.push({ t: now, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, alive: p.alive, scale: bodyScale(p.state),
         pitch: this.mode.id === 'hvh' ? p.fakePitch : p.pitch });
       if (p.reloadUntil > 0 && now >= p.reloadUntil) {
@@ -1428,6 +1405,39 @@ export class GameRoom {
     this.projectiles.update(now);
     this.loot.update(now);
     this.updateMatch(now);
+  }
+
+  /**
+   * One player's share of a server tick: run their queued command (or coast without one) and
+   * step the HvH pose. Seam for HvhRoom's v2 engine; the legacy behaviour lives here unchanged.
+   */
+  protected simulatePlayer(p: ServerPlayer, now: number): void {
+    const command = p.commands.next();
+    if (command) this.applyInput(p, command);
+    // Missing commands cannot invent presses or run assistance without new input.
+    else if (p.alive && !p.immobile && !p.vehicle && p.lastInput) {
+      // A held key is remembered, but a missing command never makes the chicken hop on landing.
+      const held = p.state.jumpHeld;
+      stepPlayer(p.state,
+        { ...p.lastInput, forward: 0, right: 0, jump: held && !p.state.onGround, autoHop: false, subtickStrafe: false }, SIM_DT,
+        this.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), this.mode.id === 'hvh');
+      p.state.jumpHeld = held;
+    }
+    p.simulationTime = now;
+    if (this.mode.id === 'hvh') {
+      p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);
+      p.resource.step(this.hvhTick, p.fireQueue.length > 0 || now - p.lastFireAt < 250,
+        p.hvhEnabled && fakeLagTicks(p.hvh.core ?? defaultHvhCore(), p.lastSeq, p.state.horizontalSpeed) > 0);
+    } else p.resource.playerTick++;
+    const pose = this.updateHvhPose(p, now);
+    if (this.mode.id === 'hvh') {
+      stepAnimation(p.animation, { eyeYaw: pose.real, desiredDelta: wrapAngle(pose.fake - pose.real), speed: p.state.horizontalSpeed,
+        crouch: p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), grounded: p.state.onGround,
+        active: p.hvhEnabled && p.hvh.antiAim.enabled && p.alive && !p.vehicle && !(now >= p.concealUntil && now < p.revealUntil),
+        concealed: now < p.concealUntil, weaponSpeed: moveSpeedFor(p.weapon),
+        velocity: { x: (p.state.walkVx ?? 0) + p.state.vx, y: p.state.vy, z: (p.state.walkVz ?? 0) + p.state.vz } }, this.hvhTick);
+      p.yaw = p.animation.bodyYaw; p.fakeYaw = p.animation.eyeYaw; p.simulationTime = now;
+    }
   }
 
   /** Keeps the bot count on target: fixed for practice rooms, filling empty seats in public ones. */
@@ -1497,7 +1507,7 @@ export class GameRoom {
 // Validation of untrusted client messages
 // ---------------------------------------------------------------------------
 
-function parseInput(raw: unknown): InputFrame | null {
+export function parseInput(raw: unknown): InputFrame | null {
   if (!isRecord(raw)) return null;
   const { seq, forward, right, jump, yaw, pitch } = raw;
   if (!Number.isSafeInteger(seq) || !isFiniteNumber(forward) || !isFiniteNumber(right) || !isFiniteNumber(yaw)) return null;
@@ -1519,7 +1529,7 @@ function parseInput(raw: unknown): InputFrame | null {
   };
 }
 
-function parseFire(raw: unknown): FireRequest | null {
+export function parseFire(raw: unknown): FireRequest | null {
   if (!isRecord(raw)) return null;
   const { shot, weapon, dx, dy, dz, t, aiming } = raw;
   if (!Number.isSafeInteger(shot) || !isWeaponId(weapon)) return null;

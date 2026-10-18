@@ -4,6 +4,9 @@ import type { FriendsState, PartyInvite, PartyState, SocialResult } from './soci
 import type { DevAction, DevMods, DevResult, DevStatus, JumpscareStyle } from './dev';
 import type { UpgradeLevels } from './upgrades';
 import type { HvhLoadout } from './hvh';
+import type { EraTable } from './hvh/v2/era';
+import type { ShotVerdict } from './hvh/v2/shot';
+import type { CommandIntent, TickbaseState } from './hvh/v2/tickbase';
 import type { Appearance } from './items';
 import type { MapId, Team } from './maps/types';
 import { round } from './math';
@@ -381,6 +384,39 @@ export interface JoinRoomRequest {
 // Combat and gameplay events
 // ---------------------------------------------------------------------------
 
+/**
+ * The `input` message. Legacy fields are an InputFrame; the HvH v2 engine also reads `intent`
+ * (what this command asks the tickbase to do) and `clientTick` (the server tick the client was
+ * viewing when it built the command, used as the shot's lag-compensation view tick). Both are
+ * optional, so legacy clients and every non-HvH room are unaffected: their parser drops them.
+ */
+export interface InputCommand extends InputFrame {
+  intent?: CommandIntent;
+  clientTick?: number;
+}
+
+/**
+ * HvH v2, sent to the owning player only, once per server tick in which their commands ran.
+ * `lastAckSeq` is the seq of the last command the server executed (the same value as the
+ * snapshot's `ack`), so client prediction can drop acknowledged commands and replay the rest.
+ * `ticksSinceShift` is capped at the era's rechargeDelayTicks when serialized.
+ */
+export interface HvhStateEvent {
+  tick: number;
+  tickbase: TickbaseState;
+  era: string;
+  lastAckSeq: number;
+}
+
+export function hvhStateEvent(tickbase: TickbaseState, era: EraTable, lastAckSeq: number, tick: number): HvhStateEvent {
+  return {
+    tick,
+    tickbase: { ...tickbase, ticksSinceShift: Math.min(tickbase.ticksSinceShift, era.rechargeDelayTicks) },
+    era: era.id,
+    lastAckSeq,
+  };
+}
+
 export interface FireRequest {
   command?: number;
   intent?: import('./hvh/rage').ShotIntent;
@@ -571,7 +607,7 @@ export interface ClientToServerEvents {
   /** Zombie Apocalypse: play again after game over. */
   zombieRestart: () => void;
 
-  input: (frame: InputFrame) => void;
+  input: (frame: InputCommand) => void;
   fire: (req: FireRequest) => void;
   reload: () => void;
   switchWeapon: (slot: number) => void;
@@ -626,6 +662,10 @@ export interface ServerToClientEvents {
   playerUpdated: (player: PlayerInfo) => void;
 
   shot: (e: ShotEvent) => void;
+  /** HvH v2: one explained outcome per bullet (to the shooter, the target and spectators). */
+  shotVerdict: (v: ShotVerdict) => void;
+  /** HvH v2: the owner's tickbase and command acknowledgement. */
+  hvhState: (s: HvhStateEvent) => void;
   damage: (e: DamageEvent) => void;
   kill: (e: KillEvent) => void;
   spawn: (e: SpawnEvent) => void;
