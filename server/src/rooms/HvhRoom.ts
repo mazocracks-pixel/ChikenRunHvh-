@@ -197,6 +197,9 @@ function aimFromAngles(yaw: number, pitch: number): Vec3 {
   return { x: -Math.sin(yaw) * c, y: Math.sin(pitch), z: -Math.cos(yaw) * c };
 }
 
+/** Newest lag records sent per target in the dev overlay feed. */
+export const DEBUG_MAX_RECORDS = 24;
+
 export class HvhRoom extends GameRoom {
   readonly hvhEngine: HvhEngine;
   readonly era: EraTable = LATE_CSGO;
@@ -246,12 +249,13 @@ export class HvhRoom extends GameRoom {
       if (!authorized()) { this.debugViewers.delete(pid); continue; }
       const memory = this.stateOf(viewer).resolver;
       for (const target of this.players.values()) {
-        if (target === viewer) continue;
+        if (target === viewer || !target.alive) continue;
         const t = this.stateOf(target);
-        viewer.socket.emit('hvhDebug', {
+        // Volatile (like snapshots): a slow dev socket drops frames instead of buffering without bound.
+        viewer.socket.volatile.emit('hvhDebug', {
           playerId: target.pid,
           realPose: { ...t.pose },
-          records: t.history.records().map((r) => ({ ...r })),
+          records: t.history.records().slice(-DEBUG_MAX_RECORDS).map((r) => ({ ...r })),
           resolver: peekResolve(memory, String(target.pid), t.observations, this.hvhTick),
         });
       }
