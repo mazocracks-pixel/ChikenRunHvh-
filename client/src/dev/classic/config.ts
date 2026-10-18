@@ -264,47 +264,156 @@ export interface NamedConfig {
   config: DevConfig;
 }
 
-/** Ready-made configs, added the first time the menu opens. */
-export function presetConfigs(): NamedConfig[] {
-  const legit = defaultConfig();
-  legit.legit.aim.enabled = true;
-  legit.legit.trigger.enabled = true;
-  legit.legit.move.bhop = true;
-  legit.legit.move.jumpAssist = true;
-  legit.legit.wall.enabled = true;
-
-  const rage = defaultConfig();
-  rage.rage.aim.enabled = true;
-  rage.rage.aim.autoTarget = true;
-  Object.assign(rage.rage.weapon, { noRecoil: true, noSpread: true, infiniteAmmo: true, instantReload: true, rapidFire: true, automatic: true });
-  rage.rage.move.speed = 1.6;
-  rage.weapons.damage = 2;
-
-  const visuals = defaultConfig();
-  Object.assign(visuals.visuals.esp, { enabled: true, box: true, name: true, health: true, distance: true, weapon: true, skeleton: true, headCircle: true });
-  Object.assign(visuals.visuals.world, { items: true, weapons: true, objectives: true });
-
-  const testing = defaultConfig();
-  Object.assign(testing.misc, { fpsCounter: true, ping: true, coords: true, velocity: true, speed: true, mapInfo: true });
-  Object.assign(testing.visuals.world, { hitboxes: true, collision: true, spawns: true });
-  testing.rage.weapon.infiniteAmmo = true;
-
-  const fun = defaultConfig();
-  Object.assign(fun.rage.move, { speed: 2.5, jump: 2.5, lowGravity: true, infiniteStamina: true });
-  Object.assign(fun.rage.weapon, { rapidFire: true, automatic: true, infiniteMag: true });
-  fun.weapons.projectileSpeed = 2;
-  fun.visuals.esp.enabled = true;
-  fun.visuals.esp.glow = true;
-  fun.rage.antiAim.spin = true;
-
-  return [
-    { name: 'Legit', config: legit },
-    { name: 'Rage', config: rage },
-    { name: 'Visuals', config: visuals },
-    { name: 'Testing', config: testing },
-    { name: 'Fun', config: fun },
-  ];
+/** A read-only config shipped with the menu (Configs tab). Loading it never touches the menu's own look. */
+export interface BuiltinConfig {
+  name: string;
+  description: string;
+  /** Difficulty tag, Legit (green) to HvH Rage (red); Meme is purple. */
+  tag: string;
+  color: string;
+  build(current: DevConfig): DevConfig;
 }
+
+/** Defaults plus `edit`, keeping the current menu settings, world look and selected weapon. */
+const preset = (edit: (c: DevConfig) => void) => (current: DevConfig) => {
+  const c = defaultConfig();
+  edit(c);
+  c.settings = structuredClone(current.settings);
+  c.world = structuredClone(current.world);
+  c.weapons.selected = current.weapons.selected;
+  return c;
+};
+
+const fullEsp = (c: DevConfig) => Object.assign(c.visuals.esp, { enabled: true, box: true, name: true, health: true, distance: true, weapon: true, skeleton: true, snaplines: true, headCircle: true, glow: true });
+/** "Chams" here is the Wallhack silhouette, enemies only. */
+const chams = (c: DevConfig) => Object.assign(c.legit.wall, { enabled: true, enemies: true, teammates: false });
+const rageAim = (c: DevConfig) => Object.assign(c.rage.aim, { enabled: true, fov: 180, silent: true, autoTarget: true, hitbox: 'head' });
+
+/** "Pasted from GitHub": a fresh random roll every load. */
+function pasted(c: DevConfig): void {
+  const coin = () => Math.random() < 0.5;
+  for (const p of ['legit.aim.enabled', 'legit.trigger.enabled', 'legit.move.bhop', 'legit.wall.enabled', 'rage.antiAim.spin', 'rage.weapon.noRecoil', 'misc.fpsCounter', 'misc.coords']) setPath(c, p, coin());
+  for (const k of Object.keys(c.visuals.esp) as (keyof DevConfig['visuals']['esp'])[]) c.visuals.esp[k] = coin();
+  for (const p of ['legit.aim.fov', 'legit.aim.smooth', 'rage.antiAim.speed']) {
+    const r = RANGES[p]!;
+    setPath(c, p, r.min + Math.round((Math.random() * (r.max - r.min)) / r.step) * r.step);
+  }
+  for (const p of ['legit.aim.target', 'rage.antiAim.direction', 'rage.antiAim.pitch']) {
+    const ch = CHOICES[p]!;
+    setPath(c, p, ch[Math.floor(Math.random() * ch.length)]);
+  }
+  const hex = () => `#${Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, '0')}`;
+  c.visuals.colors.enemy = hex();
+  c.legit.wall.enemyColor = hex();
+}
+
+export const BUILTIN_CONFIGS: readonly BuiltinConfig[] = [
+  {
+    name: 'Totally Legit™',
+    description: 'I just have good game sense.',
+    tag: 'Legit',
+    color: '#3ecf6e',
+    build: preset((c) => Object.assign(c.legit.aim, { enabled: true, fov: 2, smooth: 16, strength: 35, reaction: 180, target: 'body' })),
+  },
+  {
+    name: 'Gaming Chair',
+    description: "It's not cheats, I bought a new chair.",
+    tag: 'Semi Legit',
+    color: '#9bd84a',
+    build: preset((c) => {
+      Object.assign(c.legit.aim, { enabled: true, fov: 5, smooth: 8, strength: 60, target: 'nearest' });
+      Object.assign(c.legit.trigger, { enabled: true, delay: 120 });
+      Object.assign(c.visuals.esp, { enabled: true, box: true, name: false, health: false, distance: false });
+      c.legit.move.bhop = true;
+      c.weapons.recoil = 0.5;
+    }),
+  },
+  {
+    name: 'Closet Cheater',
+    description: 'Reported 47 times, still not banned.',
+    tag: 'Semi Rage',
+    color: '#e8c53a',
+    build: preset((c) => {
+      Object.assign(c.legit.aim, { enabled: true, fov: 15, smooth: 3, strength: 85, reaction: 60, target: 'head' });
+      Object.assign(c.legit.trigger, { enabled: true, delay: 40 });
+      Object.assign(c.visuals.esp, { enabled: true, box: true, name: true, health: true, distance: false });
+      chams(c);
+      Object.assign(c.rage.antiAim, { spin: true, direction: 'jitter', speed: 240 });
+      c.legit.move.bhop = true;
+      c.weapons.recoil = 0;
+    }),
+  },
+  {
+    name: '$9 YouTube Config',
+    description: 'Link in description, use code NN.',
+    tag: 'Rage',
+    color: '#f08a2e',
+    build: preset((c) => {
+      rageAim(c);
+      fullEsp(c);
+      chams(c);
+      Object.assign(c.rage.antiAim, { spin: true, direction: 'jitter', speed: 720 });
+      c.rage.weapon.noRecoil = true;
+      c.legit.move.bhop = true;
+    }),
+  },
+  {
+    name: 'Memesense',
+    description: 'Like Skeet, but the free trial.',
+    tag: 'HvH',
+    color: '#ef5a32',
+    build: preset((c) => {
+      rageAim(c);
+      fullEsp(c);
+      chams(c);
+      Object.assign(c.rage.antiAim, { spin: true, direction: 'jitter', speed: 1080, pitch: 'down' });
+      c.rage.weapon.noRecoil = true;
+      Object.assign(c.legit.move, { bhop: true, autoStrafe: true });
+    }),
+  },
+  {
+    name: 'UID Issue',
+    description: "Sorry, can't hear you over my 1 tap.",
+    tag: 'HvH Rage',
+    color: '#e0303a',
+    build: preset((c) => {
+      rageAim(c);
+      c.rage.aim.instantSwitch = true;
+      fullEsp(c);
+      chams(c);
+      Object.assign(c.rage.antiAim, { spin: true, direction: 'right', speed: 720, pitch: 'down' });
+      Object.assign(c.rage.weapon, { noRecoil: true, noSpread: true, rapidFire: true, automatic: true });
+      Object.assign(c.legit.move, { bhop: true, autoStrafe: true });
+    }),
+  },
+  { name: 'Pasted from GitHub', description: 'Works on my machine. 3k stars, 0 tests, new roll every load.', tag: 'Meme', color: '#b46bff', build: preset(pasted) },
+  {
+    name: 'Spinbot Supreme',
+    description: "Can't hit anyone. Can't be hit either. Probably.",
+    tag: 'Meme',
+    color: '#b46bff',
+    build: preset((c) => {
+      Object.assign(c.rage.antiAim, { spin: true, direction: 'right', speed: RANGES['rage.antiAim.speed']!.max, pitch: 'up' });
+      Object.assign(c.legit.wall, { enabled: true, enemies: true, teammates: true, enemyColor: '#ff00ff', teamColor: '#00ffcc' });
+    }),
+  },
+  {
+    name: "Dev's Grandma",
+    description: 'Aim set to "gentle hug". Every chicken is a nice boy.',
+    tag: 'Meme',
+    color: '#b46bff',
+    build: preset((c) => {
+      Object.assign(c.legit.aim, { enabled: true, fov: 1, smooth: 20, strength: 10, reaction: 500 });
+      Object.assign(c.visuals.esp, { enabled: true, box: false, name: true, health: false, distance: false });
+    }),
+  },
+];
+
+/** Reset to default: every cheat setting off, the menu's own look kept. */
+export const resetConfig = preset(() => {});
+
+/** What "Custom (modified)" compares: everything but the menu's own settings. */
+export const configPrint = (c: DevConfig) => JSON.stringify({ ...c, settings: null });
 
 export function loadCurrent(): DevConfig {
   try {
@@ -321,12 +430,12 @@ export function saveCurrent(config: DevConfig): void {
 export function loadConfigs(): NamedConfig[] {
   try {
     const raw = JSON.parse(storage.get(CONFIGS_KEY) ?? storage.get(OLD_CONFIGS_KEY) ?? 'null') as unknown;
-    if (!Array.isArray(raw)) return presetConfigs();
+    if (!Array.isArray(raw)) return [];
     return raw
       .filter((c): c is { name: string; config: unknown } => !!c && typeof c === 'object' && typeof (c as { name?: unknown }).name === 'string')
       .map((c) => ({ name: cleanName(c.name), config: sanitizeConfig(c.config) }));
   } catch {
-    return presetConfigs();
+    return [];
   }
 }
 
@@ -338,13 +447,39 @@ export function cleanName(name: string): string {
   return name.replace(/[^\w \-.]/g, '').trim().slice(0, 24) || 'Config';
 }
 
-/** A config file to share: tagged, so importing random JSON is rejected politely. */
-export function exportConfig(named: NamedConfig): string {
-  // The format id predates the rename; kept so older exports still import.
-  return JSON.stringify({ format: 'chikengun-dev-config', version: 1, name: named.name, config: named.config }, null, 2);
+const CODE_PREFIX = 'CRH1-';
+
+/** Only the values that differ from the defaults, so the share code stays short. */
+function changes(def: unknown, cur: unknown): unknown {
+  if (!def || typeof def !== 'object') return def === cur ? undefined : cur;
+  const out: Record<string, unknown> = {};
+  for (const [k, d] of Object.entries(def)) {
+    const v = changes(d, (cur as Record<string, unknown> | undefined)?.[k]);
+    if (v !== undefined) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
+/** A short text code to share, e.g. CRH1-eyJuIjoi... (base64 of the changed settings). */
+export function exportConfig(named: NamedConfig): string {
+  const json = JSON.stringify({ n: named.name, c: changes(defaultConfig(), named.config) ?? {} });
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+  return CODE_PREFIX + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Takes a share code or an older exported JSON file; everything goes through sanitizeConfig. */
 export function importConfig(text: string): NamedConfig {
+  const code = text.trim();
+  if (code.startsWith(CODE_PREFIX)) {
+    let raw: { n?: unknown; c?: unknown };
+    try {
+      const bin = atob(code.slice(CODE_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/'));
+      raw = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (ch) => ch.charCodeAt(0)))) as { n?: unknown; c?: unknown };
+    } catch {
+      throw new Error('That config code is broken or cut off.');
+    }
+    return { name: cleanName(typeof raw.n === 'string' ? raw.n : 'Imported'), config: sanitizeConfig(raw.c) };
+  }
   const raw = JSON.parse(text) as { format?: unknown; name?: unknown; config?: unknown };
   if (!raw || raw.format !== 'chikengun-dev-config') throw new Error('Not a ChikenRunHvh developer config.');
   return { name: cleanName(typeof raw.name === 'string' ? raw.name : 'Imported'), config: sanitizeConfig(raw.config) };

@@ -3,6 +3,23 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 31 (17 Oct): mega?dev config presets
+
+- **Where:** mega?dev (L, behind the dev code), Configs tab. Skeet and the HvH Lab are unchanged; dev mode is allowed in the same places as before.
+- **Built-ins** (`client/src/dev/classic/config.ts` `BUILTIN_CONFIGS`): Totally Legit™, Gaming Chair, Closet Cheater, $9 YouTube Config, Memesense, UID Issue, and three meme ones (Pasted from GitHub, Spinbot Supreme, Dev's Grandma). Each has a name, a one-line description and a difficulty tag from green (Legit) to red (HvH Rage), purple for Meme. They're built from the defaults, keep your menu look, World colours and selected weapon, and can't be renamed or deleted. Save with one selected makes your own copy.
+- **Panel** (`client/src/dev/panels/configs.ts`, used by both menus): built-ins only show when the menu passes them (mega?dev does; Lab doesn't). "Active: X" above the list becomes "Custom (modified)" after any change. A load toasts "Loaded config: X". New button: Reset to default (cheat settings only).
+- **Share code:** Export makes a short code `CRH1-...` (base64 of only the changed settings) and shows it in the box; Import takes a code or an old JSON file. Everything still goes through `sanitizeConfig`. The old seeded configs (Legit, Rage, Visuals, Testing, Fun) are no longer added for new players; anyone who has them keeps them as their own.
+- What maps where and what was skipped: CHECK_REPORT.md.
+- Checked in the browser: the code is still required; each preset loads and changes the settings; save, delete, export and import work. Tests: 536 (2 new); `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The panel patch went through a bash heredoc and broke on quotes. | Wrote the script to a file. |
+| 2 | The panel file has CRLF line endings, so the patch strings wouldn't match. | The patch script converts to LF and back. |
+| 3 | My browser check expected a jumpscare on a wrong code; there isn't one (only "Wrong code." and a shake). | Noted in CHECK_REPORT.md; left unchanged. |
+
 # Batch 30 (17 Oct): CS2 weapon slots, scroll wheel, bomb on 5, weapon list
 
 - **Slots:** 1 primary, 2 pistol, 3 knife, 4 grenades (again: the next kind), 5 the bomb, only for its carrier (ChikenBomb, FaceChiken); other keys do nothing (key 5 used to be the knife). README controls table and the F1 guide updated.
