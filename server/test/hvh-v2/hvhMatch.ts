@@ -79,6 +79,9 @@ export interface ScriptStep {
   fakeLag: number;
 }
 
+/** Deathier matches: walk at the target (frames carry the aim yaw), aim tighter, fire more. */
+export interface ScriptOptions { charge?: boolean; aimNoise?: number; fireChance?: number }
+
 const AA_MODES = ['backward', 'left', 'right', 'spin'] as const;
 const JITTERS = [0, 20, 45];
 const DESYNCS = [0, 30, 58];
@@ -99,7 +102,7 @@ export class Script {
   private fakeLag = 0;
   private invert = false;
 
-  constructor(seed: number) {
+  constructor(seed: number, private readonly opts: ScriptOptions = {}) {
     this.rand = prng(seed);
   }
 
@@ -112,7 +115,7 @@ export class Script {
     const r = this.rand;
     if (this.moveLeft-- <= 0) {
       this.moveLeft = 20 + Math.floor(r() * 40);
-      this.forward = this.pick([-1, 0, 1, 1]);
+      this.forward = this.opts.charge ? 1 : this.pick([-1, 0, 1, 1]);
       this.right = this.pick([-1, 0, 1]);
     }
     if (r() < 0.006) this.exploit = this.pick(EXPLOITS);
@@ -137,13 +140,13 @@ export class Script {
       const dx = best.state.x - eye.x;
       const dy = best.state.y + 0.6 + r() * 0.5 - eye.y;
       const dz = best.state.z - eye.z;
-      yaw = Math.atan2(-dx, -dz) + (r() - 0.5) * 0.06;
+      yaw = Math.atan2(-dx, -dz) + (r() - 0.5) * (this.opts.aimNoise ?? 0.06);
       pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
     }
 
     let fire = false;
     if (p.mag <= 0) room.handleReload(p, now);
-    else if (best && p.reloadUntil === 0 && r() < 0.2) fire = true;
+    else if (best && p.reloadUntil === 0 && r() < (this.opts.fireChance ?? 0.2)) fire = true;
     const defensive = r() < 0.01;
     if (this.chokeLeft <= 0 && r() < 0.03) this.chokeLeft = 1 + Math.floor(r() * 14);
     const choke = this.chokeLeft-- > 0 && !fire;

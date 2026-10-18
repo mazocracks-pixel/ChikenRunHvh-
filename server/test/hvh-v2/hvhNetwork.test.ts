@@ -20,7 +20,7 @@ import {
 import { LATE_CSGO } from '@game/shared/hvh/v2';
 import { PredictedTickbase, TickClock, commandIntent, shotReference } from '../../../client/src/hvh/PredictedTickbase';
 import { stepRoom } from '../helpers';
-import { CLOCK_BASE, Script, TICK_MS, makeMatch } from './hvhMatch';
+import { CLOCK_BASE, Script, TICK_MS, makeMatch, prng, type ScriptOptions } from './hvhMatch';
 
 const TICKS = 2_000;
 const SEED = 0x5eed13;
@@ -54,10 +54,22 @@ interface Client {
   reconciles: number;
 }
 
-function runProfile(config: NetworkConfig) {
-  const { room, players, sent } = makeMatch(SEED, { sockets: true });
+/**
+ * A deathier match: about one death per player every 300 ticks. The scripts charge and fire more,
+ * but at high latency most shots fall outside the unlag window, so the harness also adds a seeded
+ * world hazard (lethal 'world' damage through GameRoom.damage, like a fall), so every profile
+ * crosses the same number of life boundaries (death -> dead commands -> respawn).
+ */
+const DEATHY: ScriptOptions = { charge: true, aimNoise: 0, fireChance: 0.6 };
+const HAZARD_PER_ALIVE_TICK = 1 / 110;
+
+/** `lifeResets` false skips the kill / spawn wiring (LocalPlayer.onOwnDeath / respawnAt), to measure what it fixes. */
+function runProfile(config: NetworkConfig, script: ScriptOptions = {}, lifeResets = true, hazard = 0) {
+  const { room, players, sent, events } = makeMatch(SEED, { sockets: true });
   try {
-    const scripts = players.map((_, i) => new Script(SEED * 31 + i));
+    const scripts = players.map((_, i) => new Script(SEED * 31 + i, script));
+    let broadcastsRead = events.length;
+    const hazards = players.map((p) => prng(SEED ^ (p.pid * 0x9e37)));
     const clients: Client[] = players.map((p) => ({
       choker: new CommandChoker(), network: new NetworkSimulator(config, p.pid), tickbase: new PredictedTickbase(), clock: new TickClock(),
       hvhV2: false, nextSeq: 1, shotSeq: 0, shotCommand: null, ack: 0, read: 0, reconciles: 0,
@@ -66,6 +78,17 @@ function runProfile(config: NetworkConfig) {
     let executed = 0;
     for (let tick = 1; tick <= TICKS; tick++) {
       const now = CLOCK_BASE + tick * TICK_MS;
+      // Room broadcasts of the last tick, which a socket delivers before that tick's hvhState:
+      // our own kill -> LocalPlayer.onOwnDeath, our own spawn -> LocalPlayer.respawnAt (v2 only).
+      for (; broadcastsRead < events.length; broadcastsRead++) {
+        const e = events[broadcastsRead]!;
+        const data = e.args[0] as { victim?: number; pid?: number };
+        const i = players.findIndex((p) => p.pid === (e.event === 'kill' ? data.victim : e.event === 'spawn' ? data.pid : -1));
+        const c = clients[i];
+        if (!c || !c.hvhV2 || !lifeResets) continue;
+        if (e.event === 'kill') c.tickbase.reset(undefined, false);
+        else c.tickbase.reset();
+      }
       players.forEach((p, i) => {
         const c = clients[i]!;
         // Socket events since the last frame (GameSession.bindNetwork: hvhState -> TickClock, LocalPlayer.onHvhState).
@@ -117,27 +140,37 @@ function runProfile(config: NetworkConfig) {
           }
         }
       });
+      players.forEach((p, i) => {
+        if (p.alive && hazards[i]!() < hazard) room.damage(p, null, 1000, false, 'world', { x: p.state.x, y: p.state.y, z: p.state.z }, now);
+      });
       stepRoom(room, now);
       for (const p of players) executed += room.v2State(p.pid)!.executed;
     }
-    return { players, clients, sentCommands, executed, issued: clients.reduce((n, c) => n + c.nextSeq - 1, 0) };
+    return { players, clients, sentCommands, executed, issued: clients.reduce((n, c) => n + c.nextSeq - 1, 0), deaths: players.map((p) => p.info.deaths) };
   } finally {
     room.close();
   }
 }
 
 describe('HvH v2 network gate', () => {
-  for (const [name, config] of Object.entries(PROFILES)) {
+  for (const [label, script] of [['', {}], [' (deathy match)', DEATHY]] as const)
+  for (const [profile, config] of Object.entries(PROFILES)) {
+    const name = profile + label;
     it(`prediction holds under ${name}`, () => {
-      const run = runProfile(config);
+      const run = runProfile(config, script, true, script === DEATHY ? HAZARD_PER_ALIVE_TICK : 0);
+      if (script === DEATHY) {
+        const mean = run.deaths.reduce((a, b) => a + b, 0) / run.deaths.length;
+        assert.ok(mean >= TICKS / 300 * 0.8, `${name}: about one death per player every 300 ticks (mean ${mean} deaths in ${TICKS} ticks)`);
+      }
       if (config.loss > 0) assert.ok(run.sentCommands < run.issued, `${name}: some commands were lost (${run.sentCommands} of ${run.issued} arrived)`);
-      assert.ok(run.executed > TICKS * 5, `${name}: the room executed ${run.executed} commands`);
+      // Dead players send nothing: the deathy match runs fewer commands (players are alive about a third of the time).
+      assert.ok(run.executed > TICKS * (script === DEATHY ? 2 : 5), `${name}: the room executed ${run.executed} commands`);
       const ratios = run.players.map((p, i) => {
         const c = run.clients[i]!;
         assert.ok(c.reconciles > TICKS / 10, `${name}: player ${p.pid} reconciled ${c.reconciles} times`);
         return c.tickbase.mismatches / TICKS;
       });
-      console.log(`[hvhNetwork] ${name}: mismatches/ticks per player ${ratios.map((r) => r.toFixed(4)).join(' ')}`);
+      console.log(`[hvhNetwork] ${name}: deaths ${run.deaths.join(' ')}; mismatches/ticks per player ${ratios.map((r) => r.toFixed(4)).join(' ')}`);
       ratios.forEach((r, i) => assert.ok(r < 0.01, `${name}: player ${run.players[i]!.pid} mismatches / ticks = ${r}`));
     });
   }

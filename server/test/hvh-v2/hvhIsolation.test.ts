@@ -8,7 +8,7 @@
  * in many places, so each run installs a deterministic harness for its duration: Math.random is a
  * seeded mulberry32 and performance.now is the driver's tick clock. Both runs get the same seed.
  *
- * "Outcome" per mode: every room broadcast in order (spawns, kills, damage, scores, rounds, loot,
+ * "Outcome" per mode: every room broadcast in order, everything sent to each player's own socket (spawns, kills, damage, scores, rounds, loot,
  * zombie waves, ...), and per tick, per player: position, hp, armor, alive, kills, deaths, score,
  * weapon, magazine, acked seq; plus the match phase and team scores per tick.
  */
@@ -52,6 +52,10 @@ interface TickOutcome { phase: string; players: { pid: number; hp: number }[] }
 
 interface Outcome {
   events: unknown[];
+  /** Per human: everything the room sent to that player's socket, in order. */
+  sent: unknown[][];
+  /** Any player with the HvH tools on (never in a non-HvH room). */
+  hvhEnabled: boolean;
   ticks: unknown[];
   stats: { moved: boolean; damage: number; kills: number; fires: number };
 }
@@ -72,10 +76,17 @@ function runMode(mode: ModeId, inject: boolean): Outcome {
     }, {});
     try {
       const humans: ServerPlayer[] = [];
+      const sent: unknown[][] = [];
       for (let i = 0; i < humanCount; i++) {
         const res = room.join(null, { userId: null, name: `H${i}`, appearance: { ...DEFAULT_APPEARANCE }, loadout: [...DEFAULT_LOADOUT] });
         if (!res.ok) throw new Error(`${mode}: ${res.error}`);
-        humans.push(room.players.get(res.selfPid)!);
+        const p = room.players.get(res.selfPid)!;
+        // A per-player socket sink (as hvhMatch), so traffic sent to one player is part of the outcome too.
+        const sink: unknown[] = [];
+        sent.push(sink);
+        const emit = (event: string, ...args: unknown[]) => { sink.push(structuredClone({ event, args })); return true; };
+        Object.defineProperty(p, 'socket', { value: { id: `iso-${i}`, emit, to() { return { emit() { return true; } }; }, leave() {}, join() {}, volatile: { emit } } });
+        humans.push(p);
       }
       room.startNow(clock.now);
       // Bomb modes spawn the teams far apart behind walls: start the scripted players face to face (warmup is free play).
@@ -140,7 +151,8 @@ function runMode(mode: ModeId, inject: boolean): Outcome {
       }
       const kills = recorded.filter((e) => e.event === 'kill').length;
       const moved = humans.some((p, i) => Math.hypot(p.state.x - start[i]!.x, p.state.z - start[i]!.z) > 1);
-      return { events: recorded, ticks, stats: { moved, damage, kills, fires } };
+      const hvhEnabled = [...room.players.values()].some((p) => p.hvhEnabled);
+      return { events: recorded, sent, ticks, hvhEnabled, stats: { moved, damage, kills, fires } };
     } finally {
       room.close();
     }
@@ -157,12 +169,20 @@ describe('HvH v2 isolation gate', () => {
     it(`${mode}: HvH intents in every command change nothing`, () => {
       const plain = runMode(mode, false);
       const injected = runMode(mode, true);
-      console.log(`[hvhIsolation] ${mode}: events ${plain.events.length}, hits taken ${plain.stats.damage}, kills ${plain.stats.kills}, fire requests ${plain.stats.fires}, moved ${plain.stats.moved}`);
+      console.log(`[hvhIsolation] ${mode}: events ${plain.events.length}, socket messages ${plain.sent.flat().length}, hits taken ${plain.stats.damage}, kills ${plain.stats.kills}, fire requests ${plain.stats.fires}, moved ${plain.stats.moved}`);
       assert.ok(plain.stats.moved, `${mode}: the scripted players moved`);
       assert.ok(plain.stats.damage > 0, `${mode}: someone took damage`);
       assert.equal(injected.ticks.length, ticksFor(mode));
       for (let t = 0; t < ticksFor(mode); t++) assert.deepStrictEqual(injected.ticks[t], plain.ticks[t], `${mode}: tick ${t + 1}`);
       assert.deepStrictEqual(injected.events, plain.events, `${mode}: room broadcasts`);
+      assert.deepStrictEqual(injected.sent, plain.sent, `${mode}: per-player socket traffic`);
+      assert.ok(plain.sent.some((s) => s.length > 0), `${mode}: players received socket traffic`);
+      // No HvH-only traffic and no HvH tools, with or without the injected intents.
+      for (const run of [plain, injected]) {
+        assert.equal(run.hvhEnabled, false, `${mode}: hvhEnabled stays false`);
+        const hvh = run.sent.flat().filter((m) => ['hvhState', 'shotVerdict', 'hvhDebug'].includes((m as { event: string }).event));
+        assert.deepEqual(hvh, [], `${mode}: no HvH v2 messages`);
+      }
     });
   }
 });
