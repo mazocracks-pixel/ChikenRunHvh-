@@ -989,7 +989,7 @@ export class GameRoom {
     if (amount <= 0) return;
 
     let remaining = amount;
-    if (victim.armor > 0) {
+    if (victim.armor > 0 && this.armorAbsorbs()) {
       const absorbed = Math.min(victim.armor, remaining * PLAYER.armorAbsorb);
       victim.armor -= absorbed;
       remaining -= absorbed;
@@ -1032,7 +1032,7 @@ export class GameRoom {
         attacker.info.kills++;
         if (headshot) attacker.headshotKills++;
         attacker.info.score += KILL_SCORE + (headshot ? HEADSHOT_BONUS : 0);
-        if (this.mode.teams && this.mode.teamKills && attacker.info.team !== 0) this.match.teamScores[attacker.info.team - 1]++;
+        if (this.mode.teams && this.scoresTeamKills() && attacker.info.team !== 0) this.match.teamScores[attacker.info.team - 1]++;
       } else {
         victim.info.score = Math.max(0, victim.info.score - SUICIDE_PENALTY);
       }
@@ -1069,7 +1069,7 @@ export class GameRoom {
     if (panel === 'manual') { p.hvh = defaultHvhLoadout(); p.hvhEnabled = false; }
     if (p.hvhPreparing) {
       p.hvhPreparing = false;
-      this.spawn(p, performance.now(), true);
+      if (this.mayRespawn(p)) this.spawn(p, performance.now(), true);
     }
     this.updateHvhPose(p, performance.now());
     return true;
@@ -1262,7 +1262,7 @@ export class GameRoom {
     this.onMatchStart(now);
     this.match = {
       phase: 'playing',
-      endsAt: this.mode.timeLimitMs > 0 ? now + this.mode.timeLimitMs : null,
+      endsAt: this.matchTimeLimitMs() > 0 ? now + this.matchTimeLimitMs() : null,
       teamScores: [0, 0],
       winnerTeam: 0,
       winnerPid: 0,
@@ -1274,6 +1274,32 @@ export class GameRoom {
 
   /** Hook for mode systems to reset their state at the start of a match. */
   protected onMatchStart(_now: number): void {}
+
+  /** The match clock (v2 HvH rounds have none: the rounds end the match). */
+  protected matchTimeLimitMs(): number {
+    return this.mode.timeLimitMs;
+  }
+
+  /** Whether a kill scores for the killer's team (v2 HvH rounds score rounds instead). */
+  protected scoresTeamKills(): boolean {
+    return this.mode.teamKills === true;
+  }
+
+  /** Whether a dead (or newly set up) player may come back now (v2 HvH: not during a round). */
+  protected mayRespawn(_p: ServerPlayer): boolean {
+    return true;
+  }
+
+  /** Whether armor points soak up damage here (v2 HvH: the shot applies armor itself). */
+  protected armorAbsorbs(): boolean {
+    return true;
+  }
+
+  /** The winning team when a team match ends (v2 HvH rounds decide it themselves). */
+  protected matchWinnerTeam(): Team {
+    const [red, blue] = this.match.teamScores;
+    return red === blue ? 0 : red > blue ? 1 : 2;
+  }
 
   protected checkScoreLimit(now: number): void {
     const limit = this.mode.scoreLimit;
@@ -1304,8 +1330,7 @@ export class GameRoom {
     if (winner) {
       winnerPid = winner.pid;
     } else if (this.mode.teams) {
-      const [red, blue] = this.match.teamScores;
-      winnerTeam = red === blue ? 0 : red > blue ? 1 : 2;
+      winnerTeam = this.matchWinnerTeam();
     } else {
       const byKills = [...players].sort((a, b) => b.info.kills - a.info.kills || b.info.score - a.info.score);
       const top = byKills[0];
@@ -1403,7 +1428,7 @@ export class GameRoom {
         p.reloadUntil = 0;
         p.mags.set(p.weapon, p.magazineSize(p.weapon));
       }
-      if (!p.hvhPreparing && !p.alive && now >= p.respawnAt && this.match.phase !== 'ended') this.spawn(p, now, true);
+      if (!p.hvhPreparing && !p.alive && now >= p.respawnAt && this.match.phase !== 'ended' && this.mayRespawn(p)) this.spawn(p, now, true);
     }
     for (const p of this.players.values()) {
       const req = p.fireQueue[0];

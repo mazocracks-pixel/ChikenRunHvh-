@@ -1030,9 +1030,9 @@ export class GameSession {
     audio.play(w.id === 'pan' ? 'bonk' : 'meleeHit', hit.point);
   }
 
-  /** ChikenBomb buy time: the server refuses every shot and throw, so we don't pretend to fire either. */
+  /** ChikenBomb buy time (v2 HvH freeze time): the server refuses every shot and throw, so we don't pretend to fire either. */
   private get buyTime(): boolean {
-    return this.mode.bomb === true && this.round?.phase === 'buy';
+    return (this.mode.bomb === true || this.mode.id === 'hvh') && this.round?.phase === 'buy';
   }
 
   /** G, Q or the flashbang key: the grenade comes out; a mouse button then pulls the pin. */
@@ -1207,7 +1207,8 @@ export class GameSession {
     if (r.phase === 'buy' && prev?.phase !== 'buy') {
       if (prev?.phase === 'warmup') hud.resetCombatFeedback();
       this.hasKit = false;
-      hud.toast(`Round ${r.round} · buy time: press B`);
+      // v2 HvH rounds: the buy phase is the freeze time.
+      hud.toast(this.mode.bomb ? `Round ${r.round} · buy time: press B` : `Round ${r.round} · freeze time`);
       if (r.bomb.carrier === this.selfPid) hud.toast('💣 You carry the bomb: plant it on A or B', 'good');
     }
     if (r.phase === 'planted' && prev?.phase !== 'planted') {
@@ -1221,7 +1222,9 @@ export class GameSession {
     if (r.phase === 'live' && prev?.bomb.carrier !== this.selfPid && r.bomb.carrier === this.selfPid && prev?.phase === 'live') hud.toast('💣 You picked up the bomb', 'good');
     if (r.phase === 'over' && prev?.phase !== 'over') {
       const won = r.winner === mine;
-      hud.toast(won ? 'Round won! 🎉' : 'Round lost', won ? 'good' : 'bad');
+      // Only v2 HvH rounds can be drawn (winner 0).
+      if (r.winner === 0) hud.toast('Round drawn', 'info');
+      else hud.toast(won ? 'Round won! 🎉' : 'Round lost', won ? 'good' : 'bad');
       audio.play(won ? 'reward' : 'empty');
     }
     const buying = r.phase === 'warmup' || ((r.phase === 'buy' || r.phase === 'live') && r.buyEndsAt !== null && this.serverNow() < r.buyEndsAt);

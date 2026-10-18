@@ -43,11 +43,15 @@ export interface Match {
  * Socket-less players (by default ten, five per team; `teams` lists each player's team instead),
  * spawned, AA tools on, input limiter stubbed (R25). The balance sweep (tools/hvh-sweep.ts) builds
  * its 1v1 duels with `teams: [1, 2]`.
+ *
+ * The round flow is off unless `rounds` is set: the room stays in warmup (free respawns, no
+ * freeze), so the replay and network gates and the sweep measure the per-tick pipeline as before.
  */
-export function makeMatch(seed: number, opts: { map?: MapId; sockets?: boolean; teams?: readonly (1 | 2)[] } = {}): Match {
+export function makeMatch(seed: number, opts: { map?: MapId; sockets?: boolean; teams?: readonly (1 | 2)[]; rounds?: boolean } = {}): Match {
   const { io, events } = fakeIo();
   const room = new HvhRoom(io, {
     id: `hvh-gate-${seed}`, code: 'GATE1', name: 'HvH gate', mode: 'hvh', map: opts.map ?? 'farm', private: true, hvhEngine: 'v2', seed,
+    hvhRounds: opts.rounds === true,
   }, {});
   const players: ServerPlayer[] = [];
   const sent = new Map<number, { event: string; data: unknown }[]>();

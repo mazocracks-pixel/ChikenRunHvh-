@@ -16,14 +16,18 @@ import {
   isWeaponId,
   makeRay,
   moveSpeedFor,
+  noBomb,
   packPlayer,
   rayHvhMatrix,
   shotSeed,
   shotUsesAmmo,
   stepPlayer,
+  teamName,
   type FireRequest,
   type InputFrame,
   type PlayerState,
+  type RoundState,
+  type Team,
   type Vec3,
   type WeaponDef,
   type WorldSnapshot,
@@ -36,17 +40,20 @@ import {
   collisionWorldTracer,
   createResolverMemory,
   guessedPose,
+  hvhWarmup,
   learnFromVerdict,
   peekResolve,
   poseMatrix,
   processShot,
   publicObservation,
+  stepHvhRound,
   stepPose,
   stepTickbase,
   tickbaseVerdictReason,
   type AntiAimConfig,
   type CommandIntent,
   type EraTable,
+  type HvhRoundState,
   type LagRecord,
   type Motion,
   type Observation,
@@ -117,9 +124,25 @@ import type { ServerPlayer } from './ServerPlayer';
  *   ticks, however many queued commands (a choke batch, a burst) ran before it in that tick; a
  *   second bullet-1 shot in the same tick sees 0 ticks since the last shot and is rejected
  *   'fire interval' (DT bullet 2 is the only accepted same-tick second bullet).
+ * - Rounds (v2 only; rounds.ts decides, the room applies): a warmup with free respawns, then
+ *   rounds of freeze (everyone respawned at their team spawn and frozen, no shooting) -> live (no
+ *   respawns) -> over, first to 13. The round is stepped once per tick after every player (and
+ *   DT bullet 2) has run, so the last two players killing each other in one tick draw the round.
+ *   Team scores are rounds won (kills do not score; no kill or time limit). Halftime swaps every
+ *   player's team and the team scores. Every v2 spawn wears armor and helmet (armor 100); the
+ *   shot applies it (shot.ts armorPen), so GameRoom.damage does not soak damage with it again.
+ *   `hvhRounds: false` (test harnesses only) keeps the room in warmup with the old kill scoring.
  */
 
 export type HvhEngine = 'legacy' | 'v2';
+
+export interface HvhRoomOptions extends RoomOptions {
+  /**
+   * v2 only, default on. false is for test harnesses (the replay and network gates, the balance
+   * sweep): no rounds, the room stays in warmup and scores kills as before.
+   */
+  hvhRounds?: boolean;
+}
 
 /** HVH_ENGINE=v2 selects the v2 engine; anything else (or nothing) is legacy. */
 export function hvhEngineFrom(env: Readonly<Record<string, string | undefined>>): HvhEngine {
@@ -206,6 +229,19 @@ function aimFromAngles(yaw: number, pitch: number): Vec3 {
   return { x: -Math.sin(yaw) * c, y: Math.sin(pitch), z: -Math.cos(yaw) * c };
 }
 
+/** The `round` event for a v2 HvH round: freeze is the buy phase, and there is no bomb. */
+function roundEvent(s: HvhRoundState): RoundState {
+  return {
+    phase: s.phase === 'freeze' ? 'buy' : s.phase === 'ended' ? 'over' : s.phase,
+    round: s.round,
+    endsAt: s.endsAt,
+    buyEndsAt: s.phase === 'freeze' ? s.endsAt : null,
+    bomb: noBomb(),
+    winner: s.winner,
+    reason: s.reason === 'draw' ? null : s.reason,
+  };
+}
+
 /** Newest lag records sent per target in the dev overlay feed. */
 export const DEBUG_MAX_RECORDS = 24;
 
@@ -217,14 +253,23 @@ export class HvhRoom extends GameRoom {
   private tracer: WorldTracer | null = null;
   /** Dev overlay viewers (pid -> still-authorized check, re-evaluated every tick). */
   private readonly debugViewers = new Map<number, () => boolean>();
+  /** v2 round flow on (every v2 room but test harnesses). */
+  private readonly rounds: boolean;
+  private round: HvhRoundState = hvhWarmup();
 
-  constructor(io: GameServer, options: RoomOptions, hooks: RoomHooks = {}) {
+  constructor(io: GameServer, options: HvhRoomOptions, hooks: RoomHooks = {}) {
     super(io, options, hooks);
     this.hvhEngine = options.hvhEngine === 'v2' ? 'v2' : 'legacy';
+    this.rounds = this.hvhEngine === 'v2' && options.hvhRounds !== false;
   }
 
   private get v2(): boolean {
     return this.hvhEngine === 'v2';
+  }
+
+  /** The v2 round (a warmup that never ends on the legacy engine or with `hvhRounds: false`). */
+  get hvhRound(): Readonly<HvhRoundState> {
+    return this.round;
   }
 
   /** Every verdict the room emits (dev-only debug feeds, headless matches, tests). */
@@ -366,6 +411,7 @@ export class HvhRoom extends GameRoom {
     super.fixedUpdate(now);
     if (!this.v2) return;
     this.flushPendingBullets(now);
+    if (this.rounds) this.updateRound(now);
     for (const p of this.players.values()) {
       const s = this.stateOf(p);
       if (s.executed > 0) p.socket?.emit('hvhState', hvhStateEvent(s.tickbase, this.era, p.lastSeq, this.hvhTick, s.queue.length));
@@ -653,7 +699,7 @@ export class HvhRoom extends GameRoom {
       verdict = { shooterId: String(p.pid), tick, bullet: n, cause: 'rejected', reason };
       if (target) verdict.targetId = String(target.pid);
     } else {
-      // Every v2 player wears armor and helmet (R44; spawns armor everyone in v2 rounds).
+      // Every v2 player wears armor and helmet (R44; every v2 spawn sets armor 100).
       const shotTarget: ShotTarget | undefined = target
         ? { id: String(target.pid), history: this.stateOf(target).history, alive: target.alive, hp: target.hp, armored: true }
         : undefined;
@@ -713,6 +759,141 @@ export class HvhRoom extends GameRoom {
   }
 
   // ---------------------------------------------------------------------------
+  // Rounds (v2)
+  // ---------------------------------------------------------------------------
+
+  /** Steps the round once per tick (after every shot) and applies what happened. */
+  private updateRound(now: number): void {
+    if (this.phase !== 'playing') {
+      // Waiting for players: back to a fresh warmup (an ended match keeps its last round).
+      if (this.phase !== 'ended' && (this.round.phase !== 'warmup' || this.round.endsAt !== null)) {
+        this.round = hvhWarmup();
+        this.emitRound();
+      }
+      return;
+    }
+    const alive = { 1: 0, 2: 0 };
+    const players = { 1: 0, 2: 0 };
+    for (const p of this.players.values()) {
+      const team = p.info.team;
+      if ((team !== 1 && team !== 2) || p.hvhPreparing) continue;
+      players[team]++;
+      if (p.alive) alive[team]++;
+    }
+    const before = this.round;
+    const { state, events } = stepHvhRound(before, alive, players, now);
+    if (state === before) return;
+    this.round = state;
+    for (const event of events) {
+      switch (event) {
+        case 'halftime':
+          for (const p of this.players.values()) {
+            if (p.info.team === 0) continue;
+            p.info.team = p.info.team === 1 ? 2 : 1;
+            this.announcePlayer(p);
+          }
+          this.swapTeamScores();
+          this.systemMessage('HALF-TIME: teams have switched sides.');
+          break;
+        case 'roundStart':
+          this.startRound(now);
+          break;
+        case 'goLive':
+          for (const p of this.players.values()) p.frozen = false;
+          break;
+        case 'roundEnd': {
+          // In 'ended' state.winner is the match winner; the round winner is whose score went up.
+          const winner = state.score[1] > before.score[1] ? 1 : state.score[2] > before.score[2] ? 2 : 0;
+          if (winner !== 0) this.addTeamScore(winner, 1);
+          const why = state.reason === 'time' ? 'more of them are alive' : 'the other team was wiped out';
+          this.systemMessage(winner === 0 ? 'Round drawn.' : `${teamName(this.mode, winner)} win the round: ${why}.`);
+          break;
+        }
+        case 'matchEnd':
+          this.endMatch(now);
+          break;
+      }
+    }
+    this.emitRound();
+  }
+
+  /** A new round: everyone (but players still setting up) back at their team spawn, frozen. */
+  private startRound(now: number): void {
+    for (const p of this.players.values()) {
+      if (p.hvhPreparing) continue;
+      this.spawn(p, now, true);
+      p.frozen = true;
+    }
+    this.projectiles.clear();
+    this.onRoundStart(now);
+  }
+
+  /**
+   * Every round start (freeze), after everyone has respawned: the place to re-apply each player's
+   * loadout. The buy window is warmup and freeze (hvhRound.phase).
+   */
+  protected onRoundStart(_now: number): void {}
+
+  private emitRound(): void {
+    this.io.to(this.channel).emit('round', roundEvent(this.round));
+  }
+
+  protected override onMatchStart(now: number): void {
+    super.onMatchStart(now);
+    if (!this.rounds) return;
+    this.round = hvhWarmup();
+    this.emitRound();
+  }
+
+  /** Freeze keeps everyone frozen (the HvH rules clear `frozen` every tick otherwise). */
+  override enforceHvhRules(p: ServerPlayer): void {
+    super.enforceHvhRules(p);
+    if (this.rounds && this.round.phase === 'freeze') p.frozen = true;
+  }
+
+  protected override actionsBlocked(): boolean {
+    return (this.rounds && this.round.phase === 'freeze') || super.actionsBlocked();
+  }
+
+  /** Respawns in warmup and freeze only (and while no match is on); the dead watch the round. */
+  protected override mayRespawn(p: ServerPlayer): boolean {
+    if (!this.rounds || this.phase !== 'playing') return super.mayRespawn(p);
+    return this.round.phase === 'warmup' || this.round.phase === 'freeze';
+  }
+
+  protected override scoresTeamKills(): boolean {
+    return !this.rounds && super.scoresTeamKills();
+  }
+
+  protected override matchTimeLimitMs(): number {
+    return this.rounds ? 0 : super.matchTimeLimitMs();
+  }
+
+  /** The rounds end the match (rounds.ts); there is no kill limit. */
+  protected override checkScoreLimit(now: number): void {
+    if (!this.rounds) super.checkScoreLimit(now);
+  }
+
+  /** No team at 13 is a draw, even after 24 rounds with one team ahead. */
+  protected override matchWinnerTeam(): Team {
+    return this.rounds ? this.round.winner : super.matchWinnerTeam();
+  }
+
+  protected override armorAbsorbs(): boolean {
+    return !this.v2 && super.armorAbsorbs();
+  }
+
+  protected override joinExtras(player: ServerPlayer) {
+    return this.rounds ? { ...super.joinExtras(player), round: roundEvent(this.round) } : super.joinExtras(player);
+  }
+
+  /** Joining a live round (or its end banner): watch until the next round starts. */
+  protected override onPlayerJoin(p: ServerPlayer, now: number): void {
+    super.onPlayerJoin(p, now);
+    if (this.rounds && this.phase === 'playing' && (this.round.phase === 'live' || this.round.phase === 'over')) p.alive = false;
+  }
+
+  // ---------------------------------------------------------------------------
   // Life cycle
   // ---------------------------------------------------------------------------
 
@@ -750,6 +931,8 @@ export class HvhRoom extends GameRoom {
     s.pendingBullet = null;
     s.lastRecordTick = -Infinity;
     s.publicState = null;
+    // Armor and helmet on every v2 life (R44).
+    p.armor = PLAYER.maxArmor;
   }
 
   protected override onPlayerLeave(player: ServerPlayer): void {

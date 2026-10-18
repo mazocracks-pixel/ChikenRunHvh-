@@ -503,8 +503,9 @@ export class Hud {
         banner = left !== null && left < 5000 ? `Round 1 in ${Math.max(1, Math.ceil(left / 1000))}` : '';
         break;
       case 'buy':
-        line = `Round ${r.round} · Buy time ${clock}`;
-        banner = `Buy time: press B · ${Math.max(1, Math.ceil((left ?? 0) / 1000))}`;
+        // v2 HvH rounds send their freeze time as the buy phase.
+        line = this.mode.bomb ? `Round ${r.round} · Buy time ${clock}` : `Round ${r.round} · Freeze time ${clock}`;
+        banner = `${this.mode.bomb ? 'Buy time: press B' : 'Freeze time'} · ${Math.max(1, Math.ceil((left ?? 0) / 1000))}`;
         break;
       case 'live':
         line = `Round ${r.round}`;
@@ -514,7 +515,7 @@ export class Hud {
         break;
       case 'over': {
         const won = r.winner === selfTeam;
-        banner = r.winner ? `${teamName(this.mode, r.winner)} win the round${won ? ' 🎉' : ''}` : '';
+        banner = r.winner ? `${teamName(this.mode, r.winner)} win the round${won ? ' 🎉' : ''}` : this.mode.bomb ? '' : 'Round drawn';
         line = `Round ${r.round} over`;
         break;
       }

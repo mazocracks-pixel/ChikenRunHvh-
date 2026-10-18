@@ -8,3 +8,4 @@ export * from './resolver';
 export * from './shot';
 export * from './hitlog';
 export * from './arsenal';
+export * from './rounds';
