@@ -50,8 +50,12 @@ it('traceHvhMatrices gives the same hits and damage as traceHvhCover + rayHvhMat
 it('traceHvhMatrices does not trace the world when the ray misses every matrix', () => {
   let queries = 0;
   const counting: CollisionWorld = Object.create(world, {
-    idsNear: { value: (...args: Parameters<CollisionWorld['idsNear']>) => { queries++; return world.idsNear(...args); } },
+    cellIds: { value: (...args: Parameters<CollisionWorld['cellIds']>) => { queries++; return world.cellIds(...args); } },
   });
+  // The counter itself works: a ray that reaches the matrix does trace the world.
+  traceHvhMatrices(makeRay({ x: 0, y: 1, z: 20 }, { x: 0, y: 0, z: -1 }), [buildHvhMatrix({ x: 0, y: 0, z: 0 }, 0, 1, 0)], counting, 100, isSoft);
+  assert.ok(queries > 0, 'a reaching ray traces the world');
+  queries = 0;
   const m = buildHvhMatrix({ x: 0, y: 0, z: 0 }, 0, 1, 0);
   const traced = traceHvhMatrices(makeRay({ x: 0, y: 1, z: 20 }, { x: 1, y: 0, z: 0 }), [m], counting, 100, isSoft);
   assert.deepEqual(traced.hits, [null]);
@@ -59,7 +63,7 @@ it('traceHvhMatrices does not trace the world when the ray misses every matrix',
 });
 
 /** hvhHitchance before this change, kept verbatim as the reference. */
-function referenceHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: HvhMatrix, speed: number, airborne: boolean, ads: boolean,
+function referenceHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, speed: number, airborne: boolean, ads: boolean,
   hypotheses: readonly HitchanceHypothesis[], samples: number, heat: number) {
   let hits = 0, damage = 0;
   const weight = hypotheses.reduce((n, h) => n + h.probability, 0);
@@ -88,7 +92,7 @@ it('hvhHitchance is unchanged across Mirage', () => {
     const speed = random() * 5, airborne = random() < 0.2, ads = random() < 0.3;
     assert.deepEqual(
       hvhHitchance(w, eye, dir, matrices[0]!, speed, airborne, ads, world, isSoft, 16, 0, hypotheses),
-      referenceHitchance(w, eye, dir, matrices[0]!, speed, airborne, ads, hypotheses, 16, 0),
+      referenceHitchance(w, eye, dir, speed, airborne, ads, hypotheses, 16, 0),
       `scene ${i}`);
   }
 });

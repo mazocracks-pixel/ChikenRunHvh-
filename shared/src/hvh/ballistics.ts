@@ -32,7 +32,8 @@ export function traceHvhCover(ray: Ray, world: CollisionWorld, range: number, is
  * traceHvhCover followed by rayHvhMatrix for each matrix, with the same hits and damage, but the
  * world (the costly part on big maps) is traced only when the ray reaches a matrix, and first only
  * as far as the farthest hit: nothing in the world before it means no wall stops and no passage
- * weakens any hit, so the full trace is needed only when something is in the way.
+ * weakens any hit, so the full trace is needed only when something is in the way. On that fast path
+ * `cover` is {range, no passages}: right for these hits (coverDamageScale), not a full trace.
  */
 export function traceHvhMatrices(ray: Ray, matrices: readonly HvhMatrix[], world: CollisionWorld, range: number,
   isSoft?: (id: number) => boolean): { cover: BallisticTrace; hits: (HvhHit | null)[] } {

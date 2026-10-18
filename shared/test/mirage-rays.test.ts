@@ -51,3 +51,9 @@ it('grid rays match every-box hits for many rays: long, short, axis-aligned, on 
     assert.deepEqual(raycastWorld(ray, world, range, skip), brute(ray, range, skip), `ray ${i}`);
   }
 });
+
+it('a ray with a non-finite origin or direction returns at once instead of walking forever', () => {
+  const world = createCollisionWorld(MAPS.mirage);
+  for (const bad of [{ox:0,oy:1,oz:0,dx:NaN,dy:0,dz:1}, {ox:NaN,oy:1,oz:0,dx:1,dy:0,dz:0}, {ox:0,oy:1,oz:Infinity,dx:0,dy:0,dz:1}, {ox:0,oy:1,oz:0,dx:0,dy:0,dz:NaN}])
+    assert.equal(raycastWorld(bad, world, 50), null);
+});

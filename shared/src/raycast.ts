@@ -86,6 +86,8 @@ export function raySphere(ray: Ray, cx: number, cy: number, cz: number, radius: 
 
 /** Nearest hit against the ground plane (y = 0) and every solid box (except `skip`), within `maxT`. */
 export function raycastWorld(ray: Ray, world: CollisionWorld, maxT: number, skip?: { has(id: number): boolean }): RayHit | null {
+  // A non-finite ray hits nothing (and must not walk the grid forever).
+  if (!Number.isFinite(ray.ox + ray.oz + ray.dx + ray.dz)) return null;
   let best: RayHit | null = null;
   if (ray.dy < 0 && ray.oy >= 0) {
     const t = -ray.oy / ray.dy;
@@ -116,7 +118,7 @@ export function raycastWorld(ray: Ray, world: CollisionWorld, maxT: number, skip
   for (;;) {
     const enter = Math.min(nextX, nextZ);
     // The slack covers rounding between this crossing distance and rayAabb's.
-    if (enter > maxT || (best && (best as RayHit).t < enter - 1e-6)) break;
+    if (enter > maxT + 1e-6 || (best && (best as RayHit).t < enter - 1e-6)) break;
     if (nextX === nextZ) {
       // Through a corner: the two side cells hold boxes that only touch the corner.
       visit(cx + stepX, cz); visit(cx, cz + stepZ);

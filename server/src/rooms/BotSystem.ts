@@ -92,8 +92,11 @@ export class BotSystem {
   private readonly brains = new Map<number, Brain>();
   /** Waypoint links for maps that have them, built on first use. */
   private nav: NavGraph | null = null;
-  /** The server tick time of the last HvH rage scan: one bot scans per tick (scans are costly on big maps). */
-  private lastHvhScanAt = -Infinity;
+  /**
+   * The one bot that may run an HvH rage scan this tick (scans are costly on big maps): the most
+   * overdue one, so when the server runs slow every bot's scans slow down evenly and none starve.
+   */
+  private hvhScanner: Brain | null = null;
   private usedNames = new Set<string>();
 
   constructor(room: GameRoom) {
@@ -163,6 +166,12 @@ export class BotSystem {
   }
 
   update(now: number): void {
+    this.hvhScanner = null;
+    // Only living bots reach thinkHvh's scan; a dead one must not take the slot.
+    if (this.room.mode.id === 'hvh') for (const b of this.brains.values()) {
+      const next = b.hvhNextScan ?? 0;
+      if (b.p.alive && now >= next && (!this.hvhScanner || next < (this.hvhScanner.hvhNextScan ?? 0))) this.hvhScanner = b;
+    }
     for (const b of this.brains.values()) {
       if (!this.room.players.has(b.p.pid)) {
         this.brains.delete(b.p.pid);
@@ -360,10 +369,9 @@ export class BotSystem {
       }
     }
     const records = (b.hvhObserved ?? []).flatMap(pid => p.resolver.records(pid, now));
-    // A due scan waits while another bot scanned this tick; with ten bots that is still every ~150 ms.
-    if (now >= (b.hvhNextScan ?? 0) && now !== this.lastHvhScanAt) {
+    // A due scan waits while another bot scans this tick; with nine bots that is still every ~150 ms.
+    if (b === this.hvhScanner && now >= (b.hvhNextScan ?? 0)) {
       b.hvhNextScan = now + 150;
-      this.lastHvhScanAt = now;
       b.hvhCandidate = scanRage({ samples: HVH_BOT_SAMPLES, now, eye, w: hvhWeapon(WEAPONS[p.weapon]), heat: p.weaponHeat, speed: p.state.horizontalSpeed, airborne: !p.state.onGround, ads: p.aiming,
         world: this.room.world, records, resolver: p.resolver, currentTarget: b.hvhCandidate?.target,
         settings: { ...DEFAULT_RAGE, hitchance: 0.6, maxRecords: 2, preferBodyBelow: 0.5, bodyAfterMisses: 2, body: 'lethal' } });
