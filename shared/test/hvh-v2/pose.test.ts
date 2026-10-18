@@ -74,6 +74,54 @@ describe('Pose and desync (v2)', () => {
     assert.notEqual(a.realSide, b.realSide);
   });
 
+  it('jitter desync alternates realSide in lockstep with jitterPhase', () => {
+    const aa: AntiAimConfig = { ...AA, jitterDeg: 30, desyncDeg: 58 };
+    let p = INITIAL_POSE;
+    let last: PoseState | undefined;
+    for (let tick = 1; tick <= 8; tick++) {
+      p = stepPose(p, 0, aa, STAND, tick, LATE_CSGO);
+      assert.notEqual(p.realSide, 'center');
+      assert.equal(p.realSide, p.jitterPhase === 0 ? 'left' : 'right', `tick ${tick}`);
+      if (last) assert.notEqual(p.realSide, last.realSide, `realSide flips at tick ${tick}`);
+      assert.ok(Math.abs(desyncDeg(p) - 58) < EPS);
+      last = p;
+    }
+  });
+
+  it('inverted gives the opposite realSide at every jitter tick', () => {
+    const aa: AntiAimConfig = { ...AA, jitterDeg: 30, desyncDeg: 58 };
+    let a = INITIAL_POSE;
+    let b = INITIAL_POSE;
+    for (let tick = 1; tick <= 8; tick++) {
+      a = stepPose(a, 0, aa, STAND, tick, LATE_CSGO);
+      b = stepPose(b, 0, { ...aa, inverted: true }, STAND, tick, LATE_CSGO);
+      assert.equal(a.jitterPhase, b.jitterPhase);
+      assert.notEqual(a.realSide, 'center');
+      assert.notEqual(a.realSide, b.realSide, `tick ${tick}`);
+    }
+  });
+
+  it('no jitter keeps realSide constant', () => {
+    for (const inverted of [false, true]) {
+      let p = INITIAL_POSE;
+      const sides = new Set<string>();
+      for (let tick = 1; tick <= 8; tick++) {
+        p = stepPose(p, 0, { ...AA, jitterDeg: 0, inverted }, STAND, tick, LATE_CSGO);
+        sides.add(p.realSide);
+      }
+      assert.deepEqual([...sides], [inverted ? 'right' : 'left']);
+    }
+  });
+
+  it('eyeOffsetDeg is never -0', () => {
+    let p = INITIAL_POSE;
+    for (let tick = 1; tick <= 4; tick++) {
+      p = stepPose(p, 0, { ...AA, jitterDeg: 0 }, STAND, tick, LATE_CSGO);
+      assert.ok(!Object.is(p.eyeOffsetDeg, -0), `tick ${tick}`);
+      assert.ok(!Object.is(publicObservation(p, STAND, tick).eyeOffsetDeg, -0));
+    }
+  });
+
   it('zero desync is center', () => {
     const p = stepPose(INITIAL_POSE, 0, { ...AA, desyncDeg: 0 }, STAND, 1, LATE_CSGO);
     assert.equal(p.realSide, 'center');

@@ -8,6 +8,10 @@ import type { EraTable } from './era';
  * - Config angles (jitterDeg, desyncDeg) are degrees. Jitter clamps to 0..HVH.maxJitter (45) (hvh.ts:86,111).
  * - Desync side is +1 normally and -1 when inverted; body = eye + desync * side (hvh.ts:146,150).
  *   A positive body offset is 'left', negative is 'right', zero is 'center'.
+ * - Jitter desync (ruling R18): when the clamped jitterDeg > 0 the real side alternates with the
+ *   jitter phase. Phase 0 keeps the inverted-derived side (left normally, right inverted); phase 1
+ *   takes the opposite. So with inverted=false: phase 0 -> 'left', phase 1 -> 'right'; inverted
+ *   flips the whole mapping. With jitterDeg 0 the side is constant from inverted alone.
  * - Jitter: phase 1 adds +jitter, phase 0 adds -jitter (hvh.ts:148). The phase flips once per
  *   stepPose call, i.e. once per executed command.
  * - Spin rotates at the legacy default spinSpeed of 180 deg/s (hvh.ts:88), computed from the tick
@@ -31,8 +35,11 @@ export interface Motion {
 }
 
 export interface PoseState {
+  /** radians, wrapped */
   eyeYaw: number;
+  /** radians, wrapped */
   bodyYaw: number;
+  /** radians, wrapped */
   pitch: number;
   jitterPhase: 0 | 1;
   realSide: Side;
@@ -82,11 +89,13 @@ export function stepPose(
       : aimYaw + BASE_OFFSET[aa.base];
   const jitterPhase: 0 | 1 = prev.jitterPhase === 1 ? 0 : 1;
   const jitter = clamp(aa.jitterDeg, 0, MAX_JITTER_DEG);
-  const eyeOffsetDeg = jitterPhase === 1 ? jitter : -jitter;
+  // jitter === 0 must yield +0, never -0.
+  const eyeOffsetDeg = jitter === 0 ? 0 : jitterPhase === 1 ? jitter : -jitter;
   const eyeYaw = wrapAngle(base + eyeOffsetDeg * DEG);
 
   const desync = Math.min(Math.max(aa.desyncDeg, 0), maxDesync(motion.speedFraction, era));
-  const side = aa.inverted ? -1 : 1;
+  const baseSide = aa.inverted ? -1 : 1;
+  const side = jitter > 0 && jitterPhase === 1 ? -baseSide : baseSide;
   const bodyYaw = wrapAngle(eyeYaw + desync * side * DEG);
   const realSide: Side = desync === 0 ? 'center' : side > 0 ? 'left' : 'right';
 
