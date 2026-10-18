@@ -101,3 +101,12 @@ describe('Era table and validation (v2)', () => {
     assert.ok(errors.includes('doubleTapShift not in doubleTapShiftOptions'));
   });
 });
+
+describe('validateEra NaN hardening', () => {
+  for (const field of ['maxProcessTicks', 'maxChoke', 'doubleTapShift', 'desyncRunFalloff', 'hideShotsShift', 'defensiveShift'] as const) {
+    it(`reports an error when ${field} is NaN`, () => {
+      const table = { ...LATE_CSGO, [field]: Number.NaN } as EraTable;
+      assert.ok(validateEra(table).length > 0, `${field}: NaN must not validate`);
+    });
+  }
+});

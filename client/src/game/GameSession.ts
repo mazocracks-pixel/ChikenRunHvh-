@@ -172,6 +172,8 @@ export interface DevHooks {
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame;
   /** Extra trigger pull (trigger assist, auto fire). */
   wantsFire(now?: number): boolean;
+  /** True once per Defensive bind press (HvH v2 intent.defensive); consuming clears it. */
+  takeDefensive?(): boolean;
   /** Replacement shot direction from the eye (aim lock), or null. */
   aimOverride(session: GameSession, eye: Vec3): Vec3 | null;
   /** Multiplier on camera recoil. */
@@ -455,17 +457,21 @@ export class GameSession {
         if (key !== this.networkKey) { this.networkKey = key; this.commandNetwork = new NetworkSimulator({ latencyMs: core.latencyMs, jitterMs: core.jitterMs, loss: core.packetLoss }, this.selfPid); }
         const speed = this.horizontalSpeed();
         const shooting = input.firing || dev?.wantsFire(now) === true;
-        const choke = fakeLagTicks(core,frame.seq,speed,shooting);
+        // v2 rooms allow the era's choke limit (LATE_CSGO.maxChoke); legacy rooms keep the 12 cap.
+        const maxChoke = this.local.hvhV2 ? LATE_CSGO.maxChoke : undefined;
+        const choke = fakeLagTicks(core,frame.seq,speed,shooting,maxChoke);
         // Flush rule is unchanged from before v2: a shot flushes only via fakeLagBreakOnShot.
         const flush = !input.active || (core.fakeLagBreakOnShot && shooting);
         // Melee and projectile weapons never fire a hitscan shot (the server rejects them as 'wrong weapon').
         const def = this.weapons.def;
         const intent = commandIntent({
           seq: frame.seq, shotSeq: this.shotCommand, hitscan: !def.melee && !def.projectile,
-          held: this.commandChoker.wouldHold(choke, flush),
+          held: this.commandChoker.wouldHold(choke, flush, maxChoke),
           exploit: exploitMode(this.weapons.hvh.exploit, def, this.weapons.mag),
+          // Only v2 rooms have a defensive intent; legacy rooms never consume the press.
+          defensive: this.local.hvhV2 && dev?.takeDefensive?.() === true,
         });
-        const batch = this.commandChoker.push(this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS)), choke, flush);
+        const batch = this.commandChoker.push(this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS)), choke, flush, maxChoke);
         if (batch.length) this.commandNetwork!.send(batch, now);
       } else net.socket.emit('input', frame);
     }
@@ -556,7 +562,7 @@ export class GameSession {
 
     // Weapons.
     this.weapons.update(now, this.mode.id === 'hvh'
-      && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed()) > 0);
+      && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed(), false, this.local.hvhV2 ? LATE_CSGO.maxChoke : undefined) > 0);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
     if (!input.firing && !input.aiming) this.grenadeThrowHeld = false;
     this.stepGrenade(input.active && input.firing, input.active && input.aiming, input.active);

@@ -1,4 +1,5 @@
 import { defaultHvhCore, defaultSkeetAntiAim, type HvhCoreSettings, type SkeetAntiAim, type WeaponDef } from '@game/shared';
+import { DEFAULT_ERA_ID } from '@game/shared/hvh/v2';
 import type { DevConfig } from '../config';
 import { defaultNativeValues } from './nativeFields';
 
@@ -23,6 +24,8 @@ export interface SkeetConfig {
   fakeLag: { enabled: boolean; limit: number; mode: HvhCoreSettings['fakeLagMode']; breakOnShot: boolean };
   indicators: { resolver: boolean; binds: boolean; watermark: boolean };
   cosmetics: { enabled: boolean; tint: string };
+  /** Selected era table (an ERAS key). Stored only: the server always runs LATE_CSGO. */
+  era: string;
 }
 export function defaultSkeetConfig(): SkeetConfig {
   const base: WeaponProfile = { enabled: true, minDamage: 20, hitchance: 60, bodyAim: 'lethal', multipoint: true,
@@ -34,7 +37,7 @@ export function defaultSkeetConfig(): SkeetConfig {
   return { native: defaultNativeValues(), profiles, resolver: { mode: 'adaptive', history: 8, memoryMs: 700,
     preferBodyBelow: 60, missedShots: 2 }, antiAim: defaultSkeetAntiAim(),
     fakeLag: { enabled: false, limit: 6, mode: 'static', breakOnShot: true },
-    indicators: { resolver: true, binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' } };
+    indicators: { resolver: true, binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' }, era: DEFAULT_ERA_ID };
 }
 export function skeetWeaponGroup(w: WeaponDef): SkeetGroup {
   if (w.melee || w.projectile) return 'general';

@@ -97,7 +97,8 @@ export function sanitizeHvhLoadout(raw: unknown): HvhLoadout {
     if (['legacy', 'desync', 'tickbase', 'defensive'].includes(String(core.era))) c.era = core.era as HvhCoreSettings['era'];
     if (['static', 'velocity', 'random', 'adaptive', 'peek'].includes(String(core.fakeLagMode))) c.fakeLagMode = core.fakeLagMode as HvhCoreSettings['fakeLagMode'];
     for (const key of ['fakeDuck', 'antiBruteforce', 'defensive', 'fakeLagBreakOnShot'] as const) if (typeof core[key] === 'boolean') c[key] = core[key];
-    for (const [key, max] of [['fakeLag', 12], ['latencyMs', 150], ['jitterMs', 50], ['packetLoss', 0.1]] as const)
+    // fakeLag allows the v2 maxChoke (14); legacy fakeLagTicks still clamps choke to 12.
+    for (const [key, max] of [['fakeLag', 14], ['latencyMs', 150], ['jitterMs', 50], ['packetLoss', 0.1]] as const)
       if (typeof core[key] === 'number' && Number.isFinite(core[key])) c[key] = clamp(core[key], 0, max);
     c.fakeLag = Math.round(c.fakeLag);
   }

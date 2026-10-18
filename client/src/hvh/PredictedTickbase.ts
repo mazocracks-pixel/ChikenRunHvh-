@@ -70,10 +70,12 @@ export class PredictedTickbase {
  * - fire: only the command that carries a shot (`shotSeq` is the seq the `fire` message references),
  *   and only for hitscan weapons. Holding the trigger without a shot never sets it.
  * - choke: only a frame the CommandChoker holds back; the frame that releases a batch is not choke.
+ * - defensive: passed through from the panel's Defensive bind (one command per press, v2 rooms only).
  */
 export function commandIntent(o: {
   seq: number; shotSeq: number | null; hitscan: boolean; held: boolean;
   exploit: 'off' | 'doubleTap' | 'hideShots';
+  defensive?: boolean;
 }): CommandIntent {
   const fire = o.hitscan && o.shotSeq === o.seq;
   return {
@@ -81,7 +83,7 @@ export function commandIntent(o: {
     choke: o.held && !fire,
     doubleTap: o.exploit === 'doubleTap',
     hideShots: o.exploit === 'hideShots',
-    defensive: false,
+    defensive: o.defensive === true,
   };
 }
 

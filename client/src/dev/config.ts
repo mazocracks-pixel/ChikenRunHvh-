@@ -4,12 +4,17 @@ import { storage } from '../ui/dom';
 import { SKEET_GROUPS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
 import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
 import { NATIVE_FIELDS } from './skeet/nativeFields';
+import { DEFAULT_ERA_ID, ERAS } from '@game/shared/hvh/v2';
+
+/** Config schema version. 2 = HvH v2 (tickbase intents); configs without it are migrated. */
+export const CONFIG_VERSION = 2;
 
 /**
  * Everything the developer menu can change. Plain JSON, so it can be saved, exported and
  * imported as a config. Gameplay-changing values only take effect when the server allows them.
  */
 export interface DevConfig {
+  version: number;
   skeet: SkeetConfig;
   hvh: HvhLoadout & {
     resolverPolicy: 'adaptive' | 'animation' | 'cycle';
@@ -21,6 +26,9 @@ export interface DevConfig {
       slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string; subtickStrafe: boolean };
     feedback: { shotLog: boolean; targetInfo: boolean; resolver: boolean };
     invertKey: string;
+    /** Exploits tab: each press of defensiveKey asks for one defensive shift (v2 rooms only). */
+    defensive: boolean;
+    defensiveKey: string;
   };
   legit: {
     trigger: { enabled: boolean; delay: number; fov: number; key: string; visCheck: boolean };
@@ -77,6 +85,7 @@ export interface DevConfig {
 
 export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
   const out: DevConfig = {
+    version: CONFIG_VERSION,
     skeet: defaultSkeetConfig(),
     hvh: {
       ...defaultHvhLoadout(),
@@ -86,7 +95,7 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
         accuracyWeight: 15, confidenceWeight: 15, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
       movement: { autoStop: false, autoStopSlowWalk: false, autoStopBetweenShots: true, autoStopPredict: false, autoStopPredictMs: 200,
         slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyP', subtickStrafe: false },
-      feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK',
+      feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK', defensive: false, defensiveKey: 'KeyO',
     },
     legit: {
       trigger: { enabled: false, delay: 120, fov: 1.5, key: '', visCheck: true },
@@ -141,8 +150,9 @@ export const RANGES: Record<string, { min: number; max: number; step: number }> 
   'hvh.aim.turnRate': { min: 90, max: 540, step: 10 },
   'hvh.aim.damageOverride': { min: 1, max: 100, step: 1 },
   'hvh.antiAim.desync': { min: 0, max: 58, step: 1 },
-  'hvh.core.fakeLag': { min: 0, max: 12, step: 1 },
-  'skeet.fakeLag.limit': { min: 1, max: 12, step: 1 },
+  // Choke limits follow the v2 era table (LATE_CSGO.maxChoke = 14); legacy rooms still clamp to 12.
+  'hvh.core.fakeLag': { min: 0, max: ERAS[DEFAULT_ERA_ID]!.maxChoke, step: 1 },
+  'skeet.fakeLag.limit': { min: 1, max: ERAS[DEFAULT_ERA_ID]!.maxChoke, step: 1 },
   'hvh.core.latencyMs': { min: 0, max: 150, step: 5 },
   'hvh.core.jitterMs': { min: 0, max: 50, step: 5 },
   'hvh.core.packetLoss': { min: 0, max: 0.1, step: 0.01 },
@@ -177,6 +187,7 @@ export const CHOICES: Record<string, readonly string[]> = {
   'hvh.antiAim.mode': ['backward', 'left', 'right', 'spin'],
   'hvh.exploit': ['off', 'doubleTap', 'hideShots'],
   'hvh.core.era': ['legacy', 'desync', 'tickbase', 'defensive'],
+  'skeet.era': Object.keys(ERAS),
   'hvh.core.fakeLagMode': ['static', 'velocity', 'random', 'adaptive', 'peek'],
   'rage.aim.priority': ['health', 'distance', 'crosshair'],
   'rage.aim.hitbox': ['head', 'body'],
@@ -265,12 +276,55 @@ export function sanitizeConfig(raw: unknown): DevConfig {
   out.misc.freeCam = out.misc.spectator = false;
   out.world.wireframe = false;
   if (!out.settings.menuKey) out.settings.menuKey = 'Insert';
+  out.version = CONFIG_VERSION;
   // Saved before the mega?dev look and never customised: move to the new default theme.
   if (out.settings.theme === 'midnight' && out.settings.accent === '#7c5cff') {
     out.settings.theme = 'claude';
     out.settings.accent = '#d97757';
   }
   return out;
+}
+
+/** Every leaf path of a config ("hvh.antiAim.desync", ...). */
+function leafPaths(o: unknown, prefix = ''): string[] {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return [prefix];
+  return Object.entries(o as Record<string, unknown>).flatMap(([k, v]) => leafPaths(v, prefix ? `${prefix}.${k}` : k));
+}
+
+/**
+ * Legacy settings with no v2 meaning: v2 runs anti-aim from AntiAimConfig (base, jitter, desync,
+ * invert) and exploits from CommandIntent bits, so these go back to their defaults.
+ */
+const UNMAPPED = [
+  'hvh.core.defensive', // automatic defensive transition on threat; v2 uses the Exploits tab Defensive bind
+  'hvh.core.antiBruteforce', // legacy server side flip; no AntiAimConfig field
+  'hvh.core.fakeDuck', // no CommandIntent bit
+  // Per-stance builder: AntiAimConfig has a single stance.
+  'skeet.antiAim.enabled', 'skeet.antiAim.atTargets', 'skeet.antiAim.freestanding', 'skeet.antiAim.jitterMode',
+  'skeet.antiAim.interval', 'skeet.antiAim.desyncMode', 'skeet.antiAim.states',
+] as const;
+
+/**
+ * Brings any saved config to the current schema. Clean mappings are kept (anti-aim base, jitter and
+ * desync, fake-lag limit clamped to maxChoke, the Double Tap / Hide Shots choice, and everything
+ * that is not HvH mechanics). `reset` names each setting that was changed back to its default.
+ * A corrupt or non-object config gives the defaults with every field in `reset`.
+ */
+export function migrateConfig(old: unknown): { config: DevConfig; reset: string[] } {
+  if (!old || typeof old !== 'object' || Array.isArray(old)) return { config: defaultConfig(), reset: leafPaths(defaultConfig()) };
+  const config = sanitizeConfig(old);
+  if ((old as { version?: unknown }).version === CONFIG_VERSION) return { config, reset: [] };
+  const defaults = defaultConfig(), reset: string[] = [];
+  for (const prefix of UNMAPPED) {
+    for (const path of leafPaths(getPath(defaults, prefix), prefix)) {
+      const d = getPath(defaults, path);
+      if (getPath(config, path) !== d) { setPath(config, path, d); reset.push(path); }
+    }
+  }
+  // The legacy era profile is one of the era tables (ERAS); the server still runs LATE_CSGO.
+  const era = (old as { hvh?: { core?: { era?: unknown } } }).hvh?.core?.era;
+  config.skeet.era = typeof era === 'string' && Object.hasOwn(ERAS, era) ? era : DEFAULT_ERA_ID;
+  return { config, reset };
 }
 
 /** The gameplay modifiers this config asks the server for. */
@@ -298,7 +352,7 @@ export function presetConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
     const scout = structuredClone(balanced); scout.rage.aim.fov = 20; scout.hvh.exploit = 'hideShots';
     scout.skeet.profiles.snipers.hitchance = 85;
     const aggressive = structuredClone(balanced); aggressive.rage.aim.autoTarget = aggressive.hvh.antiAim.enabled = true;
-    aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap';
+    aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap'; aggressive.hvh.defensive = true;
     return [{ name: 'Skeet Balanced', config: balanced }, { name: 'Skeet Scout', config: scout }, { name: 'Skeet Aggressive', config: aggressive }];
   }
   const balanced = defaultConfig();
@@ -324,29 +378,48 @@ export function presetConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
 }
 
 const panelKey = (key: string, panel: 'lab' | 'skeet') => panel === 'lab' ? key : `${key}:${panel}`;
+/**
+ * The saved current config, migrated. `reset` stays non-empty until the migrated config is saved
+ * (saveCurrent), so the caller shows its notice once and then saves.
+ */
+export function loadCurrentMigrated(panel: 'lab' | 'skeet' = 'lab'): { config: DevConfig; reset: string[] } {
+  const text = storage.get(panelKey(CURRENT_KEY, panel));
+  if (!text) return { config: defaultConfig(panel), reset: [] };
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { raw = undefined; }
+  const out = migrateConfig(raw);
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? out : { config: defaultConfig(panel), reset: out.reset };
+}
+
 export function loadCurrent(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
-  try {
-    const text = storage.get(panelKey(CURRENT_KEY, panel));
-    return text ? sanitizeConfig(JSON.parse(text)) : defaultConfig(panel);
-  } catch {
-    return defaultConfig(panel);
-  }
+  return loadCurrentMigrated(panel).config;
 }
 
 export function saveCurrent(config: DevConfig, panel: 'lab' | 'skeet' = 'lab'): void {
   storage.set(panelKey(CURRENT_KEY, panel), JSON.stringify(config));
 }
 
-export function loadConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
+/** Saved named configs, migrated; `reset` lists "<config name>: <field>" for each reset setting. */
+export function loadConfigsMigrated(panel: 'lab' | 'skeet' = 'lab'): { configs: NamedConfig[]; reset: string[] } {
   try {
     const raw = JSON.parse(storage.get(panelKey(CONFIGS_KEY, panel)) ?? 'null') as unknown;
-    if (!Array.isArray(raw)) return presetConfigs(panel);
-    return raw
+    if (!Array.isArray(raw)) return { configs: presetConfigs(panel), reset: [] };
+    const reset: string[] = [];
+    const configs = raw
       .filter((c): c is { name: string; config: unknown } => !!c && typeof c === 'object' && typeof (c as { name?: unknown }).name === 'string')
-      .map((c) => ({ name: cleanName(c.name), config: sanitizeConfig(c.config) }));
+      .map((c) => {
+        const name = cleanName(c.name), m = migrateConfig(c.config);
+        reset.push(...m.reset.map((f) => `${name}: ${f}`));
+        return { name, config: m.config };
+      });
+    return { configs, reset };
   } catch {
-    return presetConfigs(panel);
+    return { configs: presetConfigs(panel), reset: [] };
   }
+}
+
+export function loadConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
+  return loadConfigsMigrated(panel).configs;
 }
 
 export function saveConfigs(list: NamedConfig[], panel: 'lab' | 'skeet' = 'lab'): void {
@@ -360,11 +433,18 @@ export function cleanName(name: string): string {
 /** A config file to share: tagged, so importing random JSON is rejected politely. */
 export function exportConfig(named: NamedConfig): string {
   // The format id predates the rename; kept so older exports still import.
-  return JSON.stringify({ format: 'chikengun-dev-config', version: 1, name: named.name, config: named.config }, null, 2);
+  return JSON.stringify({ format: 'chikengun-dev-config', version: CONFIG_VERSION, name: named.name, config: named.config }, null, 2);
 }
 
-export function importConfig(text: string): NamedConfig {
+export function importConfig(text: string): NamedConfig & { reset: string[] } {
   const raw = JSON.parse(text) as { format?: unknown; name?: unknown; config?: unknown };
   if (!raw || raw.format !== 'chikengun-dev-config') throw new Error('Not a ChikenRunHvh developer config.');
-  return { name: cleanName(typeof raw.name === 'string' ? raw.name : 'Imported'), config: sanitizeConfig(raw.config) };
+  const { config, reset } = migrateConfig(raw.config);
+  return { name: cleanName(typeof raw.name === 'string' ? raw.name : 'Imported'), config, reset };
+}
+
+/** One-line notice for a migration that reset settings. */
+export function migrationNotice(reset: readonly string[]): string {
+  if (leafPaths(defaultConfig()).every((f) => reset.includes(f))) return 'Saved config was unreadable: all settings were reset to defaults';
+  return `Config updated for HvH v2. Reset to defaults: ${reset.join(', ')}`;
 }

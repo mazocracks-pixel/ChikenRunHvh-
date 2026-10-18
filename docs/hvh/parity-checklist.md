@@ -62,7 +62,7 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Feature | Current location | Status |
 |---|---|---|
 | Per-player setup pause, no combat until Begin match (`hvhPreparing`) | GameRoom `:397,1054`; ServerPlayer `:54` | rebuild (Task 8) |
-| Skeet vs Manual panel choice, `hvhReady` ack | app.ts `:325`; HvhSetup.ts; App.ts `:375` | rebuild (Task 11); protocol (Task 8) |
+| Skeet vs Manual panel choice, `hvhReady` ack | app.ts `:325`; HvhSetup.ts; App.ts `:375` | done (Task 11): unchanged choice; Manual sends no exploit/choke/defensive intents (default loadout, Defensive bind needs the assisted panel, DevRuntime `takeDefensive`); protocol (Task 8) |
 | Manual play = default loadout, no tools | GameRoom `:1057` | rebuild (Task 8) |
 | First-person default, `V` view toggle preserved | Game/CameraRig | drop: unrelated to mechanics, untouched |
 | Panel switch never restores health/ammo/charge | GameRoom `:1054-1062` | replace with tickbase not refilled by panel change (Task 3, Task 8) |
@@ -76,16 +76,16 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 
 | Feature | Current location | Status |
 |---|---|---|
-| Tabs: Rage, Anti-aim, Fake lag, Trigger, Visuals, Misc, Skins, Configs, Extensions | skeet/tabs.ts `:32-85`, NativeMenu.ts | rebuild (Task 11) |
-| Fake lag tab: enable, limit, mode, break on shot | skeet/model.ts `:23,59` | replace with tickbase choke controls (Task 11) |
-| Seven weapon profiles, geometric safe points | skeet/model.ts, skeet/points.ts | rebuild (Task 11) |
+| Tabs: Rage, Anti-aim, Fake lag, Trigger, Visuals, Misc, Skins, Configs, Extensions | skeet/tabs.ts `:32-90`, NativeMenu.ts | done (Task 11): tabs write config only; v2 values reach CommandIntent / AntiAimConfig via GameSession `:461-475` and HvhRoom |
+| Fake lag tab: enable, limit, mode, break on shot | skeet/model.ts `:23,61`; skeet/tabs.ts `:62` | done (Task 11): limit 1-14 (LATE_CSGO.maxChoke) feeds CommandChoker, held frames become intent.choke; legacy rooms cap at 12 |
+| Seven weapon profiles, geometric safe points | skeet/model.ts, skeet/points.ts | rebuild (Task 15): profiles and safe points drive the legacy client rage scan (rage.ts), which v2 replaces; kept working unchanged in both rooms |
 | Visuals tab / native values (glow, tracers, fog, FOV, hitmarker) | skeet/nativeFields.ts, visualValues.ts, GameSession `:582-603` | keep: not mechanics; preserve unchanged through Task 11 and Task 15 (not in the out-of-scope list) |
 | Skins tab (tint first-person weapon) | skeet tabs | keep: not mechanics; preserve unchanged through Task 11 and Task 15 (not in the out-of-scope list) |
-| Configs tab (browser-saved configs, import/export) | dev/config.ts `:368`, panels/configs.ts | replace with migrated config schema (Task 11) |
-| Extensions tab (native recipes, no CSGO Lua) | hvh/hooks.ts `:18`, skeet/tabs.ts `:84` | rebuild (Task 11) |
-| Config migration, fake-lag key move | config.ts `:256` | replace with v2 migration (Task 11) |
-| Four era profiles (legacy, desync, tickbase, defensive) | HvhCoreSettings `:75`; tabs.ts `:30` | replace with era table and profiles (Task 2, Task 11) |
-| Presets (balanced, precision, aggressive, scout) | config.ts `:298-318` | rebuild (Task 11) |
+| Configs tab (browser-saved configs, import/export) | dev/config.ts `:398-445`, panels/configs.ts | done (Task 11): saved, loaded and imported configs go through migrateConfig; import shows reset fields |
+| Extensions tab (native recipes, no CSGO Lua) | hvh/hooks.ts `:18`, skeet/tabs.ts `:81-91` | done (Task 11): recipes only edit config (added Defensive peek); controller hooks unchanged |
+| Config migration, fake-lag key move | config.ts `:313` (migrateConfig), `:385` (load), Dev.ts `:257` (one-time notice) | done (Task 11) |
+| Four era profiles (legacy, desync, tickbase, defensive) | shared/src/hvh/v2/eras.ts; dev/tabs.ts `:33` | done (Task 11): ERAS holds the four profiles plus late-csgo (default); selection stored as skeet.era, not sent (server stays LATE_CSGO); legacy era select kept for legacy rooms |
+| Presets (balanced, precision, aggressive, scout) | config.ts `:349-378` | done (Task 11): presets are v2-schema (migrate with no reset); Skeet Aggressive enables Defensive |
 | Menu redesign / IMGUI renderer audit | n/a | drop: out of scope (look & feel plan) |
 | Classic mega-dev (L) excluded from HvH | Dev.ts, classic/* | drop: not HvH; keep untouched |
 | Watermark / info text | DevRuntime `:378-402` | rebuild (Task 10) |
@@ -103,8 +103,8 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Reload/switch/pause/stale-target checks | DevRuntime, WeaponController `:142` | rebuild (Task 9) |
 | Silent aim: camera and movement independent; smooth targeting; trigger | DevRuntime `:178`, GameSession `:902` | rebuild (Task 9) |
 | Shot intent (record time, hypothesis source, yaw) sent with fire | protocol `:386`, GameSession `:900-941` | rebuild (Task 8) |
-| Auto-scope | skeet profiles | rebuild (Task 11) |
-| Players tab per-match target overrides | dev/tabs.ts | rebuild (Task 11): per-match targeting overrides re-wired to the v2 config |
+| Auto-scope | skeet profiles | rebuild (Task 15): part of the legacy weapon profiles / client rage scan; kept working unchanged |
+| Players tab per-match target overrides | dev/tabs.ts; NativeMenu.ts `:107` | rebuild (Task 15): per-match overrides are runtime state feeding the legacy client rage scan, not config; kept working unchanged in both rooms |
 
 ### 5.4 Autowall and ballistics
 
@@ -171,7 +171,7 @@ Status values: `rebuild (Task N)`, `replace with <x> (Task N)`, `drop: <reason>`
 | Respawn empties charge; panel/mode/weapon change cannot refill | ServerPlayer `:177` | rebuild (Task 3, Task 8) |
 | Exploit readiness/state text (Burst ready, Charging, Needs two rounds) | WeaponController `:172-177` | replace with tickbase indicators (Task 10) |
 | Charge in snapshot, shot events, HUD | protocol `:54,138,189,403` | replace with tickbase fields (Task 8) |
-| Exploits tab UI | dev/tabs.ts `:33` | rebuild (Task 11) |
+| Exploits tab UI | dev/tabs.ts `:36-40` | done (Task 11): DT/HS select plus Defensive toggle and bind (intent.defensive, v2 rooms only); v2 status points to the tickbase HUD |
 | Era availability: all exploits work in every era | exploitMode | replace with era table gating (Task 2) |
 
 ### 5.9 Movement

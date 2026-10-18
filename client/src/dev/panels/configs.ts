@@ -17,7 +17,7 @@ export function renderConfigsPanel<T>(dev: {
   notify(text: string, kind?: 'info' | 'good' | 'bad'): void;
 }, schema: {
   sanitizeConfig(raw: unknown): T;
-  importConfig(text: string): { name: string; config: T };
+  importConfig(text: string): { name: string; config: T; reset?: string[] };
   exportConfig(named: { name: string; config: T }): string;
 }): HTMLElement & { refresh: () => void } {
   const { sanitizeConfig, importConfig, exportConfig } = schema;
@@ -108,7 +108,7 @@ export function renderConfigsPanel<T>(dev: {
 
   const addImported = (text: string) => {
     try {
-      const named = importConfig(text);
+      const { reset, ...named } = importConfig(text);
       named.name = uniqueName(named.name);
       dev.configs.push(named);
       selected = named.name;
@@ -116,6 +116,7 @@ export function renderConfigsPanel<T>(dev: {
       importBox.value = '';
       importBox.hidden = true;
       dev.notify(`Imported “${named.name}”`, 'good');
+      if (reset?.length) dev.notify(`Reset to defaults by the HvH v2 migration: ${reset.join(', ')}`, 'bad');
       refresh();
     } catch (err) {
       dev.notify(err instanceof Error ? err.message : 'That is not a valid config', 'bad');

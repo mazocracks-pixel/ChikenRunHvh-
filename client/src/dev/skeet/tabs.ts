@@ -39,7 +39,7 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
     ] },
     { id: 'antiaim', label: 'Anti-aim', icon: '↻', configKey: ['hvh.antiAim', 'hvh.invertKey', 'hvh.exploit', 'skeet.antiAim', 'skeet.resolver'], sections: [
       { title: 'Stance builder', icon: '↻', items: [
-        toggle('Enable anti-aim', 'hvh.antiAim.enabled'), toggle('Use state builder', 'skeet.antiAim.enabled', 'Uses a separate policy for each movement state'),
+        toggle('Enable anti-aim', 'hvh.antiAim.enabled'), toggle('Use state builder', 'skeet.antiAim.enabled', 'Legacy rooms only: a separate policy for each movement state. v2 rooms use the base stance below'),
         toggle('At targets', 'skeet.antiAim.atTargets'), toggle('Freestanding', 'skeet.antiAim.freestanding', 'Tests incoming damage at alternative head and body matrices'),
         select('Jitter pattern', 'skeet.antiAim.jitterMode'), slider('Jitter interval', 'skeet.antiAim.interval', 'ms', '1–600 ms; phase sampled at 64 simulation ticks per second'),
         select('Desync pattern', 'skeet.antiAim.desyncMode'), select('Pitch', 'skeet.antiAim.visualPitch', 'Physical head pose. Down tucks the head behind the torso when facing away; camera and silent shots stay independent'),
@@ -56,11 +56,11 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
         slider('Desync angle', `skeet.antiAim.states.${state}.desync`, '°'), slider('Jitter amplitude', `skeet.antiAim.states.${state}.jitter`, '°'),
       ] })),
       ...sections('network').map(s => ({...s,items:s.items.filter(c => !('path' in c) || !['hvh.core.fakeLag','hvh.core.fakeLagMode'].includes(c.path ?? ''))})), ...sections('exploits'),
-      { title: 'Fallback stance', icon: '↻', items: [select('Fallback yaw', 'hvh.antiAim.mode'), slider('Fallback desync', 'hvh.antiAim.desync', '°'), slider('Fallback jitter', 'hvh.antiAim.jitter', '°'), slider('Fallback jitter interval', 'hvh.antiAim.jitterInterval', 'ms')] },
+      { title: 'Base stance (v2 anti-aim)', icon: '↻', items: [select('Yaw base', 'hvh.antiAim.mode', 'v2 rooms: AntiAimConfig base; legacy rooms: fallback when the state builder is off'), slider('Desync', 'hvh.antiAim.desync', '°'), slider('Jitter', 'hvh.antiAim.jitter', '°', 'Capped at 45°'), slider('Fallback jitter interval', 'hvh.antiAim.jitterInterval', 'ms')] },
     ] },
     { id: 'fakelag', label: 'Fake lag', icon: '⌁', configKey: 'skeet.fakeLag', sections: [
-      {title:'Packet control',icon:'⌁',items:[toggle('Fake lag','skeet.fakeLag.enabled','HvH only; holds command delivery and remote movement updates'),
-        slider('Choke limit','skeet.fakeLag.limit','ticks','1–12; higher values make your updates less frequent'),
+      {title:'Tickbase choke',icon:'⌁',items:[toggle('Fake lag','skeet.fakeLag.enabled','HvH only; held commands are sent as choke intents'),
+        slider('Choke limit','skeet.fakeLag.limit','ticks','1–14 (era maxChoke); legacy rooms cap at 12'),
         select('Choke mode','skeet.fakeLag.mode'),toggle('Break on shot','skeet.fakeLag.breakOnShot','Sends pending commands and exposes a fresh update when firing'),
         info('Tradeoff',()=> 'Delayed updates · normal hitboxes and weapon timers','Your own command delivery is delayed too. Fake lag never grants invulnerability or extra movement time.')]}]},
     { id: 'legit', label: 'Trigger', icon: '◎', configKey: 'legit.trigger', sections: [sections('aim')[3]!] },
@@ -82,6 +82,7 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
       { title: 'Native recipes', icon: '⌘', wide: true, items: [
         recipe('Precision safe points', () => { const c = structuredClone(dev.config); Object.assign(c.skeet.profiles.snipers, { enabled: true, hitchance: 85, safePoints: true, pointScale: 35, autoScope: true }); dev.replaceConfig(c); }),
         recipe('Ground peek', () => { const c = structuredClone(dev.config); c.hvh.movement.peekAssist = true; dev.replaceConfig(c); }),
+        recipe('Defensive peek', () => { const c = structuredClone(dev.config); c.hvh.defensive = c.hvh.movement.peekAssist = true; dev.replaceConfig(c); }),
         recipe('State jitter', () => { const c = structuredClone(dev.config); c.hvh.antiAim.enabled = c.skeet.antiAim.enabled = true; c.skeet.antiAim.jitterMode = 'center'; c.skeet.antiAim.desyncMode = 'alternate'; dev.replaceConfig(c); }),
         info('Recipe library', () => 'Apply a recipe, adjust its settings, then save it as a config.'),
         info('Controller hooks', () => 'Command, observations, candidates, anti-aim, shot results and rendering. Add typed controllers in the game source.'),

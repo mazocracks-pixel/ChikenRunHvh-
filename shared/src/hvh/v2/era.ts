@@ -32,19 +32,20 @@ export const LATE_CSGO: EraTable = Object.freeze({
 
 export function validateEra(t: EraTable): string[] {
   const errors: string[] = [];
-  if (t.maxChoke > t.maxProcessTicks) {
+  // Written as !(ok) so a NaN field fails the check instead of slipping through a false comparison.
+  if (!(t.maxChoke <= t.maxProcessTicks)) {
     errors.push('maxChoke exceeds maxProcessTicks');
   }
-  if (t.doubleTapShift > t.maxProcessTicks) {
+  if (!(t.doubleTapShift <= t.maxProcessTicks)) {
     errors.push('doubleTapShift exceeds maxProcessTicks');
   }
-  if (t.desyncRunFalloff < 0 || t.desyncRunFalloff > 1) {
+  if (!(t.desyncRunFalloff >= 0 && t.desyncRunFalloff <= 1)) {
     errors.push('desyncRunFalloff out of range [0,1]');
   }
-  if (t.hideShotsShift > t.doubleTapShift) {
+  if (!(t.hideShotsShift <= t.doubleTapShift)) {
     errors.push('hideShotsShift exceeds doubleTapShift');
   }
-  if (t.defensiveShift > t.doubleTapShift) {
+  if (!(t.defensiveShift <= t.doubleTapShift)) {
     errors.push('defensiveShift exceeds doubleTapShift');
   }
   if (!t.doubleTapShiftOptions.includes(t.doubleTapShift)) {
