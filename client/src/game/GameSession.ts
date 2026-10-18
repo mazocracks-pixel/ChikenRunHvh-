@@ -1883,6 +1883,7 @@ export class GameSession {
     hud.kill(killer, victim, e.cause, e.headshot, this.selfPid, e.flags ?? 0);
 
     if (e.victim === this.selfPid) {
+      this.local.onOwnDeath();
       this.died(killer, e.cause, e.flags ?? 0, e.headshot);
     } else {
       const remote = this.remotes.get(e.victim);

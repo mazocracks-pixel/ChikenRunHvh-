@@ -108,6 +108,11 @@ export class LocalPlayer {
     return cmd;
   }
 
+  /** Our own death (v2): the server reset the tickbase and runs later commands without it. */
+  onOwnDeath(): void {
+    if (this.hvhV2) this.tickbase.reset(undefined, false);
+  }
+
   onHvhState(e: HvhStateEvent): void {
     this.hvhV2 = true;
     this.tickbase.reconcile(e.tickbase, e.lastAckSeq);
@@ -177,6 +182,8 @@ export class LocalPlayer {
     this.snap();
     this.server = { ...this.server, alive: true, x, y, z };
     this.chicken.setDead(false);
+    // A new life (v2): the server starts a fresh tickbase.
+    if (this.hvhV2) this.tickbase.reset();
   }
 
   private snap(): void {

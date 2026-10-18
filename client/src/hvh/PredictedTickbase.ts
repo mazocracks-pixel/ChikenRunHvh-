@@ -20,6 +20,8 @@ export class PredictedTickbase {
   private lastApplied = -Infinity;
   /** False until we hold a server state; until then nothing can be compared. */
   private synced: boolean;
+  /** False while our own player is dead: the server runs commands then without stepping the tickbase. */
+  private alive = true;
 
   constructor(private readonly era: EraTable = LATE_CSGO, initial?: TickbaseState) {
     this.current = initial ? { ...initial } : EMPTY_TICKBASE(0, era);
@@ -38,6 +40,7 @@ export class PredictedTickbase {
   apply(seq: number, intent: CommandIntent): boolean {
     if (seq <= this.lastApplied) return false;
     this.lastApplied = seq;
+    if (!this.alive) return false;
     // The server attaches the oldest waiting fire message to the first command with seq >= its
     // reference (HvhRoom.runCommand), also when the command that carried the shot was lost.
     const shot = this.shots[0];
@@ -49,6 +52,20 @@ export class PredictedTickbase {
     this.unacked.push({ seq, intent, after: this.current });
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
     return true;
+  }
+
+  /**
+   * A life boundary (our own death or spawn). The server resets the tickbase on both
+   * (HvhRoom.onPlayerDeath / spawn) and clears its pending fires, so nothing predicted so far
+   * still applies: drop it, start from `state` (default EMPTY_TICKBASE), and compare nothing until
+   * the next hvhState. With `alive` false (death), commands are not predicted until the next reset.
+   */
+  reset(state?: TickbaseState, alive = true): void {
+    this.current = state ? { ...state } : EMPTY_TICKBASE(0, this.era);
+    this.unacked = [];
+    this.shots = [];
+    this.synced = false;
+    this.alive = alive;
   }
 
   /**

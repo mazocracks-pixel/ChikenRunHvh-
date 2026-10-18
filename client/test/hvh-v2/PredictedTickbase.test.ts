@@ -76,6 +76,42 @@ describe('PredictedTickbase', () => {
     assert.deepEqual(p.state, firstFour);
   });
 
+  it('reset drops predictions and pending shots, and the next hvhState only snaps', () => {
+    const start = { ...EMPTY_TICKBASE(0, era), bank: era.doubleTapShift };
+    const p = new PredictedTickbase(era, start);
+    p.apply(1, NONE);
+    p.shot(5);
+    p.reset();
+    assert.deepEqual(p.state, EMPTY_TICKBASE(0, era));
+    assert.equal(p.pendingCount, 0);
+    // The server's fresh life (any tick) is adopted without a mismatch, then prediction resumes.
+    const spawned = EMPTY_TICKBASE(400, era);
+    p.apply(2, NONE);
+    p.reconcile(serverRun(spawned, [NONE]), 2);
+    assert.equal(p.mismatches, 0);
+    // Shot 5 was dropped with the old life: command 5 does not fire.
+    for (const seq of [3, 4, 5]) p.apply(seq, NONE);
+    p.reconcile(serverRun(spawned, [NONE, NONE, NONE, NONE]), 5);
+    assert.equal(p.mismatches, 0);
+    p.reset(spawned);
+    assert.deepEqual(p.state, spawned);
+  });
+
+  it('reset at death predicts nothing until the next reset (the server runs those commands without a tickbase)', () => {
+    const start = EMPTY_TICKBASE(0, era);
+    const p = new PredictedTickbase(era, start);
+    p.apply(1, NONE);
+    p.reset(undefined, false);
+    assert.equal(p.apply(2, NONE), false);
+    assert.equal(p.pendingCount, 0);
+    const dead = EMPTY_TICKBASE(50, era);
+    p.reconcile(dead, 2);
+    p.reconcile(dead, 3);
+    assert.equal(p.mismatches, 0);
+    p.reset();
+    assert.equal(p.apply(4, NONE), true);
+  });
+
   it('mismatch counted and snaps to server', () => {
     const start = EMPTY_TICKBASE(0, era);
     const p = new PredictedTickbase(era, start);
