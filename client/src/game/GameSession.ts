@@ -97,7 +97,7 @@ import {
   isPowerUp,
 } from '@game/shared';
 import type { Network } from '../net/Network';
-import { TickClock, commandIntent } from '../hvh/PredictedTickbase';
+import { TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
 import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
@@ -451,9 +451,8 @@ export class GameSession {
         const speed = this.horizontalSpeed();
         const shooting = input.firing || dev?.wantsFire(now) === true;
         const choke = fakeLagTicks(core,frame.seq,speed,shooting);
-        // A command carrying a shot is released at once (a choked command is not recordable).
-        const shot = this.shotCommand === frame.seq;
-        const flush = !input.active || (core.fakeLagBreakOnShot && shooting) || shot;
+        // Flush rule is unchanged from before v2: a shot flushes only via fakeLagBreakOnShot.
+        const flush = !input.active || (core.fakeLagBreakOnShot && shooting);
         // Melee and projectile weapons never fire a hitscan shot (the server rejects them as 'wrong weapon').
         const def = this.weapons.def;
         const intent = commandIntent({
@@ -911,11 +910,11 @@ export class GameSession {
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
   }
 
-  /** The next command to be built carries this shot (intent.fire); non-hitscan weapons keep the acked seq. */
+  /** v2: the next command carries this shot (intent.fire). Legacy HvH and non-hitscan weapons keep the acked seq. */
   private markShot(w: WeaponDef): number {
-    if (w.melee || w.projectile) return this.local.server.ack;
-    this.shotCommand = this.nextSeq;
-    return this.shotCommand;
+    const ref = shotReference(this.local.hvhV2 && !w.melee && !w.projectile, this.nextSeq, this.local.server.ack);
+    this.shotCommand = ref.shotSeq;
+    return ref.command;
   }
 
   private fire(aiming: boolean, assisted = false): void {

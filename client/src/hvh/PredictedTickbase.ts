@@ -86,9 +86,18 @@ export function commandIntent(o: {
 }
 
 /**
+ * What a `fire` message's `command` points at. v2 hitscan: the next command to be built, which
+ * carries intent.fire (`shotSeq`). Legacy HvH (and melee/projectile): the last acked seq, as before v2.
+ */
+export function shotReference(v2Hitscan: boolean, nextSeq: number, ack: number): { command: number; shotSeq: number | null } {
+  return v2Hitscan ? { command: nextSeq, shotSeq: nextSeq } : { command: ack, shotSeq: null };
+}
+
+/**
  * Maps client server-time (ms) to the server's tick counter, which advances at the era tick rate.
- * Each hvhState gives (tick, arrival time); the estimate is therefore biased ahead by the one-way
- * network delay, which is small next to the interpolation delay it is used with.
+ * Each hvhState gives (tick, arrival time). The state was produced one network delay before it
+ * arrived, so the estimate lags the true tick by about that delay (the view tick is slightly
+ * old, never ahead), small next to the interpolation delay it is used with.
  */
 export class TickClock {
   private tick = 0;

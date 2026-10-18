@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type TickbaseState } from '@game/shared/hvh/v2';
 import { CommandChoker } from '@game/shared';
-import { PredictedTickbase, TickClock, commandIntent } from '../../src/hvh/PredictedTickbase';
+import { PredictedTickbase, TickClock, commandIntent, shotReference } from '../../src/hvh/PredictedTickbase';
 
 const era = LATE_CSGO;
 const NONE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false };
@@ -131,5 +131,27 @@ describe('PredictedTickbase', () => {
     assert.equal(clock.viewedTick(now - 100), 993, 'floor(-6.4) ticks back');
     assert.equal(clock.viewedTick(now), 1000);
     assert.equal(clock.viewedTick(now + 1000 / 64 * 10 - 100), 1003);
+  });
+
+  it('legacy: fire references server.ack, no shot command, and a shot does not flush', () => {
+    assert.deepEqual(shotReference(false, 50, 44), { command: 44, shotSeq: null });
+    const choker = new CommandChoker();
+    const out = [1, 2].map((seq) => choker.push({ seq } as never, 3, false).length); // fakeLagBreakOnShot off: flush=false
+    assert.deepEqual(out, [0, 0]);
+  });
+
+  it('v2 with break-on-shot off: a shot during choke stays held and carries intent.fire when released', () => {
+    const choker = new CommandChoker();
+    const ref = shotReference(true, 2, 0);
+    assert.deepEqual(ref, { command: 2, shotSeq: 2 });
+    const sent: { seq: number; fire: boolean }[][] = [];
+    for (let seq = 1; seq <= 4; seq++) {
+      const held = choker.wouldHold(3, false);
+      const intent = commandIntent({ seq, shotSeq: ref.shotSeq, hitscan: true, held, exploit: 'off' });
+      const batch = choker.push({ seq, intent } as never, 3, false) as unknown as { seq: number; intent: CommandIntent }[];
+      if (seq === 2) assert.equal(batch.length, 0, 'shot frame stays held');
+      if (batch.length) sent.push(batch.map((c) => ({ seq: c.seq, fire: c.intent.fire })));
+    }
+    assert.deepEqual(sent, [[{ seq: 1, fire: false }, { seq: 2, fire: true }, { seq: 3, fire: false }, { seq: 4, fire: false }]]);
   });
 });
