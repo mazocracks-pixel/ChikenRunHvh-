@@ -10,7 +10,7 @@ fixed arsenal, and exploits that are readable and fair. The current tickbase mod
 
 - **Double tap and hide shots feel wrong.** Charging is invisible, and the owner wants a clear
   physical rule instead: stop to charge, then burst.
-- **Defensive is too strong.** The balance sweep (708,000 simulated rounds, 60 configs) shows
+- **Defensive is too strong as an exploit.** The balance sweep (708,000 simulated rounds, 60 configs) shows
   every defensive config winning about 70% against the field and 72–74% against every other
   exploit (see the sweep output in `docs/hvh/balance-report.md` and the latest run in this
   session).
@@ -27,7 +27,8 @@ anything those commits removed.
 
 1. DT and hide shots charge by **stopping the player for ~0.5 s** and **burst as a teleport**
    along the movement direction.
-2. Defensive survives as a **nerfed** break-lag-compensation exploit that shares the same charge.
+2. Defensive becomes a **situational anti-aim pattern** (random pitch in air, fake flick on
+   peek, and so on), with no charge and no lag-compensation effect.
 3. HvH is **round-based 5v5**, with bots filling empty seats.
 4. A **buy menu** opens at each round start with two categories: Main (Scout, Auto sniper) and
    Pistol (Desert Eagle, R8 Revolver).
@@ -102,20 +103,35 @@ Notes for the builder:
 - The recharge rules change. Today, firing and fake lag block banking and recharge has a 16-tick
   delay. New rule: charge only with no visible enemy, via the stop.
 
-## Part B: Defensive, nerfed (decided by the owner)
+## Part B: Defensive anti-aim (decided by the owner)
 
-- It stays a **break-lag-compensation** exploit. During the window the server stops writing valid
-  lag records, so enemy shots cannot hit or backtrack those ticks. This is today's mechanism
-  (`markDefensive`, records pushed `valid:false / 'defensive'`).
-- It **spends the whole shared charge** (all 32 ticks) and **does not teleport**. Using
-  defensive means no DT or hide-shots burst until the player re-charges, and re-charging needs no
-  visible enemy. With both enabled, defensive fires on peek and DT must re-charge (my reading of
-  what the owner approved).
-- The window shrinks from 12 ticks to **about 6 ticks**. This is my proposal; the sweep confirms
-  or tunes it.
-- It **triggers on peek**: when an enemy becomes visible while defensive is enabled and charged
-  (my proposal, community-standard "on peek").
-- It moves into the **Anti-aim tab** as a toggle (with an optional bind).
+**Defensive is an anti-aim pattern, not an exploit.** It **spends no charge**, has **no tickbase
+shift**, and **does not break lag compensation**. All it does is change the anti-aim pattern in
+specific situations, as community "defensive AA" scripts present it (in-air, on-peek, and
+per-state overrides with random pitch, flick, spin and the like).
+
+- **Remove today's defensive exploit:** `intent.defensive` as a tickbase shift,
+  `era.defensiveShift`, `markDefensive`, and records pushed `valid:false / 'defensive'`.
+  `CommandIntent.defensive` either goes away or carries the pattern trigger. The builder decides,
+  but no LC effect remains.
+- **Where:** the Anti-aim tab, per stance icon (Part D), with one shared on/off.
+- **Triggers** (multi-select, my proposal): **In air** (jumping), **On peek** (the moment an enemy
+  becomes visible, same line-of-sight test as Part A), and **Always**.
+- **Overrides while a trigger is active** (my proposal):
+  - **Pitch:** Down, Up, Zero, Random (a new random pitch every few ticks), or Jitter (alternates
+    up and down).
+  - **Yaw:** Off, Flick (a snap of ±90–180° for a few ticks, then back), Spin, Random, or Sideways
+    jitter.
+  - **"Fake flick before peeking"** is On peek + Flick: a short yaw flick fires as the enemy
+    becomes visible.
+- Overrides change the **real pose** (eye and body yaw, pitch, so the hitboxes move) through the
+  shared pose model (`shared/src/hvh/v2/pose.ts`). They stay inside the era's limits (desync max,
+  pitch range) and are deterministic from the seed and tick, so prediction and replay hold.
+- Timing values (flick length, random-pitch interval) are left to the builder; the sweep checks
+  them.
+- **Balance:** defensive configs join the sweep like any other anti-aim, under the same 55% rule.
+  The owner rejected anti-bruteforce for breaking balance, so if a defensive pattern turns out
+  dominant, nerf or remove that mode rather than keep it.
 
 ## Part C: Round-based 5v5 HvH with a CS:GO arsenal (decided by the owner)
 
@@ -209,12 +225,12 @@ listed in the one-time reset notice.
 - Weapon pairings: all main vs main pairs (Scout and Auto), with pistols as tie-breakers only if
   the runtime allows.
 
-- Update `tools/hvh-sweep.ts` to the new rules: the charge and burst model, nerfed defensive, the
+- Update `tools/hvh-sweep.ts` to the new rules: the charge and burst model, defensive as an anti-aim pattern, the
   four weapons, and the round-start charge.
 - Run it per weapon pairing (at least Scout and Auto mains).
 - The plan's balance rule must hold: no config above 55% against the field, and every config
   countered at 55% or more.
-- Tune the era tunables (defensive window, charge size if needed) until it does.
+- Tune the tunables (charge size, defensive pattern timings) until it does.
 - Update `docs/hvh/balance-report.md` with the results.
 
 ## Fake lag and the charge (my call)
@@ -256,6 +272,6 @@ updates at cutover.
 
 1. Part C: rounds, 5v5, buy menu and weapons. Self-contained, and it changes what the sweep measures.
 2. Part A: charge and burst.
-3. Part B: defensive.
+3. Part B: defensive anti-aim.
 4. Part E: sweep and tuning.
 5. Part D: the panel. It can run in parallel after Part A defines the settings.
