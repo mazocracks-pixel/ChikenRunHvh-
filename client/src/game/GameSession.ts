@@ -1129,7 +1129,7 @@ export class GameSession {
   private thirdPersonCase(weapon: WeaponId, muzzle: Vec3, aim: Vec3, yaw: number, mover: { vx: number; vy: number; vz: number }): void {
     const kind = CASING_FOR[weapon];
     if (!kind) return;
-    const back = weapon === 'sniper' || weapon === 'scout' ? 0.45 : 0.28;
+    const back = weapon === 'sniper' || weapon === 'scout' || weapon === 'ssg08' || weapon === 'scar20' ? 0.45 : 0.28;
     const at = { x: muzzle.x - aim.x * back, y: muzzle.y - aim.y * back + 0.02, z: muzzle.z - aim.z * back };
     const speed = 2.2 + Math.random() * 0.9;
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);

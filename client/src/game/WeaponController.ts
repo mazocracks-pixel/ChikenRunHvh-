@@ -26,6 +26,8 @@ export class WeaponController {
   /** When we last fired, and burst progress (the same rule the server checks). */
   private readonly timing: FireTiming = { lastFireAt: -Infinity, burstStart: -Infinity, burstShots: 0 };
   private triggerWasDown = false;
+  /** When the R8's hammer pull began (null: not pulling). */
+  private hammerFrom: number | null = null;
   private assistedBurst = false;
   /** Developer modifiers confirmed by the server (null = normal rules). */
   /** Training: infinite ammo and instant reload, on top of any developer modifiers. */
@@ -83,6 +85,7 @@ export class WeaponController {
     this.timing.lastFireAt = this.timing.burstStart = -Infinity;
     this.timing.burstShots = 0;
     this.triggerWasDown = false;
+    this.hammerFrom = null;
     this.resource.reset(); this.resourceTime = performance.now();
     this.heat = 0;
     for (const id of this.loadout) this.mags.set(id, this.magazineSize(id));
@@ -98,6 +101,7 @@ export class WeaponController {
     this.reloadEndsAt = 0;
     this.switchReadyAt = now + WEAPON_SWITCH_MS;
     this.timing.burstShots = 0;
+    this.hammerFrom = null;
     return true;
   }
 
@@ -132,9 +136,18 @@ export class WeaponController {
    * automatic weapons repeat at their fire rate). Returns 'fire', 'empty' (click) or null.
    */
   trigger(down: boolean, now: number, assisted = false): 'fire' | 'empty' | null {
-    const fresh = down && !this.triggerWasDown;
+    let fresh = down && !this.triggerWasDown;
     this.triggerWasDown = down;
     const w = this.def;
+    const hammerMs = w.csgo?.hammerMs;
+    if (hammerMs !== undefined) {
+      // The R8: a press pulls the hammer, and the shot goes out hammerMs later if it is still held.
+      if (!down) this.hammerFrom = null;
+      else if (fresh) this.hammerFrom = now;
+      if (this.hammerFrom === null || now - this.hammerFrom < hammerMs) return null;
+      this.hammerFrom = null;
+      fresh = true;
+    }
     if (this.assistedBurst && !down && !assisted && w.burst) this.timing.burstShots = w.burst.count;
     // A burst keeps going after the trigger pull that started it.
     const midBurst = w.burst !== undefined && this.timing.burstShots > 0 && this.timing.burstShots < w.burst.count && now - this.timing.burstStart < this.fireInterval;
@@ -179,6 +192,7 @@ export class WeaponController {
 
   suspend(): void {
     this.triggerWasDown = false;
+    this.hammerFrom = null;
     if (this.def.burst) this.timing.burstShots = this.def.burst.count;
   }
 
