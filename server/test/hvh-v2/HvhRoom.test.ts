@@ -295,6 +295,30 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.equal(b.hp, 100);
   });
 
+  it('v2 targets wear armor: a Desert Eagle chest hit takes its armor penetration', (t) => {
+    const { room, a, b, verdicts } = duel();
+    t.after(() => room.close());
+    place(b, 20, 17);
+    a.info.loadout.push('deserteagle');
+    a.weaponSlot = a.info.loadout.length - 1;
+    a.mags.set('deserteagle', a.magazineSize('deserteagle'));
+    const seqs = new Map<number, number>();
+    let now = performance.now();
+    for (let i = 0; i < 3; i++) idleTick(room, [a, b], seqs, (now += TICK_MS));
+    const eye = room.eyeOf(a);
+    const aim = anglesTo(eye, boxCentre(room, b.pid, 'chest'));
+    const r = recordOf(room, b.pid);
+    const distance = rayHvhMatrix(makeRay(eye, aim.dir), poseMatrix(r, r.pose), 100)!.t;
+    room.handleInput(a, { ...command(seqs.get(a.pid)! + 1, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
+    stepRoom(room, (now += TICK_MS));
+    const shot = verdicts.find((v) => v.shooterId === String(a.pid) && v.bullet === 1);
+    assert.deepEqual([shot?.cause, shot?.hitgroup], ['hit', 'chest']);
+    // Desert Eagle: 53 damage, range modifier 0.85 per 12.5 m, chest x1, armor penetration 0.932.
+    // Spread only moves the hit point by millimetres, so the falloff barely changes.
+    const unarmored = 53 * 0.85 ** (distance / 12.5);
+    assert.ok(Math.abs(shot!.damage! - unarmored * 0.932) < 0.01, `${shot!.damage} vs ${unarmored * 0.932}`);
+  });
+
   it('calling processPlayerTick twice in one tick pushes one record and does not throw', (t) => {
     const { room, a } = duel();
     t.after(() => room.close());

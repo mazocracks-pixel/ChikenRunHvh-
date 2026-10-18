@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 import { CollisionWorld } from '../../src/collision';
 import { PLAYER_HULL_WIDTH } from '../../src/constants';
 import type { Vec3 } from '../../src/math';
+import { makeRay } from '../../src/raycast';
+import { rayHvhMatrix } from '../../src/hvh/geometry';
 import { WEAPONS, pelletDirections } from '../../src/weapons';
 import { LATE_CSGO } from '../../src/hvh/v2/era';
 import type { Observation, PoseState } from '../../src/hvh/v2/pose';
@@ -13,6 +15,7 @@ import {
   type WorldTrace,
   type WorldTracer,
   collisionWorldTracer,
+  poseMatrix,
   processShot,
 } from '../../src/hvh/v2/shot';
 
@@ -233,6 +236,60 @@ describe('Shot pipeline (v2)', () => {
     for (const over of [{}, { spread: 0.3 }, { aim: { origin: MIRROR_HEAD, dir: FORWARD }, observations: GUESS_RIGHT }]) {
       assert.deepEqual(processShot(ctx(over)), processShot(ctx(over)));
     }
+  });
+});
+
+describe('Armor and helmet (v2)', () => {
+  const RECORD = { tick: 100, position: { x: 0, y: 0, z: 0 }, pose: POSE, valid: true };
+  /** Distance from `origin` straight ahead to the real pose's nearest hitbox. */
+  const reach = (origin: Vec3): number => rayHvhMatrix(makeRay(origin, FORWARD), poseMatrix(RECORD, POSE), 200)!.t;
+  // The head 5 m away: back the origin off until the head surface is exactly 5 m out.
+  const HEAD_AT_5: Vec3 = { ...REAL_HEAD, z: REAL_HEAD.z - reach(REAL_HEAD) + 5 };
+  // Left leg sphere: local (-0.16, 0.16, 0) turned by the 58 deg body yaw (geometry.ts).
+  const LEG: Vec3 = { x: -0.16 * Math.cos(58 * DEG), y: 0.16, z: 10 };
+  const ssg = (aim: Vec3, armored?: boolean) =>
+    processShot(ctx({ weaponId: 'ssg08', ticksSinceLastShot: 128, aim: { origin: aim, dir: FORWARD }, spread: 0 }, { armored }));
+
+  it('an armored head hit takes the weapon armor penetration', () => {
+    assert.ok(Math.abs(reach(HEAD_AT_5) - 5) < 1e-9);
+    const v = ssg(HEAD_AT_5, true);
+    assert.equal(v.cause, 'hit');
+    assert.equal(v.hitgroup, 'head');
+    const expected = 88 * 0.98 ** (5 / 12.5) * 4 * 0.85;
+    assert.ok(Math.abs(v.damage! - expected) < 1e-9, `${v.damage} vs ${expected}`);
+    assert.equal(v.remainingHp, 0);
+  });
+
+  it('the same hit unarmored has no penetration factor', () => {
+    const v = ssg(HEAD_AT_5);
+    assert.equal(v.hitgroup, 'head');
+    assert.ok(Math.abs(v.damage! - 88 * 0.98 ** (5 / 12.5) * 4) < 1e-9);
+    assert.deepEqual(ssg(HEAD_AT_5, false), v);
+  });
+
+  it('armor covers the stomach and pelvis', () => {
+    for (const [group, y] of [['stomach', 0.6], ['pelvis', 0.36]] as const) {
+      const aim = { x: 0, y, z: 10 };
+      const v = ssg(aim, true);
+      assert.equal(v.hitgroup, group);
+      assert.ok(Math.abs(v.damage! - 88 * 0.98 ** (reach(aim) / 12.5) * 1.25 * 0.85) < 1e-9, group);
+    }
+  });
+
+  it('armor does not cover the legs', () => {
+    const armored = ssg(LEG, true);
+    assert.equal(armored.cause, 'hit');
+    assert.equal(armored.hitgroup, 'leg');
+    assert.ok(Math.abs(armored.damage! - 88 * 0.98 ** (reach(LEG) / 12.5) * 0.75) < 1e-9);
+    assert.deepEqual(armored, ssg(LEG, false));
+  });
+
+  it('weapons outside the CS:GO arsenal ignore armor', () => {
+    const v = processShot(ctx({ weaponId: 'rifle', spread: 0 }, { armored: true }));
+    assert.equal(v.hitgroup, 'chest');
+    // HvH rifle: 17 damage x 1.6 boost, no falloff inside 40 m, chest multiplier 1.
+    assert.ok(Math.abs(v.damage! - 17 * 1.6) < 1e-9);
+    assert.deepEqual(v, processShot(ctx({ weaponId: 'rifle', spread: 0 })));
   });
 });
 

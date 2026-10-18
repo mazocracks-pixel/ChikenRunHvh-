@@ -36,7 +36,8 @@ import { peekResolve, resolve, type ResolverMemory, type VerdictCause } from './
  *   ctx.spread overrides the cone; the default is the standing hvhSpread. Multi-pellet weapons sum
  *   pellet damage; hitgroup is the pellet that dealt the most.
  * - Damage: hvhHitDamage (ballistics.ts): damageAt falloff x hitgroup multiplier x penetration loss.
- *   No armor (ShotContext has none). remainingHp = max(0, hp - damage). Values stay unrounded.
+ *   An armored target takes x w.csgo.armorPen on every hitgroup but 'leg', per pellet; weapons
+ *   without csgo ignore armor, and armor never wears down. remainingHp = max(0, hp - damage). Values stay unrounded.
  */
 
 /** A penetrated surface; structurally a BallisticTrace passage plus its material name. */
@@ -45,7 +46,8 @@ export interface WorldPassage { entry: number; exit: number; loss: number; mater
 export interface WorldTrace { wallDistance: number; material?: string; passages: WorldPassage[] }
 export interface WorldTracer { trace(origin: Vec3, dir: Vec3, range: number): WorldTrace }
 
-export interface ShotTarget { id: string; history: RecordHistory; alive: boolean; hp: number }
+/** `armored`: armor and helmet (never wears down). */
+export interface ShotTarget { id: string; history: RecordHistory; alive: boolean; hp: number; armored?: boolean }
 
 export interface ShotContext {
   shooterId: string;
@@ -189,13 +191,14 @@ export function processShot(ctx: ShotContext): ShotVerdict {
   out.real = record.pose.realSide;
 
   const spread = ctx.spread ?? hvhSpread(w, 0, false, false);
+  const armorPen = target.armored ? w.csgo?.armorPen : undefined;
   let damage = 0;
   let best: { group: string; damage: number } | null = null;
   for (const d of pelletDirections(w, dir, spread, ctx.spreadSeed)) {
     const trace = ctx.world.trace(origin, d, w.range);
     const hit = rayHvhMatrix(makeRay(origin, d), realMatrix, trace.wallDistance);
     if (!hit) continue;
-    const amount = hvhHitDamage(w, hit, trace);
+    const amount = hvhHitDamage(w, hit, trace) * (armorPen !== undefined && hit.group !== 'leg' ? armorPen : 1);
     damage += amount;
     if (!best || amount > best.damage) best = { group: hit.group, damage: amount };
   }

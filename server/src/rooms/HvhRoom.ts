@@ -653,8 +653,9 @@ export class HvhRoom extends GameRoom {
       verdict = { shooterId: String(p.pid), tick, bullet: n, cause: 'rejected', reason };
       if (target) verdict.targetId = String(target.pid);
     } else {
+      // Every v2 player wears armor and helmet (R44; spawns armor everyone in v2 rounds).
       const shotTarget: ShotTarget | undefined = target
-        ? { id: String(target.pid), history: this.stateOf(target).history, alive: target.alive, hp: target.hp }
+        ? { id: String(target.pid), history: this.stateOf(target).history, alive: target.alive, hp: target.hp, armored: true }
         : undefined;
       verdict = processShot({
         shooterId: String(p.pid),
