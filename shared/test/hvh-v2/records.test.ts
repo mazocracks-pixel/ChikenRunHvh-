@@ -176,4 +176,20 @@ describe('Lag records (v2)', () => {
     assert.throws(() => h.push(rec(4)), RangeError);
     assert.throws(() => h.push({ ...rec(6), valid: false }), RangeError, 'invalid without a cause');
   });
+
+  it('duck round-trips through push/select, and stays absent when not given', () => {
+    const h = new RecordHistory(LATE_CSGO, HULL);
+    h.push(rec(10));
+    h.push({ ...rec(11), duck: 0.6 });
+    const ducked = h.select(11, 11);
+    assert.ok('record' in ducked);
+    assert.equal(ducked.record.duck, 0.6);
+    assert.ok(Object.isFrozen(ducked.record));
+    const standing = h.select(10, 11);
+    assert.ok('record' in standing);
+    assert.equal('duck' in standing.record, false);
+    // Survives an invalidating re-freeze too.
+    h.markDefensive(11);
+    assert.equal(h.records()[1]!.duck, 0.6);
+  });
 });

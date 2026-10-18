@@ -1,5 +1,5 @@
 import type { CollisionWorld } from '../../collision';
-import { wrapAngle, type Vec3 } from '../../math';
+import { clamp, wrapAngle, type Vec3 } from '../../math';
 import { makeRay, raycastWorld, type Ray } from '../../raycast';
 import { WEAPONS, isWeaponId, pelletDirections, type WeaponDef } from '../../weapons';
 import { hvhHitDamage, traceHvhCover } from '../ballistics';
@@ -21,9 +21,10 @@ import { peekResolve, resolve, type ResolverMemory, type VerdictCause } from './
  * - Fire interval: WeaponDef.fireInterval is milliseconds (weapons.ts:33), so the interval in ticks
  *   is ceil(fireInterval * 64 / 1000); rejected when it exceeds ticksSinceLastShot.
  * - No target: nothing to explain, so the shot is 'spread' (no world trace, no resolve).
- * - viewTick is clamped to <= tick before RecordHistory.select.
- * - Hitbox matrices use buildHvhMatrix(position, pose.bodyYaw, scale 1, pose.pitch); records carry
- *   no duck, so scale is 1. The guessed pose mirrors bodyYaw to the guessed side with the same
+ * - view = min(viewTick, tick), used for RecordHistory.select, peekResolve and resolve, so records
+ *   and observations after the current tick never count.
+ * - Hitbox matrices use buildHvhMatrix(position, pose.bodyYaw, 1 - duck * 0.3, pose.pitch), the
+ *   legacy crouch scale (rage.ts:55,97); duck is clamped to 0..1, absent = 0. The guessed pose mirrors bodyYaw to the guessed side with the same
  *   desync magnitude ('center' puts bodyYaw on eyeYaw).
  * - Obstruction is judged on the un-deviated aim, at the nearest hit on the real or guessed pose
  *   (guessed via the pure peekResolve, so obstructed shots never touch resolver memory): blocked
@@ -121,7 +122,8 @@ function finite(v: Vec3): boolean {
 }
 
 function poseMatrix(record: LagRecord, pose: PoseState): HvhMatrix {
-  return buildHvhMatrix(record.position, pose.bodyYaw, 1, pose.pitch);
+  const duck = clamp(Number.isFinite(record.duck) ? record.duck! : 0, 0, 1);
+  return buildHvhMatrix(record.position, pose.bodyYaw, 1 - duck * 0.3, pose.pitch);
 }
 
 /** The record's pose with bodyYaw mirrored onto `side`, keeping the desync magnitude. */
@@ -164,7 +166,8 @@ export function processShot(ctx: ShotContext): ShotVerdict {
   if (reason !== null || !w) return { ...out, cause: 'rejected', reason: reason ?? 'unknown weapon' };
   if (!target) return out;
 
-  const selection = target.history.select(Math.min(ctx.viewTick, ctx.tick), ctx.tick);
+  const view = Math.min(ctx.viewTick, ctx.tick);
+  const selection = target.history.select(view, ctx.tick);
   if ('invalid' in selection) return { ...out, cause: 'invalidRecord', invalidCause: selection.invalid };
   const record = selection.record;
 
@@ -172,7 +175,7 @@ export function processShot(ctx: ShotContext): ShotVerdict {
   const aimRay: Ray = makeRay(origin, dir);
   const aimTrace = ctx.world.trace(origin, dir, w.range);
   const realMatrix = poseMatrix(record, record.pose);
-  const peeked = peekResolve(ctx.resolver, target.id, ctx.observations, ctx.viewTick).side;
+  const peeked = peekResolve(ctx.resolver, target.id, ctx.observations, view).side;
   const aimHit = nearest(
     rayHvhMatrix(aimRay, realMatrix, w.range),
     rayHvhMatrix(aimRay, poseMatrix(record, guessedPose(record.pose, peeked)), w.range),
@@ -180,7 +183,7 @@ export function processShot(ctx: ShotContext): ShotVerdict {
   const blockedBy = aimHit ? obstruction(w, aimHit, aimTrace) : null;
   if (blockedBy !== null) return { ...out, cause: 'obstruction', material: blockedBy };
 
-  const guessed = resolve(ctx.resolver, target.id, ctx.observations, ctx.viewTick).side;
+  const guessed = resolve(ctx.resolver, target.id, ctx.observations, view).side;
   out.guessed = guessed;
   out.real = record.pose.realSide;
 

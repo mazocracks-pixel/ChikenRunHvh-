@@ -56,6 +56,12 @@ describe('Hit log text (v2)', () => {
     }
   });
 
+  it('displayed damage and remaining add up to the rounded hp before the hit', () => {
+    // hp 61.6 -> 62 shown before; 38.4 damage -> 38; so 24 remaining (not round(23.2) = 23).
+    const v: ShotVerdict = { ...base, cause: 'hit', damage: 38.4, hitgroup: 'chest', remainingHp: 61.6 - 38.4 };
+    assert.equal(formatVerdict(v, nameOf), 'Hit Bob in the chest for 38 (24 remaining)');
+  });
+
   it('hit with zero remaining and target name lookup', () => {
     const v: ShotVerdict = { ...base, cause: 'hit', damage: 115.2, hitgroup: 'head', remainingHp: 0 };
     assert.equal(formatVerdict(v, nameOf), 'Hit Bob in the head for 115 (0 remaining)');

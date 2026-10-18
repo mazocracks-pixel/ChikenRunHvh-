@@ -147,6 +147,31 @@ describe('Shot pipeline (v2)', () => {
     assert.equal(v.cause, 'hit');
   });
 
+  it('crouch shrinks the hitboxes: a standing head shot misses at duck 1', () => {
+    const aim = { origin: REAL_HEAD, dir: FORWARD };
+    const standing = processShot(ctx({ aim }));
+    assert.equal(standing.cause, 'hit');
+    assert.equal(standing.hitgroup, 'head');
+    const crouched = new RecordHistory(LATE_CSGO, PLAYER_HULL_WIDTH);
+    for (let t = 90; t <= 100; t++) crouched.push({ tick: t, position: { x: 0, y: 0, z: 0 }, pose: POSE, valid: true, duck: 1 });
+    // Scale 0.7 puts the head top near y = 1.05, below the aim; guessed = real here, so it is spread.
+    const v = processShot(ctx({ aim }, { history: crouched }));
+    assert.equal(v.cause, 'spread');
+    assert.equal(v.guessed, 'left');
+    assert.equal(v.real, 'left');
+  });
+
+  it('observations after ctx.tick do not affect the guess when viewTick > tick', () => {
+    const observations: Observation[] = [
+      ...GUESS_RIGHT,
+      // At tick 103 (future): a negative offset would make the guess 'left'.
+      { tick: 103, eyeYaw: 0, eyeOffsetDeg: -20, speedFraction: 0, duck: 0 },
+    ];
+    const v = processShot(ctx({ viewTick: 105, observations }));
+    assert.equal(v.cause, 'hit');
+    assert.equal(v.guessed, 'right');
+  });
+
   it('obstruction: a non-penetrable wall in front of the target', () => {
     const c = ctx({ world: fixed({ wallDistance: 5, material: 'concrete', passages: [] }) });
     const v = processShot(c);

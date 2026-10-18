@@ -32,6 +32,8 @@ export interface LagRecord {
   pose: PoseState;
   valid: boolean;
   invalidCause?: InvalidCause;
+  /** Crouch amount 0..1; absent means standing (0). */
+  duck?: number;
 }
 
 export type RecordSelection = { record: LagRecord } | { invalid: InvalidCause };
@@ -44,6 +46,7 @@ function freezeRecord(r: LagRecord, valid: boolean, invalidCause?: InvalidCause)
     valid,
   };
   if (!valid) out.invalidCause = invalidCause;
+  if (r.duck !== undefined) out.duck = r.duck;
   return Object.freeze(out);
 }
 
