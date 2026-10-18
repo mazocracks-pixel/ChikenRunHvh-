@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { MAPS, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
+import { MAPS, damp, wrapAngle, type Appearance, type JoinSuccess, type MapId, type WeaponId } from '@game/shared';
 import type { Network } from '../net/Network';
 import { watchSettings, type Quality } from '../settings';
 import { Hud } from '../ui/Hud';
@@ -15,7 +15,7 @@ import { baseFov } from './CameraRig';
 import { GameSession, type DevHooks } from './GameSession';
 import { Input } from './Input';
 import { Chicken } from './models/Chicken';
-import { defaultLook, desertLook, nightLook, type WorldLook, bloodMoonLook } from './look';
+import { defaultLook, desertLook, menuLook, nightLook, type WorldLook, bloodMoonLook } from './look';
 import { SUN_DIRECTION, Sky } from './Sky';
 import { World } from './World';
 
@@ -28,6 +28,18 @@ const PREVIEW_SPOT = new THREE.Vector3(31.25, 5.9, 5.9375);
 const DEFAULT_LOOK_KEY = JSON.stringify(defaultLook());
 
 const SHOWCASE_MAP: MapId = 'mirage';
+/** Title screen and shop: the chickens are drawn on their own layer, sharp, over a soft half-size background. */
+const MENU_LAYER = 1;
+const MENU_BG_SCALE = 0.5;
+/** Frame cap outside a match (the fly-over before an account loads gets half of it). */
+const MENU_FPS = 60;
+/** Where party members stand, from the camera's view: right (x) and back (z) of your chicken, and a head start in the idle loop (t). */
+const PARTY_SLOTS = [
+  { x: 0.85, z: -0.9, yaw: 0.15, t: 3.1 },
+  { x: -0.8, z: -0.9, yaw: 0.45, t: 6.7 },
+  { x: 1.55, z: -1.9, yaw: 0.05, t: 9.9 },
+  { x: -1.45, z: -1.9, yaw: 0.55, t: 12.3 },
+] as const;
 
 interface QualityPreset {
   /** Upper limit for the device pixel ratio. */
@@ -102,6 +114,24 @@ export class Game {
     chicken: Chicken;
     clock: number;
   } | null = null;
+  /** Title-screen framing: distance, camera and target heights, and how far right of the chicken the camera sits (share of the half-width). */
+  readonly menuShot = { dist: 4.6, height: 1, look: 0.75, side: 0.2, yaw: 0 };
+  /** Set by the app: something covers the whole menu (a dialog, the News page), so nothing needs drawing. */
+  menuCovered: () => boolean = () => false;
+  /** Title screen: where your chicken's feet are on screen (0..1 of the width and height), for the name plate under it. */
+  onMenuAnchor: ((x: number, y: number) => void) | null = null;
+  private menuFx: { target: THREE.WebGLRenderTarget; material: THREE.ShaderMaterial; scene: THREE.Scene; camera: THREE.OrthographicCamera } | null = null;
+  private menuLightsFor: World | null = null;
+  /** Map pieces left out of the menu background (Mirage's wall lamps draw as a dark blob beside the chicken). */
+  private menuHidden: THREE.Object3D[] = [];
+  private menuYaw = 0;
+  private menuDragAt = -Infinity;
+  private worldLoaded = false;
+  private party: Chicken[] = [];
+  private partyLooks: Appearance[] = [];
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly anchor = new THREE.Vector3();
+  private readonly bufferSize = new THREE.Vector2();
   private fpsFrames = 0;
   private fpsWindowStart = 0;
   private readonly shadowFocus = new THREE.Vector3();
@@ -130,8 +160,7 @@ export class Game {
     pmrem.dispose();
 
     this.world = new World(this.scene, MAPS[SHOWCASE_MAP], this.renderer.capabilities.getMaxAnisotropy());
-    // The app displays map errors after the account handshake.
-    void this.world.ready.catch(() => undefined);
+    this.watchWorld();
     this.input = new Input(canvas);
     this.hud = new Hud(hudContainer);
 
@@ -179,6 +208,8 @@ export class Game {
       },
       ...callbacks,
     });
+    // A match uses the map's own light (or the developer World tab); the menus their warm one.
+    this.applyLook();
     return this.world.ready;
   }
 
@@ -190,6 +221,7 @@ export class Game {
     }
     this.session?.dispose();
     this.session = null;
+    this.applyLook();
     this.camera.fov = baseFov();
     this.camera.updateProjectionMatrix();
   }
@@ -216,6 +248,7 @@ export class Game {
     if (this.world.map.id === id) return;
     this.world.dispose();
     this.world = new World(this.scene, MAPS[id], this.renderer.capabilities.getMaxAnisotropy());
+    this.watchWorld();
     this.applyQuality(this.quality);
     // Some maps have their own light (the Graveyard is a night).
     const night = id === 'night';
@@ -229,6 +262,52 @@ export class Game {
     this.overlaySun.intensity = night ? 0.6 : 2.2;
     this.lookKey = '';
     this.applyLook();
+  }
+
+  /** The menu waits for the map before drawing it (the app displays map errors itself). */
+  private watchWorld(): void {
+    const world = this.world;
+    this.worldLoaded = false;
+    void world.ready.then(() => {
+      if (world === this.world) this.worldLoaded = true;
+    }, () => undefined);
+  }
+
+  /** Title screen: your party members (not you) stand next to your chicken, up to four. */
+  setMenuParty(looks: readonly Appearance[]): void {
+    this.partyLooks = looks.slice(0, PARTY_SLOTS.length);
+    if (!this.showcase) return;
+    while (this.party.length > this.partyLooks.length) this.party.pop()!.dispose();
+    this.partyLooks.forEach((look, i) => {
+      let c = this.party[i];
+      if (!c) {
+        c = new Chicken(look);
+        c.setWeapon('rifle');
+        c.headBob = true;
+        this.scene.add(c.root);
+        this.party.push(c);
+      }
+      c.setAppearance(look);
+    });
+  }
+
+  /** Title screen: dragging turns your chicken (it turns back by itself a moment after). */
+  turnMenuChicken(dx: number): void {
+    this.menuYaw = wrapAngle(this.menuYaw + dx * 0.012);
+    this.menuDragAt = performance.now();
+  }
+
+  /** Title screen: a click on your chicken makes it cluck and flap. Returns whether it was hit. */
+  pokeMenuChicken(clientX: number, clientY: number): boolean {
+    const s = this.showcase;
+    if (!s || this.session) return false;
+    const ndc = new THREE.Vector2((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.layers.set(MENU_LAYER);
+    if (this.raycaster.intersectObject(s.chicken.root, true).length === 0) return false;
+    s.chicken.react(s.clock);
+    this.audio.play('cluck', undefined, 0.9);
+    return true;
   }
 
   /** The chicken and equipped weapon shown in the lobby; null for a plain fly-over. */
@@ -249,6 +328,8 @@ export class Game {
     if (!this.showcase) return;
     this.showcase.chicken.dispose();
     this.showcase = null;
+    for (const c of this.party) c.dispose();
+    this.party = [];
   }
 
   private updateShowcase(dt: number): void {
@@ -259,22 +340,43 @@ export class Game {
       this.scene.add(chicken.root);
       this.useMap(SHOWCASE_MAP);
       this.showcase = { chicken, clock: 0 };
+      this.setMenuParty(this.partyLooks);
     }
     const s = this.showcase;
     s.clock += dt;
+    // Let go of a drag and the chicken slowly turns back to face you.
+    if (performance.now() - this.menuDragAt > 2500) this.menuYaw = damp(this.menuYaw, 0, 1.6, dt);
 
     s.chicken.root.position.copy(PREVIEW_SPOT);
     s.chicken.animate(dt, 0, true);
     s.chicken.menuEmote(s.clock);
-    s.chicken.root.rotation.y = Math.PI + 0.3 + Math.sin(s.clock * 0.35) * 0.035;
+    s.chicken.root.rotation.y = Math.PI + 0.3 + Math.sin(s.clock * 0.35) * 0.035 + this.menuYaw;
     const fov = this.camera.aspect < 1 ? 50 : 40;
     if (this.camera.fov !== fov) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
-    // Far enough back that the whole chicken stands in the lobby, like a CS agent.
-    this.camera.position.set(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 1, PREVIEW_SPOT.z + 4.6);
-    this.camera.lookAt(PREVIEW_SPOT.x, PREVIEW_SPOT.y + 0.75, PREVIEW_SPOT.z);
+    // Far enough back that the whole chicken stands in the lobby, like a CS agent; on wide
+    // screens the camera sits a little to the right, so the chicken stands left of centre.
+    const shot = this.menuShot;
+    const halfWidth = Math.tan((fov * Math.PI) / 360) * this.camera.aspect * shot.dist;
+    const side = this.camera.aspect < 1 ? 0 : shot.side * halfWidth;
+    const fx = Math.sin(shot.yaw), fz = Math.cos(shot.yaw);
+    const rx = fz, rz = -fx;
+    this.camera.position.set(PREVIEW_SPOT.x + fx * shot.dist + rx * side, PREVIEW_SPOT.y + shot.height, PREVIEW_SPOT.z + fz * shot.dist + rz * side);
+    this.camera.lookAt(PREVIEW_SPOT.x + rx * side, PREVIEW_SPOT.y + shot.look, PREVIEW_SPOT.z + rz * side);
+    this.party.forEach((c, i) => {
+      const slot = PARTY_SLOTS[i]!;
+      c.root.position.set(PREVIEW_SPOT.x + rx * slot.x + fx * slot.z, PREVIEW_SPOT.y, PREVIEW_SPOT.z + rz * slot.x + fz * slot.z);
+      c.animate(dt, 0, true);
+      c.menuEmote(s.clock + slot.t);
+      c.root.rotation.y = Math.PI + shot.yaw + slot.yaw;
+    });
+    if (this.onMenuAnchor) {
+      this.camera.updateMatrixWorld();
+      const p = this.anchor.copy(PREVIEW_SPOT).project(this.camera);
+      this.onMenuAnchor((p.x + 1) / 2, (1 - p.y) / 2);
+    }
   }
 
   /** Developer World tab: surface colours, sky, fog and light. Kept across map changes. */
@@ -284,8 +386,9 @@ export class Game {
   }
 
   private applyLook(): void {
-    // An untouched World tab means "the map's own look".
-    const own = JSON.stringify(this.userLook) === DEFAULT_LOOK_KEY ? this.baseLook : this.userLook;
+    // An untouched World tab means "the map's own look". The menus always use their own warm
+    // look: World tab colours (saved in this browser) are for matches only.
+    const own = !this.session ? (this.world.map.id === SHOWCASE_MAP ? menuLook() : this.baseLook) : JSON.stringify(this.userLook) === DEFAULT_LOOK_KEY ? this.baseLook : this.userLook;
     const tinted = this.bloodMoon > 0 ? bloodMoonLook(own, this.bloodMoon) : own;
     const look = this.zoneLook ? { ...tinted, ...this.zoneLook } : tinted;
     const lookKey = JSON.stringify(look);
@@ -366,9 +469,13 @@ export class Game {
   }
 
   private frame = (time: number): void => {
-    if (document.hidden) { this.lastFrameTime = null; this.fpsFrames = this.fpsWindowStart = 0; return; }
-    // A slowly moving menu background needs fewer draws; active play keeps display refresh rate.
-    if (!this.session && !this.preview && !this.showcaseAppearance && this.lastFrameTime !== null && time-this.lastFrameTime < 1000/30 - 0.5) return;
+    // Nothing to draw: a hidden tab, or a menu covered by a dialog or the News page.
+    if (document.hidden || (!this.session && this.menuCovered())) { this.lastFrameTime = null; this.fpsFrames = this.fpsWindowStart = 0; return; }
+    // The menus need fewer draws (the fly-over before an account loads fewer still); a match keeps the display's refresh rate.
+    const cap = this.session ? 0 : this.preview || this.showcaseAppearance ? MENU_FPS : MENU_FPS / 2;
+    if (cap && this.lastFrameTime !== null && time - this.lastFrameTime < 1000 / cap - 0.5) return;
+    // The menu shows before Mirage has loaded; it draws once the map is there.
+    if (!this.session && !this.worldLoaded) return;
     const dt = this.lastFrameTime === null ? 0 : Math.min((time - this.lastFrameTime) / 1000, MAX_FRAME_DT);
     this.lastFrameTime = time;
     this.renderer.info.reset();
@@ -383,7 +490,8 @@ export class Game {
     this.sky.update(this.camera, dt);
     this.world.update(dt, this.camera.position);
     this.world.updateShadows(this.session ? this.focusAhead() : this.preview?.root.position ?? this.showcase?.chicken.root.position ?? null);
-    if (this.composer && !nativeOn(this.session?.hvhVisuals??null,'Visuals.Effects.disablePostProcessing')) this.composer.render(dt);
+    if (!this.session && (this.preview || this.showcase)) this.renderMenu();
+    else if (this.composer && !nativeOn(this.session?.hvhVisuals??null,'Visuals.Effects.disablePostProcessing')) this.composer.render(dt);
     else {
       this.renderer.render(this.scene, this.camera);
       this.renderOverlay();
@@ -392,6 +500,98 @@ export class Game {
     this.renderer.domElement.dataset.frameMs = (performance.now() - frameStart).toFixed(1);
     this.countFrame(time);
   };
+
+  /**
+   * Title screen and shop: the world at half size, softly blurred (depth of field) and warmly
+   * graded, then the chickens sharp on top. Lighter than drawing the full-size world, and the
+   * low-res map textures don't show.
+   */
+  private renderMenu(): void {
+    const r = this.renderer;
+    const fx = (this.menuFx ??= this.createMenuFx());
+    const size = r.getDrawingBufferSize(this.bufferSize);
+    const w = Math.max(1, Math.round(size.x * MENU_BG_SCALE));
+    const hgt = Math.max(1, Math.round(size.y * MENU_BG_SCALE));
+    if (fx.target.width !== w || fx.target.height !== hgt) fx.target.setSize(w, hgt);
+    (fx.material.uniforms.texel!.value as THREE.Vector2).set(1 / w, 1 / hgt);
+    const chickens = [...this.party, this.showcase?.chicken, this.preview].filter((c): c is Chicken => !!c);
+    // Their own layer (re-applied: a new hat or gun adds meshes), still lit by the world's lights and casting its shadows.
+    for (const c of chickens) c.root.traverse((o) => o.layers.set(MENU_LAYER));
+    if (this.menuLightsFor !== this.world) {
+      this.menuLightsFor = this.world;
+      this.menuHidden = [];
+      this.scene.traverse((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (mat && !Array.isArray(mat) && /lamp[\\/]lamp_diffuse/i.test(mat.name)) this.menuHidden.push(o);
+        const light = o as THREE.DirectionalLight;
+        if (!light.isLight) return;
+        light.layers.enable(MENU_LAYER);
+        light.shadow?.camera.layers.enable(MENU_LAYER);
+      });
+    }
+    for (const o of this.menuHidden) o.visible = false;
+    r.setRenderTarget(fx.target);
+    r.render(this.scene, this.camera);
+    r.setRenderTarget(null);
+    for (const o of this.menuHidden) o.visible = true;
+    r.render(fx.scene, fx.camera);
+    // The shadow maps from the world pass are reused.
+    const shadows = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false;
+    // (A colour background would clear the screen even with autoClear off.)
+    const background = this.scene.background;
+    this.scene.background = null;
+    this.camera.layers.set(MENU_LAYER);
+    r.autoClear = false;
+    r.clearDepth();
+    r.render(this.scene, this.camera);
+    r.autoClear = true;
+    this.scene.background = background;
+    this.camera.layers.set(0);
+    r.shadowMap.autoUpdate = shadows;
+  }
+
+  private createMenuFx(): NonNullable<Game['menuFx']> {
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+    const material = new THREE.ShaderMaterial({
+      uniforms: { map: { value: target.texture }, texel: { value: new THREE.Vector2(1, 1) } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D map;
+        uniform vec2 texel;
+        varying vec2 vUv;
+        void main() {
+          // A soft disc blur of the half-size world.
+          vec3 c = vec3(0.0);
+          float total = 0.0;
+          for (int x = -2; x <= 2; x++) {
+            for (int y = -2; y <= 2; y++) {
+              float w = 1.0 / (1.0 + float(x * x + y * y));
+              c += texture2D(map, vUv + vec2(float(x), float(y)) * texel * 1.4).rgb * w;
+              total += w;
+            }
+          }
+          c /= total;
+          // Warm grade and a light vignette.
+          c *= vec3(1.06, 1.0, 0.9);
+          c *= 1.0 - smoothstep(0.38, 0.9, length((vUv - 0.5) * vec2(1.0, 0.8))) * 0.3;
+          gl_FragColor = vec4(c, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    quad.frustumCulled = false;
+    const scene = new THREE.Scene();
+    scene.add(quad);
+    return { target, material, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
+  }
 
   /** The first-person gun on top of the world, lit like the world. */
   private readonly overlayHemi = new THREE.HemisphereLight(0xcfe8ff, 0x4f6b32, 0.9);

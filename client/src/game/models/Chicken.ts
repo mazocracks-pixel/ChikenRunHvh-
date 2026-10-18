@@ -7,6 +7,8 @@ import { animateMonkey, buildMonkey, type MonkeyModel } from './Monkey';
 import { CLASSIC_MONKEY_SKIN } from '@game/shared';
 import { box, cone, cylinder, part, solid, sphere } from './materials';
 
+/** How long the title-screen click reaction lasts. */
+const REACT_SECONDS = 0.8;
 /** How long a third-person melee swing takes. */
 const SWING_SECONDS = 0.3;
 /** How long a third-person inspect takes (same as first person). */
@@ -267,6 +269,8 @@ export class Chicken {
   private walkPhase = 0;
   /** Let the head bob while running (only for chickens that aren't in a match). */
   headBob = false;
+  /** Title screen: when the last click reaction started (on the menu's idle clock). */
+  private reactAt = -Infinity;
   private walkBlend = 0;
   private flapBlend = 0;
   private deadTime = -1;
@@ -571,6 +575,7 @@ export class Chicken {
    */
   menuEmote(clock: number): void {
     const t = clock % 14;
+    const react = clock - this.reactAt;
     const ease = (a: number, b: number) => {
       const k = clamp((t - a) / (b - a), 0, 1);
       return k * k * (3 - 2 * k);
@@ -581,11 +586,27 @@ export class Chicken {
     const rest = 1 - aim;
     // Shouldered, it aims off to its right (never at the camera) and looks the same way.
     this.gunPivot.rotation.set(-0.6 * rest + 0.25 * look, 0.5 * rest - 0.75 * aim, 0.15 * rest);
+    // Resting across the body, the gun is held out in front of the belly instead of inside it.
+    this.gunPivot.position.set(0.3 + 0.08 * rest, 0.95, -0.28 - 0.2 * rest);
     this.wingL.rotation.x = -0.7 * aim;
     this.bodyPivot.rotation.z = Math.sin(clock * 0.8) * 0.035 * rest;
     this.bodyPivot.rotation.x = -0.08 * aim;
     this.bodyPivot.rotation.y = -0.3 * aim;
     this.headGroup.rotation.set(-0.35 * look, Math.sin(clock * 0.45) * 0.3 * rest * (1 - look) - 0.35 * look - 0.5 * aim, 0);
+    // Clicked: a little hop with flapping wings, on top of the idle loop.
+    if (react >= 0 && react < REACT_SECONDS) {
+      const k = Math.sin((react / REACT_SECONDS) * Math.PI);
+      const flap = (Math.sin(react * 32) * 0.5 + 0.7) * k;
+      this.wingL.rotation.z = -flap;
+      this.wingR.rotation.z = flap * 0.5;
+      this.bodyPivot.position.y += 0.14 * k;
+      this.headGroup.rotation.x -= 0.35 * k;
+    }
+  }
+
+  /** Title screen: cluck and flap (from `clock`, the menu's idle clock). */
+  react(clock: number): void {
+    this.reactAt = clock;
   }
 
   setDead(dead: boolean): void {

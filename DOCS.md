@@ -3,6 +3,35 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 32 (18 Oct): a polished main menu
+
+## Plan
+
+1. Scene (`Game.ts`): find the pink sky; reframe the camera; half-size blurred, warm-graded background with the chicken sharp on top; the AK out of the body; drag to turn, click to react; party chickens; pause under dialogs; show the menu before Mirage loads.
+2. Menu (`MainMenu.ts`): top bar, play panel bottom right, profile under the chicken, challenges and news on the left, friends with Invite on the right, footer links, a NEWS page, Esc.
+3. App and Friends: search timer and Cancel, invites, party chickens, pause hook, fast start, Esc in the shop, sounds on every button.
+4. CSS, then screenshots at 1920x1080 and 1366x768, every old lobby feature, FPS.
+
+## What was done
+
+- **Pink sky:** the developer World tab's colours are saved in the browser and were applied to the menu at boot, even without the dev code (the "Neon" look is a pink sky and pink stone). The menus now always use their own look (`menuLook()`: clear blue sky, warm sun); World tab colours only apply in matches.
+- **Scene:** the camera sits a little right, so the chicken stands at 40% of the width with the street behind it (`menuShot`). Mirage's wall lamps (the dark blob beside the head) are left out of the menu background only. The world is drawn at half size, softly blurred, warmly graded and vignetted; the chickens are drawn sharp on top (their own layer, still lit by the world and casting its shadows). The AK rests in front of the belly instead of inside it; the idle loop itself is unchanged. Drag to turn the chicken (it turns back after a moment); click it to cluck and flap. Up to four party members stand beside it.
+- **Play panel:** Casual / Competitive / Fun tabs, every mode as a card, the map (only that mode's maps; Zombie Apocalypse and the Backrooms show their one map), bots On/Off where allowed, a big yellow PLAY that becomes "Searching… 0:12" with Cancel, then Server browser, Create room and Join with code. The mouse isn't locked until a match is found, so Cancel can be clicked.
+- **Top bar, profile, sides:** logo, tabs, coins, profile chip (rank, name, level), music on/off and settings, all with tooltips. Under the chicken: name, rank badge, "Lv 1 Egg", XP bar and "0 / 100 XP". Left: daily challenges with progress and coin rewards, the latest news (opens the NEWS page), Leaderboard and How to play. Right: friends with online status and Invite. Footer: Save progress / Account, Privacy, Hide menu.
+- **Feel and speed:** hover and click sounds on every menu button; tabs and screens slide in; Esc closes the News page, shows a hidden menu, cancels a search, and leaves the shop. The menu draws at most 60 fps, not at all under a dialog or the News page, and shows straight away while Mirage loads behind it.
+- Checked in the browser (1920x1080, 1366x768, 1280x720, 1440x900, phone): no buttons without a label or tooltip; all 14 modes, maps, bots; every dialog; shop and back; loadout skin and gun on the chicken; drag, click, party; search, Cancel, a real match and back; L still asks for the dev code. Menu: 60 fps, about 1.2 ms of CPU per frame. Tests: 536; `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The chicken pass cleared the blurred background: a colour `scene.background` clears the screen even with autoClear off. | The background is taken off for that pass. |
+| 2 | The lamp filter's regex only matched `/`; Mirage's material names use `\`. | `[\\/]`. |
+| 3 | Two patch scripts went through bash heredocs and broke on quotes again. | Wrote them to files. |
+| 4 | A CSS patch didn't match: that part of `style.css` has CRLF line endings. | Edited it with the Edit tool. |
+| 5 | Narrow-screen rules hid every `span` in some buttons, icons too (blank logo and room buttons on phones). | `span:not(.ico)`. |
+| 6 | PLAY locked the mouse straight away, so Cancel couldn't be clicked while searching. | The pointer is locked when the match is found. |
+
 # Batch 31 (17 Oct): mega?dev config presets
 
 - **Where:** mega?dev (L, behind the dev code), Configs tab. Skeet and the HvH Lab are unchanged; dev mode is allowed in the same places as before.

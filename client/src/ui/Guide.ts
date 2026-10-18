@@ -27,7 +27,7 @@ export function toggleGuide(onClose?: () => void): void {
     section(
       'First steps',
       h('ol', null,
-        h('li', null, 'Press ', h('b', null, 'PLAY'), ' to jump into a match with bots, or open ', h('b', null, 'Change mode'), ' to pick another one.'),
+        h('li', null, 'Pick a mode, map and bots in the play panel (bottom right), then press ', h('b', null, 'PLAY'), '. While it searches, ', h('b', null, 'Cancel'), ' (or Esc) stops.'),
         h('li', null, 'New here? Try ', h('b', null, 'Training'), ' first: any gun, targets that don’t shoot back, and nothing counts.'),
         h('li', null, 'Kill chickens, earn coins, and spend them in the ', h('b', null, 'Shop'), ' on hats, skins and new weapons.'),
         h('li', null, 'Tap ', h('b', null, 'Save progress'), ' to make an account, so your coins and level are never lost.'),

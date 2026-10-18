@@ -40,6 +40,9 @@ const PATHS = {
   egg: '<path d="M12 3c3.5 0 6.5 5.5 6.5 10a6.5 6.5 0 0 1-13 0C5.5 8.5 8.5 3 12 3z"/>',
   smoke: '<path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.5-1A4 4 0 0 1 17 18z"/>',
   flash: '<path d="M13 2L5 13h6l-1 9 8-11h-6z" fill="currentColor"/>',
+  music: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  mute: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
+  news: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M7 9h10M7 13h10M7 16.5h6"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;
