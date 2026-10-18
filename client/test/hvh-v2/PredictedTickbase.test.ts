@@ -46,6 +46,36 @@ describe('PredictedTickbase', () => {
     assert.equal(p.mismatches, 0);
   });
 
+  it('a fire message whose command was lost fires on the next command, as the server attaches it', () => {
+    const start = { ...EMPTY_TICKBASE(0, era), bank: era.doubleTapShift };
+    const p = new PredictedTickbase(era, start);
+    const dtArmed: CommandIntent = { ...NONE, doubleTap: true };
+    p.shot(3);
+    p.apply(1, dtArmed);
+    p.apply(2, dtArmed);
+    // Command 3 (intent.fire) never left; the fire message did. The server runs it with command 4.
+    p.apply(4, dtArmed);
+    let expected = start;
+    for (const i of [dtArmed, dtArmed, FIRE_DT]) expected = stepTickbase(expected, i, era).next;
+    assert.deepEqual(p.state, expected);
+    // Consumed once: the next command is not a shot.
+    p.apply(5, NONE);
+    assert.deepEqual(p.state, stepTickbase(expected, NONE, era).next);
+  });
+
+  it('keeps at most MAX_PENDING_FIRES waiting shots, dropping the oldest like the server', () => {
+    const start = EMPTY_TICKBASE(0, era);
+    const p = new PredictedTickbase(era, start);
+    for (const seq of [1, 2, 3, 4, 5]) p.shot(seq);
+    for (let seq = 1; seq <= 5; seq++) p.apply(seq + 10, NONE);
+    // Shot 1 was dropped: the first four commands fire, the fifth banks (five shots would leave the bank empty).
+    let firstFour = start;
+    for (const i of [{ ...NONE, fire: true }, { ...NONE, fire: true }, { ...NONE, fire: true }, { ...NONE, fire: true }, NONE]) {
+      firstFour = stepTickbase(firstFour, i, era).next;
+    }
+    assert.deepEqual(p.state, firstFour);
+  });
+
   it('mismatch counted and snaps to server', () => {
     const start = EMPTY_TICKBASE(0, era);
     const p = new PredictedTickbase(era, start);

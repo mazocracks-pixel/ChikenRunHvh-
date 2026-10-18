@@ -419,6 +419,13 @@ export function hvhStateEvent(tickbase: TickbaseState, era: EraTable, lastAckSeq
   };
 }
 
+/**
+ * HvH v2: hitscan `fire` messages a room holds while they wait for their command (overflow drops
+ * the oldest). Each one is attached to the first command executed with seq >= its `command`, so
+ * client prediction (PredictedTickbase.shot) keeps the same bounded queue.
+ */
+export const MAX_PENDING_FIRES = 4;
+
 export interface FireRequest {
   command?: number;
   intent?: import('./hvh/rage').ShotIntent;

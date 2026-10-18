@@ -1,4 +1,5 @@
 import {
+  MAX_PENDING_FIRES,
   MAX_REWIND_MS,
   PLAYER,
   PLAYER_HULL_WIDTH,
@@ -121,8 +122,6 @@ export function hvhEngineFrom(env: Readonly<Record<string, string | undefined>>)
 const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false });
 const TICK_MS = SIM_DT * 1000;
 const OBSERVATIONS_KEPT = 32;
-/** Hitscan `fire` messages waiting for their command. */
-const MAX_PENDING_FIRES = 4;
 
 interface QueuedCommand {
   frame: Readonly<InputFrame>;

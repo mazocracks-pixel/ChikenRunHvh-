@@ -1,3 +1,4 @@
+import { MAX_PENDING_FIRES } from '@game/shared';
 import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type EraTable, type TickbaseState } from '@game/shared/hvh/v2';
 
 /** Upper bound on commands kept while waiting for the server to execute them (about 2 s of ticks). */
@@ -13,6 +14,8 @@ interface Entry { seq: number; intent: CommandIntent; after: TickbaseState }
 export class PredictedTickbase {
   private current: TickbaseState;
   private unacked: Entry[] = [];
+  /** Commands referenced by `fire` messages already sent, oldest first (the server's pending fires). */
+  private shots: number[] = [];
   private mismatchCount = 0;
   private lastApplied = -Infinity;
   /** False until we hold a server state; until then nothing can be compared. */
@@ -35,10 +38,26 @@ export class PredictedTickbase {
   apply(seq: number, intent: CommandIntent): boolean {
     if (seq <= this.lastApplied) return false;
     this.lastApplied = seq;
+    // The server attaches the oldest waiting fire message to the first command with seq >= its
+    // reference (HvhRoom.runCommand), also when the command that carried the shot was lost.
+    const shot = this.shots[0];
+    if (shot !== undefined && shot <= seq) {
+      this.shots.shift();
+      intent = { ...intent, fire: true };
+    }
     this.current = stepTickbase(this.current, intent, this.era).next;
     this.unacked.push({ seq, intent, after: this.current });
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
     return true;
+  }
+
+  /**
+   * A v2 hitscan `fire` message referencing command `seq` was sent. It leaves at once, while the
+   * command can still be held, delayed or lost on the way; prediction attaches it like the server.
+   */
+  shot(seq: number): void {
+    this.shots.push(seq);
+    if (this.shots.length > MAX_PENDING_FIRES) this.shots.shift();
   }
 
   /**

@@ -938,6 +938,7 @@ export class GameSession {
   private markShot(w: WeaponDef): number {
     const ref = shotReference(this.local.hvhV2 && !w.melee && !w.projectile, this.nextSeq, this.local.server.ack);
     this.shotCommand = ref.shotSeq;
+    if (ref.shotSeq !== null) this.local.tickbase.shot(ref.shotSeq);
     return ref.command;
   }
 
