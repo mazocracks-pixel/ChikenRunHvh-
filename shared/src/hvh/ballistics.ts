@@ -9,7 +9,9 @@ import { rayHvhMatrix, type HvhHit, type HvhMatrix } from './geometry';
 export interface BallisticTrace { wallDistance: number; passages: { entry: number; exit: number; loss: number }[] }
 /** Thickness-based penetration shared by server execution and every targeting prediction. */
 export function traceHvhCover(ray: Ray, world: CollisionWorld, range: number, isSoft?: (id: number) => boolean): BallisticTrace {
-  const skip = new Set<number>(world.seeThrough), passages: BallisticTrace['passages'] = [];
+  // The see-through boxes plus the soft ones already passed (seeThrough is large on Mirage; never copied).
+  const passed = new Set<number>(), passages: BallisticTrace['passages'] = [];
+  const skip = { has: (id: number) => world.seeThrough.has(id) || passed.has(id) };
   for (let n = 0; n < 3; n++) {
     const hit = raycastWorld(ray, world, range, skip);
     if (!hit) return { wallDistance: range, passages };
@@ -22,9 +24,24 @@ export function traceHvhCover(ray: Ray, world: CollisionWorld, range: number, is
     const exit = backwardsEntry < 0 ? range : range - backwardsEntry;
     const thickness = Math.max(0, exit - hit.t);
     passages.push({ entry: hit.t, exit, loss: Math.exp(-thickness * 0.22) * 0.82 });
-    skip.add(hit.id);
+    passed.add(hit.id);
   }
   return { wallDistance: range, passages };
+}
+/**
+ * traceHvhCover followed by rayHvhMatrix for each matrix, with the same hits and damage, but the
+ * world (the costly part on big maps) is traced only when the ray reaches a matrix, and first only
+ * as far as the farthest hit: nothing in the world before it means no wall stops and no passage
+ * weakens any hit, so the full trace is needed only when something is in the way.
+ */
+export function traceHvhMatrices(ray: Ray, matrices: readonly HvhMatrix[], world: CollisionWorld, range: number,
+  isSoft?: (id: number) => boolean): { cover: BallisticTrace; hits: (HvhHit | null)[] } {
+  const open = matrices.map(m => rayHvhMatrix(ray, m, range));
+  const reach = open.reduce((t, hit) => hit ? Math.max(t, hit.t) : t, -1);
+  if (reach < 0) return { cover: { wallDistance: range, passages: [] }, hits: open };
+  if (!raycastWorld(ray, world, reach, world.seeThrough)) return { cover: { wallDistance: range, passages: [] }, hits: open };
+  const cover = traceHvhCover(ray, world, range, isSoft);
+  return { cover, hits: matrices.map(m => rayHvhMatrix(ray, m, cover.wallDistance)) };
 }
 export function coverDamageScale(cover: BallisticTrace, t: number): number {
   return cover.passages.filter(p => p.entry < t).reduce((n, p) => n * p.loss, 1);
@@ -42,14 +59,12 @@ export function hvhHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: H
   let hits = 0, damage = 0;
   const weight = hypotheses.reduce((n, h) => n + h.probability, 0);
   if (weight <= 0) return { chance: 0, damage: 0, samples };
+  const matrices = hypotheses.map(h => h.matrix);
   for (let n = 0; n < samples; n++) {
     const trial = hypotheses.map(() => 0);
     for (const dir of pelletDirections(w, direction, hvhSpread(w, speed, airborne, ads, heat), 4177 + n * 7919)) {
-      const ray = makeRay(eye, dir), cover = traceHvhCover(ray, world, w.range, isSoft);
-      hypotheses.forEach((h, i) => {
-        const hit = rayHvhMatrix(ray, h.matrix, cover.wallDistance);
-        if (hit) trial[i]! += hvhHitDamage(w, hit, cover);
-      });
+      const { cover, hits } = traceHvhMatrices(makeRay(eye, dir), matrices, world, w.range, isSoft);
+      hits.forEach((hit, i) => { if (hit) trial[i]! += hvhHitDamage(w, hit, cover); });
     }
     trial.forEach((amount, i) => { if (amount > 0) { const p = hypotheses[i]!.probability / weight; hits += p; damage += amount * p; } });
   }

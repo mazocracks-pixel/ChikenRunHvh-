@@ -83,12 +83,17 @@ function randomAppearance(): Appearance {
   return { skin: pick(keys('skin')), hat: Math.random() < 0.6 ? pick(keys('hat')) : 'none', beak: pick(keys('beak')), shoes: Math.random() < 0.5 ? pick(keys('shoes')) : 'none' };
 }
 
+/** Hitchance spread samples per estimate for bot scans (players' rage uses the default 32). */
+const HVH_BOT_SAMPLES = 12;
+
 /** Server-side AI chickens. They play through the same input/fire/throw paths as humans. */
 export class BotSystem {
   private readonly room: GameRoom;
   private readonly brains = new Map<number, Brain>();
   /** Waypoint links for maps that have them, built on first use. */
   private nav: NavGraph | null = null;
+  /** The server tick time of the last HvH rage scan: one bot scans per tick (scans are costly on big maps). */
+  private lastHvhScanAt = -Infinity;
   private usedNames = new Set<string>();
 
   constructor(room: GameRoom) {
@@ -355,9 +360,11 @@ export class BotSystem {
       }
     }
     const records = (b.hvhObserved ?? []).flatMap(pid => p.resolver.records(pid, now));
-    if (now >= (b.hvhNextScan ?? 0)) {
+    // A due scan waits while another bot scanned this tick; with ten bots that is still every ~150 ms.
+    if (now >= (b.hvhNextScan ?? 0) && now !== this.lastHvhScanAt) {
       b.hvhNextScan = now + 150;
-      b.hvhCandidate = scanRage({ now, eye, w: hvhWeapon(WEAPONS[p.weapon]), heat: p.weaponHeat, speed: p.state.horizontalSpeed, airborne: !p.state.onGround, ads: p.aiming,
+      this.lastHvhScanAt = now;
+      b.hvhCandidate = scanRage({ samples: HVH_BOT_SAMPLES, now, eye, w: hvhWeapon(WEAPONS[p.weapon]), heat: p.weaponHeat, speed: p.state.horizontalSpeed, airborne: !p.state.onGround, ads: p.aiming,
         world: this.room.world, records, resolver: p.resolver, currentTarget: b.hvhCandidate?.target,
         settings: { ...DEFAULT_RAGE, hitchance: 0.6, maxRecords: 2, preferBodyBelow: 0.5, bodyAfterMisses: 2, body: 'lethal' } });
     }
@@ -440,7 +447,7 @@ export class BotSystem {
   private nextStep(b: Brain, goal: BotGoal, now: number): NavPoint {
     const p = b.p;
     const world = this.room.world;
-    if (!this.nav && this.room.map.nav) this.nav = buildNavGraph(this.room.map.nav, world, this.room.map.navLinks);
+    if (!this.nav && this.room.map.nav) this.nav = buildNavGraph(this.room.map.nav, world, this.room.map.navLinks, this.room.map.navLinksChecked);
     const moved = !b.pathGoal || Math.hypot(b.pathGoal.x - goal.x, b.pathGoal.z - goal.z) > 2;
     if (moved || now >= b.nextPath || b.path.length === 0) {
       const from = { x: p.state.x, y: p.state.y, z: p.state.z };

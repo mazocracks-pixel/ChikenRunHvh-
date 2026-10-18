@@ -7,7 +7,8 @@ export interface Aabb {
   maxZ: number;
 }
 
-const CELL_SIZE = 4;
+/** Width of the broad-phase grid cells (raycastWorld walks them). */
+export const CELL_SIZE = 4;
 const CELL_OFFSET = 1024;
 
 function cellKey(cx: number, cz: number): number {
@@ -96,6 +97,11 @@ export class CollisionWorld {
       out.push(this.boxes.get(id)!);
     }
     return out;
+  }
+
+  /** The ids registered in grid cell (cx, cz) (cells are CELL_SIZE wide), in no particular order. */
+  cellIds(cx: number, cz: number): readonly number[] | undefined {
+    return this.cells.get(cellKey(cx, cz));
   }
 
   /** Ids of the boxes whose grid cells touch the XZ rectangle, ascending (the same order as entries()). */

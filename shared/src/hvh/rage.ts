@@ -3,7 +3,7 @@ import { makeRay } from '../raycast';
 import type { CollisionWorld } from '../collision';
 import type { WeaponDef } from '../weapons';
 import type { ObservableRecord } from './animation';
-import { afterArmor, hvhHitchance, hvhHitDamage, traceHvhCover, type HitchanceHypothesis } from './ballistics';
+import { afterArmor, hvhHitchance, hvhHitDamage, traceHvhCover, traceHvhMatrices, type HitchanceHypothesis } from './ballistics';
 import { buildHvhMatrix, matrixPoints, pointSafety, rayHvhMatrix, type HvhHitgroup, type HvhMatrix } from './geometry';
 import { recordValidity, type HypothesisSource, type ResolverSystem, type ShotReason } from './resolver';
 export interface RageSettings {
@@ -33,6 +33,8 @@ export interface RageScan {
   stopSpeed?: number;
   scoreCandidate?: (candidate: ShotCandidate) => number;
   playerRules?: ReadonlyMap<number, { ignore: boolean; body: boolean }>;
+  /** Spread samples per hitchance estimate (default 32). */
+  samples?: number;
   now: number; eye: Vec3; w: WeaponDef; speed: number; airborne: boolean; ads: boolean; world: CollisionWorld;
   records: readonly ObservableRecord[]; resolver: ResolverSystem; settings: RageSettings; isSoft?: (id: number) => boolean; currentTarget?: number;
 }
@@ -62,8 +64,8 @@ export function scanRage(input: RageScan): ShotCandidate | null {
       const pointScale = s.pointScale <= 0 ? 0 : clamp(s.pointScale * (0.5 + r.confidence * 0.5) / (1 + input.speed * 0.06), 0.15, 0.85);
       for (const { point } of matrixPoints(matrix, groups, pointScale)) {
         const direction = input.forceDirection ?? normalize({ x: point.x - input.eye.x, y: point.y - input.eye.y, z: point.z - input.eye.z });
-        const ray = makeRay(input.eye, direction), cover = traceHvhCover(ray, input.world, input.w.range, input.isSoft);
-        const hit = rayHvhMatrix(ray, matrix, cover.wallDistance); if (!hit) continue;
+        const { cover, hits: [hit] } = traceHvhMatrices(makeRay(input.eye, direction), [matrix], input.world, input.w.range, input.isSoft);
+        if (!hit) continue;
         const group = hit.group;
         const damage = afterArmor(hvhHitDamage(input.w, hit, cover) * input.w.pellets, record.armor);
         const rayPoint = input.forceDirection ? { x: input.eye.x + direction.x * 100, y: input.eye.y + direction.y * 100, z: input.eye.z + direction.z * 100 } : point;
@@ -96,7 +98,7 @@ export function scanRage(input: RageScan): ShotCandidate | null {
   for (const c of shortlist) {
     const matrix = buildHvhMatrix(c.record.origin, c.yaw, 1 - c.record.crouch * 0.3, c.record.pitch);
     const uncertainty = uncertaintyByRecord.get(c.record)!;
-    const estimateAt = (speed: number, ads: boolean) => hvhHitchance(input.w, input.eye, c.direction, matrix, speed, input.airborne, ads, input.world, input.isSoft, 32, input.heat, uncertainty);
+    const estimateAt = (speed: number, ads: boolean) => hvhHitchance(input.w, input.eye, c.direction, matrix, speed, input.airborne, ads, input.world, input.isSoft, input.samples ?? 32, input.heat, uncertainty);
     const minimumDamage = s.hpRelative === undefined ? Math.min(c.record.hp, s.minDamage) : c.record.hp + s.hpRelative;
     const sufficient = (estimate: ReturnType<typeof hvhHitchance>) => estimate.chance >= s.hitchance && afterArmor(estimate.damage, c.record.armor) >= minimumDamage;
     let estimate = estimateAt(input.speed, input.ads);

@@ -84,3 +84,27 @@ it('HvH bots discard old-life aim and return state even when respawn happens bet
     assert.ok(x < -0.9 && Math.abs(z) < 0.01, 'post-shot return must use the new spawn anchor');
   }
 });
+
+it('HvH bots run at most one rage scan per server tick, and every bot still scans', t => {
+  t.mock.method(Math, 'random', () => 0.5);
+  const { io } = fakeIo();
+  const room = new GameRoom(io, { id: 'bot-scan', code: 'BOT03', name: 'Bot scan test', mode: 'hvh', map: 'flat', private: true, bots: 6 }, {});
+  t.after(() => room.close());
+  const enemy = addPlayer(room, 'Opponent');
+  for (let i = 0; i < 6; i++) room.bots.add();
+  room.startNow();
+  enemy.shieldUntil = 0;
+  const brains = [...(room.bots as unknown as { brains: Map<number, { hvhNextScan?: number }> }).brains.values()];
+  assert.equal(brains.length, 6);
+  const scanned = new Set<number>();
+  let now = performance.now();
+  for (let tick = 0; tick < 64; tick++) {
+    now += SIM_DT * 1000;
+    const before = brains.map(b => b.hvhNextScan);
+    stepRoom(room, now);
+    const changed = brains.flatMap((b, i) => (b.hvhNextScan ?? 0) > (before[i] ?? 0) ? [i] : []);
+    assert.ok(changed.length <= 1, `tick ${tick}: ${changed.length} bots scanned`);
+    changed.forEach(i => scanned.add(i));
+  }
+  assert.equal(scanned.size, 6, 'every bot scanned within a second');
+});
