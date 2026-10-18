@@ -86,6 +86,8 @@ const LOBBY_MUSIC = '/sounds/chickenRunHvh_theme.mp3';
 const MUSIC_FADE = 0.8;
 /** Your own sound files live in client/public/sounds/ (served from /sounds/). */
 export const JUMPSCARE_FILE = '/sounds/jumpscare.mp3';
+/** Clicking your chicken on the title screen. */
+export const MENU_CLUCK_FILE = '/sounds/chicken_cluck_1s.mp3';
 /**
  * Your own recordings, played instead of a built-in sound once loaded (put the file in
  * client/public/sounds and its licence in SOUNDS.md). Empty: every sound is built in; the old

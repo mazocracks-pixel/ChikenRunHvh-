@@ -33,6 +33,7 @@ These were added by the project owner. Their source and license were never writt
 | `SNIPER_ZOOM.mp3` | **No** (since Batch 14) | Source unknown. The built-in `sniperZoom` sound plays instead. |
 | `equip_sound.mp3` | **No** (since Batch 14) | Source unknown. The built-in `switch` sound plays instead. |
 | `jumpscare.mp3` | Yes (jumpscares) | Source unknown: **confirm you have the rights**, or delete it (the built-in jumpscare sounds then play). |
+| `chicken_cluck_1s.mp3` | Yes (clicking your chicken on the title screen, since Batch 34) | Added by the owner from their Downloads folder. Source not recorded: **confirm you made it or have the rights.** If it fails to load, the built-in `cluck` plays. |
 | `chickenRunHvh_theme.mp3` | Yes (title-screen music, since Batch 22; replaced `CHIKEN_HVHLOBBY.mp3`) | Added by the owner from their own files. Source not recorded: **confirm you made it or have the rights.** |
 
 ## Adding a real recording

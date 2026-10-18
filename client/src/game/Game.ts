@@ -9,7 +9,7 @@ import { MAPS, damp, wrapAngle, type Appearance, type JoinSuccess, type MapId, t
 import type { Network } from '../net/Network';
 import { watchSettings, type Quality } from '../settings';
 import { Hud } from '../ui/Hud';
-import { AudioEngine } from './Audio';
+import { AudioEngine, MENU_CLUCK_FILE } from './Audio';
 import { Effects } from './Effects';
 import { baseFov } from './CameraRig';
 import { GameSession, type DevHooks } from './GameSession';
@@ -306,7 +306,10 @@ export class Game {
     this.raycaster.layers.set(MENU_LAYER);
     if (this.raycaster.intersectObject(s.chicken.root, true).length === 0) return false;
     s.chicken.react(s.clock);
-    this.audio.play('cluck', undefined, 0.9);
+    // Your own cluck recording; the built-in cluck if it can't load.
+    void this.audio.playFile(MENU_CLUCK_FILE, 0.9).then((played) => {
+      if (!played) this.audio.play('cluck', undefined, 0.9);
+    });
     return true;
   }
 

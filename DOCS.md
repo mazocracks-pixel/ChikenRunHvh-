@@ -3,6 +3,11 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 34 (18 Oct): your cluck on the menu chicken
+
+- Clicking your chicken on the title screen plays `client/public/sounds/chicken_cluck_1s.mp3` (from your Downloads folder) instead of the built-in cluck; if the file can't load, the built-in one plays. Matches keep the built-in cluck. Listed in SOUNDS.md: **confirm you have the rights to it.**
+- Checked in the browser: the file is served, a click on the chicken plays it, a click on the empty scene doesn't. Tests: 536; `npm run build` passes.
+
 # Batch 33 (18 Oct): the PLAY tab works
 
 - **Cause:** nothing covered the nav bar. Every tab (on the lobby and in the shop) was the top element under the mouse and got its clicks. On the lobby, PLAY's click only closed the News page, so on the lobby itself it did nothing you could see.
