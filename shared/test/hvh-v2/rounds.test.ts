@@ -60,6 +60,23 @@ describe('HvH v2 rounds', () => {
     assert.equal(r.state.reason, 'eliminated');
   });
 
+  it('a team with no players: the round in play is lost, then back to a fresh warmup instead of more rounds (Minor 7)', () => {
+    const over = state({ phase: 'over', round: 3, endsAt: 60_000, score: { 1: 1, 2: 2 }, winner: 2, reason: 'eliminated' });
+    assert.equal(stepHvhRound(over, { 1: 0, 2: 2 }, { 1: 0, 2: 2 }, 59_999).state, over, 'the banner runs out first');
+    const reset = stepHvhRound(over, { 1: 0, 2: 2 }, { 1: 0, 2: 2 }, 60_000);
+    assert.deepEqual(reset.state, hvhWarmup());
+    assert.deepEqual(reset.events, ['reset']);
+    // With both teams staffed the next round starts as before.
+    assert.deepEqual(stepHvhRound(over, FULL, FULL, 60_000).events, ['roundStart']);
+  });
+
+  it('a team emptying during freeze goes back to a fresh warmup at once (no round is played)', () => {
+    const freeze = state({ phase: 'freeze', round: 2, endsAt: 10_000, score: { 1: 1, 2: 0 } });
+    const reset = stepHvhRound(freeze, { 1: 2, 2: 0 }, { 1: 2, 2: 0 }, 6_000);
+    assert.deepEqual(reset.state, hvhWarmup());
+    assert.deepEqual(reset.events, ['reset']);
+  });
+
   it('both teams at 0 alive is a draw', () => {
     const live = state({ phase: 'live', round: 1, endsAt: 100_000 });
     const r = stepHvhRound(live, { 1: 0, 2: 0 }, FULL, 50_000);

@@ -6,6 +6,8 @@
  * - Warmup's clock starts once both teams have players and stops if a team empties.
  * - A live round ends when a team has 0 alive (an empty team has 0 alive and loses); both teams at
  *   0 alive is a draw. On time-out the team with more alive wins; equal alive is a draw.
+ * - A team with no players goes back to a fresh warmup ('reset'; the room restarts the match):
+ *   at once during freeze, or when the round-end banner runs out, instead of playing more rounds.
  * - Halftime: starting round halfAfter + 1 swaps the sides, and the score with them (score is by
  *   team id, and the room swaps every player's team). Drawn rounds count as played.
  * - Match end: right at the round end where a team reaches roundsToWin, or once maxRounds have
@@ -17,7 +19,7 @@ export const HVH_ROUNDS = { warmupMs: 15000, freezeMs: 5000, roundMs: 115000, ro
 
 export type HvhRoundPhase = 'warmup' | 'freeze' | 'live' | 'over' | 'ended';
 
-export type HvhRoundEvent = 'roundStart' | 'goLive' | 'roundEnd' | 'halftime' | 'matchEnd';
+export type HvhRoundEvent = 'roundStart' | 'goLive' | 'roundEnd' | 'halftime' | 'matchEnd' | 'reset';
 
 export interface HvhRoundState {
   phase: HvhRoundPhase;
@@ -41,6 +43,7 @@ export function hvhWarmup(): HvhRoundState {
 /** One step of the round flow. Returns the same state object when nothing changed. */
 export function stepHvhRound(s: HvhRoundState, alive: TeamCounts, players: TeamCounts, now: number): { state: HvhRoundState; events: HvhRoundEvent[] } {
   const same = { state: s, events: [] };
+  const staffed = players[1] > 0 && players[2] > 0;
   switch (s.phase) {
     case 'warmup': {
       if (players[1] === 0 || players[2] === 0) return s.endsAt === null ? same : { state: { ...s, endsAt: null }, events: [] };
@@ -48,6 +51,7 @@ export function stepHvhRound(s: HvhRoundState, alive: TeamCounts, players: TeamC
       return now >= s.endsAt ? startRound(s, 1, now) : same;
     }
     case 'freeze':
+      if (!staffed) return reset();
       return now >= (s.endsAt ?? 0) ? { state: { ...s, phase: 'live', endsAt: now + HVH_ROUNDS.roundMs }, events: ['goLive'] } : same;
     case 'live': {
       if (alive[1] === 0 && alive[2] === 0) return endRound(s, 0, 'draw', now);
@@ -57,10 +61,15 @@ export function stepHvhRound(s: HvhRoundState, alive: TeamCounts, players: TeamC
       return alive[1] === alive[2] ? endRound(s, 0, 'draw', now) : endRound(s, alive[1] > alive[2] ? 1 : 2, 'time', now);
     }
     case 'over':
-      return now >= (s.endsAt ?? 0) ? startRound(s, s.round + 1, now) : same;
+      if (now < (s.endsAt ?? 0)) return same;
+      return staffed ? startRound(s, s.round + 1, now) : reset();
     case 'ended':
       return same;
   }
+}
+
+function reset(): { state: HvhRoundState; events: HvhRoundEvent[] } {
+  return { state: hvhWarmup(), events: ['reset'] };
 }
 
 function startRound(s: HvhRoundState, round: number, now: number): { state: HvhRoundState; events: HvhRoundEvent[] } {
