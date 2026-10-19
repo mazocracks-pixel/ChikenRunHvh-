@@ -489,8 +489,9 @@ export class GameSession {
         const flush = !input.active || (core.fakeLagBreakOnShot && shooting);
         const intent = commandIntent({
           seq: frame.seq, shotSeq: this.shotCommand, hitscan,
-          held: this.commandChoker.wouldHold(choke, flush, maxChoke), exploit,
+          held: this.commandChoker.wouldHold(choke, flush, maxChoke), exploit, trigger: shooting,
         });
+        if (this.local.hvhV2) this.weapons.commandBuilt(frame.seq, intent.trigger === true);
         const cmd = this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS), sight);
         // R56: the server traces this command's sight against the snapshot we predicted it from.
         if (this.sightView) cmd.sightT = this.sightView.t;

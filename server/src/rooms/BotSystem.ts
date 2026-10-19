@@ -6,6 +6,7 @@ import {
   SNAPSHOT_RATE,
   SOURCE_MOVE,
   WEAPONS,
+  type WeaponId,
   buildNavGraph,
   chestPoint,
   clamp,
@@ -25,6 +26,7 @@ import {
   type Team,
 } from '@game/shared';
 import { DEFAULT_RAGE, scanRage, unpackPlayer, defaultSkeetAntiAim, hvhWeapon, type ObservableRecord, type ShotCandidate } from '@game/shared';
+import { hammerTicks } from '@game/shared/hvh/v2';
 import type { BotGoal, GameRoom } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
@@ -51,6 +53,9 @@ interface Brain {
   hvhAnchor?: Vec3;
   hvhNextObserve?: number;
   hvhObserved?: number[];
+  /** The R8 hammer: the seq of the first command of the current trigger hold, and the gun it is on. */
+  hvhHammerFrom?: number;
+  hvhHammerWeapon?: WeaponId;
   p: ServerPlayer;
   seq: number;
   shot: number;
@@ -402,15 +407,21 @@ export class BotSystem {
     const yaw = c ? Math.atan2(-c.direction.x, -c.direction.z) : p.lookYaw;
     const frame: InputFrame = { seq: ++b.seq, forward: -Math.sin(yaw) * x - Math.cos(yaw) * z,
       right: Math.cos(yaw) * x - Math.sin(yaw) * z, jump: jump && (!p.state.onGround || !p.state.jumpHeld), yaw, pitch: c ? Math.asin(c.direction.y) : 0 };
-    this.room.handleInput(p, frame);
+    // The R8 holds the trigger on a target for hammerTicks commands before the shot (the server counts the same seqs).
+    const hammer = hammerTicks(WEAPONS[p.weapon]);
+    if (hammer === 0 || !c || b.hvhHammerWeapon !== p.weapon) b.hvhHammerFrom = undefined;
+    b.hvhHammerWeapon = p.weapon;
+    if (hammer > 0 && c) b.hvhHammerFrom ??= frame.seq;
+    this.room.handleInput(p, b.hvhHammerFrom === undefined ? frame : { ...frame, intent: { trigger: true } });
     if (p.mag <= 0) { this.room.handleReload(p); return; }
     if (c?.scope) p.aiming = true;
     if (c && !c.stop && !c.scope && now - c.record.t <= 300 && p.state.horizontalSpeed < 0.5 && !p.reloadUntil
-      && now >= (b.hvhReturnUntil ?? 0) && now >= p.switchReadyAt && p.resource.playerTick >= p.resource.nextAttackTick) {
+      && now >= (b.hvhReturnUntil ?? 0) && now >= p.switchReadyAt && p.resource.playerTick >= p.resource.nextAttackTick
+      && (hammer === 0 || frame.seq - b.hvhHammerFrom! >= hammer)) {
       const direction = normalize({ x: c.point.x - eye.x, y: c.point.y - eye.y, z: c.point.z - eye.z });
       this.room.handleFire(p, { shot: ++b.shot, command: frame.seq, weapon: p.weapon, dx: direction.x, dy: direction.y, dz: direction.z,
         t: c.record.t, aiming: p.aiming, intent: { target: c.target, source: c.source, recordT: c.record.t, yaw: c.yaw } });
-      b.hvhReturnUntil = now + 400; b.hvhNextScan = 0;
+      b.hvhReturnUntil = now + 400; b.hvhNextScan = 0; b.hvhHammerFrom = undefined;
     }
   }
 

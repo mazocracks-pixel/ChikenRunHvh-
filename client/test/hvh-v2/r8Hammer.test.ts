@@ -60,3 +60,51 @@ it('the Desert Eagle fires on the press', () => {
   const w = new WeaponController(['deserteagle']);
   assert.deepEqual(hold(w, 0, 450), [0]);
 });
+
+/**
+ * v2: holds the trigger from 0 to `until` at 1 ms steps, building a command (trigger held) every
+ * 64 Hz tick unless `skip(n)` drops the tick's command (clock correction). Returns the fire times
+ * and the seq each shot's command gets (the next one built).
+ */
+function holdWithCommands(w: WeaponController, until: number, skip: (tick: number) => boolean = () => false) {
+  const shots: { at: number; seq: number }[] = [];
+  let seq = 0;
+  let tick = 0;
+  let firstHeld: number | null = null;
+  for (let now = 0; now < until; now++) {
+    while (tick * (1000 / 64) <= now) {
+      if (!skip(tick)) { w.commandBuilt(++seq, true); firstHeld ??= seq; }
+      tick++;
+    }
+    if (w.trigger(true, now) === 'fire') shots.push({ at: now, seq: seq + 1 });
+  }
+  return { shots, firstHeld: firstHeld! };
+}
+
+it('v2: the R8 shot waits until its command is hammerTicks seqs after the first held one (the server rule)', () => {
+  const w = new WeaponController(['r8']);
+  const { shots, firstHeld } = holdWithCommands(w, 600);
+  assert.equal(shots.length, 1);
+  assert.ok(shots[0]!.at >= 400);
+  assert.ok(shots[0]!.seq - firstHeld >= 26, `elapsed ${shots[0]!.seq - firstHeld}`);
+  // Never later than the 400 ms pull plus one command.
+  assert.ok(shots[0]!.at <= 400 + 16);
+});
+
+it('v2: commands skipped by the clock correction delay the R8 shot instead of getting it rejected', () => {
+  const w = new WeaponController(['r8']);
+  const { shots, firstHeld } = holdWithCommands(w, 900, (tick) => tick % 4 === 3);
+  assert.equal(shots.length, 1);
+  assert.ok(shots[0]!.at > 450, `fired at ${shots[0]!.at}`);
+  assert.ok(shots[0]!.seq - firstHeld >= 26);
+});
+
+it('v2: a command built with the trigger up restarts the counted pull', () => {
+  const w = new WeaponController(['r8']);
+  for (let seq = 1; seq <= 30; seq++) w.commandBuilt(seq, seq !== 20);
+  // The ms pull is long done, but the shot (seq 31) would be only 10 seqs after the hold restarted (21).
+  assert.equal(w.trigger(true, 0), null);
+  assert.equal(w.trigger(true, 1000), null);
+  for (let seq = 31; seq <= 46; seq++) w.commandBuilt(seq, true);
+  assert.equal(w.trigger(true, 1001), 'fire');
+});

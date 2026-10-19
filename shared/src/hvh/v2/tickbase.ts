@@ -22,6 +22,8 @@ export interface CommandIntent {
   choke: boolean;
   doubleTap: boolean;
   hideShots: boolean;
+  /** The trigger is held (the R8 hammer pull, shot.ts hammerTicks). stepTickbase ignores it. */
+  trigger?: boolean;
 }
 
 export type TickbaseReject = 'dtNotCharged' | 'hsNotCharged';

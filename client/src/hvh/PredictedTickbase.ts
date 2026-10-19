@@ -175,6 +175,8 @@ export class PredictedTickbase {
 export function commandIntent(o: {
   seq: number; shotSeq: number | null; hitscan: boolean; held: boolean;
   exploit: 'off' | 'doubleTap' | 'hideShots';
+  /** The trigger is down (the R8 hammer pull); sent only for hitscan weapons. */
+  trigger?: boolean;
 }): CommandIntent {
   const fire = o.hitscan && o.shotSeq === o.seq;
   return {
@@ -182,6 +184,7 @@ export function commandIntent(o: {
     choke: o.held && !fire,
     doubleTap: o.exploit === 'doubleTap',
     hideShots: o.exploit === 'hideShots',
+    ...(o.hitscan && o.trigger ? { trigger: true } : {}),
   };
 }
 

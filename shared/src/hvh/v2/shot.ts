@@ -119,6 +119,14 @@ export function fireIntervalTicks(w: WeaponDef, tickRate: number = LATE_CSGO.tic
   return Math.ceil((w.fireInterval * tickRate) / 1000);
 }
 
+/**
+ * The R8's hammer pull in commands, rounded up like the fire interval (0 for every other gun): bullet
+ * 1 needs the trigger held since a command at least this many seqs before the shot's.
+ */
+export function hammerTicks(w: WeaponDef, tickRate: number = LATE_CSGO.tickRate): number {
+  return w.csgo?.hammerMs ? Math.ceil((w.csgo.hammerMs * tickRate) / 1000) : 0;
+}
+
 function finite(v: Vec3): boolean {
   return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 }
