@@ -98,7 +98,7 @@ import {
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
-import { SpectateTarget } from '../hvh/Spectate';
+import { SmoothedYaw, SpectateTarget } from '../hvh/Spectate';
 import { LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog, initHvhV2Ui } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
@@ -290,6 +290,7 @@ export class GameSession {
   private respawnAt = 0;
   /** v2 HvH rounds (R63): the living teammate a dead player watches. */
   private readonly spectate = new SpectateTarget();
+  private readonly spectateYaw = new SmoothedYaw();
   private spectated: RemotePlayer | null = null;
   private lastResultsKey = '';
   /** First-person gun, attached to the camera. */
@@ -2053,10 +2054,14 @@ export class GameSession {
     if (before && before !== next) before.chicken.setBodyVisible(true);
     this.spectated = next;
     if (!next) return false;
-    if (next !== before) this.ctx.hud.toast(`Spectating ${next.info.name}`);
-    // Inside their chicken: hide the body, as for our own first-person view.
-    next.chicken.setBodyVisible(false);
-    this.rig.follow(next.position, next.yaw, next.latest?.pitch ?? 0, 1, dt, true, false, next.scale);
+    if (next !== before) {
+      this.ctx.hud.toast(`Spectating ${next.info.name}`);
+      this.spectateYaw.reset();
+    }
+    // First person: inside their chicken, so hide the body. HvH third person keeps the camera behind them: show it.
+    next.chicken.setBodyVisible(this.rig.hvhThirdPerson);
+    // Their eye yaw is anti-aimed: smoothed, so jitter does not shake the view.
+    this.rig.follow(next.position, this.spectateYaw.step(next.yaw, dt), next.latest?.pitch ?? 0, 1, dt, true, false, next.scale);
     return true;
   }
 

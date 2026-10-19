@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { SpectateTarget, livingTeammates, type SpectateCandidate } from '../../src/hvh/Spectate';
+import { SPECTATE_MAX_TURN, SmoothedYaw, SpectateTarget, livingTeammates, type SpectateCandidate } from '../../src/hvh/Spectate';
 
 const P = (pid: number, team: number, alive = true): SpectateCandidate => ({ pid, team, alive });
 
@@ -68,5 +68,40 @@ describe('spectate target (R63)', () => {
     s.reset();
     assert.equal(s.current, null);
     assert.equal(s.update(1, room), 5, 'the next death starts over');
+  });
+});
+
+describe('spectate view smoothing (anti-aim jitter)', () => {
+  const DT = 1 / 64;
+  const DEG = Math.PI / 180;
+  const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+  it('snaps to the first yaw, and to a new teammate after a reset', () => {
+    const y = new SmoothedYaw();
+    assert.equal(y.step(1, DT), 1);
+    y.reset();
+    assert.equal(y.step(-2, DT), -2);
+  });
+
+  it('a jitter of +-45 deg every tick barely moves the camera', () => {
+    const y = new SmoothedYaw();
+    const out: number[] = [];
+    for (let i = 0; i < 128; i++) out.push(y.step(((i % 2 === 0 ? 45 : -45) * DEG), DT));
+    const settled = out.slice(64);
+    const spread = Math.max(...settled) - Math.min(...settled);
+    assert.ok(spread < 4 * DEG, `the camera shakes ${spread / DEG} deg`);
+  });
+
+  it('a real turn is followed, without passing the max turn rate, across the +-180 wrap', () => {
+    const y = new SmoothedYaw();
+    y.step(170 * DEG, DT);
+    let prev = 170 * DEG;
+    let now = prev;
+    for (let i = 0; i < 64; i++) {
+      now = y.step(-170 * DEG, DT);
+      assert.ok(Math.abs(wrap(now - prev)) <= SPECTATE_MAX_TURN * DT + 1e-9);
+      prev = now;
+    }
+    assert.ok(Math.abs(wrap(now - -170 * DEG)) < 1 * DEG, 'settles on the new yaw, the short way round');
   });
 });

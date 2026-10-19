@@ -56,3 +56,35 @@ export class SpectateTarget {
     return [...living].reverse().find((pid) => pid < from) ?? living[living.length - 1]!;
   }
 }
+
+/** Time constant of the spectate view's yaw smoothing, seconds. */
+export const SPECTATE_YAW_TAU = 0.25;
+/** Fastest turn of the spectate view, radians per second. */
+export const SPECTATE_MAX_TURN = 2 * Math.PI;
+
+function wrap(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+/**
+ * The spectate camera's yaw. The followed teammate's public eye yaw is anti-aimed, so jitter and
+ * defensive flicks would shake a camera that copies it: the view eases towards it (time constant
+ * SPECTATE_YAW_TAU, the short way round) and never turns faster than SPECTATE_MAX_TURN. A spin
+ * still turns the view, at that rate at most.
+ */
+export class SmoothedYaw {
+  private yaw: number | null = null;
+
+  /** A new teammate: the next step snaps to their yaw. */
+  reset(): void {
+    this.yaw = null;
+  }
+
+  step(target: number, dt: number): number {
+    if (this.yaw === null) return (this.yaw = target);
+    const delta = wrap(target - this.yaw) * (1 - Math.exp(-Math.max(0, dt) / SPECTATE_YAW_TAU));
+    const limit = SPECTATE_MAX_TURN * Math.max(0, dt);
+    this.yaw = wrap(this.yaw + Math.max(-limit, Math.min(limit, delta)));
+    return this.yaw;
+  }
+}
