@@ -156,9 +156,10 @@ export class BotSystem {
   }
 
   /** Removes one bot (to make room for a human), from `team` if given and it has one. */
-  removeOne(team: Team = 0): boolean {
-    const brains = [...this.brains.values()];
-    const last = (team ? brains.filter((b) => b.p.info.team === team) : brains).pop();
+  /** Removes the newest bot (of `team`, when given); with `deadFirst`, the newest dead one if any bot is dead. */
+  removeOne(team: Team = 0, deadFirst = false): boolean {
+    const brains = [...this.brains.values()].filter((b) => !team || b.p.info.team === team);
+    const last = (deadFirst ? brains.filter((b) => !b.p.alive).pop() : undefined) ?? brains.pop();
     if (!last) return false;
     this.brains.delete(last.p.pid);
     this.usedNames.delete(last.p.info.name.replace('🤖 ', ''));

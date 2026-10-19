@@ -379,8 +379,8 @@ export class GameRoom {
     if (this.isFull) return { ok: false, error: 'That room is full.' };
     // A human takes a bot's seat (on their own team, when they come with one).
     const wantTeam = this.mode.teams && profile.team ? profile.team : 0;
-    if (wantTeam && this.teamSize(wantTeam) >= this.mode.maxPlayers / 2) this.bots.removeOne(wantTeam);
-    if (this.players.size >= this.mode.maxPlayers && !this.bots.removeOne()) return { ok: false, error: 'That room is full.' };
+    if (wantTeam && this.teamSize(wantTeam) >= this.mode.maxPlayers / 2) this.bots.removeOne(wantTeam, this.removesDeadBotsFirst());
+    if (this.players.size >= this.mode.maxPlayers && !this.bots.removeOne(0, this.removesDeadBotsFirst())) return { ok: false, error: 'That room is full.' };
     if (socket && this.bySocket.has(socket.id)) return { ok: false, error: 'Already in this room.' };
 
     const melee = profile.loadout.find((w) => isMelee(w)) ?? DEFAULT_MELEE;
@@ -1098,12 +1098,12 @@ export class GameRoom {
       else if (q.info.team === to) humansTo++;
     }
     if (humansTo + 1 - (humansFrom - 1) > 2) return `${teamName(this.mode, to)} already has more players.`;
-    if (this.teamSize(to) >= this.mode.maxPlayers / 2 && !this.bots.removeOne(to)) return `${teamName(this.mode, to)} is full.`;
+    if (this.teamSize(to) >= this.mode.maxPlayers / 2 && !this.bots.removeOne(to, this.removesDeadBotsFirst())) return `${teamName(this.mode, to)} is full.`;
     p.teamSwitchAt = now + TEAM_SWITCH_COOLDOWN_MS;
     if (p.alive) this.kill(p, null, 'world', false, now, 0, false);
     p.info.team = to;
     // Bots even it out: one leaves the bigger side and the bot top-up refills the smaller one.
-    if (this.teamSize(to) - this.teamSize(from) >= 2) this.bots.removeOne(to);
+    if (this.teamSize(to) - this.teamSize(from) >= 2) this.bots.removeOne(to, this.removesDeadBotsFirst());
     this.announcePlayer(p);
     this.systemMessage(`${p.info.name} joined ${teamName(this.mode, to)}`);
     this.onTeamSwitched(p, now);
@@ -1475,6 +1475,11 @@ export class GameRoom {
     }
   }
 
+  /** Whether a bot making room for a human is a dead one when any is (v2 HvH rounds: the living keep playing). */
+  protected removesDeadBotsFirst(): boolean {
+    return false;
+  }
+
   /** How many players quick play tops a public room up to with bots (HvH v2: 10, a full 5v5). */
   protected botFillTarget(): number {
     return this.mode.fillBots ?? (this.mode.maxPlayers === 2 ? 2 : 4);
@@ -1492,7 +1497,7 @@ export class GameRoom {
     wanted = Math.min(wanted, this.mode.maxPlayers - this.humanCount);
     // Fill all empty seats at once; leave one at a time so a match doesn't empty out suddenly.
     while (this.bots.count < wanted && this.bots.add());
-    if (this.bots.count > wanted) this.bots.removeOne();
+    if (this.bots.count > wanted) this.bots.removeOne(0, this.removesDeadBotsFirst());
   }
 
   /**

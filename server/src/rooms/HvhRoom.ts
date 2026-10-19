@@ -1112,6 +1112,18 @@ export class HvhRoom extends GameRoom {
     if (this.players.has(p.pid)) this.announcePlayer(p);
   }
 
+  /** A human joining a live round takes a dead bot's seat, so no living player leaves the round. */
+  protected override removesDeadBotsFirst(): boolean {
+    return this.rounds;
+  }
+
+  /** A team switch in freeze puts the player straight back into the round, on the new side. */
+  protected override onTeamSwitched(p: ServerPlayer, now: number): void {
+    if (!this.rounds || this.phase !== 'playing' || this.round.phase !== 'freeze' || p.hvhPreparing) return;
+    this.spawn(p, now, true);
+    p.frozen = true;
+  }
+
   /** Public v2 rooms fill to a full 5v5. */
   protected override botFillTarget(): number {
     return this.v2 ? 10 : super.botFillTarget();
