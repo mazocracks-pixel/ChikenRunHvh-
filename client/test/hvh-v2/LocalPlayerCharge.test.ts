@@ -5,7 +5,7 @@ import {
   DEFAULT_APPEARANCE, MAPS, SIM_DT, copyMoveState, createCollisionWorld, createMoveState, stepPlayer,
   type InputFrame, type MoveState, type PlayerInfo, type PlayerState,
 } from '@game/shared';
-import { EMPTY_TICKBASE, LATE_CSGO, type CommandIntent } from '@game/shared/hvh/v2';
+import { EMPTY_TICKBASE, LATE_CSGO, holdForCharge, type CommandIntent } from '@game/shared/hvh/v2';
 import { LocalPlayer } from '../../src/game/LocalPlayer';
 
 const N = LATE_CSGO.chargeTicks;
@@ -125,6 +125,43 @@ describe('LocalPlayer charge and burst prediction', () => {
     p.reconcile({ ...start, pid: 1, yaw: 0, pitch: 0, alive: true, weapon: 'deserteagle', ack: N } as unknown as PlayerState, world);
     assert.deepEqual(at(p.state), predicted);
     assert.equal(p.tickbase.mismatches, 0);
+  });
+
+  /**
+   * The client predicted 32 charges and a DT burst, but the server saw an enemy at command 1: it
+   * moved one step, charged 31 (2..32), and command 33's shot was a partial-charge reject (one step).
+   */
+  function corrected() {
+    const p = player();
+    const start = structuredClone(p.state);
+    const server = (s: MoveState, ack: number) => ({ ...structuredClone(s), pid: 1, yaw: 0, pitch: 0, alive: true, weapon: 'deserteagle', ack }) as unknown as PlayerState;
+    p.reconcile(server(start, 0), world);
+    p.onHvhState({ tickbase: EMPTY_TICKBASE(0), lastAckSeq: 0 } as never);
+    for (let seq = 1; seq <= N; seq++) run(p, frame(seq), DT);
+    run(p, frame(N + 1), { ...DT, fire: true });
+    const afterOne = walked(start, frame(1), 1);
+    const held = structuredClone(afterOne);
+    holdForCharge(held);
+    const expected = walked(held, frame(N + 1), 1);
+    const hvhState = { tickbase: { tickbase: 1, charge: 0, choked: 0, armed: true }, lastAckSeq: 1 } as never;
+    return { p, snapshot: server(afterOne, 1), hvhState, expected: at(expected) };
+  }
+
+  it('production order (hvhState, then the snapshot for the same commands) replays the corrected actions', () => {
+    const { p, snapshot, hvhState, expected } = corrected();
+    p.onHvhState(hvhState);
+    assert.equal(p.tickbase.mismatches, 1);
+    p.reconcile(snapshot, world);
+    assert.deepEqual(at(p.state), expected);
+  });
+
+  it('a snapshot before the hvhState: the correction replays from that snapshot at once', () => {
+    const { p, snapshot, hvhState, expected } = corrected();
+    p.reconcile(snapshot, world);
+    assert.notDeepEqual(at(p.state), expected, 'precondition: replayed with the uncorrected burst');
+    p.onHvhState(hvhState);
+    assert.equal(p.tickbase.mismatches, 1);
+    assert.deepEqual(at(p.state), expected);
   });
 
   it('legacy rooms (no hvhState) always step once, whatever the intent', () => {

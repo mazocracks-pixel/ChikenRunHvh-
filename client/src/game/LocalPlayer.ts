@@ -71,6 +71,8 @@ export class LocalPlayer {
   readonly tickbase = new PredictedTickbase();
   /** True after the first hvhState, i.e. the room runs the v2 engine. */
   hvhV2 = false;
+  /** The world of the last snapshot reconcile, which an hvhState correction replays in (null: none yet). */
+  private replayWorld: CollisionWorld | null = null;
 
   constructor(scene: THREE.Scene, info: PlayerInfo, spawn: PlayerState) {
     this.server = spawn;
@@ -115,9 +117,14 @@ export class LocalPlayer {
     return { ...frame, intent, clientTick };
   }
 
-  /** Called when a command leaves for the server: legacy rooms get the plain frame. */
+  /**
+   * Called when a command leaves for the server: legacy rooms get the plain frame. In v2, the
+   * commands the simulated link lost before it will never run: their prediction is taken back.
+   */
   emitted(cmd: InputCommand): InputCommand | InputFrame {
     if (!this.hvhV2 || !cmd.intent) { const { intent: _i, clientTick: _t, ...frame } = cmd; return frame; }
+    const lost = this.tickbase.sent(cmd.seq);
+    if (lost.length) this.pending = this.pending.filter((p) => !lost.includes(p.frame.seq));
     return cmd;
   }
 
@@ -128,7 +135,19 @@ export class LocalPlayer {
 
   onHvhState(e: HvhStateEvent): void {
     this.hvhV2 = true;
+    const before = this.pending.map((p) => this.stepsOf(p));
     this.tickbase.reconcile(e.tickbase, e.lastAckSeq);
+    // The server sends a tick's hvhState before the snapshot that acknowledges the same commands
+    // (snapshots run on their own timer, between ticks), so that snapshot replays the corrected
+    // actions. If a snapshot already acknowledged them, a correction that changes a pending
+    // command's movement (a stop or a burst predicted wrongly) is replayed from it now.
+    const covered = this.server.ack >= e.lastAckSeq;
+    if (covered && this.replayWorld && !this.car && this.pending.some((p, i) => this.stepsOf(p) !== before[i])) this.replay(this.replayWorld);
+  }
+
+  /** v2: a pending command's movement steps after the latest hvhState. */
+  private stepsOf(p: { frame: InputFrame; steps: number }): number {
+    return (this.hvhV2 ? this.tickbase.stepsFor(p.frame.seq) : undefined) ?? p.steps;
   }
 
   private step(frame: InputFrame, world: CollisionWorld, hopMax: number, speed: number, steps: number): void {
@@ -160,17 +179,23 @@ export class LocalPlayer {
 
   reconcile(server: PlayerState, world: CollisionWorld, car?: VehicleState): void {
     this.server = server;
-    const bx = this.state.x;
-    const by = this.state.y;
-    const bz = this.state.z;
-
-    copyMoveState(server, this.state);
     this.pending = this.pending.filter((p) => p.frame.seq > server.ack);
     this.vehicleId = server.vehicle;
     this.car = server.vehicle && car ? { x: car.x, z: car.z, yaw: car.yaw, speed: car.speed, slip: car.slip, boost: car.boost } : null;
     if (!server.alive) this.pending = [];
+    this.replayWorld = world;
+    this.replay(world);
+  }
+
+  /** Rewinds to the last snapshot's state and replays the pending inputs. */
+  private replay(world: CollisionWorld): void {
+    const bx = this.state.x;
+    const by = this.state.y;
+    const bz = this.state.z;
+
+    copyMoveState(this.server, this.state);
     // v2: replay each command with its tickbase action after the latest hvhState.
-    for (const p of this.pending) this.step(p.frame, world, p.hopMax, p.speed, (this.hvhV2 ? this.tickbase.stepsFor(p.frame.seq) : undefined) ?? p.steps);
+    for (const p of this.pending) this.step(p.frame, world, p.hopMax, p.speed, this.stepsOf(p));
 
     // Normally tiny, because both sides run the same deterministic stepPlayer.
     const ex = bx - this.state.x;
@@ -197,6 +222,8 @@ export class LocalPlayer {
     this.pending = [];
     this.snap();
     this.server = { ...this.server, alive: true, x, y, z };
+    // Not a snapshot's movement state: nothing to replay from until the next one.
+    this.replayWorld = null;
     this.chicken.setDead(false);
     // A new life (v2): the server starts a fresh tickbase.
     if (this.hvhV2) this.tickbase.reset();

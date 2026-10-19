@@ -4,7 +4,8 @@ import { EMPTY_TICKBASE, LATE_CSGO, movementSteps, stepTickbase, type CommandInt
 /** Upper bound on commands kept while waiting for the server to execute them (about 2 s of ticks). */
 export const MAX_UNACKED = 128;
 
-interface Entry { seq: number; intent: CommandIntent; ctx: TickContext; after: TickbaseState; action: TickAction }
+/** `intent` is as built; `shot` is the fire message attached to it (stepped as intent.fire), if any. */
+interface Entry { seq: number; intent: CommandIntent; shot?: number; ctx: TickContext; before: TickbaseState; after: TickbaseState; action: TickAction }
 
 export const NO_SIGHT: TickContext = Object.freeze({ enemyVisible: false });
 /** What a command the server will not step through the tickbase does: one plain movement step. */
@@ -22,6 +23,8 @@ export class PredictedTickbase {
   private shots: number[] = [];
   private mismatchCount = 0;
   private lastApplied = -Infinity;
+  /** The newest seq handed to the socket; the server runs only seqs above the last it accepted. */
+  private lastSent = -Infinity;
   /** False until we hold a server state; until then nothing can be compared. */
   private synced: boolean;
   /** False while our own player is dead: the server runs commands then without stepping the tickbase. */
@@ -40,22 +43,46 @@ export class PredictedTickbase {
    * Run one command the server can execute, in seq order. The server drops a command whose seq is
    * not above the last one it accepted, so we skip those too. Returns false when skipped. `ctx` is
    * the enemy sight the command is predicted with; reconcile replays the command with the same one.
-   * LocalPlayer applies each command when it is built (its movement depends on the action), so a
-   * command the network then loses stays predicted until the next hvhState corrects it.
+   * LocalPlayer applies each command when it is built (its movement depends on the action); `sent`
+   * then takes back the commands the network loses.
    */
   apply(seq: number, intent: CommandIntent, ctx: TickContext = NO_SIGHT): boolean {
     if (seq <= this.lastApplied) return false;
     this.lastApplied = seq;
     if (!this.alive) return false;
-    if (this.attaches(seq)) {
-      this.shots.shift();
-      intent = { ...intent, fire: true };
-    }
-    const { next, action } = stepTickbase(this.current, intent, this.era, ctx);
-    this.current = next;
-    this.unacked.push({ seq, intent, ctx, after: next, action });
+    this.unacked.push(this.step({ seq, intent, ctx, before: this.current, after: this.current, action: RUN }));
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
     return true;
+  }
+
+  /**
+   * Command `seq` leaves for the server (LocalPlayer.emitted). Seqs go out in order unless the
+   * simulated link loses or reorders them, and the server runs only seqs above the last it
+   * accepted, so every predicted command below `seq` that never left will never run: it is
+   * dropped, any fire message it carried waits for the next command (as on the server), and the
+   * later commands are replayed. Returns the dropped seqs (LocalPlayer drops their movement too).
+   */
+  sent(seq: number): number[] {
+    if (seq <= this.lastSent) return [];
+    const after = this.lastSent;
+    this.lastSent = seq;
+    const i = this.unacked.findIndex((e) => e.seq > after && e.seq < seq);
+    if (i < 0) return [];
+    const replayed = this.unacked.splice(i);
+    const dropped = replayed.filter((e) => e.seq < seq).map((e) => e.seq);
+    this.shots = [...replayed.flatMap((e) => (e.shot === undefined ? [] : [e.shot])), ...this.shots].slice(-MAX_PENDING_FIRES);
+    this.current = replayed[0]!.before;
+    for (const e of replayed) if (e.seq >= seq) this.unacked.push(this.step(e));
+    return dropped;
+  }
+
+  /** Steps `e` from the current state, attaching the oldest waiting fire message as the server does. */
+  private step(e: Entry): Entry {
+    const shot = this.attaches(e.seq) ? this.shots.shift() : undefined;
+    const { next, action } = stepTickbase(this.current, shot === undefined ? e.intent : { ...e.intent, fire: true }, this.era, e.ctx);
+    const stepped = { ...e, shot, before: this.current, after: next, action };
+    this.current = next;
+    return stepped;
   }
 
   /**
@@ -69,12 +96,13 @@ export class PredictedTickbase {
   }
 
   /**
-   * Whether the enemy sight can change command `seq`'s action (stepTickbase rules 4 and 5): an
-   * exploit on, not firing, below a full charge. The server traces sight only then (enemyInSight).
+   * Whether command `seq` should be predicted with a traced enemy sight: an exploit on and not
+   * firing. The server also skips the trace at a full charge (enemyInSight), where sight cannot
+   * change the action; the client traces then too, because a correction from hvhState can turn
+   * that full charge into a partial one, and the replay must then step with a real sight.
    */
   needsSight(seq: number, intent: CommandIntent): boolean {
-    return (intent.doubleTap || intent.hideShots) && !intent.fire && !this.attaches(seq)
-      && this.current.charge < this.era.chargeTicks;
+    return (intent.doubleTap || intent.hideShots) && !intent.fire && !this.attaches(seq);
   }
 
   /** Movement steps of predicted command `seq` (after the latest replay), or undefined if not held. */
@@ -128,7 +156,8 @@ export class PredictedTickbase {
     this.unacked = this.unacked.filter((e) => e.seq > lastAckSeq);
     let s: TickbaseState = { ...server };
     for (const e of this.unacked) {
-      const step = stepTickbase(s, e.intent, this.era, e.ctx);
+      const step = stepTickbase(s, e.shot === undefined ? e.intent : { ...e.intent, fire: true }, this.era, e.ctx);
+      e.before = s;
       s = e.after = step.next;
       e.action = step.action;
     }

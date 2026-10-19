@@ -62,12 +62,13 @@ describe('PredictedTickbase', () => {
     assert.deepEqual(p.state, s);
   });
 
-  it('peek changes nothing and counts a waiting fire message; needsSight mirrors the server gate', () => {
+  it('peek changes nothing and counts a waiting fire message; needsSight: an exploit on and not firing', () => {
     const p = new PredictedTickbase(era, { ...EMPTY_TICKBASE(0), charge: era.chargeTicks, armed: true });
     const dt: CommandIntent = { ...NONE, doubleTap: true };
     assert.equal(p.peek(1, dt).kind, 'run');
-    assert.equal(p.needsSight(1, dt), false, 'full charge: sight cannot change the action');
+    assert.equal(p.needsSight(1, dt), true, 'full charge: traced anyway, so a corrected replay steps with a real sight');
     p.shot(1);
+    assert.equal(p.needsSight(1, dt), false, 'a waiting fire message makes it a shot');
     assert.equal(p.peek(1, dt).kind, 'burst');
     assert.deepEqual(p.state, { ...EMPTY_TICKBASE(0), charge: era.chargeTicks, armed: true });
     assert.equal(p.pendingCount, 0);
@@ -78,6 +79,45 @@ describe('PredictedTickbase', () => {
     assert.equal(empty.peek(1, dt, { enemyVisible: true }).kind, 'run');
     assert.equal(empty.peek(1, dt, HIDDEN).kind, 'charge');
     assert.equal(empty.stepsFor(1), undefined, 'nothing predicted yet');
+  });
+
+  it('after a correction, a command traced at full charge replays with its real sight', () => {
+    const dt: CommandIntent = { ...NONE, doubleTap: true };
+    const n = era.chargeTicks;
+    const p = new PredictedTickbase(era, EMPTY_TICKBASE(0));
+    for (let i = 1; i <= n; i++) p.apply(i, dt, HIDDEN);
+    assert.equal(p.needsSight(n + 1, dt), true, 'traced although the predicted charge is full');
+    p.apply(n + 1, dt, { enemyVisible: true });
+    assert.equal(p.stepsFor(n + 1), 1);
+    assert.equal(p.state.charge, n, 'a full charge is kept in sight');
+    // The server was one charge short: the replayed command sees the enemy and cancels.
+    p.reconcile({ tickbase: 0, charge: n - 1, choked: 0, armed: true }, n);
+    assert.equal(p.mismatches, 1);
+    assert.deepEqual(p.state, stepTickbase({ tickbase: 0, charge: n - 1, choked: 0, armed: true }, dt, era, { enemyVisible: true }).next);
+    assert.equal(p.state.charge, 0, 'cancelled, not charged to full');
+  });
+
+  it('commands the link lost before a sent one are taken back, and their shot fires on the next command', () => {
+    const dt: CommandIntent = { ...NONE, doubleTap: true };
+    const n = era.chargeTicks;
+    const start = { ...EMPTY_TICKBASE(0), charge: n, armed: true };
+    const p = new PredictedTickbase(era, start);
+    p.shot(2);
+    for (let seq = 1; seq <= 5; seq++) p.apply(seq, dt, HIDDEN);
+    assert.equal(p.stepsFor(2), 1 + n, 'predicted: command 2 carries the burst');
+    assert.deepEqual(p.sent(1), []);
+    // 2 and 3 never left (lost, or late and then dropped by the server): 4 runs next, with the shot.
+    assert.deepEqual(p.sent(4), [2, 3]);
+    assert.deepEqual(p.sent(3), [], 'a late command was already taken back');
+    let expected = stepTickbase(start, dt, era, HIDDEN).next;
+    expected = stepTickbase(expected, FIRE_DT, era, HIDDEN).next;
+    assert.equal(p.stepsFor(4), 1 + n, 'the burst moved to command 4');
+    assert.equal(p.stepsFor(2), undefined);
+    expected = stepTickbase(expected, dt, era, HIDDEN).next;
+    assert.deepEqual(p.state, expected);
+    p.reconcile(serverRun(start, [dt, FIRE_DT]), 4);
+    assert.equal(p.mismatches, 0);
+    assert.deepEqual(p.state, expected);
   });
 
   it('reconcile replays unacked', () => {
