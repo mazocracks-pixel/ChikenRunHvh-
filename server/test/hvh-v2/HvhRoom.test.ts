@@ -359,6 +359,10 @@ describe('HvhRoom v2 tick pipeline', () => {
     const { room, a, b, verdicts } = duel();
     t.after(() => room.close());
     assert.equal(room.tickbaseOf(a.pid)?.bank, 0, 'a fresh spawn has an empty bank');
+    // A gun that cycles within one DT shift (v2 spawns carry the slower arsenal).
+    a.info.loadout.push('rifle');
+    a.weaponSlot = a.info.loadout.length - 1;
+    a.mags.set('rifle', a.magazineSize('rifle'));
     const interval = fireIntervalTicks(WEAPONS[a.weapon]);
     assert.ok(interval > 1 && interval - 1 < LATE_CSGO.doubleTapShift);
     let now = performance.now();

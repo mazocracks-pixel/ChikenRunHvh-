@@ -1475,6 +1475,11 @@ export class GameRoom {
     }
   }
 
+  /** How many players quick play tops a public room up to with bots (HvH v2: 10, a full 5v5). */
+  protected botFillTarget(): number {
+    return this.mode.fillBots ?? (this.mode.maxPlayers === 2 ? 2 : 4);
+  }
+
   /** Keeps the bot count on target: fixed for practice rooms, filling empty seats in public ones. */
   private maintainBots(now: number): void {
     if (now < this.nextBotCheck || this.closed || this.humanCount === 0) return;
@@ -1483,7 +1488,7 @@ export class GameRoom {
     // Ranked, real-players-only modes and "without bots" rooms: no bots at all.
     if (this.noBots) wanted = 0;
     else if (this.botTarget !== null) wanted = this.botTarget;
-    else if (this.fillBots && !this.mode.building) wanted = Math.max(0, (this.mode.fillBots ?? (this.mode.maxPlayers === 2 ? 2 : 4)) - this.humanCount);
+    else if (this.fillBots && !this.mode.building) wanted = Math.max(0, this.botFillTarget() - this.humanCount);
     wanted = Math.min(wanted, this.mode.maxPlayers - this.humanCount);
     // Fill all empty seats at once; leave one at a time so a match doesn't empty out suddenly.
     while (this.bots.count < wanted && this.bots.add());

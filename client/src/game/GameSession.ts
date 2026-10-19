@@ -100,6 +100,7 @@ import type { Network } from '../net/Network';
 import { CommandClock, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
 import { LATE_CSGO } from '@game/shared/hvh/v2';
 import { HitLog } from '../ui/hvh/HitLog';
+import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
 import { Indicators, indicatorModel, initHvhV2Ui } from '../ui/hvh/Indicators';
 import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
 import { getSettings } from '../settings';
@@ -240,6 +241,10 @@ export class GameSession {
   private round: RoundState | null;
   private money: number;
   private readonly buyMenu: BuyMenu | null;
+  /** v2 HvH rounds: the main + pistol pick (open at freeze, closed at live). */
+  private readonly hvhBuy: HvhBuyMenu | null;
+  /** The HvH buy menu took the mouse (opened with B), so closing it takes it back. */
+  private hvhBuyReleased = false;
   /** Zombie Apocalypse: the wave panel, shop and game-over screen. */
   private readonly zombieHud: ZombieHud | null;
   private night: ZombieNight | null = null;
@@ -354,6 +359,13 @@ export class GameSession {
     if (this.buyMenu) {
       this.buyMenu.onBuy = (item) => this.buy(item);
       this.buyMenu.onClose = () => this.closeBuyMenu();
+    }
+    // Only v2 HvH rooms with rounds send a round on join.
+    this.hvhBuy = this.mode.id === 'hvh' && join.round ? new HvhBuyMenu(ctx.hud.root) : null;
+    if (this.hvhBuy) {
+      this.hvhBuy.onPick = (id) => this.hvhPick(id);
+      this.hvhBuy.onClose = () => this.setHvhBuyOpen(false);
+      this.sendHvhPicks();
     }
     this.trainingMenu = this.mode.training ? new TrainingMenu(ctx.hud.root) : null;
     if (this.trainingMenu) {
@@ -599,13 +611,14 @@ export class GameSession {
       this.updateHud(now, fps, aiming, scoped);
     }
     this.buyMenu?.update(dt);
+    this.updateHvhBuy();
     this.blocks?.tick(now);
     dev?.afterFrame(this, dt);
   }
 
   /** The buy menu is open (it has the mouse). */
   get buyMenuOpen(): boolean {
-    return (this.buyMenu?.open ?? false) || (this.zombieHud?.shopOpen ?? false) || this.zombieOver || (this.trainingMenu?.open ?? false);
+    return (this.buyMenu?.open ?? false) || (this.hvhBuy?.open ?? false) || (this.zombieHud?.shopOpen ?? false) || this.zombieOver || (this.trainingMenu?.open ?? false);
   }
   setWeaponTint(color: string | null, style = 0, alpha = 1): void { this.viewmodel.setTint(color,style,alpha); }
 
@@ -832,6 +845,10 @@ export class GameSession {
         }
         if (this.buyMenu) {
           this.toggleBuyMenu();
+          break;
+        }
+        if (this.hvhBuy) {
+          this.toggleHvhBuy();
           break;
         }
         if (this.mode.building && this.local.alive) {
@@ -1227,6 +1244,7 @@ export class GameSession {
       else hud.toast(won ? 'Round won! 🎉' : 'Round lost', won ? 'good' : 'bad');
       audio.play(won ? 'reward' : 'empty');
     }
+    if (this.hvhBuy) this.onHvhRound(r, prev);
     const buying = r.phase === 'warmup' || ((r.phase === 'buy' || r.phase === 'live') && r.buyEndsAt !== null && this.serverNow() < r.buyEndsAt);
     if (!buying && this.buyMenu?.open) this.buyMenu.say('Buy time is over: press B or Esc to play', true);
   }
@@ -1428,6 +1446,69 @@ export class GameSession {
         if (slot >= 0) this.switchWeapon(() => this.weapons.switchTo(slot, performance.now()));
       }
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // v2 HvH buy menu
+  // ---------------------------------------------------------------------------
+
+  /** Whenever a buy window opens, the server gets the remembered pick (a same pick is a no-op). */
+  private onHvhRound(r: RoundState, prev: RoundState | null): void {
+    const window_ = r.phase === 'warmup' || r.phase === 'buy';
+    if (window_ && prev?.phase !== r.phase) this.sendHvhPicks();
+    // Freeze time opens the menu without taking the mouse: 1–4 pick, and nobody can move anyway.
+    if (r.phase === 'buy' && prev?.phase !== 'buy') this.setHvhBuyOpen(true);
+    if (!window_) this.setHvhBuyOpen(false);
+  }
+
+  private sendHvhPicks(): void {
+    const { main, pistol } = this.hvhBuy!.model.selected;
+    for (const id of [main, pistol]) this.ctx.net.socket.emit('buy', id, () => {});
+  }
+
+  private hvhPick(id: WeaponId): void {
+    this.ctx.net.socket.emit('buy', id, (res) => {
+      if (!res.ok) {
+        this.hvhBuy?.say(res.error ?? 'You can’t pick that.', true);
+        this.ctx.audio.play('empty');
+        return;
+      }
+      this.hvhBuy?.say(`${WEAPONS[id].name} picked`);
+      this.ctx.audio.play('pickup');
+      // Take the new gun out (playerUpdated already brought the new loadout).
+      const slot = this.weapons.loadout.indexOf(id);
+      if (slot >= 0) this.switchWeapon(() => this.weapons.switchTo(slot, performance.now()));
+    });
+  }
+
+  /** B: open (taking the mouse) during warmup and freeze, or close. */
+  private toggleHvhBuy(): void {
+    if (this.hvhBuy?.open) return this.setHvhBuyOpen(false);
+    const phase = this.round?.phase;
+    if (phase !== 'warmup' && phase !== 'buy') return this.ctx.hud.toast('Buying is closed: you can pick at the next freeze time', 'bad');
+    this.setHvhBuyOpen(true, true);
+    this.ctx.audio.play('click');
+  }
+
+  private setHvhBuyOpen(open: boolean, takeMouse = false): void {
+    const menu = this.hvhBuy;
+    if (!menu || menu.open === open) return;
+    menu.setOpen(open);
+    if (open && takeMouse) {
+      this.hvhBuyReleased = true;
+      this.ctx.input.releaseLock();
+    } else if (!open && this.hvhBuyReleased) {
+      this.hvhBuyReleased = false;
+      void this.ctx.input.requestLock();
+    }
+    this.ctx.onOverlay();
+  }
+
+  private updateHvhBuy(): void {
+    const menu = this.hvhBuy;
+    if (!menu?.open || !this.round) return;
+    menu.setSecondsLeft(this.round.phase === 'warmup' ? null : Math.max(0, Math.ceil(((this.round.endsAt ?? 0) - this.serverNow()) / 1000)));
+    menu.update();
   }
 
   /** What to do about the bomb, for the hint bar. */
@@ -2095,6 +2176,7 @@ export class GameSession {
     this.viewmodel.dispose();
     this.bombView?.dispose();
     this.buyMenu?.dispose();
+    this.hvhBuy?.dispose();
     this.zombieHud?.dispose();
     this.night?.dispose();
     this.hunt?.dispose();

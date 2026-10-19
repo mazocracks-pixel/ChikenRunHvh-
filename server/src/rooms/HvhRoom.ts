@@ -23,6 +23,7 @@ import {
   shotUsesAmmo,
   stepPlayer,
   teamName,
+  type BuyResult,
   type FireRequest,
   type InputFrame,
   type PlayerState,
@@ -30,10 +31,13 @@ import {
   type Team,
   type Vec3,
   type WeaponDef,
+  type WeaponId,
   type WorldSnapshot,
 } from '@game/shared';
 import {
   EMPTY_TICKBASE,
+  HVH_MAINS,
+  HVH_PISTOLS,
   INITIAL_POSE,
   LATE_CSGO,
   RecordHistory,
@@ -41,6 +45,7 @@ import {
   createResolverMemory,
   guessedPose,
   hvhWarmup,
+  isHvhArsenal,
   learnFromVerdict,
   peekResolve,
   poseMatrix,
@@ -132,6 +137,12 @@ import type { ServerPlayer } from './ServerPlayer';
  *   player's team and the team scores. Every v2 spawn wears armor and helmet (armor 100); the
  *   shot applies it (shot.ts armorPen), so GameRoom.damage does not soak damage with it again.
  *   `hvhRounds: false` (test harnesses only) keeps the room in warmup with the old kill scoring.
+ * - Loadout (v2 only): every spawn carries exactly [main, pistol] (HVH_MAINS, HVH_PISTOLS), no
+ *   knife and no grenades. The pick lives in p.info.loadout (default SSG 08 + Desert Eagle), so
+ *   every round start's respawn re-applies it. `buy` takes an arsenal id, free, in warmup and
+ *   freeze only; the gun in hand stays out if it is still carried (as the client's setLoadout).
+ *   Public rooms fill to 10 with bots (5v5); each bot picks a random main and pistol at every
+ *   round start from the room's seeded RNG.
  */
 
 export type HvhEngine = 'legacy' | 'v2';
@@ -152,6 +163,13 @@ export function hvhEngineFrom(env: Readonly<Record<string, string | undefined>>)
 const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false });
 const TICK_MS = SIM_DT * 1000;
 const OBSERVATIONS_KEPT = 32;
+const MAINS: readonly WeaponId[] = HVH_MAINS;
+const PISTOLS: readonly WeaponId[] = HVH_PISTOLS;
+
+/** The v2 loadout from the player's last picks: [main, pistol], SSG 08 and Desert Eagle by default. */
+function hvhLoadout(loadout: readonly WeaponId[]): [WeaponId, WeaponId] {
+  return [loadout.find((w) => MAINS.includes(w)) ?? 'ssg08', loadout.find((w) => PISTOLS.includes(w)) ?? 'deserteagle'];
+}
 
 interface QueuedCommand {
   frame: Readonly<InputFrame>;
@@ -829,10 +847,47 @@ export class HvhRoom extends GameRoom {
   }
 
   /**
-   * Every round start (freeze), after everyone has respawned: the place to re-apply each player's
-   * loadout. The buy window is warmup and freeze (hvhRound.phase).
+   * Every round start (freeze), after everyone has respawned (which re-applied their loadout).
+   * Bots buy only: a random main and pistol each, from the room's seeded RNG.
    */
-  protected onRoundStart(_now: number): void {}
+  protected onRoundStart(_now: number): void {
+    for (const p of this.players.values()) {
+      if (!p.info.bot || p.hvhPreparing) continue;
+      this.setLoadout(p, [MAINS[Math.floor(this.random() * MAINS.length)]!, PISTOLS[Math.floor(this.random() * PISTOLS.length)]!]);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Buy menu (v2)
+  // ---------------------------------------------------------------------------
+
+  /** v2: a free main or pistol from the HvH arsenal, in warmup and freeze only. */
+  override handleBuy(p: ServerPlayer, itemId: unknown, now = performance.now()): BuyResult {
+    if (!this.v2) return super.handleBuy(p, itemId, now);
+    if (typeof itemId !== 'string' || !isWeaponId(itemId) || !isHvhArsenal(itemId)) return { ok: false, error: 'Not in the HvH arsenal.', money: 0 };
+    if (this.round.phase !== 'warmup' && this.round.phase !== 'freeze') return { ok: false, error: 'Buying is closed.', money: 0 };
+    const [main, pistol] = hvhLoadout(p.info.loadout);
+    this.setLoadout(p, MAINS.includes(itemId) ? [itemId, pistol] : [main, itemId]);
+    return { ok: true, money: 0 };
+  }
+
+  /** New guns come loaded; the gun in hand stays out if it is still carried, else slot 0. */
+  private setLoadout(p: ServerPlayer, next: [WeaponId, WeaponId]): void {
+    const before = p.info.loadout;
+    if (before.length === 2 && before[0] === next[0] && before[1] === next[1]) return;
+    const slot = next.indexOf(p.weapon);
+    p.info.loadout = next;
+    for (const id of next) if (!before.includes(id)) p.mags.set(id, p.magazineSize(id));
+    p.weaponSlot = Math.max(0, slot);
+    if (slot < 0) p.reloadUntil = 0;
+    // A player still joining is announced by join's playerJoined.
+    if (this.players.has(p.pid)) this.announcePlayer(p);
+  }
+
+  /** Public v2 rooms fill to a full 5v5. */
+  protected override botFillTarget(): number {
+    return this.v2 ? 10 : super.botFillTarget();
+  }
 
   private emitRound(): void {
     this.io.to(this.channel).emit('round', roundEvent(this.round));
@@ -915,8 +970,11 @@ export class HvhRoom extends GameRoom {
   }
 
   protected override spawn(p: ServerPlayer, now: number, announce: boolean): void {
+    if (!this.v2) return super.spawn(p, now, announce);
+    // Before the respawn, so it fills these magazines.
+    this.setLoadout(p, hvhLoadout(p.info.loadout));
     super.spawn(p, now, announce);
-    if (!this.v2) return;
+    p.eggs = p.smokes = p.flashes = 0;
     const s = this.stateOf(p);
     // A new life: fresh bank, pose and lag records (the resolver keeps what it learned).
     s.queue.length = 0;
