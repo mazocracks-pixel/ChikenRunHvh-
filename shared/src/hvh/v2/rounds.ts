@@ -6,10 +6,13 @@
  * - Warmup's clock starts once both teams have players and stops if a team empties.
  * - A live round ends when a team has 0 alive (an empty team has 0 alive and loses); both teams at
  *   0 alive is a draw. On time-out the team with more alive wins; equal alive is a draw.
- * - A team with no players goes back to a fresh warmup ('reset'; the room restarts the match):
- *   at once during freeze, or when the round-end banner runs out, instead of playing more rounds.
+ * - R70: a team with no players pauses the match in warmup ('pause'): at once during freeze (that
+ *   round is replayed), or when the round-end banner runs out, instead of playing more rounds. The
+ *   warmup keeps the score, the rounds played and the half; once both teams have players again it
+ *   runs its clock and the match resumes at the next round.
  * - Halftime: starting round halfAfter + 1 swaps the sides, and the score with them (score is by
- *   team id, and the room swaps every player's team). Drawn rounds count as played.
+ *   team id, and the room swaps every player's team), once per match (`half`). Drawn rounds count
+ *   as played.
  * - Match end: right at the round end where a team reaches roundsToWin, or once maxRounds have
  *   been played. Phase 'ended' is final; there `winner` is the match winner (0: a draw, which is
  *   any match without a team at roundsToWin) and `reason` is the last round's.
@@ -19,12 +22,14 @@ export const HVH_ROUNDS = { warmupMs: 15000, freezeMs: 5000, roundMs: 115000, ro
 
 export type HvhRoundPhase = 'warmup' | 'freeze' | 'live' | 'over' | 'ended';
 
-export type HvhRoundEvent = 'roundStart' | 'goLive' | 'roundEnd' | 'halftime' | 'matchEnd' | 'reset';
+export type HvhRoundEvent = 'roundStart' | 'goLive' | 'roundEnd' | 'halftime' | 'matchEnd' | 'pause';
 
 export interface HvhRoundState {
   phase: HvhRoundPhase;
-  /** 0 during warmup, then 1, 2, ... */
+  /** The round in play, 1, 2, ...; in warmup the rounds played (0 before the first). */
   round: number;
+  /** 2 once the sides have swapped at halftime. */
+  half: 1 | 2;
   /** Room time (ms) the current phase ends, or null (warmup waiting for players, ended). */
   endsAt: number | null;
   /** Rounds won, by team id. */
@@ -37,7 +42,7 @@ export interface HvhRoundState {
 export type TeamCounts = { 1: number; 2: number };
 
 export function hvhWarmup(): HvhRoundState {
-  return { phase: 'warmup', round: 0, endsAt: null, score: { 1: 0, 2: 0 }, winner: 0, reason: null };
+  return { phase: 'warmup', round: 0, half: 1, endsAt: null, score: { 1: 0, 2: 0 }, winner: 0, reason: null };
 }
 
 /** One step of the round flow. Returns the same state object when nothing changed. */
@@ -48,10 +53,10 @@ export function stepHvhRound(s: HvhRoundState, alive: TeamCounts, players: TeamC
     case 'warmup': {
       if (players[1] === 0 || players[2] === 0) return s.endsAt === null ? same : { state: { ...s, endsAt: null }, events: [] };
       if (s.endsAt === null) return { state: { ...s, endsAt: now + HVH_ROUNDS.warmupMs }, events: [] };
-      return now >= s.endsAt ? startRound(s, 1, now) : same;
+      return now >= s.endsAt ? startRound(s, s.round + 1, now) : same;
     }
     case 'freeze':
-      if (!staffed) return reset();
+      if (!staffed) return pause(s, s.round - 1);
       return now >= (s.endsAt ?? 0) ? { state: { ...s, phase: 'live', endsAt: now + HVH_ROUNDS.roundMs }, events: ['goLive'] } : same;
     case 'live': {
       if (alive[1] === 0 && alive[2] === 0) return endRound(s, 0, 'draw', now);
@@ -62,21 +67,22 @@ export function stepHvhRound(s: HvhRoundState, alive: TeamCounts, players: TeamC
     }
     case 'over':
       if (now < (s.endsAt ?? 0)) return same;
-      return staffed ? startRound(s, s.round + 1, now) : reset();
+      return staffed ? startRound(s, s.round + 1, now) : pause(s, s.round);
     case 'ended':
       return same;
   }
 }
 
-function reset(): { state: HvhRoundState; events: HvhRoundEvent[] } {
-  return { state: hvhWarmup(), events: ['reset'] };
+/** Warmup until both teams have players, keeping the score, the half and `played` rounds. */
+function pause(s: HvhRoundState, played: number): { state: HvhRoundState; events: HvhRoundEvent[] } {
+  return { state: { ...hvhWarmup(), round: played, half: s.half, score: s.score }, events: ['pause'] };
 }
 
 function startRound(s: HvhRoundState, round: number, now: number): { state: HvhRoundState; events: HvhRoundEvent[] } {
-  const halftime = round === HVH_ROUNDS.halfAfter + 1;
+  const halftime = round === HVH_ROUNDS.halfAfter + 1 && s.half === 1;
   const score = halftime ? { 1: s.score[2], 2: s.score[1] } : s.score;
   return {
-    state: { phase: 'freeze', round, endsAt: now + HVH_ROUNDS.freezeMs, score, winner: 0, reason: null },
+    state: { phase: 'freeze', round, half: halftime ? 2 : s.half, endsAt: now + HVH_ROUNDS.freezeMs, score, winner: 0, reason: null },
     events: halftime ? ['halftime', 'roundStart'] : ['roundStart'],
   };
 }

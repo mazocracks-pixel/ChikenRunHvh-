@@ -180,7 +180,8 @@ import type { ServerPlayer } from './ServerPlayer';
  *   player's team and the team scores. Every v2 spawn wears armor and helmet (armor 100); the
  *   shot applies it (shot.ts armorPen), so GameRoom.damage does not soak damage with it again.
  *   A team left with no players loses the round in play; then (or at once in freeze) the match
- *   restarts in warmup rather than awarding a round every ~10 s.
+ *   pauses in warmup, keeping the score, half, kills and deaths, and resumes at the next round once
+ *   both teams have players again (R70), rather than awarding a round every ~10 s.
  *   `hvhRounds: false` (test harnesses only) keeps the room in warmup with the old kill scoring.
  * - Loadout (v2 only): every spawn carries exactly [main, pistol] (HVH_MAINS, HVH_PISTOLS), no
  *   knife and no grenades. The pick lives in p.info.loadout (default SSG 08 + Desert Eagle), so
@@ -1056,10 +1057,9 @@ export class HvhRoom extends GameRoom {
         case 'matchEnd':
           this.endMatch(now);
           break;
-        case 'reset':
-          // A team has no players: the match restarts in warmup (onMatchStart resets the round).
-          this.systemMessage('A team has no players: back to warmup.');
-          this.startNow(now);
+        case 'pause':
+          // R70: warmup (free respawns) until both teams have players; the score, half, kills and deaths stay.
+          this.systemMessage('A team has no players: warmup until both teams do. The score is kept.');
           break;
       }
     }

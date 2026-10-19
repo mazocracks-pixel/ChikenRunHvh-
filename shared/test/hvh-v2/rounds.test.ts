@@ -60,21 +60,48 @@ describe('HvH v2 rounds', () => {
     assert.equal(r.state.reason, 'eliminated');
   });
 
-  it('a team with no players: the round in play is lost, then back to a fresh warmup instead of more rounds (Minor 7)', () => {
+  it('a team with no players: the round in play is lost, then a warmup that keeps the score (R70)', () => {
     const over = state({ phase: 'over', round: 3, endsAt: 60_000, score: { 1: 1, 2: 2 }, winner: 2, reason: 'eliminated' });
     assert.equal(stepHvhRound(over, { 1: 0, 2: 2 }, { 1: 0, 2: 2 }, 59_999).state, over, 'the banner runs out first');
-    const reset = stepHvhRound(over, { 1: 0, 2: 2 }, { 1: 0, 2: 2 }, 60_000);
-    assert.deepEqual(reset.state, hvhWarmup());
-    assert.deepEqual(reset.events, ['reset']);
+    const paused = stepHvhRound(over, { 1: 0, 2: 2 }, { 1: 0, 2: 2 }, 60_000);
+    assert.deepEqual(paused.state, { ...hvhWarmup(), round: 3, score: { 1: 1, 2: 2 } });
+    assert.deepEqual(paused.events, ['pause']);
     // With both teams staffed the next round starts as before.
     assert.deepEqual(stepHvhRound(over, FULL, FULL, 60_000).events, ['roundStart']);
   });
 
-  it('a team emptying during freeze goes back to a fresh warmup at once (no round is played)', () => {
+  it('once both teams have a player again the match resumes from the kept score at the next round', () => {
+    const paused = state({ round: 3, score: { 1: 1, 2: 2 } });
+    assert.equal(stepHvhRound(paused, { 1: 0, 2: 2 }, { 1: 0, 2: 2 }, 0).state, paused, 'waits for both teams');
+    const clock = stepHvhRound(paused, FULL, FULL, 1000).state;
+    assert.equal(clock.endsAt, 1000 + HVH_ROUNDS.warmupMs);
+    const next = stepHvhRound(clock, FULL, FULL, 1000 + HVH_ROUNDS.warmupMs);
+    assert.deepEqual(next.events, ['roundStart']);
+    assert.equal(next.state.phase, 'freeze');
+    assert.equal(next.state.round, 4);
+    assert.deepEqual(next.state.score, { 1: 1, 2: 2 });
+  });
+
+  it('a team emptying during freeze pauses before the round is played; it is replayed on resume', () => {
     const freeze = state({ phase: 'freeze', round: 2, endsAt: 10_000, score: { 1: 1, 2: 0 } });
-    const reset = stepHvhRound(freeze, { 1: 2, 2: 0 }, { 1: 2, 2: 0 }, 6_000);
-    assert.deepEqual(reset.state, hvhWarmup());
-    assert.deepEqual(reset.events, ['reset']);
+    const paused = stepHvhRound(freeze, { 1: 2, 2: 0 }, { 1: 2, 2: 0 }, 6_000);
+    assert.deepEqual(paused.state, { ...hvhWarmup(), round: 1, score: { 1: 1, 2: 0 } });
+    assert.deepEqual(paused.events, ['pause']);
+    const clock = stepHvhRound(paused.state, FULL, FULL, 7_000).state;
+    assert.equal(stepHvhRound(clock, FULL, FULL, 7_000 + HVH_ROUNDS.warmupMs).state.round, 2);
+  });
+
+  it('the half is kept: a pause in the first freeze of the second half does not swap the sides again', () => {
+    const over = state({ phase: 'over', round: HVH_ROUNDS.halfAfter, endsAt: 1000, score: { 1: 7, 2: 5 } });
+    const half = stepHvhRound(over, FULL, FULL, 1000);
+    assert.deepEqual(half.events, ['halftime', 'roundStart']);
+    assert.deepEqual(half.state.score, { 1: 5, 2: 7 });
+    const paused = stepHvhRound(half.state, { 1: 5, 2: 0 }, { 1: 5, 2: 0 }, 2000).state;
+    const clock = stepHvhRound(paused, FULL, FULL, 3000).state;
+    const resumed = stepHvhRound(clock, FULL, FULL, 3000 + HVH_ROUNDS.warmupMs);
+    assert.deepEqual(resumed.events, ['roundStart'], 'no second halftime');
+    assert.equal(resumed.state.round, HVH_ROUNDS.halfAfter + 1);
+    assert.deepEqual(resumed.state.score, { 1: 5, 2: 7 });
   });
 
   it('both teams at 0 alive is a draw', () => {

@@ -140,24 +140,35 @@ describe('HvH v2 round flow', () => {
     assert.equal((m.events.filter((e) => e.event === 'match').at(-1)!.args[0] as MatchState).winnerTeam, 2);
   });
 
-  it('a team left with no players loses the round in play, then the match goes back to warmup (Minor 7)', (t) => {
+  it('a team left with no players: warmup keeps the score, half, kills and deaths, and the match resumes (R70)', (t) => {
     const m = roundMatch(t);
     m.until('live');
+    const killer = m.team(1)[0]!;
+    m.room.damage(m.team(2)[0]!, killer, 1000, false, 'world', { x: 0, y: 0, z: 0 }, m.now);
+    const kills = m.players.map((p) => [p.info.kills, p.info.deaths]);
+    assert.equal(killer.info.kills, 1);
     // Everyone on team 2 leaves the team (as if they had all left the room).
-    for (const p of m.team(2)) p.info.team = 1;
+    const leavers = m.team(2);
+    for (const p of leavers) p.info.team = 1;
     m.step();
     assert.equal(m.room.hvhRound.phase, 'over');
-    assert.equal(m.room.hvhRound.winner, 1);
     assert.deepEqual(m.scores(), [1, 0]);
     m.step(HVH_ROUNDS.roundEndMs);
     assert.equal(m.room.hvhRound.phase, 'warmup', 'no more rounds against an empty team');
     assert.equal(m.room.hvhRound.endsAt, null, 'the warmup clock waits for both teams');
-    assert.deepEqual(m.scores(), [0, 0], 'the match restarts');
-    assert.equal(m.rounds().at(-1)!.phase, 'warmup');
-    assert.ok(m.players.every((p) => p.alive && !p.frozen), 'everyone is back in warmup');
+    assert.deepEqual(m.scores(), [1, 0], 'the score is kept');
+    assert.deepEqual(m.room.hvhRound.score, { 1: 1, 2: 0 });
+    assert.deepEqual(m.players.map((p) => [p.info.kills, p.info.deaths]), kills, 'kills and deaths are kept');
     for (let i = 0; i < 40; i++) m.step(1000);
     assert.equal(m.room.hvhRound.phase, 'warmup');
-    assert.deepEqual(m.scores(), [0, 0], 'no rounds are awarded meanwhile');
+    assert.deepEqual(m.scores(), [1, 0], 'no rounds are awarded meanwhile');
+    assert.ok(m.players.every((p) => p.alive && !p.frozen), 'warmup: everyone plays freely');
+    // Team 2 has players again: after the warmup the match goes on with round 2.
+    for (const p of leavers) p.info.team = 2;
+    m.until('freeze');
+    assert.equal(m.room.hvhRound.round, 2);
+    assert.deepEqual(m.scores(), [1, 0]);
+    assert.deepEqual(m.room.hvhRound.score, { 1: 1, 2: 0 });
   });
 
   it('the harness option keeps a v2 room in warmup', (t) => {
