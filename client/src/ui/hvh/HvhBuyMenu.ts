@@ -78,6 +78,11 @@ export class HvhBuyModel {
   }
 }
 
+/** Keys typed into chat (or any text field) are not menu keys. */
+export function isTypingTarget(el: { tagName?: string; isContentEditable?: boolean } | null): boolean {
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true);
+}
+
 /** Two columns (Main, Pistol); 1–4 pick, B / Esc close. */
 export class HvhBuyMenu {
   readonly root = h('div', { class: 'buy-overlay hvh-buy' });
@@ -128,9 +133,14 @@ export class HvhBuyMenu {
     return !this.root.hidden;
   }
 
-  setOpen(open: boolean): void {
+  /**
+   * `passive` (freeze time's auto-open): no dimmed backdrop and clicks pass through around the
+   * window, so a frozen player still sees, looks and pre-aims.
+   */
+  setOpen(open: boolean, passive = false): void {
     if (open === this.open) return;
     this.root.hidden = !open;
+    this.root.classList.toggle('passive', open && passive);
     if (open) {
       this.say('');
       prepareGunIcons();
@@ -181,7 +191,7 @@ export class HvhBuyMenu {
   }
 
   private onKey = (e: KeyboardEvent): void => {
-    if (e.repeat) return;
+    if (e.repeat || isTypingTarget(document.activeElement)) return;
     const items = this.model.categories.flatMap((c) => c.items);
     if (/^[1-9]$/.test(e.key) && Number(e.key) <= items.length) this.pick(items[Number(e.key) - 1]!);
     else if (e.code === 'KeyB' || e.key === 'Escape') this.onClose?.();

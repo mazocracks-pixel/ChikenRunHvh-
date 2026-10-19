@@ -616,9 +616,9 @@ export class GameSession {
     dev?.afterFrame(this, dt);
   }
 
-  /** The buy menu is open (it has the mouse). */
+  /** The buy menu is open (it has the mouse). The HvH menu auto-opened at freeze leaves look and keys to the game. */
   get buyMenuOpen(): boolean {
-    return (this.buyMenu?.open ?? false) || (this.hvhBuy?.open ?? false) || (this.zombieHud?.shopOpen ?? false) || this.zombieOver || (this.trainingMenu?.open ?? false);
+    return (this.buyMenu?.open ?? false) || (this.hvhBuyReleased && (this.hvhBuy?.open ?? false)) || (this.zombieHud?.shopOpen ?? false) || this.zombieOver || (this.trainingMenu?.open ?? false);
   }
   setWeaponTint(color: string | null, style = 0, alpha = 1): void { this.viewmodel.setTint(color,style,alpha); }
 
@@ -1493,7 +1493,7 @@ export class GameSession {
   private setHvhBuyOpen(open: boolean, takeMouse = false): void {
     const menu = this.hvhBuy;
     if (!menu || menu.open === open) return;
-    menu.setOpen(open);
+    menu.setOpen(open, !takeMouse);
     if (open && takeMouse) {
       this.hvhBuyReleased = true;
       this.ctx.input.releaseLock();

@@ -76,6 +76,17 @@ describe('HvH v2 buy menu', () => {
     assert.deepEqual(p.info.loadout, ['ssg08', 'deserteagle']);
   });
 
+  it('buying during the round-end banner is refused and the loadout is unchanged', (t) => {
+    const m = buyMatch(t);
+    m.until('live');
+    for (const q of m.players.filter((q) => q.info.team === 2)) m.kill(q);
+    m.step();
+    assert.equal(m.room.hvhRound.phase, 'over');
+    const p = m.players[0]!;
+    assert.deepEqual(m.room.handleBuy(p, 'r8', m.now), { ok: false, error: 'Buying is closed.', money: 0 });
+    assert.deepEqual(p.info.loadout, ['ssg08', 'deserteagle']);
+  });
+
   it('only arsenal ids can be bought', (t) => {
     const m = buyMatch(t);
     const p = m.players[0]!;
@@ -133,6 +144,8 @@ describe('HvH v2 5v5 bot fill', () => {
     const f = fillRoom(t, 5);
     assert.equal(f.room.players.size, 10);
     assert.equal(f.bots().length, 9);
+    const teams = [...f.room.players.values()].map((p) => p.info.team);
+    assert.deepEqual([teams.filter((x) => x === 1).length, teams.filter((x) => x === 2).length], [5, 5], 'a 5v5');
     for (const b of f.bots()) {
       assert.equal(b.hvh.exploit, 'off');
       assertArsenalLoadout(b, b.info.name);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { HvhBuyModel, HVH_BUY_STORAGE_KEY } from '../../src/ui/hvh/HvhBuyMenu';
+import { HvhBuyModel, HVH_BUY_STORAGE_KEY, isTypingTarget } from '../../src/ui/hvh/HvhBuyMenu';
 
 function memoryStore(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial));
@@ -45,6 +45,15 @@ describe('HvhBuyModel', () => {
     assert.deepEqual(new HvhBuyModel(memoryStore({ [HVH_BUY_STORAGE_KEY]: '{not json' })).selected, { main: 'ssg08', pistol: 'deserteagle' });
     assert.deepEqual(new HvhBuyModel(memoryStore({ [HVH_BUY_STORAGE_KEY]: JSON.stringify({ main: 'r8', pistol: 'ak47' }) })).selected,
       { main: 'ssg08', pistol: 'deserteagle' });
+  });
+
+  it('keys typed into chat or a text field are not menu keys', () => {
+    assert.equal(isTypingTarget({ tagName: 'INPUT' }), true);
+    assert.equal(isTypingTarget({ tagName: 'TEXTAREA' }), true);
+    assert.equal(isTypingTarget({ tagName: 'DIV', isContentEditable: true }), true);
+    assert.equal(isTypingTarget({ tagName: 'BUTTON', isContentEditable: false }), false);
+    assert.equal(isTypingTarget({ tagName: 'BODY' }), false);
+    assert.equal(isTypingTarget(null), false);
   });
 
   it('a storage that throws never breaks picking', () => {
