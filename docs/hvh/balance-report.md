@@ -2,6 +2,8 @@
 
 **Result: the balance rule is not met. The stop condition applies.**
 
+**Owner decision R65 (ledger):** keep `chargeTicks` 32 and ship with the balance failure documented. There is no further tuning.
+
 At the shipped values (chargeTicks 32, peek window 4), the full sweep has a max field rate of
 59.5%, with 29 dominant and 12 uncountered configs over the three weapon pairings. One tunable
 changed: the on-peek window went from 8 to 4 commands (`PEEK_TICKS`, `shared/src/hvh/v2/pose.ts`).
@@ -22,11 +24,11 @@ Per R42, the verdict comes from the primary model ('charged': each round starts 
 
 ## How to run
 
-| Command | Grid | Rounds per cell | Runtime (8 workers, this machine) |
+| Command | Grid | Rounds per cell | Runtime (measured wall time, this machine) |
 | --- | --- | --- | --- |
-| `npm run sweep` | 36 configs, 630 pairs, × 3 pairings | 200 | about 47 min |
-| `npm run sweep -- --rounds 100` | same | 100 | about 18 min |
-| `npm run sweep:quick` | 12-config `QUICK_GRID` × 3 pairings | 60 | about 95 s |
+| `npm run sweep` | 36 configs, 630 pairs, × 3 pairings | 200 | about 47 min (8 workers) |
+| `npm run sweep -- --rounds 100` | same | 100 | about 18 min (8 workers) |
+| `npm run sweep:quick` | 12-config `QUICK_GRID` × 3 pairings | 60 | about 2.5-3.5 min (153 s with 8 workers, 196 s with the default 6) |
 
 The optional flags are:
 - `--rounds N`, `--seed N` and `--json PATH`.
@@ -38,7 +40,8 @@ The optional flags are:
 
 `--def`, `--recharge` and `--hs` were removed, because the charge model has no such tunables.
 Rooms are independent seeded jobs, so the results are identical for any worker count. A unit test
-compares the parallel and serial sweeps. The tool header in `tools/hvh-sweep.ts` documents the
+(`hvhSweep.test.ts`) checks that `runSweepParallel` gives the same matrix and stats as the
+serial `runSweep`. The first failing job fails the whole run. The tool header in `tools/hvh-sweep.ts` documents the
 model in full.
 
 ## The model
@@ -54,8 +57,8 @@ model in full.
   rounds.
   - The freeze runs `chargeTicks` ordinary commands behind cover, with DT and HS on, so every DT or
     HS life goes live fully charged. That held for 126,000 of 126,000 lives in the final run.
-  - A round ends at the first death, or is a draw after 960 live ticks. Fewer than 0.1% of rounds
-    were draws.
+  - A round ends at the first death, or is a draw after 960 live ticks. About 0.1% of rounds
+    were draws (0.1-0.2% per pairing).
   - Sides swap every round, and the inverter is a seeded coin.
 - **Weapons.**
   - Pairings: ssg08 vs ssg08, scar20 vs scar20, and mixed. In the mixed pairing each cell plays
@@ -118,7 +121,7 @@ Every dominant config is DT or HS on the static or stance preset. The highest fi
 
 Field SE is 0.6% and cell SE is about 3.5%.
 
-Mean field rate by axis (ssg08; the other two pairings are within about 1 point):
+Mean field rate by axis (ssg08; the other two pairings are within about 3 points):
 
 | Exploit | none | dt | hs | fakelag14 |
 | --- | --- | --- | --- | --- |
@@ -145,7 +148,7 @@ The mechanics are exercised:
 - DT on the SSG 08 never gets a second bullet: its 80-tick interval exceeds the burst, so the
   bullet is 'fire interval' rejected.
 
-The quick sweep at the shipped values (`npm run sweep:quick`, 60 rounds per cell, 95 s) is not ok:
+The quick sweep at the shipped values (`npm run sweep:quick`, 60 rounds per cell, 153 s with 8 workers) is not ok:
 max field rate 60.8%, 11 dominant, 5 uncountered.
 
 ## Tuning steps

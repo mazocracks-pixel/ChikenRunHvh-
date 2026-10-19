@@ -25,7 +25,7 @@
   - `chargeTicks` 32 (0.5 s at 64 Hz).
   - Freeze time 5000 ms, round 115000 ms, round-end banner 5000 ms.
   - First to 13 rounds, at most 24, sides swap after 12 rounds played, warmup 15000 ms.
-  - Peek window 8 ticks.
+  - Peek window 8 ticks. (Task 10 tuned it to 4: `PEEK_TICKS` in `shared/src/hvh/v2/pose.ts`; take the value from there.)
   - Random-pitch interval 4 ticks, flick length 4 ticks, flick angle 120°.
 
 ## Review Focus

@@ -672,8 +672,16 @@ export async function runSweepParallel(grid: SweepGrid, roundsPerCell: number, s
   let next = 0;
   let finished = 0;
   const setup: WorkerSetup = { hvhSweepWorker: true, grid, era, pairing, model: opts.model ?? 'charged', oracle: opts.oracle === true };
+  const pool: Worker[] = [];
+  /** The first failure fails the run at once: no more jobs are handed out and every other worker stops. */
+  const fail = (e: Error): Error => {
+    next = jobs.length;
+    for (const w of pool) void w.terminate();
+    return e;
+  };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(workers, jobs.length)) }, () => new Promise<void>((resolve, reject) => {
     const worker = new Worker(new URL(import.meta.url), { workerData: setup });
+    pool.push(worker);
     const feed = (): void => {
       if (next < jobs.length) worker.postMessage({ k: next, job: jobs[next++] });
       else worker.postMessage({ done: true });
@@ -687,8 +695,8 @@ export async function runSweepParallel(grid: SweepGrid, roundsPerCell: number, s
       if (++finished % roomsPerCell === 0) opts.onCell?.(finished / roomsPerCell, total);
       feed();
     });
-    worker.on('error', reject);
-    worker.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`sweep worker exited ${code}`))));
+    worker.on('error', (e: unknown) => reject(fail(e instanceof Error ? e : new Error(String(e)))));
+    worker.on('exit', (code) => (code === 0 ? resolve() : reject(fail(new Error(`sweep worker exited ${code}`)))));
     feed();
   })));
   return matrixOf(grid, roundsPerCell, jobs, scores);

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   DEFENSIVES, EXPLOITS, FULL_GRID, PAIRINGS, QUICK_GRID, antiAimFor, cellSE, checkBalance, classifyCounters, configName,
-  createStats, fieldSE, parseArgs, runSweep, threeCycles, type SweepConfig, type WinMatrix,
+  createStats, fieldSE, parseArgs, runSweep, runSweepParallel, threeCycles, type SweepConfig, type WinMatrix,
 } from '../../../tools/hvh-sweep';
 
 /** rate[i][j] for i < j from `upper`; rate[j][i] = 1 - rate[i][j]; the diagonal is unused (NaN). */
@@ -152,6 +152,17 @@ describe('runSweep on Mirage', () => {
     runSweep(grid, 4, 0x14, { pairing: 'mixed', stats: sa });
     runSweep(grid, 4, 0x15, { pairing: 'mixed', stats: sb });
     assert.notEqual(sb.roundTicks, sa.roundTicks, 'a different seed changes the rounds');
+  });
+
+  it('runSweepParallel (worker threads) gives the same matrix and stats as runSweep', async () => {
+    const [serial, parallel] = [createStats(), createStats()];
+    const a = runSweep(grid, 4, 0x14, { pairing: 'mixed', stats: serial });
+    const b = await runSweepParallel(grid, 4, 0x14, 2, { pairing: 'mixed', stats: parallel });
+    assert.deepStrictEqual(b, a);
+    // Workers merge their stats in any order: compare the causes as sorted entries.
+    const plain = (st: typeof serial) => ({ ...st, causes: [...st.causes].map(([k, m]) => [k, [...m].sort()] as const).sort() });
+    assert.deepStrictEqual(plain(parallel), plain(serial));
+    assert.ok(parallel.rounds > 0);
   });
 
   it('every DT / HS life goes live charged; bursts and mid-round recharges behind cover happen', () => {
