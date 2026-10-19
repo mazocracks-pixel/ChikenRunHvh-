@@ -37,12 +37,13 @@ export function defaultSkeetConfig(): SkeetConfig {
     fakeLag: { enabled: false, limit: 6, mode: 'static', breakOnShot: true },
     indicators: { binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' }, era: DEFAULT_ERA_ID };
 }
-/** The weapon's own profile; legacy-room guns use the nearest: scoped ones the Scout's, pistols the Deagle's, the rest the Auto's. */
+/**
+ * The weapon's own profile. Legacy-room guns: scoped ones use the Scout's; everything else uses the
+ * Deagle's, whose defaults are the old base profile, so legacy rooms aim as before by default (R68).
+ */
 export function skeetProfileId(w: WeaponDef): SkeetProfileId {
   if ((SKEET_PROFILE_IDS as readonly string[]).includes(w.id)) return w.id as SkeetProfileId;
-  if (w.scope) return 'ssg08';
-  if (['pistol', 'mpistol', 'revolver', 'deagle', 'fiveseven', 'dualies', 'silenced'].includes(w.id)) return 'deserteagle';
-  return 'scar20';
+  return w.scope ? 'ssg08' : 'deserteagle';
 }
 export function skeetProfile(c: DevConfig, w: WeaponDef): WeaponProfile {
   return c.skeet.profiles[skeetProfileId(w)];

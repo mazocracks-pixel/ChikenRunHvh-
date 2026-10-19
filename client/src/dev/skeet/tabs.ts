@@ -39,7 +39,7 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
       ];
     } };
   // R57: defensive on/off is stored per stance, and this one toggle writes all five.
-  const defensive: Control = { type: 'toggle', label: 'Defensive', hint: 'Each stance sets its own defensive pattern under its icon',
+  const defensive: Control = { type: 'toggle', label: 'Defensive', hint: 'On for every stance or off for every stance (shows on if any stance is on). Each stance sets its own pattern under its icon',
     bind: { get: () => V2_STANCES.some(s => dev.config.hvh.v2AntiAim.defensive[s].enabled), set: v => { for (const s of V2_STANCES) dev.set(`hvh.v2AntiAim.defensive.${s}.enabled`, v); } } };
   const stancePicker: Control = { type: 'picker', label: 'Stance', keywords: 'standing moving air crouch slow walk yaw jitter desync defensive', bind: pick('antiaim', V2_STANCES[0]!),
     options: V2_STANCES.map(s => ({ value: s, label: STANCE_NAMES[s], icon: STANCE_ICONS[s] })),
@@ -111,7 +111,6 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
           for (const s of V2_STANCES) c.hvh.v2AntiAim.defensive[s] = { ...c.hvh.v2AntiAim.defensive[s], enabled: true, onPeek: true, yaw: 'flick' };
           dev.replaceConfig(c);
         }),
-        recipe('State jitter', () => { const c = structuredClone(dev.config); c.hvh.antiAim.enabled = c.skeet.antiAim.enabled = true; c.skeet.antiAim.jitterMode = 'center'; c.skeet.antiAim.desyncMode = 'alternate'; dev.replaceConfig(c); }),
         info('Recipe library', () => 'Apply a recipe, adjust its settings, then save it as a config.'),
         info('Controller hooks', () => 'Command, observations, candidates, anti-aim, shot results and rendering. Add typed controllers in the game source.'),
       ] },

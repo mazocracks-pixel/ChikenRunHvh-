@@ -29,7 +29,8 @@ it('weapon profiles are keyed by the four arsenal guns; legacy-roster guns use t
   for (const id of SKEET_PROFILE_IDS) assert.equal(skeetProfileId(WEAPONS[id]), id);
   assert.equal(skeetProfileId(WEAPONS.scout), 'ssg08'); assert.equal(skeetProfileId(WEAPONS.sniper), 'ssg08');
   assert.equal(skeetProfileId(WEAPONS.deagle), 'deserteagle'); assert.equal(skeetProfileId(WEAPONS.pistol), 'deserteagle');
-  assert.equal(skeetProfileId(WEAPONS.rifle), 'scar20'); assert.equal(skeetProfileId(WEAPONS.butterfly), 'scar20');
+  // R68: every other legacy gun uses the Deagle's profile, whose defaults are the old base profile.
+  for (const id of ['rifle', 'smg', 'lmg', 'minigun', 'autoshotgun', 'butterfly', 'rocket'] as const) assert.equal(skeetProfileId(WEAPONS[id]), 'deserteagle', id);
   for (const id of WEAPON_IDS) assert.ok(SKEET_PROFILE_IDS.includes(skeetProfileId(WEAPONS[id])));
   c.skeet.profiles.r8.minDamage = 45;
   assert.equal(skeetProfile(c, WEAPONS.r8), c.skeet.profiles.r8);
@@ -174,12 +175,32 @@ it('each tab remembers its own picker selection', async () => {
   const { buildSkeetTabs } = await import('../src/dev/skeet/tabs');
   const dev = await fakeDev();
   const picker = (id: string) => pickersOf(buildSkeetTabs(dev as never).find(t => t.id === id)!)[0]!;
-  picker('rage').bind.set('r8');
-  picker('antiaim').bind.set('airborne');
-  assert.equal(picker('rage').bind.get(), 'r8');
-  assert.equal(picker('antiaim').bind.get(), 'airborne');
-  picker('rage').bind.set('ssg08');
-  assert.equal(picker('antiaim').bind.get(), 'airborne');
+  const was = { rage: picker('rage').bind.get(), antiaim: picker('antiaim').bind.get() };
+  try {
+    picker('rage').bind.set('r8');
+    picker('antiaim').bind.set('airborne');
+    assert.equal(picker('rage').bind.get(), 'r8');
+    assert.equal(picker('antiaim').bind.get(), 'airborne');
+    picker('rage').bind.set('ssg08');
+    assert.equal(picker('antiaim').bind.get(), 'airborne');
+  } finally {
+    // The picks live for the page session: leave them as found for later tests.
+    picker('rage').bind.set(was.rage);
+    picker('antiaim').bind.set(was.antiaim);
+  }
+});
+
+it('legacy HvH rooms aim as before Task 12 by default: non-arsenal rifles, heavy guns and melee keep the old base profile', () => {
+  // The pre-Task-12 default 'rifles', 'heavy' and 'general' group profiles, written out.
+  const oldBase = { minDamage: 20, hitchance: 60, bodyAim: 'lethal', multipoint: true, pointScale: 50, safePoints: true, autoStop: true, autoScope: false };
+  const c = defaultConfig('skeet');
+  for (const id of ['rifle', 'lmg', 'minigun', 'butterfly'] as const) {
+    assert.deepEqual({ ...skeetProfile(c, WEAPONS[id]) }, oldBase, id);
+    const aim = skeetEffectiveConfig(c, WEAPONS[id]).hvh.aim;
+    assert.equal(aim.minDamage, 20, id);
+    assert.equal(aim.hitchance, 60, id);
+    assert.equal(aim.bodyAim, 'lethal', id);
+  }
 });
 
 it('a picker renders an icon row; clicking an icon shows only that value\'s controls beneath it', async () => {
