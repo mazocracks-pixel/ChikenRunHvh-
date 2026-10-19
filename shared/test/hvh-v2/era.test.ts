@@ -18,6 +18,7 @@ describe('Era table and validation (v2)', () => {
     assert.equal(LATE_CSGO.maxDesyncDeg, 58);
     assert.equal(LATE_CSGO.desyncRunFalloff, 0.5);
     assert.equal(LATE_CSGO.lagCompBreakHulls, 2);
+    assert.ok(Math.abs(LATE_CSGO.maxPitchDeg - (1.2 * 180) / Math.PI) < 1e-12, 'the hitbox pitch limit (1.2 rad)');
     for (const gone of ['doubleTapShift', 'doubleTapShiftOptions', 'hideShotsShift', 'defensiveShift', 'rechargeDelayTicks']) {
       assert.ok(!(gone in LATE_CSGO), `${gone} is no longer an era field`);
     }

@@ -1,3 +1,5 @@
+import { CHICKEN_POSE } from '../../chickenPose';
+
 export interface EraTable {
   id: string;
   tickRate: 64;
@@ -7,6 +9,8 @@ export interface EraTable {
   maxChoke: number;
   lagCompWindowMs: number;
   maxDesyncDeg: number;
+  /** Largest |pitch| a pose may take, degrees (the hitbox head pose clamps here too). */
+  maxPitchDeg: number;
   desyncRunFalloff: number;
   lagCompBreakHulls: number;
 }
@@ -19,6 +23,8 @@ export const LATE_CSGO: EraTable = Object.freeze({
   maxChoke: 14,
   lagCompWindowMs: 200,
   maxDesyncDeg: 58,
+  // CHICKEN_POSE.pitchLimit (1.2 rad, about 68.75 deg): beyond it the head pose no longer moves.
+  maxPitchDeg: (CHICKEN_POSE.pitchLimit * 180) / Math.PI,
   desyncRunFalloff: 0.5,
   lagCompBreakHulls: 2,
 });

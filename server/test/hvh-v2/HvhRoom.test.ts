@@ -975,8 +975,8 @@ describe('charge and burst', () => {
 describe('per-stance anti-aim and defensive patterns', () => {
   /** A's eye yaw offset from its backward base (aim yaw 0), degrees. */
   const offsetOf = (room: HvhRoom, pid: number) => wrapAngle(room.v2State(pid)!.pose.eyeYaw - Math.PI) / (Math.PI / 180);
-  const flickAt = (tick: number) => (tick % 8 < 4 ? (Math.floor(tick / 8) % 2 === 0 ? 120 : -120) : 0);
   const STANCE: StanceAA = { base: 'backward', yawOffsetDeg: 0, jitterDeg: 0, desyncDeg: 30 };
+  const near = (actual: number, expected: number, msg: string) => assert.ok(Math.abs(actual - expected) < 1e-9, `${msg}: ${actual}`);
 
   /** A behind the wall from B, with AA on and the on-peek flick on every stance. */
   function peekDuel() {
@@ -998,26 +998,40 @@ describe('per-stance anti-aim and defensive patterns', () => {
       assert.equal(offsetOf(room, a.pid), 0, `hidden, command ${i}: the plain stance`);
     }
     place(b, 25, 20);
-    const flicked: number[] = [];
     for (let i = 0; i < 8; i++) {
       d.tick({});
-      const tick = room.tickbaseOf(a.pid)!.tickbase;
       assert.equal(room.v2State(a.pid)!.peek.at(-1), 8 - i, `window command ${i}: peekTicksLeft`);
-      assert.ok(Math.abs(offsetOf(room, a.pid) - flickAt(tick)) < 1e-9, `window command ${i} (tick ${tick}): offset ${offsetOf(room, a.pid)}`);
-      if (flickAt(tick) !== 0) flicked.push(tick);
+      near(offsetOf(room, a.pid), i < 4 ? 120 : 0, `window command ${i}: the first window flicks +120`);
     }
-    assert.equal(flicked.length, 4, 'a flick is 4 of the 8 window ticks');
     for (let i = 0; i < 12; i++) {
       d.tick({});
       assert.equal(room.v2State(a.pid)!.peek.at(-1), 0);
       assert.equal(offsetOf(room, a.pid), 0, `still visible, command ${i}: no new window`);
     }
-    // Hidden again, then seen again: a new window.
+    // Hidden again, then seen again: a new window, flicking to the other side.
     place(b, 20, 10);
     d.tick({});
     place(b, 25, 20);
     d.tick({});
     assert.equal(room.v2State(a.pid)!.peek.at(-1), 8);
+    near(offsetOf(room, a.pid), -120, 'the second window flicks -120');
+  });
+
+  it('the on-peek flick fires on window commands 0-3 at every tickbase alignment', (t) => {
+    for (const align of [0, 2, 4, 6]) {
+      const { room, a, b, d } = peekDuel();
+      t.after(() => room.close());
+      // Idle until the next command's tickbase (before + 1) is `align` mod 8.
+      d.tick({});
+      while ((room.tickbaseOf(a.pid)!.tickbase + 1) % 8 !== align) d.tick({});
+      place(b, 25, 20);
+      for (let w = 0; w < 8; w++) {
+        d.tick({});
+        const tick = room.tickbaseOf(a.pid)!.tickbase;
+        if (w === 0) assert.equal(tick % 8, align, 'precondition: the window opens at this alignment');
+        near(offsetOf(room, a.pid), w < 4 ? 120 : 0, `align ${align}, window command ${w} (tick ${tick})`);
+      }
+    }
   });
 
   it('the window spends no charge and shifts no tickbase', (t) => {

@@ -6,9 +6,9 @@
  */
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
-import { CHICKEN_POSE, SIM_DT, createCollisionWorld, defaultHvhLoadout, hopMaxFor, hvhPitch, moveSpeedFor, MAPS, PLAYER, clamp, stanceAntiAimFrom, stepPlayer, type MoveState } from '@game/shared';
+import { SIM_DT, createCollisionWorld, defaultHvhLoadout, hopMaxFor, hvhPitch, moveSpeedFor, MAPS, PLAYER, clamp, stanceAntiAimFrom, stepPlayer, type MoveState } from '@game/shared';
 import {
-  INITIAL_POSE, LATE_CSGO, PEEK_TICKS, holdForCharge, movementSteps, stepPose, stepTickbase, type PoseState, type ShotVerdict, type TickbaseState,
+  INITIAL_POSE, LATE_CSGO, PEEK_TICKS, defensiveActive, holdForCharge, stanceOf, movementSteps, stepPose, stepTickbase, type PoseState, type ShotVerdict, type TickbaseState,
 } from '@game/shared/hvh/v2';
 import { PredictedTickbase } from '../../../client/src/hvh/PredictedTickbase';
 import { stepRoom } from '../helpers';
@@ -103,10 +103,10 @@ describe('HvH v2 determinism gate', () => {
     assert.ok(first.kills.some((k) => k > 0), 'someone scored a kill');
     const poses = [...first.records.values()].flat().map((r) => r.poseAfter.realSide);
     assert.ok(poses.includes('left') && poses.includes('right') && poses.includes('center'), 'desync sides and no desync all occur');
-    // Per-stance AA with defensive patterns: on-peek windows open, and defensive pitches (beyond the visual pitch limit) occur.
+    // Per-stance AA with defensive patterns, and on-peek windows open (both flick sides).
     assert.ok(recs.some((r) => r.v2AntiAim) && recs.some((r) => !r.v2AntiAim), 'per-stance and single-stance AA both run');
     assert.ok(recs.some((r) => r.peek.includes(PEEK_TICKS)), 'some on-peek window opened');
-    assert.ok(recs.some((r) => r.aliveBefore && Math.abs(r.poseAfter.pitch) > CHICKEN_POSE.pitchLimit), 'some defensive pitch was set');
+    assert.ok(recs.some((r) => r.peekSides.includes(1)) && recs.some((r) => r.peekSides.includes(-1)), 'both flick sides occur');
   });
 
   it('replay through the server is bit-identical', () => {
@@ -121,6 +121,7 @@ describe('HvH v2 determinism gate', () => {
   it('replay through client prediction matches the server every tick', () => {
     const world = createCollisionWorld(MAPS[MAP]);
     let compared = 0;
+    let defensive = 0;
     for (const [pid, recs] of first.records) {
       let predicted: PredictedTickbase | null = null;
       let pose: PoseState = INITIAL_POSE;
@@ -159,7 +160,9 @@ describe('HvH v2 determinism gate', () => {
           const config = { ...(r.v2AntiAim ?? stanceAntiAimFrom(aa)), inverted: c.frame.invert === true };
           const pitch = hvhPitch(c.frame.pitch, { ...defaultHvhLoadout(), antiAim: aa });
           pose = stepPose({ ...pose, pitch }, c.frame.yaw, config, motion, tb.state.tickbase, LATE_CSGO,
-            { seed: r.aaSeed, peekTicksLeft: r.peek[k]!, slowWalk: c.frame.slowWalk === true });
+            { seed: r.aaSeed, peekTicksLeft: r.peek[k]!, slowWalk: c.frame.slowWalk === true, peekSide: r.peekSides[k]! });
+          const stance = stanceOf({ ...motion, slowWalk: c.frame.slowWalk === true });
+          if (defensiveActive(config.defensive[stance], stance, r.peek[k]!)) defensive++;
           for (let i = 1; i < steps; i++) step();
         });
         assert.deepStrictEqual(tb.state, r.tickbaseAfter, `${where}: TickbaseState`);
@@ -172,5 +175,6 @@ describe('HvH v2 determinism gate', () => {
       });
     }
     assert.ok(compared > TICKS * 5, `compared ${compared} player ticks`);
+    assert.ok(defensive > 0, 'some command ran an active defensive pattern');
   });
 });

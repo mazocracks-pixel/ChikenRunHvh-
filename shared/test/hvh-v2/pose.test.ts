@@ -10,6 +10,7 @@ import {
   type StanceAA,
   type V2Stance,
   NO_DEFENSIVE,
+  PEEK_TICKS,
   V2_STANCES,
   stanceOf,
   uniformAntiAim,
@@ -180,6 +181,8 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
   const SLOW: Motion = { speedFraction: 0.3, duck: 0, onGround: true };
   const STANCE: StanceAA = { base: 'backward', yawOffsetDeg: 0, jitterDeg: 0, desyncDeg: 30 };
   const DEF: DefensiveAA = { enabled: true, inAir: false, onPeek: false, always: true, pitch: 'zero', yaw: 'off' };
+  /** The defensive pitch magnitude: 89 within the era limit (R58), 1.2 rad in LATE_CSGO. */
+  const P = Math.min(89, LATE_CSGO.maxPitchDeg);
 
   /** Every stance STANCE (with `stances` overrides), and `defensive` on all five. */
   function withDefensive(defensive: Partial<DefensiveAA>, stances: Partial<Record<V2Stance, Partial<StanceAA>>> = {}): AntiAimConfig {
@@ -239,7 +242,7 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
         const next = stepPose(prev, 0, aa, STAND, tick, LATE_CSGO, { ...CTX, seed });
         assert.equal(next.pitch, pitchAt(tick, seed), `seed ${seed} tick ${tick}: independent of the previous pose`);
         // Brief degrees are CS degrees (down positive); pose pitch is radians, up positive.
-        const expected = -89 + 178 * mulberry32(seed ^ Math.floor(tick / 4))();
+        const expected = -P + 2 * P * mulberry32(seed ^ Math.floor(tick / 4))();
         assert.ok(Math.abs(next.pitch + expected * DEG) < EPS, `seed ${seed} tick ${tick}: mulberry32(seed ^ floor(tick / 4))`);
         if (tick % 4 !== 0) assert.equal(next.pitch, prev.pitch, `seed ${seed} tick ${tick}: held inside the interval`);
         else if (tick > 0) assert.notEqual(next.pitch, prev.pitch, `seed ${seed} tick ${tick}: a new value`);
@@ -257,6 +260,27 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
       const side = Math.floor(tick / 8) % 2 === 0 ? 1 : -1;
       assert.ok(Math.abs(offsetDeg(p) - (on ? 120 * side : 0)) < EPS, `tick ${tick}: offset ${offsetDeg(p)}`);
     }
+  });
+
+  it('an on-peek flick is phased by the window: commands 0-3 on (x peekSide), 4-7 off, at any tick', () => {
+    const aa = withDefensive({ always: false, onPeek: true, yaw: 'flick' });
+    assert.ok(Math.abs(LATE_CSGO.maxPitchDeg - 68.75) < 0.01, 'precondition: P below 89');
+    for (const start of [0, 1, 2, 3, 4, 5, 6, 7, 1001]) {
+      for (const side of [1, -1] as const) {
+        for (let w = 0; w < PEEK_TICKS; w++) {
+          for (const tick of [start + w, start]) { // advancing, or frozen (a charge inside the window)
+            const p = stepPose(INITIAL_POSE, 0, aa, STAND, tick, LATE_CSGO, { ...CTX, peekTicksLeft: PEEK_TICKS - w, peekSide: side });
+            assert.ok(Math.abs(offsetDeg(p) - (w < 4 ? 120 * side : 0)) < EPS, `start ${start} side ${side} w ${w} tick ${tick}: ${offsetDeg(p)}`);
+          }
+        }
+      }
+    }
+    // Another trigger active as well: the tick phase.
+    const both = withDefensive({ always: false, onPeek: true, inAir: true, yaw: 'flick' });
+    const air = { speedFraction: 0, duck: 0, onGround: false };
+    assert.ok(Math.abs(offsetDeg(stepPose(INITIAL_POSE, 0, both, air, 4, LATE_CSGO, { ...CTX, peekTicksLeft: PEEK_TICKS })) - 0) < EPS, 'in air: tick 4 is off');
+    const always = withDefensive({ always: true, onPeek: true, yaw: 'flick' });
+    assert.ok(Math.abs(offsetDeg(stepPose(INITIAL_POSE, 0, always, STAND, 8, LATE_CSGO, { ...CTX, peekTicksLeft: PEEK_TICKS })) + 120) < EPS, 'always: tick 8 is the -120 flick');
   });
 
   it('spin, random and sideways defensive yaw', () => {
@@ -283,10 +307,10 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
     for (const peekTicksLeft of [1, 8]) {
       const p = stepPose(INITIAL_POSE, 0, aa, STAND, 5, LATE_CSGO, { ...CTX, peekTicksLeft });
       assert.ok(Math.abs(Math.abs(offsetDeg(p)) - 90) < EPS);
-      assert.ok(Math.abs(p.pitch + 89 * DEG) < EPS, 'down 89 deg');
+      assert.ok(Math.abs(p.pitch + P * DEG) < EPS, 'down: the era pitch limit');
     }
     const air = withDefensive({ always: false, inAir: true, pitch: 'up' });
-    assert.ok(Math.abs(stepPose(INITIAL_POSE, 0, air, AIR, 5, LATE_CSGO, CTX).pitch - 89 * DEG) < EPS, 'up 89 deg in the air');
+    assert.ok(Math.abs(stepPose(INITIAL_POSE, 0, air, AIR, 5, LATE_CSGO, CTX).pitch - P * DEG) < EPS, 'up: the era pitch limit, in the air');
     assert.equal(stepPose(INITIAL_POSE, 0, air, STAND, 5, LATE_CSGO, CTX).pitch, 0, 'on the ground: inactive');
   });
 
@@ -311,17 +335,17 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
     }
   });
 
-  it('pitch stays within +-89 deg in every mode; desync limits stay maxDesync', () => {
+  it('pitch stays within the era pitch limit (R58) in every mode; desync limits stay maxDesync', () => {
     for (const pitch of ['down', 'up', 'zero', 'random', 'jitter'] as const) {
       for (const yaw of ['off', 'flick', 'spin', 'random', 'sideways'] as const) {
         const aa = withDefensive({ pitch, yaw }, { standing: { desyncDeg: 58 }, moving: { desyncDeg: 58 } });
         let prev: PoseState | undefined;
         for (let tick = 0; tick < 40; tick++) {
           const p = stepPose(INITIAL_POSE, 0, aa, tick % 2 ? RUN : STAND, tick, LATE_CSGO, { ...CTX, seed: tick * 977 });
-          assert.ok(Math.abs(p.pitch) <= 89 * DEG + EPS, `${pitch}/${yaw} tick ${tick}: pitch ${p.pitch / DEG}`);
+          assert.ok(Math.abs(p.pitch) <= P * DEG + EPS, `${pitch}/${yaw} tick ${tick}: pitch ${p.pitch / DEG}`);
           assert.ok(desyncDeg(p) <= maxDesync(tick % 2 ? 1 : 0, LATE_CSGO) + EPS, `${pitch}/${yaw} tick ${tick}: desync ${desyncDeg(p)}`);
           assert.ok(!Object.is(p.pitch, -0));
-          if (pitch === 'jitter' && prev) assert.ok(Math.abs(p.pitch + prev.pitch) < EPS && Math.abs(Math.abs(p.pitch) - 89 * DEG) < EPS, 'alternates +-89');
+          if (pitch === 'jitter' && prev) assert.ok(Math.abs(p.pitch + prev.pitch) < EPS && Math.abs(Math.abs(p.pitch) - P * DEG) < EPS, 'alternates +-P');
           if (pitch === 'zero') assert.equal(p.pitch, 0);
           prev = p;
         }

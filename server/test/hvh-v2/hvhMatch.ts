@@ -221,6 +221,8 @@ export interface PlayerTickRecord {
   aaSeed: number;
   /** The peekTicksLeft the server stepped each executed command's pose with (HvhPlayerV2.peek). */
   peek: number[];
+  /** The on-peek flick side of each executed command (HvhPlayerV2.peekSides). */
+  peekSides: (1 | -1)[];
   weapon: ServerPlayer['weapon'];
 }
 
@@ -239,6 +241,6 @@ export function recordTicks(room: HvhRoom, sink: (pid: number, r: PlayerTickReco
       antiAim: { ...p.hvh.antiAim }, v2AntiAim: p.hvh.v2AntiAim && structuredClone(p.hvh.v2AntiAim), aaSeed: s.aaSeed, weapon: p.weapon,
     };
     original(playerId, now);
-    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), sight: [...s.sight], peek: [...s.peek], stateAfter: structuredClone(p.state), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
+    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), sight: [...s.sight], peek: [...s.peek], peekSides: [...s.peekSides], stateAfter: structuredClone(p.state), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
   };
 }

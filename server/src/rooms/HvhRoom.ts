@@ -125,7 +125,9 @@ import type { ServerPlayer } from './ServerPlayer';
  *   defensive pattern only changes the pose: no charge, no tickbase shift, records stay valid.
  *   The on-peek window opens for PEEK_TICKS commands when the same lag-compensated sight turns
  *   false -> true; it is only watched (and sight traced every command) while some stance has an
- *   on-peek pattern. The random patterns are seeded from the pid (HvhPlayerV2.aaSeed).
+ *   on-peek pattern. An on-peek flick fires on window commands 0-3, its side alternating per
+ *   window (HvhPlayerV2.peekSide). The random patterns are seeded from the room seed (or a random
+ *   one when the room has none) and the pid (HvhPlayerV2.aaSeed).
  * - Targets (R24): the first enemy body the un-deviated aim ray intersects, traced against each
  *   enemy's lag record at the view tick (real pose, crouch scale; poseMatrix, as processShot).
  *   A client-named target (legacy fire intent.target) is only a hint: used when it is that body,
@@ -252,12 +254,16 @@ export interface HvhPlayerV2 {
   executed: number;
   /** The enemyVisible each of this tick's commands was stepped with, in order (headless matches replay prediction from it). */
   sight: boolean[];
-  /** Seeds the defensive random pitch and yaw (stepPose ctx.seed); from the pid. */
+  /** Seeds the defensive random pitch and yaw (stepPose ctx.seed): from the room seed and the pid, so opponents cannot derive it. */
   aaSeed: number;
   /** Commands left in the on-peek window: PEEK_TICKS when an enemy becomes visible, then -1 per command. */
   peekTicksLeft: number;
   /** An enemy was in sight at the last command that watched for a peek. */
   enemySeen: boolean;
+  /** The flick side of the current on-peek window: +1, -1, +1, ... per window opened. */
+  peekSide: 1 | -1;
+  /** The peekSide each of this tick's commands stepped its pose with, in order. */
+  peekSides: (1 | -1)[];
   /** The peekTicksLeft each of this tick's commands stepped its pose with, in order (headless matches replay prediction from it). */
   peek: number[];
   /** Server tick of the newest pushed record. */
@@ -323,11 +329,14 @@ export class HvhRoom extends GameRoom {
   private round: HvhRoundState = hvhWarmup();
   /** Every player as they stood at the start of this tick (the end of the last), for enemy sight. */
   private readonly sightTargets = new Map<number, SightTarget>();
+  /** Mixed with each pid into HvhPlayerV2.aaSeed: the room seed, or a random one. */
+  private readonly aaSeedBase: number;
 
   constructor(io: GameServer, options: HvhRoomOptions, hooks: RoomHooks = {}) {
     super(io, options, hooks);
     this.hvhEngine = options.hvhEngine === 'v2' ? 'v2' : 'legacy';
     this.rounds = this.hvhEngine === 'v2' && options.hvhRounds !== false;
+    this.aaSeedBase = options.seed !== undefined ? options.seed >>> 0 : (Math.random() * 2 ** 32) >>> 0;
   }
 
   private get v2(): boolean {
@@ -408,9 +417,11 @@ export class HvhRoom extends GameRoom {
         pendingBullet: null,
         executed: 0,
         sight: [],
-        aaSeed: Math.imul(p.pid, 0x9e3779b1) >>> 0,
+        aaSeed: Math.imul((this.aaSeedBase ^ p.pid) >>> 0, 0x9e3779b1) >>> 0,
         peekTicksLeft: 0,
         enemySeen: false,
+        peekSide: -1,
+        peekSides: [],
         peek: [],
         lastRecordTick: -Infinity,
         publicState: null,
@@ -507,6 +518,7 @@ export class HvhRoom extends GameRoom {
     s.executed = 0;
     s.sight = [];
     s.peek = [];
+    s.peekSides = [];
     let capture: RecordCapture | null = null;
     while (s.executed < this.era.maxProcessTicks && s.budget >= 1 && s.queue.length > 0) {
       const command = s.queue.shift()!;
@@ -673,17 +685,21 @@ export class HvhRoom extends GameRoom {
 
   /**
    * The on-peek window: when the enemy sight turns false -> true it opens for PEEK_TICKS commands
-   * (this one included), counting down by 1 per command. Closed and reset while not watching.
+   * (this one included), counting down by 1 per command, and each new window flips the flick side.
+   * Closed and reset while not watching.
    */
   private stepPeek(s: HvhPlayerV2, watching: boolean, seen: boolean): void {
     if (!watching) {
       s.peekTicksLeft = 0;
-      s.enemySeen = false;
+    } else if (seen && !s.enemySeen) {
+      s.peekTicksLeft = PEEK_TICKS;
+      s.peekSide = s.peekSide === 1 ? -1 : 1;
     } else {
-      s.peekTicksLeft = seen && !s.enemySeen ? PEEK_TICKS : Math.max(0, s.peekTicksLeft - 1);
-      s.enemySeen = seen;
+      s.peekTicksLeft = Math.max(0, s.peekTicksLeft - 1);
     }
+    s.enemySeen = watching && seen;
     s.peek.push(s.peekTicksLeft);
+    s.peekSides.push(s.peekSide);
   }
 
   /** The newest snapshot sent to the player at or before `t`, if it is inside the unlag window. */
@@ -746,7 +762,7 @@ export class HvhRoom extends GameRoom {
     if (!aa) return { ...s.pose, eyeYaw: frame.yaw, bodyYaw: frame.yaw, pitch, realSide: 'center', eyeOffsetDeg: 0 };
     const config: AntiAimConfig = { ...aa, inverted: frame.invert === true };
     return stepPose({ ...s.pose, pitch }, frame.yaw, config, motion, s.tickbase.tickbase, this.era,
-      { seed: s.aaSeed, peekTicksLeft: s.peekTicksLeft, slowWalk: frame.slowWalk === true });
+      { seed: s.aaSeed, peekTicksLeft: s.peekTicksLeft, slowWalk: frame.slowWalk === true, peekSide: s.peekSide });
   }
 
   private pushRecord(p: ServerPlayer, s: HvhPlayerV2, c: RecordCapture): void {
