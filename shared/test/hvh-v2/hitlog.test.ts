@@ -44,8 +44,6 @@ describe('Hit log text (v2)', () => {
     const expected: Record<TickbaseReject, string> = {
       dtNotCharged: 'double tap not charged',
       hsNotCharged: 'hide shots not charged',
-      defensiveNotCharged: 'defensive not charged',
-      chokeTooHigh: 'choke too high',
     };
     for (const [reject, reason] of Object.entries(expected) as [TickbaseReject, string][]) {
       assert.equal(tickbaseVerdictReason(reject), reason);

@@ -10,9 +10,9 @@ describe('indicatorModel', () => {
   it('bank 14 → dt "ready"', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: 14,
+      charge: 14, // Task 8
       choked: 0,
-      ticksSinceShift: 16,
+      armed: false, // Task 8
     };
     const toggles = { dt: true, hs: false };
     const res = indicatorModel(s, toggles, era);
@@ -25,9 +25,9 @@ describe('indicatorModel', () => {
   it('bank 6 → "charging"', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: 6,
+      charge: 6, // Task 8
       choked: 0,
-      ticksSinceShift: 16,
+      armed: false, // Task 8
     };
     const toggles = { dt: true, hs: false };
     const res = indicatorModel(s, toggles, era);
@@ -40,9 +40,9 @@ describe('indicatorModel', () => {
   it('ticksSinceShift < rechargeDelayTicks → "cooldown"', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: 14,
+      charge: 14, // Task 8
       choked: 0,
-      ticksSinceShift: 10,
+      armed: false, // Task 8
     };
     const toggles = { dt: true, hs: false };
     const res = indicatorModel(s, toggles, era);
@@ -52,9 +52,9 @@ describe('indicatorModel', () => {
   it('choked 14 with bank 14 → dt "charging" (budget 2) and choke 14', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: 14,
+      charge: 14, // Task 8
       choked: 14,
-      ticksSinceShift: 16,
+      armed: false, // Task 8
     };
     const toggles = { dt: true, hs: false };
     const res = indicatorModel(s, toggles, era);
@@ -66,9 +66,9 @@ describe('indicatorModel', () => {
   it('dt is "off" when toggles.dt is false even if bank is full', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: 14,
+      charge: 14, // Task 8
       choked: 0,
-      ticksSinceShift: 16,
+      armed: false, // Task 8
     };
     const toggles = { dt: false, hs: false };
     const res = indicatorModel(s, toggles, era);
@@ -78,9 +78,9 @@ describe('indicatorModel', () => {
   it('hs is "on" when toggles.hs is true, "off" when false', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: 0,
+      charge: 0, // Task 8
       choked: 0,
-      ticksSinceShift: 16,
+      armed: false, // Task 8
     };
     assert.equal(indicatorModel(s, { dt: false, hs: true }, era).hs, 'on');
     assert.equal(indicatorModel(s, { dt: false, hs: false }, era).hs, 'off');
@@ -89,9 +89,9 @@ describe('indicatorModel', () => {
   it('defensive is true when shiftBudget >= era.defensiveShift', () => {
     const s: TickbaseState = {
       tickbase: 100,
-      bank: era.defensiveShift,
+      charge: era.chargeTicks, // Task 8
       choked: 0,
-      ticksSinceShift: 16,
+      armed: false, // Task 8
     };
     assert.equal(indicatorModel(s, { dt: false, hs: false }, era).defensive, true);
   });

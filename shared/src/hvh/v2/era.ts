@@ -2,32 +2,25 @@ export interface EraTable {
   id: string;
   tickRate: 64;
   maxProcessTicks: number;
-  doubleTapShift: number;
-  doubleTapShiftOptions: readonly number[];
+  /** Ticks a DT or hide-shots charge stores (the charging stop's length), all spent by one burst. */
+  chargeTicks: number;
   maxChoke: number;
   lagCompWindowMs: number;
   maxDesyncDeg: number;
   desyncRunFalloff: number;
   lagCompBreakHulls: number;
-  hideShotsShift: number;
-  defensiveShift: number;
-  rechargeDelayTicks: number;
 }
 
 export const LATE_CSGO: EraTable = Object.freeze({
   id: 'late-csgo',
   tickRate: 64,
   maxProcessTicks: 16,
-  doubleTapShift: 14,
-  doubleTapShiftOptions: Object.freeze([12, 14, 16]),
+  chargeTicks: 32,
   maxChoke: 14,
   lagCompWindowMs: 200,
   maxDesyncDeg: 58,
   desyncRunFalloff: 0.5,
   lagCompBreakHulls: 2,
-  hideShotsShift: 8,
-  defensiveShift: 12,
-  rechargeDelayTicks: 16,
 });
 
 export function validateEra(t: EraTable): string[] {
@@ -36,20 +29,11 @@ export function validateEra(t: EraTable): string[] {
   if (!(t.maxChoke <= t.maxProcessTicks)) {
     errors.push('maxChoke exceeds maxProcessTicks');
   }
-  if (!(t.doubleTapShift <= t.maxProcessTicks)) {
-    errors.push('doubleTapShift exceeds maxProcessTicks');
+  if (!(Number.isInteger(t.chargeTicks) && t.chargeTicks >= 1 && t.chargeTicks <= 64)) {
+    errors.push('chargeTicks not an integer in [1,64]');
   }
   if (!(t.desyncRunFalloff >= 0 && t.desyncRunFalloff <= 1)) {
     errors.push('desyncRunFalloff out of range [0,1]');
-  }
-  if (!(t.hideShotsShift <= t.doubleTapShift)) {
-    errors.push('hideShotsShift exceeds doubleTapShift');
-  }
-  if (!(t.defensiveShift <= t.doubleTapShift)) {
-    errors.push('defensiveShift exceeds doubleTapShift');
-  }
-  if (!t.doubleTapShiftOptions.includes(t.doubleTapShift)) {
-    errors.push('doubleTapShift not in doubleTapShiftOptions');
   }
   return errors;
 }

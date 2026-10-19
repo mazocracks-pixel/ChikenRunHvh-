@@ -24,7 +24,7 @@ export class PredictedTickbase {
   private alive = true;
 
   constructor(private readonly era: EraTable = LATE_CSGO, initial?: TickbaseState) {
-    this.current = initial ? { ...initial } : EMPTY_TICKBASE(0, era);
+    this.current = initial ? { ...initial } : EMPTY_TICKBASE(0); // Task 8
     this.synced = initial !== undefined;
   }
 
@@ -48,7 +48,7 @@ export class PredictedTickbase {
       this.shots.shift();
       intent = { ...intent, fire: true };
     }
-    this.current = stepTickbase(this.current, intent, this.era).next;
+    this.current = stepTickbase(this.current, intent, this.era, { enemyVisible: false }).next; // Task 8
     this.unacked.push({ seq, intent, after: this.current });
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
     return true;
@@ -61,7 +61,7 @@ export class PredictedTickbase {
    * the next hvhState. With `alive` false (death), commands are not predicted until the next reset.
    */
   reset(state?: TickbaseState, alive = true): void {
-    this.current = state ? { ...state } : EMPTY_TICKBASE(0, this.era);
+    this.current = state ? { ...state } : EMPTY_TICKBASE(0); // Task 8
     this.unacked = [];
     this.shots = [];
     this.synced = false;
@@ -77,24 +77,21 @@ export class PredictedTickbase {
     if (this.shots.length > MAX_PENDING_FIRES) this.shots.shift();
   }
 
-  /**
-   * `server` is the state after the command `lastAckSeq`. The server serialises ticksSinceShift
-   * capped at rechargeDelayTicks, so the prediction is capped the same way before comparing
-   * (stepTickbase only ever tests ticksSinceShift >= rechargeDelayTicks, so the cap is lossless).
-   */
+  /** `server` is the state after the command `lastAckSeq`. */
   reconcile(server: TickbaseState, lastAckSeq: number): void {
     const at = this.unacked.find((e) => e.seq === lastAckSeq);
     if (this.synced && at) {
       const p = at.after;
-      const same = p.tickbase === server.tickbase && p.bank === server.bank && p.choked === server.choked
-        && Math.min(p.ticksSinceShift, this.era.rechargeDelayTicks) === Math.min(server.ticksSinceShift, this.era.rechargeDelayTicks);
+      // Task 8
+      const same = p.tickbase === server.tickbase && p.charge === server.charge && p.choked === server.choked
+        && p.armed === server.armed;
       if (!same) this.mismatchCount++;
     }
     this.synced = true;
     this.unacked = this.unacked.filter((e) => e.seq > lastAckSeq);
     let s: TickbaseState = { ...server };
     for (const e of this.unacked) {
-      s = stepTickbase(s, e.intent, this.era).next;
+      s = stepTickbase(s, e.intent, this.era, { enemyVisible: false }).next; // Task 8
       e.after = s;
     }
     this.current = s;
@@ -118,8 +115,7 @@ export function commandIntent(o: {
     fire,
     choke: o.held && !fire,
     doubleTap: o.exploit === 'doubleTap',
-    hideShots: o.exploit === 'hideShots',
-    defensive: o.defensive === true,
+    hideShots: o.exploit === 'hideShots', // Task 8: o.defensive no longer reaches the tickbase intent
   };
 }
 

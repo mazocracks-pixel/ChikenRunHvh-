@@ -5,15 +5,16 @@ import { CommandChoker } from '@game/shared';
 import { CommandClock, PredictedTickbase, TickClock, commandIntent, shotReference } from '../../src/hvh/PredictedTickbase';
 
 const era = LATE_CSGO;
-const NONE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false };
+const NONE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false }; // Task 8
+const HIDDEN = { enemyVisible: false }; // Task 8
 const FIRE_DT: CommandIntent = { ...NONE, fire: true, doubleTap: true };
 const CHOKE: CommandIntent = { ...NONE, choke: true };
 
-/** Server side: runs stepTickbase and serialises like hvhStateEvent (ticksSinceShift capped). */
+/** Server side: runs stepTickbase and serialises like hvhStateEvent. */
 function serverRun(start: TickbaseState, intents: CommandIntent[]): TickbaseState {
   let s = start;
-  for (const i of intents) s = stepTickbase(s, i, era).next;
-  return { ...s, ticksSinceShift: Math.min(s.ticksSinceShift, era.rechargeDelayTicks) };
+  for (const i of intents) s = stepTickbase(s, i, era, HIDDEN).next;
+  return { ...s }; // Task 8
 }
 
 const script: CommandIntent[] = [
@@ -23,7 +24,7 @@ const script: CommandIntent[] = [
 
 describe('PredictedTickbase', () => {
   it('prediction matches server', () => {
-    const start = EMPTY_TICKBASE(100, era);
+    const start = EMPTY_TICKBASE(100);
     const p = new PredictedTickbase(era, start);
     script.forEach((intent, i) => p.apply(i + 1, intent));
     for (const ack of [5, 12, script.length]) {
@@ -34,20 +35,20 @@ describe('PredictedTickbase', () => {
   });
 
   it('reconcile replays unacked', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     const intents = script.slice(0, 14);
     intents.forEach((intent, i) => p.apply(i + 1, intent));
     p.reconcile(serverRun(start, intents.slice(0, 10)), 10);
     // Uncapped full replay (the server's cap only applies on the wire).
     let expected = serverRun(start, intents.slice(0, 10));
-    for (const i of intents.slice(10)) expected = stepTickbase(expected, i, era).next;
+    for (const i of intents.slice(10)) expected = stepTickbase(expected, i, era, HIDDEN).next;
     assert.deepEqual(p.state, expected);
     assert.equal(p.mismatches, 0);
   });
 
   it('a fire message whose command was lost fires on the next command, as the server attaches it', () => {
-    const start = { ...EMPTY_TICKBASE(0, era), bank: era.doubleTapShift };
+    const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks }; // Task 8
     const p = new PredictedTickbase(era, start);
     const dtArmed: CommandIntent = { ...NONE, doubleTap: true };
     p.shot(3);
@@ -56,36 +57,36 @@ describe('PredictedTickbase', () => {
     // Command 3 (intent.fire) never left; the fire message did. The server runs it with command 4.
     p.apply(4, dtArmed);
     let expected = start;
-    for (const i of [dtArmed, dtArmed, FIRE_DT]) expected = stepTickbase(expected, i, era).next;
+    for (const i of [dtArmed, dtArmed, FIRE_DT]) expected = stepTickbase(expected, i, era, HIDDEN).next;
     assert.deepEqual(p.state, expected);
     // Consumed once: the next command is not a shot.
     p.apply(5, NONE);
-    assert.deepEqual(p.state, stepTickbase(expected, NONE, era).next);
+    assert.deepEqual(p.state, stepTickbase(expected, NONE, era, HIDDEN).next);
   });
 
   it('keeps at most MAX_PENDING_FIRES waiting shots, dropping the oldest like the server', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     for (const seq of [1, 2, 3, 4, 5]) p.shot(seq);
     for (let seq = 1; seq <= 5; seq++) p.apply(seq + 10, NONE);
     // Shot 1 was dropped: the first four commands fire, the fifth banks (five shots would leave the bank empty).
     let firstFour = start;
     for (const i of [{ ...NONE, fire: true }, { ...NONE, fire: true }, { ...NONE, fire: true }, { ...NONE, fire: true }, NONE]) {
-      firstFour = stepTickbase(firstFour, i, era).next;
+      firstFour = stepTickbase(firstFour, i, era, HIDDEN).next;
     }
     assert.deepEqual(p.state, firstFour);
   });
 
   it('reset drops predictions and pending shots, and the next hvhState only snaps', () => {
-    const start = { ...EMPTY_TICKBASE(0, era), bank: era.doubleTapShift };
+    const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks }; // Task 8
     const p = new PredictedTickbase(era, start);
     p.apply(1, NONE);
     p.shot(5);
     p.reset();
-    assert.deepEqual(p.state, EMPTY_TICKBASE(0, era));
+    assert.deepEqual(p.state, EMPTY_TICKBASE(0));
     assert.equal(p.pendingCount, 0);
     // The server's fresh life (any tick) is adopted without a mismatch, then prediction resumes.
-    const spawned = EMPTY_TICKBASE(400, era);
+    const spawned = EMPTY_TICKBASE(400);
     p.apply(2, NONE);
     p.reconcile(serverRun(spawned, [NONE]), 2);
     assert.equal(p.mismatches, 0);
@@ -98,13 +99,13 @@ describe('PredictedTickbase', () => {
   });
 
   it('reset at death predicts nothing until the next reset (the server runs those commands without a tickbase)', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     p.apply(1, NONE);
     p.reset(undefined, false);
     assert.equal(p.apply(2, NONE), false);
     assert.equal(p.pendingCount, 0);
-    const dead = EMPTY_TICKBASE(50, era);
+    const dead = EMPTY_TICKBASE(50);
     p.reconcile(dead, 2);
     p.reconcile(dead, 3);
     assert.equal(p.mismatches, 0);
@@ -113,20 +114,20 @@ describe('PredictedTickbase', () => {
   });
 
   it('mismatch counted and snaps to server', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     const intents = script.slice(0, 14);
     intents.forEach((intent, i) => p.apply(i + 1, intent));
-    const bad = { ...serverRun(start, intents.slice(0, 10)), bank: 3 };
+    const bad = { ...serverRun(start, intents.slice(0, 10)), charge: 3 }; // Task 8
     p.reconcile(bad, 10);
     assert.equal(p.mismatches, 1);
     let expected = bad;
-    for (const i of intents.slice(10)) expected = stepTickbase(expected, i, era).next;
+    for (const i of intents.slice(10)) expected = stepTickbase(expected, i, era, HIDDEN).next;
     assert.deepEqual(p.state, expected);
   });
 
   it('capped ticksSinceShift on the server is not a mismatch', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     const intents = Array.from({ length: 40 }, () => NONE);
     intents.forEach((intent, i) => p.apply(i + 1, intent));
@@ -135,20 +136,20 @@ describe('PredictedTickbase', () => {
   });
 
   it('bounds the unacked buffer', () => {
-    const p = new PredictedTickbase(era, EMPTY_TICKBASE(0, era));
+    const p = new PredictedTickbase(era, EMPTY_TICKBASE(0));
     for (let i = 1; i <= 500; i++) p.apply(i, NONE);
     assert.ok(p.pendingCount <= 128);
   });
 
   it('first reconcile without prior prediction is not a mismatch', () => {
     const p = new PredictedTickbase(era);
-    p.reconcile({ tickbase: 50, bank: 4, choked: 0, ticksSinceShift: 3 }, 7);
+    p.reconcile({ tickbase: 50, charge: 4, choked: 0, armed: false }, 7); // Task 8
     assert.equal(p.mismatches, 0);
     assert.equal(p.state.tickbase, 50);
   });
 
   it('a dropped command (seq gap) leaves no mismatch', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     const seqs = [1, 2, 4, 5, 6]; // 3 lost in the network, never emitted
     const executed = seqs.map((q) => script[q - 1]!);
@@ -158,7 +159,7 @@ describe('PredictedTickbase', () => {
   });
 
   it('a reordered batch leaves no mismatch', () => {
-    const start = EMPTY_TICKBASE(0, era);
+    const start = EMPTY_TICKBASE(0);
     const p = new PredictedTickbase(era, start);
     const emitted = [1, 2, 5, 6, 3, 4, 7]; // 3,4 arrive late: the server drops them
     const applied = emitted.filter((q) => p.apply(q, script[q - 1]!));

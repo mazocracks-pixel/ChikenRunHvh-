@@ -401,7 +401,6 @@ export interface InputCommand extends InputFrame {
  * HvH v2, sent to the owning player only, once per server tick in which their commands ran.
  * `lastAckSeq` is the seq of the last command the server executed (the same value as the
  * snapshot's `ack`), so client prediction can drop acknowledged commands and replay the rest.
- * `ticksSinceShift` is capped at the era's rechargeDelayTicks when serialized.
  */
 export interface HvhStateEvent {
   tick: number;
@@ -419,7 +418,7 @@ export interface HvhStateEvent {
 export function hvhStateEvent(tickbase: TickbaseState, era: EraTable, lastAckSeq: number, tick: number, queued = 0): HvhStateEvent {
   return {
     tick,
-    tickbase: { ...tickbase, ticksSinceShift: Math.min(tickbase.ticksSinceShift, era.rechargeDelayTicks) },
+    tickbase: { ...tickbase },
     era: era.id,
     lastAckSeq,
     queued,

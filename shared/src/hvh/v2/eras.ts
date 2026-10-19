@@ -15,9 +15,9 @@ function legacyProfile(id: string, overrides: Partial<EraTable> = {}): EraTable 
     lagCompWindowMs: 300,
     // Legacy desync limit: HVH.maxDesync (58 deg), the same in every legacy era.
     maxDesyncDeg: 58,
-    // maxProcessTicks, doubleTapShift(+options), desyncRunFalloff, lagCompBreakHulls, hideShotsShift,
-    // defensiveShift and rechargeDelayTicks: the legacy 32-unit charge had no tick-shift equivalent,
-    // so these use LATE_CSGO's values.
+    // Legacy charge: the 32-unit charge maps onto the 32-tick charge-and-burst model.
+    chargeTicks: 32,
+    // maxProcessTicks, desyncRunFalloff and lagCompBreakHulls had no legacy equivalent: LATE_CSGO's values.
     ...overrides,
   });
 }
@@ -29,7 +29,6 @@ export const ERAS: Readonly<Record<string, EraTable>> = Object.freeze({
   legacy: legacyProfile('legacy'),
   desync: legacyProfile('desync'),
   tickbase: legacyProfile('tickbase'),
-  // Legacy defensive transition held an 8-tick window (ExploitResource.defend).
-  defensive: legacyProfile('defensive', { defensiveShift: 8 }),
+  defensive: legacyProfile('defensive'),
   [DEFAULT_ERA_ID]: LATE_CSGO,
 });

@@ -168,7 +168,7 @@ export class Script {
 }
 
 export function intentOf(s: ScriptStep): CommandIntent {
-  return { fire: s.fire, choke: s.choke, doubleTap: s.exploit === 'doubleTap', hideShots: s.exploit === 'hideShots', defensive: s.defensive };
+  return { fire: s.fire, choke: s.choke, doubleTap: s.exploit === 'doubleTap', hideShots: s.exploit === 'hideShots' }; // Task 7
 }
 
 /** What the room did for one player in one processPlayerTick call. */

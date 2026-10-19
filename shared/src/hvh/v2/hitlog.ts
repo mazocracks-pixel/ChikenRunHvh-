@@ -11,8 +11,6 @@ import type { TickbaseReject } from './tickbase';
 const TICKBASE_REASONS: Record<TickbaseReject, string> = {
   dtNotCharged: 'double tap not charged',
   hsNotCharged: 'hide shots not charged',
-  defensiveNotCharged: 'defensive not charged',
-  chokeTooHigh: 'choke too high',
 };
 
 /** The `reason` to put on a 'tickbase' verdict built from a tickbase reject. */

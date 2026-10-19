@@ -9,7 +9,7 @@ import { createRoom } from '../../src/rooms/modes';
 import { addPlayer, fakeIo, place, stepRoom } from '../helpers';
 
 const TICK_MS = SIM_DT * 1000;
-const IDLE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false };
+const IDLE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false }; // Task 7
 
 function makeHvh(engine: HvhEngine) {
   const { io, events } = fakeIo();
@@ -107,7 +107,7 @@ describe('HvhRoom v2 tick pipeline', () => {
       assert.ok(a.state.z < z, `command ${seq} moved the player`);
     }
     assert.equal(a.lastSeq, 20);
-    assert.equal(room.tickbaseOf(a.pid)?.bank, LATE_CSGO.doubleTapShift);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, LATE_CSGO.chargeTicks); // Task 7
   });
 
   it('a ray through only the guessed body names that target and is a resolver miss', (t) => {
@@ -358,13 +358,13 @@ describe('HvhRoom v2 tick pipeline', () => {
   it('R41: banking never blocks fire (the fire interval counts server ticks, not tickbase)', (t) => {
     const { room, a, b, verdicts } = duel();
     t.after(() => room.close());
-    assert.equal(room.tickbaseOf(a.pid)?.bank, 0, 'a fresh spawn has an empty bank');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'a fresh spawn has an empty bank'); // Task 7
     // A gun that cycles within one DT shift (v2 spawns carry the slower arsenal).
     a.info.loadout.push('rifle');
     a.weaponSlot = a.info.loadout.length - 1;
     a.mags.set('rifle', a.magazineSize('rifle'));
     const interval = fireIntervalTicks(WEAPONS[a.weapon]);
-    assert.ok(interval > 1 && interval - 1 < LATE_CSGO.doubleTapShift);
+    assert.ok(interval > 1 && interval - 1 < LATE_CSGO.chargeTicks); // Task 7
     let now = performance.now();
     let seq = 0;
     let bSeq = 0;
@@ -387,7 +387,7 @@ describe('HvhRoom v2 tick pipeline', () => {
       room.handleInput(a, command(++seq, {}));
       step();
     }
-    assert.equal(room.tickbaseOf(a.pid)?.bank, interval - 1, 'the idle ticks banked');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, interval - 1, 'the idle ticks banked'); // Task 7
     assert.equal(room.tickbaseOf(a.pid)?.tickbase, tickbase, 'bank ticks did not advance tickbase');
     fire();
     assert.equal(room.hvhTick, firstTick + interval, 'the first tick the weapon interval allows');
@@ -401,18 +401,18 @@ describe('HvhRoom v2 tick pipeline', () => {
     t.after(() => room.close());
     let now = performance.now();
     let seq = 0;
-    for (let i = 0; i < LATE_CSGO.doubleTapShift; i++) {
+    for (let i = 0; i < LATE_CSGO.chargeTicks; i++) { // Task 7
       room.handleInput(a, command(++seq, {}));
       stepRoom(room, (now += TICK_MS));
     }
-    assert.equal(room.tickbaseOf(a.pid)?.bank, LATE_CSGO.doubleTapShift, 'full bank');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, LATE_CSGO.chargeTicks, 'full bank'); // Task 7
     room.handleInput(a, command(++seq, { fire: true, doubleTap: true }));
     stepRoom(room, (now += TICK_MS));
     const shots = verdicts.filter((v) => v.shooterId === String(a.pid) && v.cause !== 'tickbase');
     assert.deepEqual(shots.map((v) => v.bullet), [1, 2]);
     assert.equal(shots[0]!.tick, shots[1]!.tick, 'same server tick');
     assert.equal(shots[0]!.tick, room.hvhTick);
-    assert.equal(room.tickbaseOf(a.pid)?.bank, 0);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0); // Task 7
   });
 
   it('death cancels pending dt bullet', (t) => {
@@ -420,7 +420,7 @@ describe('HvhRoom v2 tick pipeline', () => {
     t.after(() => room.close());
     let now = performance.now();
     let seq = 0;
-    for (let i = 0; i < LATE_CSGO.doubleTapShift; i++) {
+    for (let i = 0; i < LATE_CSGO.chargeTicks; i++) { // Task 7
       room.handleInput(a, command(++seq, {}));
       stepRoom(room, (now += TICK_MS));
     }
@@ -437,18 +437,18 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.equal(verdicts.filter((v) => v.shooterId === String(a.pid) && v.bullet === 2).length, 0, 'no bullet-2 verdict');
     room.respawnPlayer(a, now);
     assert.equal(a.alive, true);
-    assert.equal(room.tickbaseOf(a.pid)?.bank, 0);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0); // Task 7
     // A death with a non-empty bank, then a respawn: the new life starts empty.
     for (let i = 0; i < 5; i++) {
       room.handleInput(a, command(++seq, {}));
       stepRoom(room, (now += TICK_MS));
     }
-    assert.ok(room.tickbaseOf(a.pid)!.bank > 0);
+    assert.ok(room.tickbaseOf(a.pid)!.charge > 0); // Task 7
     a.shieldUntil = 0;
     room.damage(a, b, 1000, true, b.weapon, room.eyeOf(b), now);
     assert.equal(a.alive, false);
     room.respawnPlayer(a, now);
-    assert.equal(room.tickbaseOf(a.pid)?.bank, 0);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0); // Task 7
   });
 
   it('a tickbase reject becomes a verdict and the command still runs', (t) => {
@@ -471,12 +471,12 @@ describe('HvhRoom v2 tick pipeline', () => {
     Object.defineProperty(a, 'socket', { value: { emit(event: string, data: unknown) { sent.push({ event, data }); }, to() { return { emit() {} }; }, leave() {}, volatile: { emit() {} } } });
     room.handleInput(a, command(1, {}));
     stepRoom(room, performance.now() + TICK_MS);
-    const state = sent.filter((s) => s.event === 'hvhState').at(-1)?.data as { tickbase: { bank: number; ticksSinceShift: number }; era: string; lastAckSeq: number };
+    const state = sent.filter((s) => s.event === 'hvhState').at(-1)?.data as { tickbase: { charge: number }; era: string; lastAckSeq: number }; // Task 7
     assert.ok(state, 'hvhState sent to the owner');
     assert.equal(state.era, LATE_CSGO.id);
     assert.equal(state.lastAckSeq, 1);
-    assert.equal(state.tickbase.bank, 1);
-    assert.ok(state.tickbase.ticksSinceShift <= LATE_CSGO.rechargeDelayTicks, 'ticksSinceShift is capped');
+    assert.equal(state.tickbase.charge, 1); // Task 7
+    assert.ok(!('ticksSinceShift' in state.tickbase), 'no recharge counter is sent'); // Task 7
   });
 
   it('hvhState reports how many of the owner commands are still queued (for client clock correction)', (t) => {
@@ -536,7 +536,7 @@ describe('HvhRoom v2 tick pipeline', () => {
     p.takeInputToken = () => true;
     const now = performance.now();
     for (let seq = 1; seq <= 20; seq++) {
-      room.handleInput(p, { ...command(seq, { fire: true, doubleTap: true, defensive: true, choke: true }), forward: 1 });
+      room.handleInput(p, { ...command(seq, { fire: true, doubleTap: true, choke: true } /* Task 7 */), forward: 1 });
       stepRoom(room, now + seq * TICK_MS);
     }
     assert.equal(p.lastSeq, 20, 'one command per tick, as always');

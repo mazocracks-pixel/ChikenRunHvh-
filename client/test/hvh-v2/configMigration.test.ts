@@ -194,7 +194,7 @@ describe('config loading with migration', () => {
 describe('panel values reach intents through the shared rules only', () => {
   it('Defensive press becomes intent.defensive; the rest of the intent is unchanged', () => {
     const base = { seq: 5, shotSeq: null, hitscan: true, held: false, exploit: 'off' as const };
-    assert.equal(commandIntent(base).defensive, false);
+    assert.equal((commandIntent(base) as { defensive?: boolean }).defensive, false); // Task 8
     assert.deepEqual(commandIntent({ ...base, defensive: true }), { ...commandIntent(base), defensive: true });
   });
 

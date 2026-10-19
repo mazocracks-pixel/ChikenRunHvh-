@@ -29,6 +29,9 @@ describe('Era profiles (v2)', () => {
       assert.equal(ERAS[id]!.lagCompWindowMs, 300, id);
       assert.equal(ERAS[id]!.maxDesyncDeg, 58, id);
     }
-    assert.equal(ERAS.defensive!.defensiveShift, 8);
+  });
+
+  it('every profile charges 32 ticks', () => {
+    for (const [id, era] of Object.entries(ERAS)) assert.equal(era.chargeTicks, 32, id);
   });
 });

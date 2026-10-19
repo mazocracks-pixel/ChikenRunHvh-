@@ -1,17 +1,19 @@
-import { type EraTable, LATE_CSGO } from './era';
+import type { EraTable } from './era';
 
 export interface TickbaseState {
   tickbase: number;
-  bank: number;
+  /** Stored charge, 0..era.chargeTicks. */
+  charge: number;
   choked: number;
-  ticksSinceShift: number;
+  /** DT or hide shots was on last tick (a turn-off with full charge releases a burst). */
+  armed: boolean;
 }
 
-export const EMPTY_TICKBASE = (tick: number, era: EraTable = LATE_CSGO): TickbaseState => ({
+export const EMPTY_TICKBASE = (tick: number): TickbaseState => ({
   tickbase: tick,
-  bank: 0,
+  charge: 0,
   choked: 0,
-  ticksSinceShift: era.rechargeDelayTicks,
+  armed: false,
 });
 
 export interface CommandIntent {
@@ -19,90 +21,78 @@ export interface CommandIntent {
   choke: boolean;
   doubleTap: boolean;
   hideShots: boolean;
-  defensive: boolean;
 }
 
-export type TickbaseReject = 'dtNotCharged' | 'hsNotCharged' | 'defensiveNotCharged' | 'chokeTooHigh';
+export type TickbaseReject = 'dtNotCharged' | 'hsNotCharged';
 
-export type ShiftReason = 'doubleTap' | 'hideShots' | 'defensive';
+export type BurstReason = 'doubleTap' | 'hideShots' | 'release';
+
+export interface TickContext {
+  /** An enemy is in actual line of sight (not the HvH wallhack). */
+  enemyVisible: boolean;
+}
 
 export type TickAction =
   | { kind: 'run' }
-  | { kind: 'bank' }
   | { kind: 'choke' }
-  | { kind: 'shift'; ticks: number; reason: ShiftReason }
+  /** The charging stop: the command sends but runs no movement, and tickbase does not advance. */
+  | { kind: 'charge' }
+  /** An enemy came into view mid-charge: the partial charge is lost and the command runs normally. */
+  | { kind: 'cancel' }
+  /**
+   * Spend the whole charge. The command runs its own normal movement step plus `ticks` extra steps
+   * in a row (1 + chargeTicks in all), matching `tickbase += 1 + ticks`. On a shot, the bullets
+   * leave from the pre-burst position.
+   */
+  | { kind: 'burst'; ticks: number; reason: BurstReason }
+  /** Shot with DT or hide shots on but not fully charged: the command still runs as a plain shot. */
   | { kind: 'reject'; reason: TickbaseReject };
 
-/** Ticks available to shift right now: banked ticks, capped by what choke leaves of maxProcessTicks. */
-export function shiftBudget(s: TickbaseState, era: EraTable): number {
-  return Math.max(0, Math.min(s.bank, era.maxProcessTicks - s.choked));
-}
-
-function requestedShift(
-  intent: CommandIntent,
-  era: EraTable,
-): { reason: ShiftReason; ticks: number; notCharged: TickbaseReject } | null {
-  if (intent.defensive) return { reason: 'defensive', ticks: era.defensiveShift, notCharged: 'defensiveNotCharged' };
-  if (intent.fire && intent.doubleTap) return { reason: 'doubleTap', ticks: era.doubleTapShift, notCharged: 'dtNotCharged' };
-  if (intent.fire && intent.hideShots) return { reason: 'hideShots', ticks: era.hideShotsShift, notCharged: 'hsNotCharged' };
-  return null;
-}
-
-// Pure and deterministic: same (s, intent, era) always yields the same result; inputs are never mutated.
-// shiftBudget is computed from the incoming state s, before this tick's choke flush (R7).
-// Shift priority: defensive > doubleTap > hideShots; DT/HS only when intent.fire, defensive whether firing or not (R10).
-// Any tick that is not 'choke' flushes choked to 0 (run, bank, shift and reject all send).
-// ticksSinceShift increments on every non-shift tick (including reject) and resets to 0 on a shift.
-// tickbase advances +1 for run/choke/reject/shift ticks, plus the shifted ticks for DT only; a bank tick does not advance tickbase.
-// A reject tick still runs the command (state evolves as 'run': no bank, no choke) but returns the reject action.
-// Reject reason is chokeTooHigh when bank alone would have covered the shift, else the matching *NotCharged.
-// Choke and bank are mutually exclusive: intent.choke blocks banking even when the choke cap is reached (that tick runs).
+// Pure and deterministic: same (s, intent, era, ctx) always yields the same result; inputs are never mutated.
+// Rules in priority order (exploit = doubleTap || hideShots):
+//   1. exploit and fire with full charge -> burst (doubleTap over hideShots).
+//   2. exploit and fire with less than full -> reject; the charge is lost.
+//   3. armed last tick, exploit now off, full charge -> burst 'release'.
+//   4. exploit, below full, no enemy visible, not firing -> charge (+1; choke is ignored, tickbase holds).
+//   5. exploit, partial charge (0 < charge < full), enemy visible -> cancel; the charge is lost.
+//   6. intent.choke under maxChoke -> choke.
+//   7. otherwise run.
+// A full charge is kept while an enemy is visible; only a burst spends it. With the exploit off and
+// no release, any charge is dropped. Any tick that is not 'choke' flushes choked to 0. tickbase
+// advances +1 on run/choke/cancel/reject, +1 + ticks on a burst, and not at all on a charge tick.
 export function stepTickbase(
   s: TickbaseState,
   intent: CommandIntent,
   era: EraTable,
+  ctx: TickContext,
 ): { next: TickbaseState; action: TickAction } {
-  const ran: TickbaseState = {
-    tickbase: s.tickbase + 1,
-    bank: s.bank,
-    choked: 0,
-    ticksSinceShift: s.ticksSinceShift + 1,
-  };
+  const exploit = intent.doubleTap || intent.hideShots;
+  const full = s.charge >= era.chargeTicks;
+  const ran: TickbaseState = { tickbase: s.tickbase + 1, charge: s.charge, choked: 0, armed: exploit };
+  const burst = (reason: BurstReason) => ({
+    next: { ...ran, tickbase: s.tickbase + 1 + era.chargeTicks, charge: 0 },
+    action: { kind: 'burst', ticks: era.chargeTicks, reason } as const,
+  });
 
-  const shift = requestedShift(intent, era);
-  if (shift) {
-    if (shiftBudget(s, era) >= shift.ticks) {
-      return {
-        next: {
-          tickbase: s.tickbase + 1 + (shift.reason === 'doubleTap' ? shift.ticks : 0),
-          bank: s.bank - shift.ticks,
-          choked: 0,
-          ticksSinceShift: 0,
-        },
-        action: { kind: 'shift', ticks: shift.ticks, reason: shift.reason },
-      };
-    }
-    const reason: TickbaseReject = s.bank >= shift.ticks ? 'chokeTooHigh' : shift.notCharged;
-    return { next: ran, action: { kind: 'reject', reason } };
+  if (exploit && intent.fire) {
+    if (full) return burst(intent.doubleTap ? 'doubleTap' : 'hideShots');
+    return {
+      next: { ...ran, charge: 0 },
+      action: { kind: 'reject', reason: intent.doubleTap ? 'dtNotCharged' : 'hsNotCharged' },
+    };
+  }
+
+  if (!exploit) {
+    if (s.armed && full) return burst('release');
+    ran.charge = 0;
+  } else if (!full && !ctx.enemyVisible) {
+    return { next: { ...ran, tickbase: s.tickbase, charge: s.charge + 1 }, action: { kind: 'charge' } };
+  } else if (!full && s.charge > 0) {
+    return { next: { ...ran, charge: 0 }, action: { kind: 'cancel' } };
   }
 
   if (intent.choke && s.choked < era.maxChoke) {
-    return {
-      next: { ...ran, choked: s.choked + 1 },
-      action: { kind: 'choke' },
-    };
-  }
-
-  if (
-    !intent.fire &&
-    !intent.choke &&
-    s.ticksSinceShift >= era.rechargeDelayTicks &&
-    s.bank < era.doubleTapShift
-  ) {
-    return {
-      next: { ...ran, tickbase: s.tickbase, bank: s.bank + 1 },
-      action: { kind: 'bank' },
-    };
+    return { next: { ...ran, choked: s.choked + 1 }, action: { kind: 'choke' } };
   }
 
   return { next: ran, action: { kind: 'run' } };

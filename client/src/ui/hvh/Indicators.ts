@@ -1,4 +1,4 @@
-import { LATE_CSGO, shiftBudget, type EraTable, type ShotVerdict, type TickbaseState } from '@game/shared/hvh/v2';
+import { LATE_CSGO, type EraTable, type ShotVerdict, type TickbaseState } from '@game/shared/hvh/v2';
 import { h } from '../dom';
 import type { HitLog } from './HitLog';
 
@@ -22,9 +22,7 @@ export function indicatorModel(
   let dt: IndicatorState['dt'];
   if (!toggles.dt) {
     dt = 'off';
-  } else if (s.ticksSinceShift < era.rechargeDelayTicks) {
-    dt = 'cooldown';
-  } else if (shiftBudget(s, era) >= era.doubleTapShift) {
+  } else if (s.charge >= era.chargeTicks) { // Task 8
     dt = 'ready';
   } else {
     dt = 'charging';
@@ -34,7 +32,7 @@ export function indicatorModel(
     dt,
     hs: toggles.hs ? 'on' : 'off',
     choke: s.choked,
-    defensive: shiftBudget(s, era) >= era.defensiveShift,
+    defensive: false, // Task 8
   };
 }
 

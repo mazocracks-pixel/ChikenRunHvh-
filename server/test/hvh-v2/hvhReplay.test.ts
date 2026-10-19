@@ -65,7 +65,7 @@ function runMatch(seed: number): Run {
   }
 }
 
-const capped = (t: TickbaseState): TickbaseState => ({ ...t, ticksSinceShift: Math.min(t.ticksSinceShift, LATE_CSGO.rechargeDelayTicks) });
+const capped = (t: TickbaseState): TickbaseState => ({ ...t }); // Task 7: nothing is capped any more
 
 describe('HvH v2 determinism gate', () => {
   let first: Run;
@@ -73,7 +73,7 @@ describe('HvH v2 determinism gate', () => {
 
   it('the scripted match exercises every mechanic', () => {
     const intents = [...first.records.values()].flat().flatMap((r) => r.executed.map((c) => c.intent));
-    for (const key of ['fire', 'choke', 'doubleTap', 'hideShots', 'defensive'] as const) {
+    for (const key of ['fire', 'choke', 'doubleTap', 'hideShots'] as const) { // Task 7
       assert.ok(intents.some((i) => i[key]), `some executed command has intent.${key}`);
     }
     const causes = new Set(first.verdicts.map((v) => v.cause));
@@ -81,8 +81,8 @@ describe('HvH v2 determinism gate', () => {
     assert.ok(first.verdicts.some((v) => v.bullet === 2), 'some DT bullet 2 fired');
     const recs = [...first.records.values()].flat();
     assert.ok(recs.some((r) => r.executed.length > 1), 'some tick ran a batch of commands (released choke)');
-    for (const key of ['doubleTap', 'hideShots', 'defensive'] as const) {
-      assert.ok(recs.some((r) => r.executed.at(-1)?.intent[key] && r.tickbaseAfter.ticksSinceShift === 0), `some ${key} shift was granted`);
+    for (const key of ['doubleTap', 'hideShots'] as const) { // Task 7
+      assert.ok(recs.some((r) => r.executed.at(-1)?.intent[key] && r.tickbaseBefore.charge === LATE_CSGO.chargeTicks && r.tickbaseAfter.charge === 0), `some ${key} burst was granted`);
     }
     assert.ok(first.kills.some((k) => k > 0), 'someone scored a kill');
     const poses = [...first.records.values()].flat().map((r) => r.poseAfter.realSide);

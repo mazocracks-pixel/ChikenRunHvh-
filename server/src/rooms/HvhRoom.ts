@@ -160,7 +160,7 @@ export function hvhEngineFrom(env: Readonly<Record<string, string | undefined>>)
   return env.HVH_ENGINE === 'v2' ? 'v2' : 'legacy';
 }
 
-const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false });
+const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false }); // Task 7
 const TICK_MS = SIM_DT * 1000;
 const OBSERVATIONS_KEPT = 32;
 const MAINS: readonly WeaponId[] = HVH_MAINS;
@@ -232,8 +232,7 @@ function parseIntent(raw: unknown): CommandIntent {
     fire: raw.fire === true,
     choke: raw.choke === true,
     doubleTap: raw.doubleTap === true,
-    hideShots: raw.hideShots === true,
-    defensive: raw.defensive === true,
+    hideShots: raw.hideShots === true, // Task 7: defensive is no longer a tickbase intent
   };
 }
 
@@ -349,7 +348,7 @@ export class HvhRoom extends GameRoom {
         queue: [],
         lastQueuedSeq: 0,
         budget: this.era.maxProcessTicks,
-        tickbase: EMPTY_TICKBASE(this.hvhTick, this.era),
+        tickbase: EMPTY_TICKBASE(this.hvhTick), // Task 7
         pose: INITIAL_POSE,
         history: new RecordHistory(this.era, PLAYER_HULL_WIDTH),
         observations: [],
@@ -504,7 +503,7 @@ export class HvhRoom extends GameRoom {
     if (!p.hvhEnabled) intent = { ...IDLE, fire: intent.fire };
 
     const before = s.tickbase;
-    const { next, action } = stepTickbase(before, intent, this.era);
+    const { next, action } = stepTickbase(before, intent, this.era, { enemyVisible: false }); // Task 7
     s.tickbase = next;
     if (action.kind === 'reject') {
       this.emitVerdict(p, { shooterId: String(p.pid), tick: this.hvhTick, bullet: 1, cause: 'tickbase', reason: tickbaseVerdictReason(action.reason) });
@@ -513,19 +512,14 @@ export class HvhRoom extends GameRoom {
     const motion = this.motionOf(p);
     s.pose = this.stepPoseFor(p, s, frame, motion);
 
-    if (action.kind === 'shift' && action.reason === 'defensive') {
-      s.history.markDefensive(this.hvhTick - action.ticks);
-      s.defensiveUntilTick = Math.max(s.defensiveUntilTick, this.hvhTick + action.ticks);
-    }
-
     let recordPose = s.pose;
     if (intent.fire) {
-      const dt = action.kind === 'shift' && action.reason === 'doubleTap';
+      const dt = action.kind === 'burst' && action.reason === 'doubleTap'; // Task 7
       const bullet = this.prepareBullet(p, s, frame, command, fireReq, now);
       this.fireBullet(p, s, bullet, 1, now);
       // DT bullet 2: its interval is the shifted ticks (slow weapons cannot double tap).
       if (dt) s.pendingBullet = { ...bullet, ticksSinceLastShot: action.ticks };
-      if (action.kind === 'shift' && action.reason === 'hideShots') return null;
+      if (action.kind === 'burst' && action.reason === 'hideShots') return null; // Task 7
       // On-shot pose: eyes and body on the aim.
       const aimYaw = Math.atan2(-bullet.aim.dir.x, -bullet.aim.dir.z);
       recordPose = { ...s.pose, eyeYaw: aimYaw, bodyYaw: aimYaw, realSide: 'center', eyeOffsetDeg: 0 };
@@ -958,7 +952,7 @@ export class HvhRoom extends GameRoom {
     const s = this.stateOf(victim);
     s.pendingBullet = null;
     this.blockPendingFires(victim, s);
-    s.tickbase = EMPTY_TICKBASE(this.hvhTick, this.era);
+    s.tickbase = EMPTY_TICKBASE(this.hvhTick); // Task 7
   }
 
   /** R26: fire requests still waiting when a life ends are answered, not dropped. */
@@ -979,7 +973,7 @@ export class HvhRoom extends GameRoom {
     // A new life: fresh bank, pose and lag records (the resolver keeps what it learned).
     s.queue.length = 0;
     s.budget = this.era.maxProcessTicks;
-    s.tickbase = EMPTY_TICKBASE(this.hvhTick, this.era);
+    s.tickbase = EMPTY_TICKBASE(this.hvhTick); // Task 7
     s.pose = INITIAL_POSE;
     s.history = new RecordHistory(this.era, PLAYER_HULL_WIDTH);
     s.observations = [];
