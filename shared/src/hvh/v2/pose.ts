@@ -37,8 +37,12 @@ import type { EraTable } from './era';
  *     generator's second value: an offset in [-180, 180) every 4 ticks), sideways (+-90
  *     alternating each tick, even ticks +90).
  *   - An on-peek flick (onPeek the only active trigger) is phased by the window instead, so it
- *     fires as the enemy appears: window commands 0-3 (w = PEEK_TICKS - peekTicksLeft) at
- *     +120 x ctx.peekSide, 4-7 off. The server alternates peekSide per window.
+ *     fires as the enemy appears: window commands w < FLICK_TICKS (w = PEEK_TICKS - peekTicksLeft)
+ *     at +120 x ctx.peekSide, the rest off. With PEEK_TICKS 4 the flick fills the whole window.
+ *     The server alternates peekSide per window.
+ *   - PEEK_TICKS is 4, not 8 (round redesign Task 10 balance sweep): an 8-command window kept the
+ *     pitch-down override up through the opponent's first aimed shot, hiding the head behind the
+ *     chest, and on-peek won 64-66% against off; at 4 it is about even (docs/hvh/balance-report.md).
  *   - Jitter and desync still apply, and desync stays within maxDesync.
  */
 
@@ -109,8 +113,8 @@ export interface Observation {
 
 export const MAX_JITTER_DEG = 45;
 export const SPIN_DEG_PER_SEC = 180;
-/** Commands the on-peek trigger stays active after an enemy becomes visible. */
-export const PEEK_TICKS = 8;
+/** Commands the on-peek trigger stays active after an enemy becomes visible (tuned by the balance sweep). */
+export const PEEK_TICKS = 4;
 /** Ticks a random defensive pitch or yaw is held. */
 export const DEFENSIVE_RANDOM_TICKS = 4;
 /** A flick is FLICK_TICKS on, then FLICK_TICKS off. */

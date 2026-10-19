@@ -1,11 +1,15 @@
 /*
- * Task 14: the balance sweep's rule (checkBalance) on synthetic matrices, and a tiny determinism
- * check of runSweep (two configs, a few rounds). The full and quick sweeps run through
- * `npm run sweep` / `npm run sweep:quick`, never in `npm test`.
+ * Task 10 (round redesign): the balance sweep's rule (checkBalance) on synthetic matrices, the
+ * grid and CLI of the charge-and-burst model, and small runSweep checks (determinism, and that the
+ * Mirage duel really exercises the round-start charge, the burst and the mid-round recharge). The
+ * full and quick sweeps run through `npm run sweep` / `npm run sweep:quick`, never in `npm test`.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { cellSE, checkBalance, classifyCounters, fieldSE, runSweep, threeCycles, type SweepConfig, type WinMatrix } from '../../../tools/hvh-sweep';
+import {
+  DEFENSIVES, EXPLOITS, FULL_GRID, PAIRINGS, QUICK_GRID, antiAimFor, cellSE, checkBalance, classifyCounters, configName,
+  createStats, fieldSE, parseArgs, runSweep, threeCycles, type SweepConfig, type WinMatrix,
+} from '../../../tools/hvh-sweep';
 
 /** rate[i][j] for i < j from `upper`; rate[j][i] = 1 - rate[i][j]; the diagonal is unused (NaN). */
 function matrix(configs: string[], upper: Record<string, number>, rounds = 10): WinMatrix {
@@ -87,20 +91,75 @@ describe('report statistics', () => {
   });
 });
 
-describe('runSweep determinism', () => {
+describe('the charge-and-burst grid', () => {
+  it('defensive is an anti-aim pattern, not an exploit', () => {
+    assert.deepEqual([...EXPLOITS], ['none', 'dt', 'hs', 'fakelag14']);
+    assert.deepEqual([...DEFENSIVES], ['off', 'inAir', 'onPeek']);
+    assert.deepEqual([...PAIRINGS], ['ssg08', 'scar20', 'mixed']);
+    assert.ok(FULL_GRID.every((c) => (EXPLOITS as readonly string[]).includes(c.exploit)));
+    // Every preset with every exploit and every defensive mode, once.
+    assert.equal(new Set(FULL_GRID.map(configName)).size, FULL_GRID.length);
+    assert.equal(FULL_GRID.length % (EXPLOITS.length * DEFENSIVES.length), 0);
+    assert.ok(QUICK_GRID.every((q) => FULL_GRID.some((c) => configName(c) === configName(q))));
+  });
+
+  it('the defensive modes: in air with a random pitch, on peek with a flick, on every stance', () => {
+    const off = antiAimFor({ aa: 'static', exploit: 'none', defensive: 'off' });
+    const air = antiAimFor({ aa: 'static', exploit: 'none', defensive: 'inAir' });
+    const peek = antiAimFor({ aa: 'static', exploit: 'none', defensive: 'onPeek' });
+    for (const d of Object.values(off.defensive)) assert.equal(d.enabled, false);
+    for (const d of Object.values(air.defensive)) assert.deepEqual({ ...d }, { enabled: true, inAir: true, onPeek: false, always: false, pitch: 'random', yaw: 'off' });
+    for (const d of Object.values(peek.defensive)) assert.deepEqual({ ...d }, { enabled: true, inAir: false, onPeek: true, always: false, pitch: 'down', yaw: 'flick' });
+    assert.deepEqual(air.stances, off.stances, 'the defensive mode leaves the stance AA alone');
+  });
+});
+
+describe('CLI flags', () => {
+  it('--def, --recharge and --hs are gone (the charge model has no such tunables)', () => {
+    for (const removed of ['--def', '--recharge', '--hs']) assert.throws(() => parseArgs([removed, '12']), new RegExp(removed));
+  });
+
+  it('--charge N overrides chargeTicks for one run; an invalid one is refused', () => {
+    assert.equal(parseArgs([]).charge, undefined);
+    assert.equal(parseArgs(['--charge', '24']).charge, 24);
+    assert.throws(() => parseArgs(['--charge', '0']), /chargeTicks/);
+    assert.throws(() => parseArgs(['--charge', 'x']), /--charge/);
+  });
+
+  it('--pairing picks one weapon pairing; every pairing by default', () => {
+    assert.deepEqual(parseArgs([]).pairings, ['ssg08', 'scar20', 'mixed']);
+    assert.deepEqual(parseArgs(['--pairing', 'scar20']).pairings, ['scar20']);
+    assert.throws(() => parseArgs(['--pairing', 'awp']), /--pairing/);
+  });
+});
+
+describe('runSweep on Mirage', () => {
   const grid: SweepConfig[] = [
-    { base: 'backward', jitter: 0, exploit: 'dt' },
-    { base: 'spin', jitter: 45, exploit: 'defensive' },
+    { aa: 'static', exploit: 'dt', defensive: 'off' },
+    { aa: 'jitter', exploit: 'none', defensive: 'onPeek' },
   ];
 
   it('the same seed gives the same WinMatrix; the matrix is complementary', () => {
-    const a = runSweep(grid, 8, 0x14);
-    const b = runSweep(grid, 8, 0x14);
+    const a = runSweep(grid, 4, 0x14, { pairing: 'mixed' });
+    const b = runSweep(grid, 4, 0x14, { pairing: 'mixed' });
     assert.deepStrictEqual(b, a);
-    assert.deepEqual(a.configs, ['backward/j0/dt', 'spin/j45/defensive']);
-    assert.equal(a.rounds[0]![1], 8);
+    assert.deepEqual(a.configs, ['static/dt/off', 'jitter/none/onPeek']);
+    assert.equal(a.rounds[0]![1], 4);
     assert.ok(a.rate[0]![1]! >= 0 && a.rate[0]![1]! <= 1);
     assert.equal(a.rate[0]![1]! + a.rate[1]![0]!, 1);
-    assert.notDeepStrictEqual(runSweep(grid, 8, 0x15), a, 'a different seed changes the matrix');
+    // Four rounds give coarse rates (k / 4), so compare the rounds' lengths as well.
+    const [sa, sb] = [createStats(), createStats()];
+    runSweep(grid, 4, 0x14, { pairing: 'mixed', stats: sa });
+    runSweep(grid, 4, 0x15, { pairing: 'mixed', stats: sb });
+    assert.notEqual(sb.roundTicks, sa.roundTicks, 'a different seed changes the rounds');
+  });
+
+  it('every DT / HS life goes live charged; bursts and mid-round recharges behind cover happen', () => {
+    const stats = createStats();
+    runSweep([{ aa: 'static', exploit: 'dt', defensive: 'off' }, { aa: 'static', exploit: 'hs', defensive: 'off' }], 8, 0x14, { pairing: 'scar20', stats });
+    assert.equal(stats.exploitLives, 16);
+    assert.equal(stats.chargedAtLive, stats.exploitLives, 'each round starts charged (freeze time)');
+    assert.ok(stats.bursts > 0, 'bursts');
+    assert.ok(stats.recharges > 0, 'a charge completed mid-round (no enemy in sight behind the pillar)');
   });
 });

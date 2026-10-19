@@ -4,7 +4,7 @@ import {
   MAX_REWIND_MS, PLAYER, SIM_DT, SNAPSHOT_RATE, WEAPONS, hopMaxFor, makeRay, moveSpeedFor, normalize, rayHvhMatrix, stepPlayer, unpackPlayer, wrapAngle,
   type InputFrame, type MoveState, type Vec3,
 } from '@game/shared';
-import { LATE_CSGO, fireIntervalTicks, guessedPose, poseMatrix, uniformAntiAim, type CommandIntent, type LagRecord, type ShotVerdict, type StanceAA } from '@game/shared/hvh/v2';
+import { FLICK_TICKS, LATE_CSGO, PEEK_TICKS, fireIntervalTicks, guessedPose, poseMatrix, uniformAntiAim, type CommandIntent, type LagRecord, type ShotVerdict, type StanceAA } from '@game/shared/hvh/v2';
 import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { GameRoom, parseInput } from '../../src/rooms/GameRoom';
 import { HvhRoom, hvhEngineFrom, type HvhEngine } from '../../src/rooms/HvhRoom';
@@ -990,7 +990,7 @@ describe('per-stance anti-aim and defensive patterns', () => {
     return { ...made, d: driver(made.room, made.a) };
   }
 
-  it('an enemy appearing gives 8 commands of defensive yaw (flick), then none', (t) => {
+  it('an enemy appearing gives PEEK_TICKS commands of defensive yaw (the flick on the first FLICK_TICKS), then none', (t) => {
     const { room, a, b, d } = peekDuel();
     t.after(() => room.close());
     for (let i = 0; i < 10; i++) {
@@ -998,10 +998,10 @@ describe('per-stance anti-aim and defensive patterns', () => {
       assert.equal(offsetOf(room, a.pid), 0, `hidden, command ${i}: the plain stance`);
     }
     place(b, 25, 20);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < PEEK_TICKS; i++) {
       d.tick({});
-      assert.equal(room.v2State(a.pid)!.peek.at(-1), 8 - i, `window command ${i}: peekTicksLeft`);
-      near(offsetOf(room, a.pid), i < 4 ? 120 : 0, `window command ${i}: the first window flicks +120`);
+      assert.equal(room.v2State(a.pid)!.peek.at(-1), PEEK_TICKS - i, `window command ${i}: peekTicksLeft`);
+      near(offsetOf(room, a.pid), i < FLICK_TICKS ? 120 : 0, `window command ${i}: the first window flicks +120`);
     }
     for (let i = 0; i < 12; i++) {
       d.tick({});
@@ -1013,11 +1013,11 @@ describe('per-stance anti-aim and defensive patterns', () => {
     d.tick({});
     place(b, 25, 20);
     d.tick({});
-    assert.equal(room.v2State(a.pid)!.peek.at(-1), 8);
+    assert.equal(room.v2State(a.pid)!.peek.at(-1), PEEK_TICKS);
     near(offsetOf(room, a.pid), -120, 'the second window flicks -120');
   });
 
-  it('the on-peek flick fires on window commands 0-3 at every tickbase alignment', (t) => {
+  it('the on-peek flick fires on the first FLICK_TICKS window commands at every tickbase alignment', (t) => {
     for (const align of [0, 2, 4, 6]) {
       const { room, a, b, d } = peekDuel();
       t.after(() => room.close());
@@ -1029,7 +1029,8 @@ describe('per-stance anti-aim and defensive patterns', () => {
         d.tick({});
         const tick = room.tickbaseOf(a.pid)!.tickbase;
         if (w === 0) assert.equal(tick % 8, align, 'precondition: the window opens at this alignment');
-        near(offsetOf(room, a.pid), w < 4 ? 120 : 0, `align ${align}, window command ${w} (tick ${tick})`);
+        // On for the first FLICK_TICKS window commands, off for the rest of the window and after it.
+        near(offsetOf(room, a.pid), w < Math.min(FLICK_TICKS, PEEK_TICKS) ? 120 : 0, `align ${align}, window command ${w} (tick ${tick})`);
       }
     }
   });
@@ -1040,8 +1041,8 @@ describe('per-stance anti-aim and defensive patterns', () => {
     for (let i = 0; i < 4; i++) d.tick({});
     const start = room.tickbaseOf(a.pid)!.tickbase;
     place(b, 25, 20);
-    for (let i = 0; i < 8; i++) d.tick({});
-    assert.equal(room.tickbaseOf(a.pid)!.tickbase, start + 8);
+    for (let i = 0; i < PEEK_TICKS; i++) d.tick({});
+    assert.equal(room.tickbaseOf(a.pid)!.tickbase, start + PEEK_TICKS);
     assert.equal(room.tickbaseOf(a.pid)!.charge, 0);
     assert.ok(recordOf(room, a.pid).valid, 'records stay valid (no lag-compensation effect)');
   });

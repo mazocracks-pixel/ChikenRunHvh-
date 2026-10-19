@@ -1,290 +1,271 @@
-# HvH v2 balance report (Task 14)
+# HvH v2 balance report (round redesign, Task 10)
 
-**Result (after R41): the balance rule still cannot be met by tuning the three tunables. The stop condition applies again.**
-The sections up to "Noise note" describe the first sweep, before R41. The current state is in
-"Fix round 1 (R41)" at the end.
+**Result: the balance rule is not met. The stop condition applies.**
 
-**Result before R41: the balance rule cannot be met by tuning the three tunables. The R40 stop condition applies.**
-`LATE_CSGO` is unchanged (`hideShotsShift 8`, `defensiveShift 12`, `rechargeDelayTicks 16`). The rest of
-this report gives the evidence. The cause is a non-tunable tickbase mechanic, so a controller ruling is
-needed (see "What would have to change").
+At the shipped values (chargeTicks 32, peek window 4), the full sweep has a max field rate of
+59.5%, with 29 dominant and 12 uncountered configs over the three weapon pairings. One tunable
+changed: the on-peek window went from 8 to 4 commands (`PEEK_TICKS`, `shared/src/hvh/v2/pose.ts`).
+That removed a dominant defensive pattern. `chargeTicks` is unchanged. No charge size meets the
+rule, and the best candidates are listed below for a ruling.
 
-Balance rule (from the plan, binding): no config wins more than 55% against the field, and every config
-has a counter that beats it by at least 55%. The R40 definitions are used: a config's *field rate* is
-its mean win rate over all other configs, with mirror matches excluded. A config is *dominant* if its
-field rate is > 0.55. It *has a counter* if some other config beats it head-to-head at >= 0.55.
+This report replaces the old Task 14 report. That sweep's model (a rifle duel on `flat`, the
+tickbase bank, defensive as a shift) no longer exists.
+
+**Balance rule** (binding, unchanged). No config wins more than 55% against the field, and every
+config has a counter at 55% or more. The R40 definitions apply:
+- A config's field rate is its mean win rate over all other configs, mirror matches excluded.
+- A config is dominant if its field rate is above 0.55.
+- A config has a counter if some other config beats it head-to-head at 0.55 or more.
+
+The rule is checked per weapon pairing, and `--check` passes only when all three pairings are ok.
+Per R42, the verdict comes from the primary model ('charged': each round starts charged).
 
 ## How to run
 
-| Command | Grid | Rounds per cell | Runtime (this machine) |
+| Command | Grid | Rounds per cell | Runtime (8 workers, this machine) |
 | --- | --- | --- | --- |
-| `npm run sweep` | 60 configs (4 bases × 3 jitters × 5 exploits), 1,770 pairs | 60 | 148 s |
-| `npm run sweep:quick` | 12-config `QUICK_GRID` (CI) | 100 | 8 s |
+| `npm run sweep` | 36 configs, 630 pairs, × 3 pairings | 200 | about 47 min |
+| `npm run sweep -- --rounds 100` | same | 100 | about 18 min |
+| `npm run sweep:quick` | 12-config `QUICK_GRID` × 3 pairings | 60 | about 95 s |
 
-The flags `--rounds N`, `--seed N` and `--json PATH` are optional. The flags `--hs N`, `--def N` and
-`--recharge N` override the three tunables for one run only, so tuning can be explored without
-editing `era.ts`. The harness is in `tools/hvh-sweep.ts`, and its header documents the round design.
+The optional flags are:
+- `--rounds N`, `--seed N` and `--json PATH`.
+- `--charge N`: overrides `chargeTicks` for one run.
+- `--pairing ssg08|scar20|mixed`: runs one pairing only.
+- `--model charged|spawn`.
+- `--oracle`: a control in which the aimbot knows the real side.
+- `--workers N`: the number of threads, half the machine by default.
 
-## Round design (summary)
+`--def`, `--recharge` and `--hs` were removed, because the charge model has no such tunables.
+Rooms are independent seeded jobs, so the results are identical for any worker count. A unit test
+compares the parallel and serial sweeps. The tool header in `tools/hvh-sweep.ts` documents the
+model in full.
 
-- **Setup.** A 1v1 duel in a real `HvhRoom` (`hvhEngine: 'v2'`, map `flat`, no cover). The room is built
-  with the Task 13 harness (`makeMatch(seed, { map: 'flat', teams: [1, 2] })`) and driven through
-  `handleInput` and the room tick.
-- **Loadout.** Both players use the rifle and desync 58. AA base and jitter come from the config. The
-  inverter is a seeded coin flip per round. Spawns are 15 units apart and swap sides every round.
-  Spawn protection is off.
-- **Script.** Both players run the same script. They strafe in seeded spells and fire as soon as the
-  rifle's fire interval allows (server ticks since the player's own last shot, R41).
-- **Aimbot.** It sees only what a client can see:
-  - the newest lag record's position, duck, eye yaw and pitch, which is the snapshot;
-  - the observation feed;
-  - whether that record is an on-shot record, since shots are public;
-  - its own resolver, read through `peekResolve` on its server-side memory, which learns from its
-    own verdicts.
+## The model
 
-  It aims at the head of the pose the resolver guesses, assuming max desync for the observed speed.
-  It predicts its own eye through the commands it is still holding. Every command carries
-  `clientTick` set to the record's tick. Aim noise is ±0.01 rad. It holds fire once the newest record
-  is older than the 12-tick unlag window.
-- **Exploits.**
-  - `none`: plain fire.
-  - `dt`: double tap requested on every shot.
-  - `hs`: hide shots requested on every shot.
-  - `fakelag14`: every non-firing command is choked, up to 14, and a shot sends at once.
-  - `defensive`: a defensive shift whenever the bank covers it.
+- **Map and spawn pair.** Mirage B site, nav areas 13 (BombsiteB, x -58.44 z -9.06) and 747
+  (x -50.31 z -11.56). They are 8.5 m apart with a sandstone pillar (map box 6603) between them.
+  - Both players move along parallel peek lines. At the hide offset (-0.6 m), neither can see the
+    other, wherever the other stands on its line, up to the widest peek (4.5 m).
+  - They see each other once their offsets add up to about 4.5 m. Line of sight is symmetric, so
+    both must peek to fight, and cover always protects the hider.
+  - This was measured with the real `enemyVisible` test over the whole offset grid.
+- **Rounds.** The room is a real `HvhRoom` (v2, `hvhRounds: false`), and the harness drives the
+  rounds.
+  - The freeze runs `chargeTicks` ordinary commands behind cover, with DT and HS on, so every DT or
+    HS life goes live fully charged. That held for 126,000 of 126,000 lives in the final run.
+  - A round ends at the first death, or is a draw after 960 live ticks. Fewer than 0.1% of rounds
+    were draws.
+  - Sides swap every round, and the inverter is a seeded coin.
+- **Weapons.**
+  - Pairings: ssg08 vs ssg08, scar20 vs scar20, and mixed. In the mixed pairing each cell plays
+    both assignments of the two guns, swapped every two rounds, so the cell measures the configs
+    and not the guns.
+  - Every spawn has armor and a helmet. Players are scoped.
+  - Pistols are not played: no round empties a main.
+- **Configs.** AA preset × exploit × defensive mode, 3 × 4 × 3 = 36:
+  - AA presets (desync 58 on every stance):
+    - static: backward, jitter 0;
+    - jitter: backward, jitter 45;
+    - stance: jitter 30 standing, static backward while moving, spin in the air.
+  - Exploits:
+    - none;
+    - dt and hs, toggled on for every command, so the server charges whenever no enemy is in real
+      line of sight;
+    - fakelag14: chokes every non-firing command, up to 14.
+  - Defensive modes, set on every stance:
+    - off;
+    - inAir: random pitch, yaw off;
+    - onPeek: flick, with pitch down, the panel's default pitch.
+- **Script.** The same script runs for every config, with seeded timings:
+  - hide behind cover; DT and HS also wait for a full charge, which recharges them mid-round;
+  - peek out, a quarter of the peeks starting with a jump;
+  - on sight, counter-strafe and fire once the weapon is ready (R41: server ticks) and the shot's
+    post-step speed is at most 0.5 m/s on the ground.
+  - A DT or HS shot with a full charge is a burst. Its command moves back toward cover, so the
+    teleport goes there, and the bot retreats. A plain SSG 08 shot also retreats, because the
+    next shot is 1.25 s away. A SCAR-20 keeps fighting for a seeded time.
+- **Aimbot.** It sees only what a client sees:
+  - the newest lag record (the snapshot), the observations, and whether that record is an
+    on-shot record;
+  - its own resolver, through `peekResolve`.
 
-  An uncharged request falls back to a plain shot.
-- **Rounds.** A round ends at the first death. A round that reaches 640 ticks is a draw worth 0.5 each,
-  but no round in either sweep was a draw. Each cell is played in two rooms, half the rounds with
-  each config joining first. The resolver memory carries across lives within a room.
-- **Determinism.** Everything is seeded. The same seed gives the same `WinMatrix`, which
-  `server/test/hvh-v2/hvhSweep.test.ts` checks.
+  It aims at the head of the guessed pose, its own line of sight is the same `enemyVisible` test
+  on that record, and it sends `clientTick`. Headless, no snapshot is sent, so the server's charge
+  sight takes its start-of-tick fallback (R56).
+- **Statistics.** The sweep reports:
+  - standard errors on the field and cell rates;
+  - a ±1 SE counter classification (countered / uncountered / inconclusive) for the report, while
+    `checkBalance` keeps the strict rule;
+  - the 3-cycle count;
+  - verdicts by shooter exploit and by target defensive mode (with the hitgroup);
+  - charge events: lives that went live charged, bursts, and mid-round recharges.
 
-## Initial result (current tunables 8 / 12 / 16)
+## Final result (shipped values: chargeTicks 32, peek window 4)
 
-Full sweep at seed 20 with 60 rounds per cell: 106,200 rounds, mean round 26.8 ticks.
+Full grid, seed 20, 200 rounds per cell: 378,000 rounds in 47 min. **Verdict: not ok.**
 
-`checkBalance`: **ok false**. 22 configs are dominant: all 12 `fakelag14` configs and 10 of the 12
-`defensive` configs. Field rates range from 27.7% to 68.2%. `uncountered` is empty, but see the noise
-note below.
-
-Exploit against exploit, as the row's mean win rate:
-
-|  | none | dt | hs | fakelag14 | defensive |
+| Pairing | Max / min field rate | Dominant | Uncountered (strict) | Uncountered (±1 SE) | 3-cycles |
 | --- | --- | --- | --- | --- | --- |
-| none | 50.0 | 46.4 | 52.1 | 23.0 | 29.2 |
-| dt | 53.6 | 50.0 | 54.9 | 26.2 | 29.3 |
-| hs | 47.9 | 45.1 | 50.0 | 23.2 | 27.4 |
-| fakelag14 | **77.0** | **73.8** | **76.8** | 50.0 | 55.7 |
-| defensive | **70.8** | **70.7** | **72.6** | 44.3 | 50.0 |
+| ssg08 vs ssg08 | 59.5% / 35.2% | 10 | 4 | 1 | 8 of 7,140 |
+| scar20 vs scar20 | 58.0% / 35.0% | 9 | 5 | 0 | 9 |
+| mixed | 59.1% / 34.9% | 10 | 3 | 0 | 29 |
 
-Mean field rate by axis:
+Every dominant config is DT or HS on the static or stance preset. The highest field rates are:
+- ssg08: `stance/dt/inAir` and `stance/dt/off` 59.5%, `static/dt/inAir` 59.0%;
+- scar20: `static/dt/inAir` 58.0%;
+- mixed: `static/dt/off` 59.1%.
 
-| Axis | Value: mean field rate |
+Field SE is 0.6% and cell SE is about 3.5%.
+
+Mean field rate by axis (ssg08; the other two pairings are within about 1 point):
+
+| Exploit | none | dt | hs | fakelag14 |
+| --- | --- | --- | --- | --- |
+| static preset | 46.8 | **58.7** | **55.4** | 51.6 |
+| jitter preset | 37.2 | 45.7 | 43.9 | 47.7 |
+| stance preset | 47.3 | **59.3** | **55.2** | 51.1 |
+
+| Defensive | off | inAir | onPeek |
+| --- | --- | --- | --- |
+| mean field rate | 49.6 | 49.7 | 50.7 |
+
+Exploit against exploit, as the row's mean win rate (ssg08 / scar20):
+
+|  | none | dt | hs | fakelag14 |
+| --- | --- | --- | --- | --- |
+| none | 50 | 36.3 / 39.2 | 40.3 / 42.3 | 49.1 / 48.0 |
+| dt | 63.7 / 60.8 | 50 | 53.1 / 52.7 | 51.0 / 48.2 |
+| hs | 59.7 / 57.7 | 46.9 / 47.3 | 50 | 49.3 / 48.0 |
+| fakelag14 | 50.9 / 52.0 | 49.0 / 51.8 | 50.7 / 52.0 | 50 |
+
+The mechanics are exercised:
+- ssg08: 108,943 bursts and 41,014 mid-round recharges in 126,000 rounds;
+- mean live round 114-121 ticks;
+- DT on the SSG 08 never gets a second bullet: its 80-tick interval exceeds the burst, so the
+  bullet is 'fire interval' rejected.
+
+The quick sweep at the shipped values (`npm run sweep:quick`, 60 rounds per cell, 95 s) is not ok:
+max field rate 60.8%, 11 dominant, 5 uncountered.
+
+## Tuning steps
+
+### 1. Initial model, shipped values (chargeTicks 32, peek window 8)
+
+Quick sweep: **not ok.** Max field rate 76.4-77.2% over three runs, as the model was finalised
+(the last change added the SSG 08 retreat rule), with 10-11 dominant and 3-4 uncountered.
+`static/dt/onPeek` reached 76%, and onPeek beat off 63-66%.
+
+**The cause is the on-peek pitch.** While the defensive pattern is active, the pitch is forced
+down (68.75°, the era limit). That hides the chicken head behind the chest from a level shooter.
+Against on-peek targets, 50% of shots hit the chest and 27% the head. Against targets with
+defensive off, 2% hit the chest and 60% the head.
+
+The 8-command window covers the opponent's first aimed shot, which comes about 6 ticks after
+sight, once the counter-strafe has stopped.
+
+### 2. Which part of on-peek is dominant (quick grid, ssg08, 60 rounds per cell)
+
+| On-peek pattern | onPeek vs off |
 | --- | --- |
-| Exploit | none 40.0, dt 42.7, hs 38.5, fakelag14 **66.9**, defensive **61.9** |
-| Base | backward 53.4, left 48.0, right 47.9, spin 50.7 |
-| Jitter | 0: 47.2, 30: 50.9, 45: 51.9 |
+| pitch down + flick (shipped default) | 66.3% |
+| pitch down, yaw off | 71.2% |
+| pitch zero + flick | 49.0% |
+| pitch random + flick | 50.4% |
+| pitch jitter + flick | 53.3% |
+| pitch up + flick | 40.6% |
 
-Quick sweep (12 configs, 100 rounds per cell): **ok false**. Dominant: `backward/j0/fakelag14`,
-`backward/j0/defensive`, `spin/j45/fakelag14` and `spin/j45/defensive`. Uncountered:
-`backward/j0/fakelag14`, `backward/j0/defensive` and `spin/j45/defensive`.
+The flick (120°, 4 ticks) is neutral. The pitch-down override is the dominant mode.
 
-### Is AA choice irrelevant? (the known resolver risk)
+### 3. Peek window (pitch down + flick, ssg08)
 
-Not entirely. Static left and right bases at jitter 0 are the weakest configs, at field rates of
-28–34%. Backward is the best base and jitter helps a little. The resolver does learn quickly (period-2
-jitter, one-miss flip): `resolver` misses are only 6–11% of shots for every exploit. Even so, the
-choice of base still moves field rates by about 5 points, because the head geometry of the desynced
-pose differs between bases. The exploit axis outweighs AA by roughly 25 points.
-
-## Tuning attempts
-
-Every combination below was run on the quick grid at 60 rounds per cell (seed 20, 60 combinations):
-
-- `hideShotsShift` ∈ {4, 6, 8}
-- `defensiveShift` ∈ {2, 4, 6, 8, 12}
-- `rechargeDelayTicks` ∈ {4, 16, 32, 64}
-
-| Finding | Evidence |
-| --- | --- |
-| **No combination gives `ok: true`.** | 60 of 60 runs fail. Every run has at least 2 dominant configs. |
-| **`fakelag14` is dominant at every setting.** | Its mean field rate stays between 62.7% and 71.8% in all 60 runs. None of the three tunables affects a player who never shifts. |
-| `defensive` responds to `defensiveShift`. | At `defensiveShift 8` its mean field rate falls to 45–58%: 47.0% at recharge 4 with HS 4, and 51.4% at recharge 4 with HS 8. At 2, 4, 6 or 12 it stays at 58–74%. Small shifts are cheap and stall-free (see below), and 12 hides the most records. 8 is the minimum in between. |
-| `hideShotsShift` hardly matters. | `hs` stays at 33–43% everywhere. The on-shot record is hidden whatever the shift size, so the shift is purely a cost, and even 4 does not lift HS above `none`. |
-| `rechargeDelayTicks` trades DT against defensive. | DT rises slightly with longer recharge (42 → 47%). Defensive moves non-monotonically. |
-
-The best partial candidate is `defensiveShift 8`, `rechargeDelayTicks 4`, `hideShotsShift 4`. It
-leaves 2 dominant configs (both `fakelag14`) and 1 uncountered. It was **not applied**, for three
-reasons:
-
-- It does not satisfy the rule.
-- `rechargeDelayTicks 4` and `hideShotsShift 4` are outside the 6–9 and 11–14 tick ranges that
-  `era-reference.md` cites for cheats.
-- The best values will move once the blocking mechanic below is ruled on.
-
-Changing them now would churn the pinned tests (`era.test.ts`, the tickbase and recharge tests) for no
-gain in balance.
-
-## Stop-condition evidence: which mechanic is responsible
-
-**The auto-bank stall.** `stepTickbase` banks a tick on *every* command that neither fires nor
-chokes, once `ticksSinceShift >= rechargeDelayTicks` and `bank < doubleTapShift`, for every player
-whatever exploit they use. A bank tick does not advance the tickbase. The fire interval is measured
-in tickbase (`ticksSinceLastShot = shotTickbase - lastShotTickbase`). Every life starts with an empty
-bank (`EMPTY_TICKBASE`: `bank 0`, `ticksSinceShift = rechargeDelayTicks`).
-
-The result is that every player who neither chokes nor shifts early loses about 14 ticks of shooting
-at the start of each life while the bank fills. Duels last about 27 ticks, so that is decisive.
-
-- **`fakelag14` never banks**, because `intent.choke` blocks banking. It fires its second shot around
-  tick 9, while everyone else fires theirs around tick 22.
-- **`defensive` spends the bank before it fills.** It shifts as soon as `bank >= defensiveShift`,
-  which resets `ticksSinceShift` and stops banking for `rechargeDelayTicks`. It also invalidates
-  records.
-
-**Attribution experiment.** The quick grid was run at 100 rounds per cell with the
-`onRoundStart` diagnostics hook, pre-filling every player's bank to `doubleTapShift` at round start.
-`fakelag14` fell from 73–77% to **10–53%** against the other exploits. `dt` became strong (70–90%),
-because a charged DT is a two-bullet burst. `defensive` stayed dominant (82–97%), because records are
-invalidated for `defensiveShift` ticks on each side of the shift. With the stall removed, the
-remaining imbalance is the defensive invalidation and DT burst sizes. Those can be tuned through
-`defensiveShift` and `rechargeDelayTicks`, and DT through `doubleTapShift`, which is not tunable.
-
-The non-tunable values and mechanics responsible are:
-
-1. **Auto-banking on any idle command for every player**, combined with bank ticks not advancing the
-   tickbase, measured against tickbase fire intervals, and an empty bank at spawn. This is the
-   `stepTickbase` bank rule, together with `EMPTY_TICKBASE` and `shot.ts` `fireIntervalTicks` measured
-   in tickbase. It makes **choking a free exemption** from the stall, and that is why `fakelag14`
-   dominates at every tunable setting.
-2. `maxChoke 14` and choke blocking banking. These are fixed values and rules.
-
-Possible rulings, which are for the controller and not applied here:
-
-- bank only for players with a shift exploit armed;
-- spawn with a charged bank;
-- let bank ticks count toward the fire interval;
-- count choked ticks against the bank.
-
-The tunables should be re-swept after any of these.
-
-## Noise note
-
-At 60 rounds per cell, the standard error of a head-to-head rate is about 0.065. The "has a counter"
-half of the rule takes the maximum of 59 noisy rates, so at this sample size it is nearly always
-satisfied by chance. That is why `uncountered` is empty on the full grid while the exploit
-aggregates show there is no real counter to `fakelag14`. Its best counters are other `fakelag14` or
-`defensive` configs at 55–73%, and same-exploit AA head-to-head rates have a spread of SD 0.075. The
-field rate averages 59 cells, giving an SE of about 0.01, so the dominance findings are robust. A
-counter verdict you can trust needs about 400 rounds per cell (SE 0.025). At the measured rate that
-is about 16 minutes for the full grid.
-
-## Fix round 1 (R41)
-
-**Ruling R41.** Bullet 1's weapon fire interval is measured in server ticks since the shooter's last
-shot, not in tickbase. Banking therefore never blocks firing. DT bullet 2 keeps
-`ticksSinceLastShot = action.ticks`. This is implemented in `HvhRoom`, which replaces
-`lastShotTickbase` with `lastShotTick`, and pinned by a new `HvhRoom.test.ts` test. `stepTickbase` and
-the era values are unchanged. The sweep bots' readiness check uses the same server-tick rule.
-
-### Before and after R41 (current tunables 8 / 12 / 16, full grid)
-
-| | Before R41 (60 rounds per cell) | After R41 (400 rounds per cell) |
+| `PEEK_TICKS` | onPeek vs off | onPeek vs inAir |
 | --- | --- | --- |
-| Rounds, mean length | 106,200, 26.8 ticks | 708,000, 15.8 ticks |
-| Runtime | 148 s | 657 s |
-| Field rate max / min | 68.2% / 27.7% | 64.5% / 34.5% |
-| Mean field rate by exploit | none 40.0, dt 42.7, hs 38.5, fakelag14 **66.9**, defensive **61.9** | none 46.2, dt 47.4, hs 46.1, fakelag14 53.0, defensive **57.3** |
-| Mean field rate by base | backward 53.4, left 48.0, right 47.9, spin 50.7 | backward 54.2, left 47.4, right 47.4, spin 51.0 |
-| Mean field rate by jitter | 0: 47.2, 30: 50.9, 45: 51.9 | 0: 46.2, 30: 51.2, 45: 52.5 |
-| Dominant | 22 (12 fakelag14 + 10 defensive) | 10 (all defensive) |
-| Uncountered | none (noise at 60 rounds per cell) | `backward/j0/defensive` (best counter 0.495), `backward/j30/defensive` (0.545) |
-| `checkBalance` ok | false | false |
+| 8 (shipped) | 66.3% | 65.9% |
+| 4 | 51.0% | 53.6% |
+| 2 | 50.7% | 51.8% |
+| 1 | 51.2% | 50.9% |
 
-Exploit against exploit after R41 at 8 / 12 / 16, as the row's mean win rate:
+**Applied: `PEEK_TICKS` 8 → 4.** This nerfs the mode with a timing (the spec: "nerf or remove that
+mode") and keeps every pitch mode available. With a 4-command window, the 4-tick flick fills the
+whole window.
 
-|  | none | dt | hs | fakelag14 | defensive |
-| --- | --- | --- | --- | --- | --- |
-| none | 50.0 | 48.6 | 50.2 | 43.5 | 38.8 |
-| dt | 51.4 | 50.0 | 51.3 | 45.4 | 39.0 |
-| hs | 49.8 | 48.7 | 50.0 | 43.5 | 38.9 |
-| fakelag14 | 56.5 | 54.6 | 56.5 | 50.0 | 47.2 |
-| defensive | 61.2 | 61.0 | 61.1 | 52.8 | 50.0 |
+On the full grid, the defensive axis is now flat: 49.5-50.8% in every pairing at every charge
+size tried. The random-pitch interval (4) and the flick length (4) and angle (120°) were left
+alone, because neither in-air nor the flick moves results.
 
-R41 removed the fakelag dominance: fakelag14 now averages 53.0%, and no fakelag config is dominant.
-It also halved round length, because every player now fires on interval. Quick sweep after R41 at
-8 / 12 / 16 (100 rounds per cell, 4.7 s): ok false. Dominant: `backward/j0/defensive` and
-`spin/j45/defensive`. Uncountered: `backward/j0/defensive`.
+### 4. Charge size (quick grid, peek window 4, 60 rounds per cell)
 
-### Tuning after R41
+| `--charge` | ssg08 max field | scar20 max field | dt vs none (ssg / scar) | hs vs none (ssg / scar) |
+| --- | --- | --- | --- | --- |
+| 8 | 55.2% | 55.5% | 48.7 / 48.3 | 56.9 / 50.0 |
+| 12 | 55.8% | 56.1% | 52.8 / 51.3 | 54.3 / 49.3 |
+| 16 | 58.6% | 57.7% | 56.5 / 56.3 | 57.6 / 55.6 |
+| 24 | 57.4% | 57.9% | 58.9 / 59.3 | 62.8 / 58.7 |
+| 32 (shipped) | 57.4% | 59.5% | 61.1 / 63.8 | 64.3 / 63.0 |
+| 48 | 60.0% | 59.9% | 60.6 / 66.7 | 60.6 / 60.9 |
+| 64 | 57.4% | 60.3% | 58.5 / 58.5 | 59.0 / 59.1 |
 
-**Quick grid, 100 rounds per cell, 82 combinations:**
+The burst's edge comes from the teleport carrying the shooter back to cover. A smaller charge
+shrinks that edge. **Below 16, double tap disappears.** DT bullet 2's fire interval is the burst's
+tick count. The SCAR-20 needs 16 ticks, the Desert Eagle 15, the R8 32 and the SSG 08 80, so a
+charge under 15 gives no arsenal weapon a second bullet.
 
-- `hideShotsShift` ∈ {6, 8}
-- `defensiveShift` ∈ {6..14}
-- `rechargeDelayTicks` ∈ {8, 12, 16, 24, 32, 48, 64}
+### 5. Full-grid runs of the candidates (peek window 4, 100 rounds per cell, about 18 min each)
 
-No combination is ok.
+| chargeTicks | Max field rate | Dominant (3 pairings) | Uncountered | Note |
+| --- | --- | --- | --- | --- |
+| 32 (shipped, 200 rounds) | 59.5% | 29 | 12 | |
+| 16 | 57.8% | 25 | 2 | the smallest charge that keeps the SCAR-20's double tap |
+| 12 | 56.5% | 8 | 0 | no arsenal weapon double taps |
 
-- `hideShotsShift` changes nothing measurable. HS stays at 45–49%.
-- `rechargeDelayTicks` matters little. Rounds are now about 16 ticks, so a defensive player usually
-  shifts once per life.
-- `defensiveShift` is the only lever. The defensive mean is 65–70% at 6–7, about 56% at 8–9, 60–62%
-  at 10–12, about 53% at 13 and about 52% at 14. The best quick setting, 14 / 32, still has 1
-  dominant and 2 uncountered configs.
+At 12 the exploit axis is nearly flat: dt and hs within about 5 points of none on the ssg08, and
+within 1 point on the scar20. The rule still fails, on 8 configs at 55.1-56.5%. What remains is
+the AA preset axis.
 
-**Full grid, 100 rounds per cell, `hideShotsShift 8`:**
+`chargeTicks` was **not changed**, for three reasons:
+1. No value meets the rule.
+2. 32 ticks (a 0.5 s stop) is the owner's Part A decision.
+3. The only values that come close remove DT's second bullet altogether.
 
-| `defensiveShift` / `rechargeDelayTicks` | Max field rate | Dominant |
-| --- | --- | --- |
-| 12 / 16 | 64.3% | 10 |
-| 12 / 32 | 63.8% | 10 |
-| 13 / 16 | 60.0% | 7 |
-| 13 / 32 | 59.6% | 5 |
-| 14 / 16 | 58.6% | 4 |
-| 14 / 32 | 58.0% | 4 |
+16 is recorded as the best candidate that keeps DT intact.
 
-**Final full run of the best candidate (8 / 14 / 32, 400 rounds per cell, 708,000 rounds, 635 s): ok false.**
+## Why the rule cannot be met with the allowed knobs
 
-- Dominant: `backward/j0/defensive` 58.3%, `backward/j45/defensive` 56.8%,
-  `backward/j30/defensive` 56.7% and `left/j45/defensive` 55.6%.
-- Uncountered (best counter in brackets): `backward/j0/none` (0.547), `backward/j0/defensive` (0.518),
-  `backward/j30/none` (0.545), `backward/j45/defensive` (0.527) and `right/j45/defensive` (0.540).
-- Mean field rate by exploit: none 47.7, dt 48.8, hs 47.6, fakelag14 54.1, defensive 51.8.
-- The base and jitter spread is unchanged: backward 54.2, left and right 47.5, j0 46.3.
+1. **The AA preset axis is about 10 points wide, and no allowed knob reaches it.**
+   - The jitter preset (backward, jitter 45) has a field rate of 43-44% in every run. The static
+     and stance presets are at 53%.
+   - The weak jitter configs raise every other config's field rate. So even a flat exploit axis
+     (charge 12) leaves static and stance configs near 55%, and noise pushes some over.
+   - **This is not the resolver.** In the oracle control (`--oracle`: the aimbot knows the real
+     side), the jitter preset is still at 44%. It is the pose geometry: a ±45° eye swing with
+     desync 58 exposes the head more.
+   - Neither `chargeTicks` nor the defensive timings touch jitter or desync.
+2. **The burst is worth 7-14 points over plain fire at every charge that keeps double tap**
+   (16 or more). Shrinking the charge to cut that edge removes double tap altogether.
+3. **The counter half is mostly noise-satisfied.** At 200 rounds per cell (SE about 3.5%), 11-17
+   configs per pairing are 'inconclusive'. The matrix is close to transitive, with 8-29 3-cycles
+   out of 7,140 triples. The strongest DT configs have no real counter: their best opponents win
+   51-56%.
 
-The tunables were **not changed**. Because the rule is still not met, R41 point 4 applies. The
-candidate is recorded here for the controller. `defensiveShift 14` is inside the 11–14 range cited
-for cheats, but `rechargeDelayTicks 32` is unsourced. It would require updating the pinned tests:
-`era.test.ts`, the tickbase and recharge tests, and the client PredictedTickbase and Indicators
-tests.
+## Controls and the secondary model (quick grid, 60 rounds per cell)
 
-### Remaining evidence: what blocks the rule after R41
+- **Oracle resolver** (`--oracle`): not ok, max 76.4%.
+  - fakelag14 becomes dominant, beating the other exploits 72-82%. With resolver misses gone, the
+    choked, stale records are what decides the duel, so the resolver is what holds fakelag in check.
+  - The jitter preset stays at 44% (see above).
+- **Spawn model** (R42 secondary: no freeze charge): not ok, max 62.1%. The burst exploits are
+  stronger here (dt vs none 67-71%). DT and HS still charge behind cover before their first peek,
+  and plain fire gains nothing from the earlier start.
 
-1. **AA geometry favours the backward base, and this is not tunable.**
-   - Backward is +7 points over left or right on every exploit, with the same values before and after
-     tuning.
-   - Static left and right at jitter 0 sit at 34–36% field rate.
-   - Every remaining dominant and uncountered config is backward-based, or a 45-degree jitter
-     defensive.
-   - The cause is the head hitbox position under desync (`buildHvhMatrix`'s head forward offset
-     with `maxDesyncDeg 58`). With a side base, both desync sides put the head on the same side of
-     the line of sight. With backward, the two sides split it, so a wrong resolver guess misses.
-     None of the three tunables touches this.
-2. **The counter half needs a non-transitive matrix.** With reliable samples (400 rounds per cell,
-   SE about 0.025), the strongest configs have no opponent at ≥ 0.55. The matrix is close to
-   transitive: AA strength stacks with exploit strength, and no exploit beats defensive or fakelag
-   while losing to the weaker configs. The tunables only scale defensive's strength. They cannot
-   create a counter cycle.
-3. **DT and HS barely engage, partly a mechanic.** After R41, rounds last about 16 ticks. Every life
-   spawns with an empty bank (`EMPTY_TICKBASE`), and a 14-tick DT charge rarely completes before the
-   duel ends. 46% of DT requests and 45% of HS requests are "not charged". This is a non-tunable spawn
-   rule, and `doubleTapShift 14` is fixed.
+## Possible rulings (for the controller, not applied)
 
-Possible next rulings, for the controller:
-
-- spawn with a charged bank;
-- make the AA head geometry (or the aimbot model) base-neutral;
-- accept the "counter" half as unattainable for a transitive design and keep only the dominance half;
-- apply the 14 / 32 candidate as a partial improvement.
+- **Charge size.** Take `chargeTicks` 16 as a partial improvement: max field rate 57.8%, DT keeps
+  its second bullet on the SCAR-20. Or take 12, which comes closest but removes double tap.
+- **The jitter-preset weakness.** Exclude that preset from the grid as a dominated config, or
+  change the jitter and desync pose geometry.
+- **The counter half.** Accept it as unattainable for a near-transitive design, and keep only the
+  dominance half.
+- **The base AA pitch.** Look at the legacy `antiAim.pitch: 'down'` (hvhPitch, -1.15 rad). It
+  applies on every tick, not only in a defensive window, and probably hides the head the same way.
+  It was outside this grid (every config uses 'look'), and it was not measured.

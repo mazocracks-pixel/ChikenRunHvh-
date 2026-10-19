@@ -9,6 +9,7 @@ import {
   type PoseContext,
   type StanceAA,
   type V2Stance,
+  FLICK_TICKS,
   NO_DEFENSIVE,
   PEEK_TICKS,
   V2_STANCES,
@@ -262,7 +263,7 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
     }
   });
 
-  it('an on-peek flick is phased by the window: commands 0-3 on (x peekSide), 4-7 off, at any tick', () => {
+  it('an on-peek flick is phased by the window: the first FLICK_TICKS commands on (x peekSide), the rest off, at any tick', () => {
     const aa = withDefensive({ always: false, onPeek: true, yaw: 'flick' });
     assert.ok(Math.abs(LATE_CSGO.maxPitchDeg - 68.75) < 0.01, 'precondition: P below 89');
     for (const start of [0, 1, 2, 3, 4, 5, 6, 7, 1001]) {
@@ -270,7 +271,7 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
         for (let w = 0; w < PEEK_TICKS; w++) {
           for (const tick of [start + w, start]) { // advancing, or frozen (a charge inside the window)
             const p = stepPose(INITIAL_POSE, 0, aa, STAND, tick, LATE_CSGO, { ...CTX, peekTicksLeft: PEEK_TICKS - w, peekSide: side });
-            assert.ok(Math.abs(offsetDeg(p) - (w < 4 ? 120 * side : 0)) < EPS, `start ${start} side ${side} w ${w} tick ${tick}: ${offsetDeg(p)}`);
+            assert.ok(Math.abs(offsetDeg(p) - (w < FLICK_TICKS ? 120 * side : 0)) < EPS, `start ${start} side ${side} w ${w} tick ${tick}: ${offsetDeg(p)}`);
           }
         }
       }
@@ -304,7 +305,7 @@ describe('Per-stance anti-aim and defensive patterns (v2)', () => {
   it('peekTicksLeft > 0 activates onPeek; inAir needs the airborne stance', () => {
     const aa = withDefensive({ always: false, onPeek: true, yaw: 'sideways', pitch: 'down' });
     assert.equal(offsetDeg(stepPose(INITIAL_POSE, 0, aa, STAND, 5, LATE_CSGO, CTX)), 0, 'no peek: inactive');
-    for (const peekTicksLeft of [1, 8]) {
+    for (const peekTicksLeft of [1, PEEK_TICKS]) {
       const p = stepPose(INITIAL_POSE, 0, aa, STAND, 5, LATE_CSGO, { ...CTX, peekTicksLeft });
       assert.ok(Math.abs(Math.abs(offsetDeg(p)) - 90) < EPS);
       assert.ok(Math.abs(p.pitch + P * DEG) < EPS, 'down: the era pitch limit');
