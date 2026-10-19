@@ -98,6 +98,7 @@ import {
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
+import { SpectateTarget } from '../hvh/Spectate';
 import { LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog, initHvhV2Ui } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
@@ -287,6 +288,9 @@ export class GameSession {
   private wasOnGround = true;
   private deathPos: THREE.Vector3 | null = null;
   private respawnAt = 0;
+  /** v2 HvH rounds (R63): the living teammate a dead player watches. */
+  private readonly spectate = new SpectateTarget();
+  private spectated: RemotePlayer | null = null;
   private lastResultsKey = '';
   /** First-person gun, attached to the camera. */
   private readonly viewmodel: ViewModel;
@@ -573,6 +577,8 @@ export class GameSession {
       this.rig.follow(seat?.position ?? this.local.position, input.yaw-(noRecoil?this.visualKick.yaw:0), input.pitch-(noRecoil?this.visualKick.pitch:0), zoom, dt, scoped, this.local.car !== null, this.local.eyeScale);
       this.local.chicken.setBodyVisible(!(this.rig.firstPerson || (scoped && !this.rig.hvhThirdPerson)));
       this.updateViewmodel(dt, this.rig.firstPerson && !scoped, aiming);
+    } else if (this.spectateTeammate(dt)) {
+      this.updateViewmodel(dt, false);
     } else if (this.deathPos) {
       this.updateViewmodel(dt, false);
       this.rig.orbit(this.deathPos, dt);
@@ -2027,7 +2033,37 @@ export class GameSession {
     this.ctx.audio.play('poof', p, 0.8);
   }
 
+  /**
+   * v2 HvH rounds (R63): dead in a round, watch a living teammate's view (their public eye angles);
+   * fire cycles to the next teammate, aim back to the previous. False when nobody can be watched,
+   * so the death camera stays. Spectate.ts picks the teammate; a respawn ends it.
+   */
+  private spectateTeammate(dt: number): boolean {
+    const { input } = this.ctx;
+    const phase = this.round?.phase;
+    const before = this.spectated;
+    let next: RemotePlayer | null = null;
+    if (this.mode.id === 'hvh' && this.local.hvhV2 && !this.local.alive && (phase === 'live' || phase === 'over')) {
+      const team = this.self?.team ?? 0;
+      const players = [...this.remotes.players.values()].map((r) => ({ pid: r.info.pid, team: r.info.team, alive: r.alive && !r.culled }));
+      const click = !input.active ? 0 : input.firing && !this.fireWasDown ? 1 : input.aiming && !this.aimWasDown ? -1 : 0;
+      const pid = click === 0 ? this.spectate.update(team, players) : this.spectate.cycle(team, players, click);
+      next = pid === null ? null : this.remotes.players.get(pid) ?? null;
+    }
+    if (before && before !== next) before.chicken.setBodyVisible(true);
+    this.spectated = next;
+    if (!next) return false;
+    if (next !== before) this.ctx.hud.toast(`Spectating ${next.info.name}`);
+    // Inside their chicken: hide the body, as for our own first-person view.
+    next.chicken.setBodyVisible(false);
+    this.rig.follow(next.position, next.yaw, next.latest?.pitch ?? 0, 1, dt, true, false, next.scale);
+    return true;
+  }
+
   private respawned(): void {
+    this.spectated?.chicken.setBodyVisible(true);
+    this.spectated = null;
+    this.spectate.reset();
     this.heldGrenade = null;
     this.pinPulled = false;
     this.deathPos = null;
