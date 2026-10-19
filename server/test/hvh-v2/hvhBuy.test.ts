@@ -99,6 +99,23 @@ describe('HvH v2 buy menu', () => {
     assert.deepEqual(p.info.loadout, ['ssg08', 'r8']);
   });
 
+  it('picks are rate limited: a main and a pistol at once, then one per 250 ms (no broadcast spam)', (t) => {
+    const m = buyMatch(t);
+    const p = m.players[0]!;
+    assert.equal(m.room.hvhRound.phase, 'warmup');
+    const updates = () => m.events.filter((e) => e.event === 'playerUpdated' && (e.args[0] as { pid: number }).pid === p.pid).length;
+    const before = updates();
+    assert.equal(m.room.handleBuy(p, 'scar20', m.now).ok, true);
+    assert.equal(m.room.handleBuy(p, 'r8', m.now).ok, true, 'the remembered pair is sent together');
+    assert.deepEqual(m.room.handleBuy(p, 'ssg08', m.now), { ok: false, error: 'Picking too fast.', money: 0 });
+    assert.deepEqual(p.info.loadout, ['scar20', 'r8'], 'a refused pick changes nothing');
+    assert.equal(updates(), before + 2, 'a refused pick is not broadcast');
+    assert.deepEqual(m.room.handleBuy(p, 'scar20', m.now), { ok: true, money: 0 }, 'the same pick is a free no-op');
+    assert.equal(m.room.handleBuy(p, 'ssg08', m.now + 249).ok, false);
+    assert.equal(m.room.handleBuy(p, 'ssg08', m.now + 250).ok, true, 'one more pick per 250 ms');
+    assert.deepEqual(p.info.loadout, ['ssg08', 'r8']);
+  });
+
   it('a legacy HvH room keeps the legacy buy behaviour and the profile loadout', (t) => {
     const { io } = fakeIo();
     const room = new HvhRoom(io, { id: 'legacy', code: 'LEG01', name: 'Legacy', mode: 'hvh', map: 'farm', private: true }, {});

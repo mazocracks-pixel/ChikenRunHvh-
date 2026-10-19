@@ -80,7 +80,7 @@ import {
   type WorldTracer,
 } from '@game/shared/hvh/v2';
 import type { GameServer } from '../types';
-import { isFiniteNumber, isRecord as isPlainRecord } from '../util';
+import { TokenBucket, isFiniteNumber, isRecord as isPlainRecord } from '../util';
 import { GameRoom, parseFire, parseInput, type RoomHooks, type RoomOptions } from './GameRoom';
 import type { ServerPlayer } from './ServerPlayer';
 
@@ -181,6 +181,7 @@ import type { ServerPlayer } from './ServerPlayer';
  *   knife and no grenades. The pick lives in p.info.loadout (default SSG 08 + Desert Eagle), so
  *   every round start's respawn re-applies it. `buy` takes an arsenal id, free, in warmup and
  *   freeze only; the gun in hand stays out if it is still carried (as the client's setLoadout).
+ *   A change is rate limited per player (2 at once, then one per 250 ms; the same pick is free).
  *   Public rooms fill to 10 with bots (5v5); each bot picks a random main and pistol at every
  *   round start from the room's seeded RNG.
  */
@@ -285,6 +286,8 @@ export interface HvhPlayerV2 {
   hammerFrom: number | null;
   /** The gun the hold started on (a switch restarts the pull). */
   hammerWeapon: WeaponId | null;
+  /** Loadout changes (buy): 2 at once (a main and a pistol), then 4 per second. */
+  buyLimiter: TokenBucket;
   /** Server tick of the newest pushed record. */
   lastRecordTick: number;
   /** What other viewers saw at the newest pushed record (frozen while choking). */
@@ -446,6 +449,7 @@ export class HvhRoom extends GameRoom {
         peek: [],
         hammerFrom: null,
         hammerWeapon: null,
+        buyLimiter: new TokenBucket(2, 4),
         lastRecordTick: -Infinity,
         publicState: null,
         sentSight: [],
@@ -1080,7 +1084,11 @@ export class HvhRoom extends GameRoom {
     if (typeof itemId !== 'string' || !isWeaponId(itemId) || !isHvhArsenal(itemId)) return { ok: false, error: 'Not in the HvH arsenal.', money: 0 };
     if (this.round.phase !== 'warmup' && this.round.phase !== 'freeze') return { ok: false, error: 'Buying is closed.', money: 0 };
     const [main, pistol] = hvhLoadout(p.info.loadout);
-    this.setLoadout(p, MAINS.includes(itemId) ? [itemId, pistol] : [main, itemId]);
+    const next: [WeaponId, WeaponId] = MAINS.includes(itemId) ? [itemId, pistol] : [main, itemId];
+    // A change refills magazines and is broadcast to the room, so it is rate limited; the same pick is free.
+    const same = p.info.loadout.length === 2 && p.info.loadout[0] === next[0] && p.info.loadout[1] === next[1];
+    if (!same && !this.stateOf(p).buyLimiter.take(1, now)) return { ok: false, error: 'Picking too fast.', money: 0 };
+    this.setLoadout(p, next);
     return { ok: true, money: 0 };
   }
 
