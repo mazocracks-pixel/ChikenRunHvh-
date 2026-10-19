@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  MAX_REWIND_MS, PLAYER, SIM_DT, SNAPSHOT_RATE, WEAPONS, hopMaxFor, makeRay, moveSpeedFor, normalize, rayHvhMatrix, stepPlayer, unpackPlayer,
+  MAX_REWIND_MS, PLAYER, SIM_DT, SNAPSHOT_RATE, WEAPONS, hopMaxFor, makeRay, moveSpeedFor, normalize, rayHvhMatrix, stepPlayer, unpackPlayer, wrapAngle,
   type InputFrame, type MoveState, type Vec3,
 } from '@game/shared';
-import { LATE_CSGO, fireIntervalTicks, guessedPose, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
+import { LATE_CSGO, fireIntervalTicks, guessedPose, poseMatrix, uniformAntiAim, type CommandIntent, type LagRecord, type ShotVerdict, type StanceAA } from '@game/shared/hvh/v2';
 import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { GameRoom, parseInput } from '../../src/rooms/GameRoom';
 import { HvhRoom, hvhEngineFrom, type HvhEngine } from '../../src/rooms/HvhRoom';
@@ -971,3 +971,87 @@ describe('charge and burst', () => {
   });
 });
 
+
+describe('per-stance anti-aim and defensive patterns', () => {
+  /** A's eye yaw offset from its backward base (aim yaw 0), degrees. */
+  const offsetOf = (room: HvhRoom, pid: number) => wrapAngle(room.v2State(pid)!.pose.eyeYaw - Math.PI) / (Math.PI / 180);
+  const flickAt = (tick: number) => (tick % 8 < 4 ? (Math.floor(tick / 8) % 2 === 0 ? 120 : -120) : 0);
+  const STANCE: StanceAA = { base: 'backward', yawOffsetDeg: 0, jitterDeg: 0, desyncDeg: 30 };
+
+  /** A behind the wall from B, with AA on and the on-peek flick on every stance. */
+  function peekDuel() {
+    const made = hiddenDuel();
+    const { stances, defensive } = uniformAntiAim(STANCE);
+    for (const k of Object.keys(defensive) as (keyof typeof defensive)[]) {
+      defensive[k] = { enabled: true, inAir: false, onPeek: true, always: false, pitch: 'zero', yaw: 'flick' };
+    }
+    made.a.hvh.antiAim = { ...made.a.hvh.antiAim, enabled: true };
+    made.a.hvh.v2AntiAim = { stances, defensive };
+    return { ...made, d: driver(made.room, made.a) };
+  }
+
+  it('an enemy appearing gives 8 commands of defensive yaw (flick), then none', (t) => {
+    const { room, a, b, d } = peekDuel();
+    t.after(() => room.close());
+    for (let i = 0; i < 10; i++) {
+      d.tick({});
+      assert.equal(offsetOf(room, a.pid), 0, `hidden, command ${i}: the plain stance`);
+    }
+    place(b, 25, 20);
+    const flicked: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      d.tick({});
+      const tick = room.tickbaseOf(a.pid)!.tickbase;
+      assert.equal(room.v2State(a.pid)!.peek.at(-1), 8 - i, `window command ${i}: peekTicksLeft`);
+      assert.ok(Math.abs(offsetOf(room, a.pid) - flickAt(tick)) < 1e-9, `window command ${i} (tick ${tick}): offset ${offsetOf(room, a.pid)}`);
+      if (flickAt(tick) !== 0) flicked.push(tick);
+    }
+    assert.equal(flicked.length, 4, 'a flick is 4 of the 8 window ticks');
+    for (let i = 0; i < 12; i++) {
+      d.tick({});
+      assert.equal(room.v2State(a.pid)!.peek.at(-1), 0);
+      assert.equal(offsetOf(room, a.pid), 0, `still visible, command ${i}: no new window`);
+    }
+    // Hidden again, then seen again: a new window.
+    place(b, 20, 10);
+    d.tick({});
+    place(b, 25, 20);
+    d.tick({});
+    assert.equal(room.v2State(a.pid)!.peek.at(-1), 8);
+  });
+
+  it('the window spends no charge and shifts no tickbase', (t) => {
+    const { room, a, b, d } = peekDuel();
+    t.after(() => room.close());
+    for (let i = 0; i < 4; i++) d.tick({});
+    const start = room.tickbaseOf(a.pid)!.tickbase;
+    place(b, 25, 20);
+    for (let i = 0; i < 8; i++) d.tick({});
+    assert.equal(room.tickbaseOf(a.pid)!.tickbase, start + 8);
+    assert.equal(room.tickbaseOf(a.pid)!.charge, 0);
+    assert.ok(recordOf(room, a.pid).valid, 'records stay valid (no lag-compensation effect)');
+  });
+
+  it('the stance picks its own config; a loadout without one uses the single legacy stance', (t) => {
+    const { room, a, d } = peekDuel();
+    t.after(() => room.close());
+    a.hvh.v2AntiAim!.stances.standing = { ...STANCE, base: 'left' };
+    d.tick({});
+    assert.ok(Math.abs(wrapAngle(room.v2State(a.pid)!.pose.eyeYaw - Math.PI / 2)) < 1e-9, 'standing: left');
+    a.hvh.v2AntiAim = undefined;
+    a.hvh.antiAim = { ...a.hvh.antiAim, mode: 'right', jitter: 0 };
+    d.tick({});
+    assert.ok(Math.abs(wrapAngle(room.v2State(a.pid)!.pose.eyeYaw + Math.PI / 2)) < 1e-9, 'legacy fallback: right');
+  });
+
+  it('no on-peek pattern: the peek window stays closed', (t) => {
+    const { room, a, b, d } = peekDuel();
+    t.after(() => room.close());
+    for (const s of Object.values(a.hvh.v2AntiAim!.defensive)) s.onPeek = false;
+    d.tick({});
+    place(b, 25, 20);
+    d.tick({});
+    assert.equal(room.v2State(a.pid)!.peek.at(-1), 0);
+    assert.equal(offsetOf(room, a.pid), 0);
+  });
+});

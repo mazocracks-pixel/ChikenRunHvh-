@@ -124,14 +124,78 @@ describe('migrateConfig', () => {
     assert.equal(loadout.core!.era, 'defensive', 'legacy rooms keep their era profile');
   });
 
-  it('the Defensive bind does not collide with game actions or other HvH keys', () => {
+  it('the HvH binds do not collide with game actions or each other; the defensive key is gone', () => {
     for (const panel of ['lab', 'skeet'] as const) {
       const c = defaultConfig(panel);
-      assert.equal(c.hvh.defensive, false);
-      const keys = [c.hvh.aim.overrideKey, c.hvh.aim.bodyKey, c.hvh.movement.peekKey, c.hvh.invertKey, c.hvh.defensiveKey];
+      assert.equal('defensive' in c.hvh || 'defensiveKey' in c.hvh, false, 'defensive is a per-stance anti-aim pattern now');
+      const keys = [c.hvh.aim.overrideKey, c.hvh.aim.bodyKey, c.hvh.movement.peekKey, c.hvh.invertKey];
       assert.equal(new Set(keys).size, keys.length);
-      assert.ok(!BINDS.some(b => b.code === c.hvh.defensiveKey));
+      assert.ok(!keys.some(k => BINDS.some(b => b.code === k)));
     }
+  });
+});
+
+describe('migrateConfig: per-stance v2 anti-aim (config version 3)', () => {
+  const STANCES = ['standing', 'moving', 'airborne', 'crouching', 'slowwalking'] as const;
+  /** A config saved at version 2: one AA base, the old defensive toggle and key. */
+  function v2Saved(): Record<string, any> {
+    const c = structuredClone(defaultConfig('skeet')) as unknown as Record<string, any>;
+    c.version = 2;
+    delete c.hvh.v2AntiAim;
+    c.hvh.antiAim = { ...c.hvh.antiAim, enabled: true, mode: 'right', jitter: 12, desync: 44 };
+    c.hvh.defensive = false;
+    c.hvh.defensiveKey = 'KeyO';
+    return c;
+  }
+
+  it('is version 3', () => assert.equal(CONFIG_VERSION, 3));
+
+  it('the old single base, jitter and desync become all five stances, defensive off', () => {
+    for (const [old, mode, jitter, desync] of [[v2Saved(), 'right', 12, 44], [legacySaved(), 'left', 33, 51]] as const) {
+      const { config } = migrateConfig(old);
+      assert.equal(config.version, CONFIG_VERSION);
+      assert.deepEqual(Object.keys(config.hvh.v2AntiAim.stances).sort(), [...STANCES].sort());
+      for (const s of STANCES) {
+        assert.deepEqual(config.hvh.v2AntiAim.stances[s], { base: mode, yawOffsetDeg: 0, jitterDeg: jitter, desyncDeg: desync }, s);
+        assert.equal(config.hvh.v2AntiAim.defensive[s].enabled, false, s);
+      }
+      assert.equal(config.hvh.antiAim.mode, mode, 'legacy rooms keep the single stance');
+    }
+  });
+
+  it('lists the dropped defensive toggle and key only when customised, and nothing a v2 migration already showed', () => {
+    assert.deepEqual(migrateConfig(v2Saved()).reset, []);
+    const old = v2Saved();
+    old.hvh.defensive = true;
+    old.hvh.defensiveKey = 'KeyL';
+    old.hvh.core.antiBruteforce = false; // legacy-only, already reported by the version-2 migration
+    const { config, reset } = migrateConfig(old);
+    assert.deepEqual(reset.sort(), ['hvh.defensive', 'hvh.defensiveKey']);
+    assert.equal('defensive' in config.hvh || 'defensiveKey' in config.hvh, false);
+    assert.match(migrationNotice(reset), /Reset to defaults: hvh\.defensive, hvh\.defensiveKey\./);
+    const v1 = legacySaved() as Record<string, any>;
+    v1.hvh.defensive = true;
+    assert.ok(migrateConfig(v1).reset.includes('hvh.defensive'));
+  });
+
+  it('a version-3 config keeps its stances; bad values are clamped or dropped', () => {
+    const c = structuredClone(defaultConfig('skeet')) as unknown as Record<string, any>;
+    c.hvh.v2AntiAim.stances.airborne = { base: 'spin', yawOffsetDeg: 400, jitterDeg: 90, desyncDeg: -5 };
+    c.hvh.v2AntiAim.stances.moving.base = 'sideways';
+    c.hvh.v2AntiAim.defensive.airborne = { enabled: true, inAir: true, onPeek: 'yes', always: false, pitch: 'random', yaw: 'warp' };
+    const { config, reset } = migrateConfig(c);
+    assert.deepEqual(reset, []);
+    assert.deepEqual(config.hvh.v2AntiAim.stances.airborne, { base: 'spin', yawOffsetDeg: 180, jitterDeg: 45, desyncDeg: 0 });
+    assert.equal(config.hvh.v2AntiAim.stances.moving.base, defaultConfig().hvh.v2AntiAim.stances.moving.base);
+    assert.deepEqual(config.hvh.v2AntiAim.defensive.airborne, { enabled: true, inAir: true, onPeek: false, always: false, pitch: 'random', yaw: 'off' });
+    assert.deepEqual(migrateConfig(JSON.parse(JSON.stringify(config))).config, config, 'round trip');
+  });
+
+  it('the skeet panel sends the per-stance config in its loadout', () => {
+    const { config } = migrateConfig(v2Saved());
+    config.hvh.v2AntiAim.defensive.standing = { enabled: true, inAir: false, onPeek: true, always: false, pitch: 'down', yaw: 'flick' };
+    assert.deepEqual(HVH_PANELS.skeet.loadout(config).v2AntiAim, config.hvh.v2AntiAim);
+    assert.equal(HVH_PANELS.manual.loadout(config).v2AntiAim, undefined);
   });
 });
 

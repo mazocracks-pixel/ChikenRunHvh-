@@ -22,10 +22,12 @@ import {
   rayHvhMatrix,
   shotSeed,
   shotUsesAmmo,
+  stanceAntiAimFrom,
   stepPlayer,
   teamName,
   type BuyResult,
   type FireRequest,
+  type HvhStanceAntiAim,
   type InputFrame,
   type PlayerState,
   type RoundState,
@@ -41,6 +43,8 @@ import {
   HVH_PISTOLS,
   INITIAL_POSE,
   LATE_CSGO,
+  PEEK_TICKS,
+  V2_STANCES,
   RecordHistory,
   collisionWorldTracer,
   createResolverMemory,
@@ -112,9 +116,16 @@ import type { ServerPlayer } from './ServerPlayer';
  *   more normal steps of the same frame (R47: 1 + chargeTicks in all), so it slides along walls
  *   and a player standing still does not move. The teleport usually exceeds lagCompBreakHulls, so
  *   RecordHistory turns the pre-burst records 'lagcompBreak' by itself. Sight is traced only when
- *   it can change the action (stepTickbase rules 4 and 5). No other path runs more than one
- *   movement step per command. Death and every spawn reset the tickbase (charge 0), and a dead
- *   player's commands never reach stepTickbase, so a dead player never bursts.
+ *   it can change the action (stepTickbase rules 4 and 5) or for an on-peek pattern (below), once
+ *   per command either way. No other path runs more than one movement step per command. Death
+ *   and every spawn reset the tickbase (charge 0), and a dead player's commands never reach
+ *   stepTickbase, so a dead player never bursts.
+ * - Anti-aim (round redesign Part B): stepPose with the stance's StanceAA and DefensiveAA from
+ *   loadout.v2AntiAim (absent: antiAim's single base, jitter and desync on every stance). A
+ *   defensive pattern only changes the pose: no charge, no tickbase shift, records stay valid.
+ *   The on-peek window opens for PEEK_TICKS commands when the same lag-compensated sight turns
+ *   false -> true; it is only watched (and sight traced every command) while some stance has an
+ *   on-peek pattern. The random patterns are seeded from the pid (HvhPlayerV2.aaSeed).
  * - Targets (R24): the first enemy body the un-deviated aim ray intersects, traced against each
  *   enemy's lag record at the view tick (real pose, crouch scale; poseMatrix, as processShot).
  *   A client-named target (legacy fire intent.target) is only a hint: used when it is that body,
@@ -241,6 +252,14 @@ export interface HvhPlayerV2 {
   executed: number;
   /** The enemyVisible each of this tick's commands was stepped with, in order (headless matches replay prediction from it). */
   sight: boolean[];
+  /** Seeds the defensive random pitch and yaw (stepPose ctx.seed); from the pid. */
+  aaSeed: number;
+  /** Commands left in the on-peek window: PEEK_TICKS when an enemy becomes visible, then -1 per command. */
+  peekTicksLeft: number;
+  /** An enemy was in sight at the last command that watched for a peek. */
+  enemySeen: boolean;
+  /** The peekTicksLeft each of this tick's commands stepped its pose with, in order (headless matches replay prediction from it). */
+  peek: number[];
   /** Server tick of the newest pushed record. */
   lastRecordTick: number;
   /** What other viewers saw at the newest pushed record (frozen while choking). */
@@ -257,6 +276,12 @@ function parseIntent(raw: unknown): CommandIntent {
     doubleTap: raw.doubleTap === true,
     hideShots: raw.hideShots === true,
   };
+}
+
+/** Some stance has an on-peek defensive pattern, so the peek window needs sight every command. */
+function watchesPeek(aa: HvhStanceAntiAim): boolean {
+  for (const stance of V2_STANCES) if (aa.defensive[stance].enabled && aa.defensive[stance].onPeek) return true;
+  return false;
 }
 
 function hitscan(w: WeaponDef): boolean {
@@ -383,6 +408,10 @@ export class HvhRoom extends GameRoom {
         pendingBullet: null,
         executed: 0,
         sight: [],
+        aaSeed: Math.imul(p.pid, 0x9e3779b1) >>> 0,
+        peekTicksLeft: 0,
+        enemySeen: false,
+        peek: [],
         lastRecordTick: -Infinity,
         publicState: null,
         sentSight: [],
@@ -477,6 +506,7 @@ export class HvhRoom extends GameRoom {
     s.budget = Math.min(this.era.maxProcessTicks, s.budget + 1);
     s.executed = 0;
     s.sight = [];
+    s.peek = [];
     let capture: RecordCapture | null = null;
     while (s.executed < this.era.maxProcessTicks && s.budget >= 1 && s.queue.length > 0) {
       const command = s.queue.shift()!;
@@ -523,6 +553,7 @@ export class HvhRoom extends GameRoom {
     if (!p.alive || p.hvhPreparing || p.removedForCheating) {
       if (fireReq) this.emitVerdict(p, this.rejected(p, 'actions blocked'));
       s.sight.push(false);
+      this.stepPeek(s, false, false);
       this.move(p, frame);
       return null;
     }
@@ -535,8 +566,14 @@ export class HvhRoom extends GameRoom {
     if (!p.hvhEnabled) intent = { ...IDLE, fire: intent.fire };
 
     const before = s.tickbase;
-    const visible = this.enemyInSight(p, s, before, intent, command.sightT, now);
+    const aa = this.antiAimOf(p);
+    const forTickbase = this.sightChangesAction(before, intent);
+    const forPeek = aa !== null && watchesPeek(aa);
+    // One trace serves both (at most two raycasts per enemy per command).
+    const seen = (forTickbase || forPeek) && this.enemyInSight(p, s, command.sightT, now);
+    const visible = forTickbase && seen;
     s.sight.push(visible);
+    this.stepPeek(s, forPeek, seen);
     const { next, action } = stepTickbase(before, intent, this.era, { enemyVisible: visible });
     s.tickbase = next;
     if (action.kind === 'reject') {
@@ -545,7 +582,7 @@ export class HvhRoom extends GameRoom {
     // The charging stop runs no movement step; a burst runs its own step here, the rest after the shot.
     const moved = this.move(p, frame, action.kind === 'charge' ? 0 : 1);
     const motion = this.motionOf(p);
-    s.pose = this.stepPoseFor(p, s, frame, motion);
+    s.pose = this.stepPoseFor(p, s, frame, motion, aa);
     const burst = action.kind === 'burst' ? action : null;
 
     let recordPose = s.pose;
@@ -613,12 +650,11 @@ export class HvhRoom extends GameRoom {
    * last sent snapshot is clamped to it; one older than every kept snapshot or than the unlag
    * window (MAX_REWIND_MS), or a missing one, falls back to R54: where enemies stood at the start
    * of the tick (sightTargets, with their body yaw). Either way the answer does not depend on the
-   * order players are simulated in. Traced only when it can change the action: an exploit on, not
-   * firing, below a full charge (stepTickbase rules 4 and 5); otherwise false, which stepTickbase
-   * then ignores.
+   * order players are simulated in. Traced only when it can change the action (sightChangesAction)
+   * or the player watches for a peek (an on-peek defensive pattern); the tickbase is stepped with
+   * false otherwise, which it then ignores.
    */
-  private enemyInSight(p: ServerPlayer, s: HvhPlayerV2, tickbase: TickbaseState, intent: CommandIntent, sightT: number | undefined, now: number): boolean {
-    if (!(intent.doubleTap || intent.hideShots) || intent.fire || tickbase.charge >= this.era.chargeTicks) return false;
+  private enemyInSight(p: ServerPlayer, s: HvhPlayerV2, sightT: number | undefined, now: number): boolean {
     const sent = sightT === undefined ? null : this.sentSightAt(s, sightT, now);
     if (sent) return enemyVisible(this.eyeOf(p), sent, this.world);
     const enemies: SightTarget[] = [];
@@ -628,6 +664,26 @@ export class HvhRoom extends GameRoom {
       if (target) enemies.push(target);
     }
     return enemyVisible(this.eyeOf(p), enemies, this.world);
+  }
+
+  /** Sight can change the tickbase action: an exploit on, not firing, below a full charge (stepTickbase rules 4 and 5). */
+  private sightChangesAction(tickbase: TickbaseState, intent: CommandIntent): boolean {
+    return (intent.doubleTap || intent.hideShots) && !intent.fire && tickbase.charge < this.era.chargeTicks;
+  }
+
+  /**
+   * The on-peek window: when the enemy sight turns false -> true it opens for PEEK_TICKS commands
+   * (this one included), counting down by 1 per command. Closed and reset while not watching.
+   */
+  private stepPeek(s: HvhPlayerV2, watching: boolean, seen: boolean): void {
+    if (!watching) {
+      s.peekTicksLeft = 0;
+      s.enemySeen = false;
+    } else {
+      s.peekTicksLeft = seen && !s.enemySeen ? PEEK_TICKS : Math.max(0, s.peekTicksLeft - 1);
+      s.enemySeen = seen;
+    }
+    s.peek.push(s.peekTicksLeft);
   }
 
   /** The newest snapshot sent to the player at or before `t`, if it is inside the unlag window. */
@@ -678,14 +734,19 @@ export class HvhRoom extends GameRoom {
     };
   }
 
-  private stepPoseFor(p: ServerPlayer, s: HvhPlayerV2, frame: Readonly<InputFrame>, motion: Motion): PoseState {
+  /** The player's v2 per-stance anti-aim, or null with AA off. A loadout without one uses antiAim's single stance. */
+  private antiAimOf(p: ServerPlayer): HvhStanceAntiAim | null {
+    if (!p.hvhEnabled || !p.hvh.antiAim.enabled) return null;
+    return p.hvh.v2AntiAim ?? stanceAntiAimFrom(p.hvh.antiAim);
+  }
+
+  /** stepPose carries the incoming (visual) pitch unless a defensive pattern sets it. */
+  private stepPoseFor(p: ServerPlayer, s: HvhPlayerV2, frame: Readonly<InputFrame>, motion: Motion, aa: HvhStanceAntiAim | null): PoseState {
     const pitch = hvhPitch(frame.pitch, p.hvh);
-    const aa = p.hvh.antiAim;
-    if (!p.hvhEnabled || !aa.enabled) {
-      return { ...s.pose, eyeYaw: frame.yaw, bodyYaw: frame.yaw, pitch, realSide: 'center', eyeOffsetDeg: 0 };
-    }
-    const config: AntiAimConfig = { base: aa.mode, jitterDeg: aa.jitter, desyncDeg: aa.desync, inverted: frame.invert === true };
-    return { ...stepPose(s.pose, frame.yaw, config, motion, s.tickbase.tickbase, this.era), pitch };
+    if (!aa) return { ...s.pose, eyeYaw: frame.yaw, bodyYaw: frame.yaw, pitch, realSide: 'center', eyeOffsetDeg: 0 };
+    const config: AntiAimConfig = { ...aa, inverted: frame.invert === true };
+    return stepPose({ ...s.pose, pitch }, frame.yaw, config, motion, s.tickbase.tickbase, this.era,
+      { seed: s.aaSeed, peekTicksLeft: s.peekTicksLeft, slowWalk: frame.slowWalk === true });
   }
 
   private pushRecord(p: ServerPlayer, s: HvhPlayerV2, c: RecordCapture): void {

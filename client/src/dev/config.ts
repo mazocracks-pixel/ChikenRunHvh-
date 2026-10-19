@@ -1,13 +1,16 @@
-import { DEFAULT_MODS, WEAPON_IDS, defaultHvhCore, defaultHvhLoadout, type HvhLoadout, type DevMods, type WeaponId } from '@game/shared';
+import {
+  AA_BASES, DEFAULT_MODS, DEFENSIVE_PITCHES, DEFENSIVE_YAWS, STANCE_AA_RANGES, WEAPON_IDS, defaultHvhCore, defaultHvhLoadout, stanceAntiAimFrom,
+  type HvhLoadout, type HvhStanceAntiAim, type DevMods, type WeaponId,
+} from '@game/shared';
 import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
 import { SKEET_GROUPS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
 import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
 import { NATIVE_FIELDS } from './skeet/nativeFields';
-import { DEFAULT_ERA_ID, ERAS } from '@game/shared/hvh/v2';
+import { DEFAULT_ERA_ID, ERAS, V2_STANCES } from '@game/shared/hvh/v2';
 
-/** Config schema version. 2 = HvH v2 (tickbase intents); configs without it are migrated. */
-export const CONFIG_VERSION = 2;
+/** Config schema version. 2 = HvH v2 (tickbase intents), 3 = per-stance v2 anti-aim; older configs are migrated. */
+export const CONFIG_VERSION = 3;
 
 /**
  * Everything the developer menu can change. Plain JSON, so it can be saved, exported and
@@ -26,9 +29,8 @@ export interface DevConfig {
       slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string; subtickStrafe: boolean };
     feedback: { shotLog: boolean; targetInfo: boolean; resolver: boolean };
     invertKey: string;
-    /** Exploits tab: each press of defensiveKey asks for one defensive shift (v2 rooms only). */
-    defensive: boolean;
-    defensiveKey: string;
+    /** v2 rooms: each stance's anti-aim and defensive pattern (sent in the loadout). */
+    v2AntiAim: HvhStanceAntiAim;
   };
   legit: {
     trigger: { enabled: boolean; delay: number; fov: number; key: string; visCheck: boolean };
@@ -95,7 +97,8 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
         accuracyWeight: 15, confidenceWeight: 15, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
       movement: { autoStop: false, autoStopSlowWalk: false, autoStopBetweenShots: true, autoStopPredict: false, autoStopPredictMs: 200,
         slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyP', subtickStrafe: false },
-      feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK', defensive: false, defensiveKey: 'KeyO',
+      feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK',
+      v2AntiAim: stanceAntiAimFrom(defaultHvhLoadout().antiAim),
     },
     legit: {
       trigger: { enabled: false, delay: 120, fov: 1.5, key: '', visCheck: true },
@@ -212,6 +215,12 @@ for (const id of HVH_STANCES) {
     RANGES[`skeet.antiAim.states.${id}.${key}`] = { min, max, step: 1 };
   CHOICES[`skeet.antiAim.states.${id}.mode`] = ['backward', 'left', 'right', 'spin'];
 }
+for (const id of V2_STANCES) {
+  for (const [key, min, max] of STANCE_AA_RANGES) RANGES[`hvh.v2AntiAim.stances.${id}.${key}`] = { min, max, step: 1 };
+  CHOICES[`hvh.v2AntiAim.stances.${id}.base`] = AA_BASES;
+  CHOICES[`hvh.v2AntiAim.defensive.${id}.pitch`] = DEFENSIVE_PITCHES;
+  CHOICES[`hvh.v2AntiAim.defensive.${id}.yaw`] = DEFENSIVE_YAWS;
+}
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -292,18 +301,25 @@ function leafPaths(o: unknown, prefix = ''): string[] {
 }
 
 /**
- * Legacy settings with no v2 meaning: v2 runs anti-aim from AntiAimConfig (base, jitter, desync,
- * invert) and exploits from CommandIntent bits. Legacy rooms (the default until Task 15) still use
- * them, so migration keeps their values and only reports them as unused in v2 rooms.
+ * Legacy settings with no v2 meaning: v2 runs anti-aim from AntiAimConfig (hvh.v2AntiAim's five
+ * stances and defensive patterns, invert) and exploits from CommandIntent bits. Legacy rooms (the
+ * default until Task 15) still use them, so migration keeps their values and only reports them as
+ * unused in v2 rooms.
  */
 const UNMAPPED = [
   'hvh.core.defensive', // automatic defensive transition on threat (legacy rooms only)
   'hvh.core.antiBruteforce', // legacy server side flip; no AntiAimConfig field
   'hvh.core.fakeDuck', // no CommandIntent bit
-  // Per-stance builder: AntiAimConfig has a single stance.
+  // The legacy state builder: v2 rooms use hvh.v2AntiAim instead.
   'skeet.antiAim.enabled', 'skeet.antiAim.atTargets', 'skeet.antiAim.freestanding', 'skeet.antiAim.jitterMode',
   'skeet.antiAim.interval', 'skeet.antiAim.desyncMode', 'skeet.antiAim.states',
 ] as const;
+
+/**
+ * Version 3 drops these version-2 settings, with their old defaults: the defensive toggle and key
+ * (defensive is a per-stance anti-aim pattern now, with no key).
+ */
+const DROPPED_V3 = { defensive: false, defensiveKey: 'KeyO' } as const;
 
 /** True for a `reset` entry (optionally "<config name>: <path>") that names a kept legacy-only setting. */
 function isLegacyOnly(entry: string): boolean {
@@ -317,19 +333,30 @@ function isLegacyOnly(entry: string): boolean {
  * that is not HvH mechanics). `reset` lists each customised setting v2 rooms cannot use; their
  * values are kept for legacy rooms. Unreadable values are dropped to defaults by sanitizeConfig.
  * A corrupt or non-object config gives the defaults with every field in `reset`.
+ * Before version 3: the single anti-aim base, jitter and desync become all five v2 stances
+ * (defensive off), and each customised DROPPED_V3 setting is listed in `reset`.
  */
 export function migrateConfig(old: unknown): { config: DevConfig; reset: string[] } {
   if (!old || typeof old !== 'object' || Array.isArray(old)) return { config: defaultConfig(), reset: leafPaths(defaultConfig()) };
   const config = sanitizeConfig(old);
-  if ((old as { version?: unknown }).version === CONFIG_VERSION) return { config, reset: [] };
+  const version = (old as { version?: unknown }).version;
+  if (version === CONFIG_VERSION) return { config, reset: [] };
   const defaults = defaultConfig(), reset: string[] = [];
-  for (const prefix of UNMAPPED) {
-    for (const path of leafPaths(getPath(defaults, prefix), prefix)) {
-      if (getPath(config, path) !== getPath(defaults, path)) reset.push(path);
+  // Version 2 configs were already told about the legacy-only settings.
+  if (version !== 2) {
+    for (const prefix of UNMAPPED) {
+      for (const path of leafPaths(getPath(defaults, prefix), prefix)) {
+        if (getPath(config, path) !== getPath(defaults, path)) reset.push(path);
+      }
     }
+    // The v2 era selection starts at the default; legacy hvh.core.era stays as loaded for legacy rooms.
+    config.skeet.era = DEFAULT_ERA_ID;
   }
-  // The v2 era selection starts at the default; legacy hvh.core.era stays as loaded for legacy rooms.
-  config.skeet.era = DEFAULT_ERA_ID;
+  config.hvh.v2AntiAim = stanceAntiAimFrom(config.hvh.antiAim);
+  const hvh = (old as { hvh?: Record<string, unknown> }).hvh;
+  for (const [key, was] of Object.entries(DROPPED_V3)) {
+    if (hvh && typeof hvh === 'object' && hvh[key] !== undefined && hvh[key] !== was) reset.push(`hvh.${key}`);
+  }
   return { config, reset };
 }
 
@@ -358,7 +385,8 @@ export function presetConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
     const scout = structuredClone(balanced); scout.rage.aim.fov = 20; scout.hvh.exploit = 'hideShots';
     scout.skeet.profiles.snipers.hitchance = 85;
     const aggressive = structuredClone(balanced); aggressive.rage.aim.autoTarget = aggressive.hvh.antiAim.enabled = true;
-    aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap'; aggressive.hvh.defensive = true;
+    aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap';
+    for (const s of V2_STANCES) aggressive.hvh.v2AntiAim.defensive[s] = { ...aggressive.hvh.v2AntiAim.defensive[s], enabled: true, onPeek: true, yaw: 'flick' };
     return [{ name: 'Skeet Balanced', config: balanced }, { name: 'Skeet Scout', config: scout }, { name: 'Skeet Aggressive', config: aggressive }];
   }
   const balanced = defaultConfig();

@@ -35,7 +35,6 @@ export function buildTabs(dev: Dev): Tab[] {
     ]},
     {id:'exploits',label:'Exploits',icon:'ϟ',configKey:'hvh.exploit',sections:[
       {title:'Shared charge',icon:'ϟ',items:[{type:'select',label:'Exploit mode',path:'hvh.exploit',options:[{value:'off',label:'Off'},{value:'doubleTap',label:'Double Tap'},{value:'hideShots',label:'Hide Shots'}]},
-        toggle('Defensive','hvh.defensive','No effect for now: v2 defensive is becoming an anti-aim pattern'),key('Defensive key','hvh.defensiveKey','Press O by default'),
         info('Status',()=> v2() ? 'Tickbase: see the HUD indicators' : dev.runtime.currentSession?.weapons.exploitState(performance.now()) ?? 'Join HvH to charge'),info('Charge',()=> v2() ? 'Tickbase bank on the HUD' : `${Math.round((dev.runtime.currentSession?.local.server.hvhCharge??0)*100)}%`),info('Double Tap',()=> 'Two bullets now · full charge','Consumes two rounds and full charge. Burst cooldown is at least 313 ms; slower guns keep their normal cooldown. Projectiles, melee and native bursts cannot use exploits.'),info('Hide Shots',()=> '44% charge · keep your pose for 300 ms','Fires one round without exposing your shot-facing body or lower-body update. Tracers, damage and collision remain active.'),info('Tradeoff',()=> 'Recharge: 2 seconds idle · 4 with fake lag','Firing pauses recharge. Modes and guns share the same charge; respawn starts empty.')]},
     ]},
     {id:'movement',label:'Movement',icon:'➶',configKey:['legit.move','hvh.movement','misc.autoJump'],sections:[

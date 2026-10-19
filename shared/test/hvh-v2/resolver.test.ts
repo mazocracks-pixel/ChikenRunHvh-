@@ -10,6 +10,7 @@ import {
   INITIAL_POSE,
   publicObservation,
   stepPose,
+  uniformAntiAim,
 } from '../../src/hvh/v2/pose';
 import {
   BREAK_CONFIDENCE,
@@ -233,7 +234,7 @@ describe('Resolver (v2)', () => {
   for (const inverted of [false, true]) {
     for (const base of ['backward', 'left', 'spin'] as const) {
       it(`end-to-end vs stepPose (R18): jitter 30, desync 58, inverted=${inverted}, base=${base}`, () => {
-        const aa: AntiAimConfig = { base, jitterDeg: 30, desyncDeg: 58, inverted };
+        const aa: AntiAimConfig = uniformAntiAim({ base, yawOffsetDeg: 0, jitterDeg: 30, desyncDeg: 58 }, inverted);
         const motion: Motion = { speedFraction: 0, duck: 0, onGround: true };
         const mem = createResolverMemory();
         const obs: Observation[] = [];
@@ -241,7 +242,7 @@ describe('Resolver (v2)', () => {
         let misses = 0;
         let firstMissTick = -1;
         for (let t = 1; t <= 200; t++) {
-          pose = stepPose(pose, 0.3, aa, motion, t, LATE_CSGO);
+          pose = stepPose(pose, 0.3, aa, motion, t, LATE_CSGO, { seed: 0, peekTicksLeft: 0, slowWalk: false });
           // Prediction one tick ahead from the past feed must also match once learned.
           if (misses > 0 || !inverted) {
             if (t > 4) {

@@ -388,7 +388,7 @@ export class DevRuntime implements DevHooks {
     if (!this.binds.hidden) {
       const h = this.dev.config.hvh, active = (key: string) => this.keyHeld(key, false) ? 'active' : 'hold';
       this.binds.textContent = ['keybinds', `body aim · ${active(h.aim.bodyKey)}`, `damage override · ${active(h.aim.overrideKey)}`,
-        `slow walk · ${this.dev.input.isDown('ShiftLeft') || this.dev.input.isDown('ShiftRight') ? 'active' : 'hold Shift'}`, `auto peek · ${h.movement.peekAssist ? this.peekState : 'off'}`, `invert · ${active(h.invertKey)}`, `defensive · ${h.defensive ? active(h.defensiveKey) : 'off'}`].join('\n');
+        `slow walk · ${this.dev.input.isDown('ShiftLeft') || this.dev.input.isDown('ShiftRight') ? 'active' : 'hold Shift'}`, `auto peek · ${h.movement.peekAssist ? this.peekState : 'off'}`, `invert · ${active(h.invertKey)}`, `defensive · ${Object.values(h.v2AntiAim.defensive).some((d) => d.enabled) ? 'on' : 'off'}`].join('\n');
     }
     const key=lines.join('\n');
     if(key!==this.infoKey){this.infoKey=key;this.info.textContent=key;}

@@ -9,8 +9,8 @@
  * The driver owns the clock: every tick is stepped with an explicit `now` (base + tick * TICK_MS),
  * and every message that takes a time (reload) is given that same clock.
  */
-import { DEFAULT_APPEARANCE, DEFAULT_LOADOUT, SIM_DT, type InputFrame, type MapId, type MoveState } from '@game/shared';
-import type { CommandIntent, PoseState, TickbaseState } from '@game/shared/hvh/v2';
+import { DEFAULT_APPEARANCE, DEFAULT_LOADOUT, SIM_DT, type HvhStanceAntiAim, type InputFrame, type MapId, type MoveState } from '@game/shared';
+import { V2_STANCES, type CommandIntent, type PoseState, type TickbaseState } from '@game/shared/hvh/v2';
 import { HvhRoom, type HvhPlayerV2 } from '../../src/rooms/HvhRoom';
 import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { fakeIo, type RecordedEvent } from '../helpers';
@@ -95,6 +95,9 @@ const JITTERS = [0, 20, 45];
 const DESYNCS = [0, 30, 58];
 const EXPLOITS = ['off', 'doubleTap', 'hideShots'] as const;
 const FAKE_LAGS = [0, 0, 4, 14];
+const YAW_OFFSETS = [-30, 0, 0, 45];
+const DEFENSIVE_PITCHES = ['down', 'up', 'zero', 'random', 'jitter'] as const;
+const DEFENSIVE_YAWS = ['off', 'flick', 'spin', 'random', 'sideways'] as const;
 
 /**
  * A seeded script for one player: moves, aims at the nearest living enemy, fires, chokes, uses
@@ -110,13 +113,30 @@ export class Script {
   private exploit: ScriptStep['exploit'] = 'off';
   private fakeLag = 0;
   private invert = false;
+  /** Per-stance AA, defensive patterns and slow walk: a stream of their own, so the other decisions keep their sequence. */
+  private readonly aaRand: () => number;
 
   constructor(seed: number, private readonly opts: ScriptOptions = {}) {
     this.rand = prng(seed);
+    this.aaRand = prng(seed ^ 0x5a5a5a5a);
   }
 
-  private pick<T>(xs: readonly T[]): T {
-    return xs[Math.floor(this.rand() * xs.length)]!;
+  private pick<T>(xs: readonly T[], r = this.rand): T {
+    return xs[Math.floor(r() * xs.length)]!;
+  }
+
+  /** A per-stance config (loadout.v2AntiAim), each stance with its own defensive pattern, often off. */
+  private stanceAntiAim(): HvhStanceAntiAim {
+    const r = this.aaRand;
+    const out = { stances: {}, defensive: {} } as HvhStanceAntiAim;
+    for (const s of V2_STANCES) {
+      out.stances[s] = { base: this.pick(AA_MODES, r), yawOffsetDeg: this.pick(YAW_OFFSETS, r), jitterDeg: this.pick(JITTERS, r), desyncDeg: this.pick(DESYNCS, r) };
+      out.defensive[s] = {
+        enabled: r() < 0.6, inAir: r() < 0.5, onPeek: r() < 0.6, always: r() < 0.15,
+        pitch: this.pick(DEFENSIVE_PITCHES, r), yaw: this.pick(DEFENSIVE_YAWS, r),
+      };
+    }
+    return out;
   }
 
   /** Called once per tick before the command; may change the AA config (the client's loadout message). */
@@ -136,6 +156,8 @@ export class Script {
     if (r() < 0.006) this.fakeLag = this.pick(FAKE_LAGS);
     if (r() < 0.007) {
       p.hvh.antiAim = { ...p.hvh.antiAim, enabled: true, mode: this.pick(AA_MODES), jitter: this.pick(JITTERS), desync: this.pick(DESYNCS) };
+      // Half the time per-stance AA with defensive patterns; otherwise the single legacy stance.
+      p.hvh.v2AntiAim = this.aaRand() < 0.5 ? this.stanceAntiAim() : undefined;
     }
     if (r() < 0.03) this.invert = !this.invert;
 
@@ -169,6 +191,7 @@ export class Script {
 
     const frame: InputFrame = {
       seq, forward: this.forward, right: this.right, jump: r() < 0.02, crouch: r() < 0.1, yaw, pitch, invert: this.invert,
+      slowWalk: this.aaRand() < 0.15,
     };
     return { frame, fire, exploit: this.exploit, choke, fakeLag: this.fakeLag };
   }
@@ -192,6 +215,12 @@ export interface PlayerTickRecord {
   tickbaseAfter: TickbaseState;
   poseAfter: PoseState;
   antiAim: ServerPlayer['hvh']['antiAim'];
+  /** The per-stance AA the pose was stepped with (absent: antiAim on every stance). */
+  v2AntiAim?: HvhStanceAntiAim;
+  /** HvhPlayerV2.aaSeed. */
+  aaSeed: number;
+  /** The peekTicksLeft the server stepped each executed command's pose with (HvhPlayerV2.peek). */
+  peek: number[];
   weapon: ServerPlayer['weapon'];
 }
 
@@ -207,9 +236,9 @@ export function recordTicks(room: HvhRoom, sink: (pid: number, r: PlayerTickReco
     const queued = s.queue.map((c) => ({ frame: { ...c.frame }, intent: { ...c.intent } }));
     const before = {
       aliveBefore: p.alive, tickbaseBefore: { ...s.tickbase }, poseBefore: { ...s.pose }, stateBefore: structuredClone(p.state),
-      antiAim: { ...p.hvh.antiAim }, weapon: p.weapon,
+      antiAim: { ...p.hvh.antiAim }, v2AntiAim: p.hvh.v2AntiAim && structuredClone(p.hvh.v2AntiAim), aaSeed: s.aaSeed, weapon: p.weapon,
     };
     original(playerId, now);
-    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), sight: [...s.sight], stateAfter: structuredClone(p.state), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
+    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), sight: [...s.sight], peek: [...s.peek], stateAfter: structuredClone(p.state), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
   };
 }
