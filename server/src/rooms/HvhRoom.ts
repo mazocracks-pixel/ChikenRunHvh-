@@ -118,9 +118,11 @@ import type { ServerPlayer } from './ServerPlayer';
  *   and a player standing still does not move. The teleport usually exceeds lagCompBreakHulls, so
  *   RecordHistory turns the pre-burst records 'lagcompBreak' by itself. Sight is traced only when
  *   it can change the action (stepTickbase rules 4 and 5) or for an on-peek pattern (below), once
- *   per command either way. No other path runs more than one movement step per command. Death
- *   and every spawn reset the tickbase (charge 0), and a dead player's commands never reach
- *   stepTickbase, so a dead player never bursts.
+ *   per command either way. R62: in freeze the tickbase is stepped with no enemy visible (nobody
+ *   can move or shoot, so sight earns nothing), so the charge always completes before the round.
+ *   No other path runs more than one movement step per command. Death and every spawn reset the
+ *   tickbase (charge 0), and a dead player's commands never reach stepTickbase, so a dead player
+ *   never bursts.
  * - Anti-aim (round redesign Part B): stepPose with the stance's StanceAA and DefensiveAA from
  *   loadout.v2AntiAim (absent: antiAim's single base, jitter and desync on every stance). A
  *   defensive pattern only changes the pose: no charge, no tickbase shift, records stay valid.
@@ -595,7 +597,8 @@ export class HvhRoom extends GameRoom {
 
     const before = s.tickbase;
     const aa = this.antiAimOf(p);
-    const forTickbase = this.sightChangesAction(before, intent);
+    // R62: in freeze nobody can move or shoot, so sight earns nothing and the charge ignores it.
+    const forTickbase = this.sightChangesAction(before, intent) && !this.freezing();
     const forPeek = aa !== null && watchesPeek(aa);
     // One trace serves both (at most two raycasts per enemy per command).
     const seen = (forTickbase || forPeek) && this.enemyInSight(p, s, command.sightT, now);
@@ -1104,7 +1107,12 @@ export class HvhRoom extends GameRoom {
   }
 
   protected override actionsBlocked(): boolean {
-    return (this.rounds && this.round.phase === 'freeze') || super.actionsBlocked();
+    return this.freezing() || super.actionsBlocked();
+  }
+
+  /** The v2 round's freeze time (the buy phase): nobody moves or shoots. */
+  private freezing(): boolean {
+    return this.rounds && this.round.phase === 'freeze';
   }
 
   /** Respawns in warmup and freeze only (and while no match is on); the dead watch the round. */

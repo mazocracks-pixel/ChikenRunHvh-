@@ -474,7 +474,8 @@ export class GameSession {
       const plan = this.mode.id === 'hvh' && this.local.hvhV2
         ? { intent: commandIntent({ seq: frame.seq, shotSeq: this.shotCommand, hitscan, held: false, exploit }), ctx: sight }
         : undefined;
-      if (plan && this.local.tickbase.needsSight(frame.seq, plan.intent)) plan.ctx = sight = { enemyVisible: this.enemyInSight() };
+      // R62: in freeze (buy time) the server charges regardless of sight.
+      if (plan && !this.buyTime && this.local.tickbase.needsSight(frame.seq, plan.intent)) plan.ctx = sight = { enemyVisible: this.enemyInSight() };
       this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon), plan);
       if (this.mode.id === 'hvh') {
         const core = this.weapons.hvh.core ?? defaultHvhCore();
