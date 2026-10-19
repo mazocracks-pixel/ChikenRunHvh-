@@ -262,6 +262,14 @@ the AA preset axis.
 
 - **Charge size.** Take `chargeTicks` 16 as a partial improvement: max field rate 57.8%, DT keeps
   its second bullet on the SCAR-20. Or take 12, which comes closest but removes double tap.
+- **R8 double tap (proposed ruling, to apply together with any charge change).** The R8 can double
+  tap today only because `fireIntervalTicks(r8)` (32) equals `chargeTicks` (32). DT bullet 2 gets
+  `ticksSinceLastShot` equal to the burst's 32 ticks, which just passes the fire-interval check.
+  Both candidates above (16 and 12) would silently remove the R8's double tap, and 12 would also
+  remove the SCAR-20's. A charge change should therefore rule on R8 double tap explicitly, and add
+  a test that pins the intended rule. The proposal: accept that the R8 does not double tap (it is a
+  hammer revolver), and pin "DT bullet 2 needs `fireIntervalTicks(weapon) <= chargeTicks`" per
+  arsenal weapon. Not needed at the shipped 32, where nothing changes.
 - **The jitter-preset weakness.** Exclude that preset from the grid as a dominated config, or
   change the jitter and desync pose geometry.
 - **The counter half.** Accept it as unattainable for a near-transitive design, and keep only the
