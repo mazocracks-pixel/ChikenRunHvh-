@@ -20,7 +20,6 @@ const call = (m: NativeModule, name: string, ...values: (number | string)[]) => 
 const value = (m: NativeModule, name: string, id: number) => m.ccall(name, 'number', ['number'], [id]) as number;
 const mapped: Record<string,string> = {
   'Misc.bunnyHop':'legit.move.bhop', 'Misc.airStrafe':'legit.move.autoStrafe',
-  'Misc.logDamageDealt':'hvh.feedback.shotLog',
   'Visuals.Other.crosshair':'misc.crosshair', 'Visuals.Players.hitmarker':'misc.hitmarker',
 };
 

@@ -59,15 +59,16 @@ describe('migrateConfig', () => {
     for (const path of ['hvh.core.defensive', 'hvh.core.antiBruteforce', 'hvh.core.fakeDuck', 'skeet.antiAim.enabled', 'skeet.antiAim.jitterMode', 'skeet.antiAim.states.standing.desync'])
       assert.ok(reset.includes(path), `${path} listed (got ${reset.join(', ')})`);
     assert.equal(config.hvh.core!.defensive, true);
-    assert.equal(config.hvh.core!.antiBruteforce, false);
+    assert.equal('antiBruteforce' in config.hvh.core!, false, 'anti-bruteforce is dropped, not kept');
     assert.equal(config.hvh.core!.fakeDuck, true);
     assert.equal(config.skeet.antiAim.enabled, false, 'stance builder stays off');
     assert.equal(config.skeet.antiAim.jitterMode, 'threeway');
     assert.equal(config.skeet.antiAim.states.standing.desync, 12);
     assert.equal(new Set(reset).size, reset.length, 'no duplicates');
     const notice = migrationNotice(reset);
-    assert.match(notice, /Not used in v2 rooms \(kept for legacy\): .*hvh\.core\.antiBruteforce/);
-    assert.doesNotMatch(notice, /Reset to defaults/);
+    assert.match(notice, /Not used in v2 rooms \(kept for legacy\): .*hvh\.core\.fakeDuck/);
+    assert.doesNotMatch(notice, /kept for legacy\)[^.]*antiBruteforce/);
+    assert.match(notice, /Reset to defaults: hvh\.core\.antiBruteforce\./);
   });
 
   it('kept legacy settings survive a save/load round-trip', () => {
@@ -76,7 +77,7 @@ describe('migrateConfig', () => {
     const back = migrateConfig(JSON.parse(JSON.stringify(migrateConfig(old).config)));
     assert.deepEqual(back.reset, []);
     assert.equal(back.config.skeet.antiAim.enabled, false);
-    assert.equal(back.config.hvh.core!.antiBruteforce, false);
+    assert.equal(back.config.hvh.core!.fakeDuck, true);
   });
 
   it('lists only fields that actually changed: an untouched legacy config resets nothing', () => {
@@ -148,7 +149,6 @@ describe('migrateConfig: per-stance v2 anti-aim (config version 3)', () => {
     return c;
   }
 
-  it('is version 3', () => assert.equal(CONFIG_VERSION, 3));
 
   it('the old single base, jitter and desync become all five stances, defensive off', () => {
     for (const [old, mode, jitter, desync] of [[v2Saved(), 'right', 12, 44], [legacySaved(), 'left', 33, 51]] as const) {
@@ -168,7 +168,7 @@ describe('migrateConfig: per-stance v2 anti-aim (config version 3)', () => {
     const old = v2Saved();
     old.hvh.defensive = true;
     old.hvh.defensiveKey = 'KeyL';
-    old.hvh.core.antiBruteforce = false; // legacy-only, already reported by the version-2 migration
+    old.hvh.core.fakeDuck = true; // legacy-only, already reported by the version-2 migration
     const { config, reset } = migrateConfig(old);
     assert.deepEqual(reset.sort(), ['hvh.defensive', 'hvh.defensiveKey']);
     assert.equal('defensive' in config.hvh || 'defensiveKey' in config.hvh, false);
@@ -196,6 +196,47 @@ describe('migrateConfig: per-stance v2 anti-aim (config version 3)', () => {
     config.hvh.v2AntiAim.defensive.standing = { enabled: true, inAir: false, onPeek: true, always: false, pitch: 'down', yaw: 'flick' };
     assert.deepEqual(HVH_PANELS.skeet.loadout(config).v2AntiAim, config.hvh.v2AntiAim);
     assert.equal(HVH_PANELS.manual.loadout(config).v2AntiAim, undefined);
+  });
+});
+
+describe('migrateConfig: no status box or anti-bruteforce (config version 4)', () => {
+  /** A config saved at version 3, with the dropped fields at their old defaults. */
+  function v3Saved(): Record<string, any> {
+    const c = structuredClone(defaultConfig('skeet')) as unknown as Record<string, any>;
+    c.version = 3;
+    c.hvh.feedback = { shotLog: true, targetInfo: true, resolver: true };
+    c.skeet.indicators = { resolver: true, binds: true, watermark: true };
+    c.hvh.core.antiBruteforce = true;
+    return c;
+  }
+
+  it('is version 4', () => assert.equal(CONFIG_VERSION, 4));
+
+  it('drops the fields; untouched ones are not listed, customised ones are', () => {
+    const quiet = migrateConfig(v3Saved());
+    assert.deepEqual(quiet.reset, []);
+    assert.deepEqual(Object.keys(quiet.config.hvh.feedback), ['resolver']);
+    assert.equal('resolver' in quiet.config.skeet.indicators, false);
+    assert.equal('antiBruteforce' in quiet.config.hvh.core!, false);
+    const old = v3Saved();
+    old.hvh.feedback.targetInfo = false;
+    old.skeet.indicators.resolver = false;
+    old.hvh.core.antiBruteforce = false;
+    const { reset } = migrateConfig(old);
+    assert.deepEqual([...reset].sort(), ['hvh.core.antiBruteforce', 'hvh.feedback.targetInfo', 'skeet.indicators.resolver']);
+    assert.match(migrationNotice(reset), /Reset to defaults: /);
+  });
+
+  it('a version-3 config keeps its per-stance anti-aim (it is not rebuilt from the single legacy stance)', () => {
+    const old = v3Saved();
+    old.hvh.v2AntiAim.stances.airborne = { base: 'spin', yawOffsetDeg: 30, jitterDeg: 5, desyncDeg: 20 };
+    old.hvh.v2AntiAim.defensive.moving = { enabled: true, inAir: false, onPeek: true, always: false, pitch: 'up', yaw: 'flick' };
+    const { config } = migrateConfig(old);
+    assert.deepEqual(config.hvh.v2AntiAim.stances.airborne, { base: 'spin', yawOffsetDeg: 30, jitterDeg: 5, desyncDeg: 20 });
+    assert.deepEqual(config.hvh.v2AntiAim.defensive.moving, { enabled: true, inAir: false, onPeek: true, always: false, pitch: 'up', yaw: 'flick' });
+    const future = structuredClone(old);
+    future.version = 99;
+    assert.deepEqual(migrateConfig(future).config.hvh.v2AntiAim, config.hvh.v2AntiAim, 'a newer version is never rebuilt either');
   });
 });
 

@@ -78,3 +78,25 @@ it('every saved native menu field has a matching C++ bridge case, both ways', as
     assert.ok(get!.includes(`case ${f.id}: return ${path};`), `native_get ${f.id} ${f.key}`);
   });
 });
+
+it('anti-bruteforce is gone: no Skeet control, no config field, and the skeet loadout sends it off', async () => {
+  const { buildSkeetTabs } = await import('../src/dev/skeet/tabs');
+  const { HVH_PANELS } = await import('../src/dev/panels');
+  const config = defaultConfig('skeet');
+  const labels = buildSkeetTabs({ config } as never).flatMap(t => t.sections.flatMap(s => s.items.flatMap(c => [c.label, c.hint ?? ''])));
+  assert.ok(labels.length > 40, 'the tabs were built');
+  assert.deepEqual(labels.filter(l => /brute/i.test(l)), []);
+  assert.equal('antiBruteforce' in config.hvh.core!, false);
+  assert.equal('antiBruteforce' in sanitizeConfig({ ...config, hvh: { ...config.hvh, core: { ...config.hvh.core, antiBruteforce: true } } }).hvh.core!, false);
+  assert.equal(HVH_PANELS.skeet.loadout(config).core!.antiBruteforce, false, 'legacy rooms read it as off until cutover');
+});
+
+it('the target, shot-log and resolver status box settings are gone from the config and the panel', async () => {
+  const { buildSkeetTabs } = await import('../src/dev/skeet/tabs');
+  const config = defaultConfig('skeet');
+  const paths = buildSkeetTabs({ config } as never).flatMap(t => t.sections.flatMap(s => s.items.map(c => ('path' in c ? c.path : undefined) ?? '')));
+  for (const gone of ['hvh.feedback.targetInfo', 'hvh.feedback.shotLog', 'skeet.indicators.resolver']) assert.ok(!paths.includes(gone), gone);
+  assert.deepEqual(Object.keys(config.hvh.feedback), ['resolver']);
+  assert.deepEqual(Object.keys(config.skeet.indicators).sort(), ['binds', 'watermark']);
+  for (const kept of ['skeet.indicators.binds', 'skeet.indicators.watermark']) assert.ok(paths.includes(kept), kept);
+});

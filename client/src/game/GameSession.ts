@@ -99,9 +99,8 @@ import {
 import type { Network } from '../net/Network';
 import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
 import { LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
-import { HitLog } from '../ui/hvh/HitLog';
+import { HitLog, initHvhV2Ui } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
-import { Indicators, indicatorModel, initHvhV2Ui } from '../ui/hvh/Indicators';
 import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
@@ -297,7 +296,6 @@ export class GameSession {
   private readonly tmp = new THREE.Vector3();
   private readonly camDir = new THREE.Vector3();
   hitLog: HitLog | null = null;
-  indicators: Indicators | null = null;
 
   constructor(ctx: SessionContext) {
     this.ctx = ctx;
@@ -717,19 +715,7 @@ export class GameSession {
     hud.setScoreboardVisible(input.scoreboardHeld && this.match.phase !== 'ended');
     if (input.scoreboardHeld) hud.renderScoreboard(this.scoreLines(), this.teamScores, net.ping);
     if (this.match.phase === 'ended' && this.match.endsAt !== null) hud.setResultsCountdown(this.match.endsAt - this.serverNow());
-    if (this.local.hvhV2) {
-      this.hitLog?.update();
-      this.indicators?.render(
-        indicatorModel(
-          this.local.tickbase.state,
-          {
-            dt: this.weapons.hvh.exploit === 'doubleTap',
-            hs: this.weapons.hvh.exploit === 'hideShots',
-          },
-          LATE_CSGO,
-        ),
-      );
-    }
+    if (this.local.hvhV2) this.hitLog?.update();
   }
 
   /** How fast you are going, for weapon spread (a moving buggy shakes your aim like walking). */
@@ -1778,10 +1764,7 @@ export class GameSession {
       if (this.local.hvhV2) {
         initHvhV2Ui(
           this,
-          () => ({
-            hitLog: new HitLog((id) => this.infos.get(Number(id))?.name ?? id, { container: this.ctx.hud.root }),
-            indicators: new Indicators(this.ctx.hud.root),
-          }),
+          () => new HitLog((id) => this.infos.get(Number(id))?.name ?? id, { container: this.ctx.hud.root }),
           (handler) => this.on('shotVerdict', handler),
         );
       }
@@ -2220,9 +2203,7 @@ export class GameSession {
     this.flags?.dispose();
     this.effects.dispose();
     this.hitLog?.dispose();
-    this.indicators?.dispose();
     this.hitLog = null;
-    this.indicators = null;
     this.ctx.hud.setVisible(false);
     this.ctx.hud.hideDeath();
   }

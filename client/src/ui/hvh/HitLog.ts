@@ -107,3 +107,19 @@ export class HitLog {
     this.root?.remove();
   }
 }
+
+/**
+ * Lazily creates the HitLog on the first v2 hvhState event and registers the shotVerdict listener.
+ * In legacy rooms and non-HvH rooms where hvhState never arrives, this is never called.
+ * Verdicts that arrive before the first hvhState are dropped because hitLog is null until then.
+ */
+export function initHvhV2Ui(
+  target: { hitLog: HitLog | null },
+  create: () => HitLog,
+  registerShotVerdict: (handler: (v: ShotVerdict) => void) => void,
+): boolean {
+  if (target.hitLog !== null) return false;
+  target.hitLog = create();
+  registerShotVerdict((v) => target.hitLog?.push(v));
+  return true;
+}

@@ -1,6 +1,6 @@
 import {
   AA_BASES, DEFAULT_MODS, DEFENSIVE_PITCHES, DEFENSIVE_YAWS, STANCE_AA_RANGES, WEAPON_IDS, defaultHvhCore, defaultHvhLoadout, stanceAntiAimFrom,
-  type HvhLoadout, type HvhStanceAntiAim, type DevMods, type WeaponId,
+  type HvhCoreSettings, type HvhLoadout, type HvhStanceAntiAim, type DevMods, type WeaponId,
 } from '@game/shared';
 import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
@@ -9,8 +9,19 @@ import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
 import { NATIVE_FIELDS } from './skeet/nativeFields';
 import { DEFAULT_ERA_ID, ERAS, V2_STANCES } from '@game/shared/hvh/v2';
 
-/** Config schema version. 2 = HvH v2 (tickbase intents), 3 = per-stance v2 anti-aim; older configs are migrated. */
-export const CONFIG_VERSION = 3;
+/**
+ * Config schema version. 2 = HvH v2 (tickbase intents), 3 = per-stance v2 anti-aim, 4 = no status box or
+ * anti-bruteforce; older configs are migrated.
+ */
+export const CONFIG_VERSION = 4;
+
+/** The loadout's core settings the panel keeps. Anti-bruteforce is gone: the panel always sends it off. */
+export type DevCore = Omit<HvhCoreSettings, 'antiBruteforce'>;
+function defaultDevCore(): DevCore {
+  const { antiBruteforce, ...core } = defaultHvhCore();
+  void antiBruteforce;
+  return core;
+}
 
 /**
  * Everything the developer menu can change. Plain JSON, so it can be saved, exported and
@@ -19,7 +30,8 @@ export const CONFIG_VERSION = 3;
 export interface DevConfig {
   version: number;
   skeet: SkeetConfig;
-  hvh: HvhLoadout & {
+  hvh: Omit<HvhLoadout, 'core'> & {
+    core?: DevCore;
     resolverPolicy: 'adaptive' | 'animation' | 'cycle';
     aim: { minDamage: number; hitchance: number; airHitchance: number; hpRelative: number; maxRecords: number;
       damageWeight: number; safetyWeight: number; accuracyWeight: number; confidenceWeight: number;
@@ -27,7 +39,7 @@ export interface DevConfig {
       bodyAim: 'off' | 'prefer' | 'lethal'; autowall: boolean; reaction: number; switchDelay: number; turnRate: number; damageOverride: number; overrideKey: string; bodyKey: string };
     movement: { autoStop: boolean; autoStopSlowWalk: boolean; autoStopBetweenShots: boolean; autoStopPredict: boolean; autoStopPredictMs: number;
       slowWalk: boolean; slowKey: string; peekAssist: boolean; peekKey: string; subtickStrafe: boolean };
-    feedback: { shotLog: boolean; targetInfo: boolean; resolver: boolean };
+    feedback: { resolver: boolean };
     invertKey: string;
     /** v2 rooms: each stance's anti-aim and defensive pattern (sent in the loadout). */
     v2AntiAim: HvhStanceAntiAim;
@@ -91,13 +103,14 @@ export function defaultConfig(panel: 'lab' | 'skeet' = 'lab'): DevConfig {
     skeet: defaultSkeetConfig(),
     hvh: {
       ...defaultHvhLoadout(),
+      core: defaultDevCore(),
       resolverPolicy: panel === 'skeet' ? 'adaptive' : 'animation',
       aim: { minDamage: 20, hitchance: 60, airHitchance: 70, hpRelative: -1, maxRecords: 2, damageWeight: 1, safetyWeight: 20,
         forceSafe: false, preferSafe: true, multipoint: true, pointScale: 65,
         accuracyWeight: 15, confidenceWeight: 15, bodyAim: 'lethal', autowall: false, reaction: 120, switchDelay: 180, turnRate: 360, damageOverride: 1, overrideKey: 'KeyH', bodyKey: 'KeyJ' },
       movement: { autoStop: false, autoStopSlowWalk: false, autoStopBetweenShots: true, autoStopPredict: false, autoStopPredictMs: 200,
         slowWalk: false, slowKey: 'ShiftLeft', peekAssist: false, peekKey: 'KeyP', subtickStrafe: false },
-      feedback: { shotLog: true, targetInfo: true, resolver: true }, invertKey: 'KeyK',
+      feedback: { resolver: true }, invertKey: 'KeyK',
       v2AntiAim: stanceAntiAimFrom(defaultHvhLoadout().antiAim),
     },
     legit: {
@@ -274,7 +287,7 @@ export function sanitizeConfig(raw: unknown): DevConfig {
   }
   out.skeet.fakeLag.limit = Math.round(out.skeet.fakeLag.limit);
   const previous = raw as { skeet?: { fakeLag?: unknown }; hvh?: { core?: { fakeLag?: unknown } } } | null;
-  const core = out.hvh.core ?? defaultHvhCore();
+  const core = out.hvh.core ?? defaultDevCore();
   if (previous?.skeet && previous.skeet.fakeLag === undefined && typeof previous.hvh?.core?.fakeLag === 'number' && core.fakeLag > 0) {
     out.skeet.fakeLag = {enabled:true,limit:core.fakeLag,mode:core.fakeLagMode,breakOnShot:core.fakeLagBreakOnShot};
   }
@@ -308,18 +321,20 @@ function leafPaths(o: unknown, prefix = ''): string[] {
  */
 const UNMAPPED = [
   'hvh.core.defensive', // automatic defensive transition on threat (legacy rooms only)
-  'hvh.core.antiBruteforce', // legacy server side flip; no AntiAimConfig field
   'hvh.core.fakeDuck', // no CommandIntent bit
   // The legacy state builder: v2 rooms use hvh.v2AntiAim instead.
   'skeet.antiAim.enabled', 'skeet.antiAim.atTargets', 'skeet.antiAim.freestanding', 'skeet.antiAim.jitterMode',
   'skeet.antiAim.interval', 'skeet.antiAim.desyncMode', 'skeet.antiAim.states',
 ] as const;
 
-/**
- * Version 3 drops these version-2 settings, with their old defaults: the defensive toggle and key
- * (defensive is a per-stance anti-aim pattern now, with no key).
- */
-const DROPPED_V3 = { defensive: false, defensiveKey: 'KeyO' } as const;
+/** Settings each config version drops, with their old defaults: a saved value that differs is listed in `reset`. */
+const DROPPED: readonly (readonly [version: number, fields: Readonly<Record<string, unknown>>])[] = [
+  // The defensive toggle and key: defensive is a per-stance anti-aim pattern now, with no key.
+  [3, { 'hvh.defensive': false, 'hvh.defensiveKey': 'KeyO' }],
+  // The target/charge status box (target info, shot log, resolver line) and anti-bruteforce, which the
+  // owner rejected for balance (legacy rooms read it as off until cutover).
+  [4, { 'hvh.feedback.targetInfo': true, 'hvh.feedback.shotLog': true, 'skeet.indicators.resolver': true, 'hvh.core.antiBruteforce': true }],
+];
 
 /** True for a `reset` entry (optionally "<config name>: <path>") that names a kept legacy-only setting. */
 function isLegacyOnly(entry: string): boolean {
@@ -334,16 +349,18 @@ function isLegacyOnly(entry: string): boolean {
  * values are kept for legacy rooms. Unreadable values are dropped to defaults by sanitizeConfig.
  * A corrupt or non-object config gives the defaults with every field in `reset`.
  * Before version 3: the single anti-aim base, jitter and desync become all five v2 stances
- * (defensive off), and each customised DROPPED_V3 setting is listed in `reset`.
+ * (defensive off). Each customised setting a later version DROPPED is listed in `reset`.
  */
 export function migrateConfig(old: unknown): { config: DevConfig; reset: string[] } {
   if (!old || typeof old !== 'object' || Array.isArray(old)) return { config: defaultConfig(), reset: leafPaths(defaultConfig()) };
   const config = sanitizeConfig(old);
   const version = (old as { version?: unknown }).version;
-  if (version === CONFIG_VERSION) return { config, reset: [] };
+  // Unversioned configs predate version 2.
+  const from = typeof version === 'number' && Number.isFinite(version) ? version : 1;
+  if (from >= CONFIG_VERSION) return { config, reset: [] };
   const defaults = defaultConfig(), reset: string[] = [];
   // Version 2 configs were already told about the legacy-only settings.
-  if (version !== 2) {
+  if (from < 2) {
     for (const prefix of UNMAPPED) {
       for (const path of leafPaths(getPath(defaults, prefix), prefix)) {
         if (getPath(config, path) !== getPath(defaults, path)) reset.push(path);
@@ -352,10 +369,14 @@ export function migrateConfig(old: unknown): { config: DevConfig; reset: string[
     // The v2 era selection starts at the default; legacy hvh.core.era stays as loaded for legacy rooms.
     config.skeet.era = DEFAULT_ERA_ID;
   }
-  config.hvh.v2AntiAim = stanceAntiAimFrom(config.hvh.antiAim);
-  const hvh = (old as { hvh?: Record<string, unknown> }).hvh;
-  for (const [key, was] of Object.entries(DROPPED_V3)) {
-    if (hvh && typeof hvh === 'object' && hvh[key] !== undefined && hvh[key] !== was) reset.push(`hvh.${key}`);
+  // Version 3 configs already have their per-stance anti-aim.
+  if (from < 3) config.hvh.v2AntiAim = stanceAntiAimFrom(config.hvh.antiAim);
+  for (const [v, fields] of DROPPED) {
+    if (from >= v) continue;
+    for (const [path, was] of Object.entries(fields)) {
+      const saved = getPath(old as DevConfig, path);
+      if (saved !== undefined && saved !== was) reset.push(path);
+    }
   }
   return { config, reset };
 }

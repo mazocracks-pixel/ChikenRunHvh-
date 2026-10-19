@@ -22,7 +22,7 @@ export interface SkeetConfig {
   resolver: { mode: 'adaptive' | 'center'; history: number; memoryMs: number; preferBodyBelow: number; missedShots: number };
   antiAim: SkeetAntiAim;
   fakeLag: { enabled: boolean; limit: number; mode: HvhCoreSettings['fakeLagMode']; breakOnShot: boolean };
-  indicators: { resolver: boolean; binds: boolean; watermark: boolean };
+  indicators: { binds: boolean; watermark: boolean };
   cosmetics: { enabled: boolean; tint: string };
   /** Selected era table (an ERAS key). Stored only: the server always runs LATE_CSGO. */
   era: string;
@@ -37,7 +37,7 @@ export function defaultSkeetConfig(): SkeetConfig {
   return { native: defaultNativeValues(), profiles, resolver: { mode: 'adaptive', history: 8, memoryMs: 700,
     preferBodyBelow: 60, missedShots: 2 }, antiAim: defaultSkeetAntiAim(),
     fakeLag: { enabled: false, limit: 6, mode: 'static', breakOnShot: true },
-    indicators: { resolver: true, binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' }, era: DEFAULT_ERA_ID };
+    indicators: { binds: true, watermark: true }, cosmetics: { enabled: false, tint: '#b6d77a' }, era: DEFAULT_ERA_ID };
 }
 export function skeetWeaponGroup(w: WeaponDef): SkeetGroup {
   if (w.melee || w.projectile) return 'general';
@@ -61,5 +61,6 @@ export function skeetEffectiveConfig(c: DevConfig, w: WeaponDef): DevConfig {
 
 export function skeetFakeLagCore(c: DevConfig): HvhCoreSettings {
   const lag = c.skeet.fakeLag;
-  return {...defaultHvhCore(),...c.hvh.core, fakeLag: lag.enabled ? lag.limit : 0, fakeLagMode: lag.mode, fakeLagBreakOnShot: lag.breakOnShot};
+  // Anti-bruteforce was removed from the panel: legacy rooms read it as off until cutover.
+  return {...defaultHvhCore(),...c.hvh.core, antiBruteforce: false, fakeLag: lag.enabled ? lag.limit : 0, fakeLagMode: lag.mode, fakeLagBreakOnShot: lag.breakOnShot};
 }

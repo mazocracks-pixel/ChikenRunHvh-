@@ -67,8 +67,8 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
     { id: 'legit', label: 'Trigger', icon: '◎', configKey: 'legit.trigger', sections: [sections('aim')[3]!] },
     { id: 'visuals', label: 'Visuals', icon: '◈', configKey: ['visuals', 'legit.wall', 'world'], sections: [...sections('visuals'), ...sections('world')] },
     { id: 'misc', label: 'Misc', icon: '☰', configKey: ['misc', 'hvh.feedback', 'skeet.indicators', 'legit.move', 'hvh.movement', 'settings'], sections: [
-      { title: 'Indicators', icon: '▤', items: [toggle('Resolver indicator', 'skeet.indicators.resolver'), toggle('Keybind list', 'skeet.indicators.binds'), toggle('Watermark', 'skeet.indicators.watermark')] },
-      ...sections('telemetry').slice(0, 2),
+      { title: 'Indicators', icon: '▤', items: [toggle('Keybind list', 'skeet.indicators.binds'), toggle('Watermark', 'skeet.indicators.watermark')] },
+      sections('telemetry')[0]!,
       { ...sections('movement')[0]!, items: sections('movement')[0]!.items.filter(c => !('path' in c) || c.path !== 'hvh.movement.autoStop') },
       sections('movement')[1]!, ...sections('settings'),
     ] },
