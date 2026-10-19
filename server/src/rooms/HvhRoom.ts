@@ -94,7 +94,9 @@ import type { ServerPlayer } from './ServerPlayer';
  *   stepPose -> shots through processShot -> learnFromVerdict -> emit verdicts -> the burst's
  *   extra movement steps. At the end of the player's tick one LagRecord is pushed for the server
  *   tick (unless every command was choked or a hidden shot). DT bullet 2 is held until every player
- *   has been simulated, then fired in the same server tick.
+ *   has been simulated, then fired in the same server tick. A tick with no command coasts, and once
+ *   a player has been silent for more than maxChoke ticks every silent tick pushes a record of the
+ *   coasted state (last pose), so withholding commands never makes a player unhittable.
  *
  * Decisions:
  * - Input passes the legacy per-player token limiter first (R25; rejected input is dropped
@@ -111,7 +113,8 @@ import type { ServerPlayer } from './ServerPlayer';
  *   start of the tick), a command charges. A charge command is acknowledged like any other
  *   (lastSeq, so the client's CommandClock backlog keeps draining) and steps the pose (aim works),
  *   but runs no movement step: every velocity is zeroed and position and gravity hold, even
- *   mid-air; a tick with no command does not coast during a partial charge either (R55). A burst
+ *   mid-air; a tick with no command does not coast during a partial charge either (R55), for up to
+ *   chargeTicks silent ticks (then it coasts, so withholding commands cannot hang a player). A burst
  *   (a DT / HS shot with a full charge, or DT / HS turned off while full: 'release') runs the
  *   command's own movement step, fires (bullets leave from that pre-burst eye), then runs `ticks`
  *   more normal steps of the same frame (R47: 1 + chargeTicks in all), so it slides along walls
@@ -262,6 +265,8 @@ export interface HvhPlayerV2 {
   pendingBullet: PendingBullet | null;
   /** Commands executed this tick. */
   executed: number;
+  /** Server ticks in a row with no command executed (a silent player). */
+  silentTicks: number;
   /** The enemyVisible each of this tick's commands was stepped with, in order (headless matches replay prediction from it). */
   sight: boolean[];
   /** Seeds the defensive random pitch and yaw (stepPose ctx.seed): from the room seed and the pid, so opponents cannot derive it. */
@@ -431,6 +436,7 @@ export class HvhRoom extends GameRoom {
         pendingFires: [],
         pendingBullet: null,
         executed: 0,
+        silentTicks: 0,
         sight: [],
         aaSeed: Math.imul((this.aaSeedBase ^ p.pid) >>> 0, 0x9e3779b1) >>> 0,
         peekTicksLeft: 0,
@@ -543,9 +549,11 @@ export class HvhRoom extends GameRoom {
       s.executed++;
       capture = this.runCommand(p, s, command, now) ?? capture;
     }
-    // R55: a lost command never applies gravity during the charging stop.
+    s.silentTicks = s.executed === 0 ? s.silentTicks + 1 : 0;
+    // R55: a lost command never applies gravity during the charging stop, but only for chargeTicks
+    // silent ticks: withholding commands cannot hang the player in the air.
     const charging = s.tickbase.armed && s.tickbase.charge > 0 && s.tickbase.charge < this.era.chargeTicks;
-    if (s.executed === 0 && !charging) this.coast(p);
+    if (s.executed === 0 && !(charging && s.silentTicks <= this.era.chargeTicks)) this.coast(p);
     p.simulationTime = now;
     p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);
     // The legacy resource still times projectile and melee weapons (legacy executeFire).
@@ -555,6 +563,11 @@ export class HvhRoom extends GameRoom {
     p.animation.eyeYaw = p.animation.lowerBodyYaw = p.fakeYaw = s.pose.eyeYaw;
     p.animation.bodyYaw = p.yaw = s.pose.bodyYaw;
     p.fakePitch = s.pose.pitch;
+    // A player silent for longer than maxChoke is recorded where the server has them every tick, so
+    // withholding commands never makes them unhittable (a choke only lasts maxChoke commands).
+    if (!capture && s.silentTicks > this.era.maxChoke) {
+      capture = { position: { x: p.state.x, y: p.state.y, z: p.state.z }, pose: s.pose, duck: p.state.crouchAmount ?? (p.state.crouching ? 1 : 0), motion: this.motionOf(p) };
+    }
     if (capture && p.alive) this.pushRecord(p, s, capture);
   }
 
@@ -1184,6 +1197,7 @@ export class HvhRoom extends GameRoom {
     // A new life: no charge, a fresh pose and lag records (the resolver keeps what it learned).
     s.queue.length = 0;
     s.budget = this.era.maxProcessTicks;
+    s.silentTicks = 0;
     s.tickbase = EMPTY_TICKBASE(this.hvhTick);
     s.pose = INITIAL_POSE;
     s.history = new RecordHistory(this.era, PLAYER_HULL_WIDTH);
