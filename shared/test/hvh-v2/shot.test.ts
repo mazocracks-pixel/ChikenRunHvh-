@@ -292,6 +292,20 @@ describe('Armor and helmet (v2)', () => {
     assert.ok(Math.abs(v.damage! - 17 * 1.6) < 1e-9);
     assert.deepEqual(v, processShot(ctx({ weaponId: 'rifle', spread: 0 })));
   });
+
+  it('a wall that leaves under 1 damage after armor fully absorbs the shot', () => {
+    const aim = { x: 0, y: 0.6, z: 10 };
+    const full = ssg(aim).damage!;
+    // Through the wall, 1.05 damage reaches an unarmored stomach; armor (x 0.85) leaves 0.89.
+    const wall = fixed({ wallDistance: 200, passages: [{ entry: 1, exit: 1.1, loss: 1.05 / full, material: 'wood' }] });
+    const through = (armored: boolean) =>
+      processShot(ctx({ weaponId: 'ssg08', ticksSinceLastShot: 128, aim: { origin: aim, dir: FORWARD }, spread: 0, world: wall }, { armored }));
+    assert.equal(through(false).cause, 'hit');
+    assert.ok(Math.abs(through(false).damage! - 1.05) < 1e-9);
+    const armored = through(true);
+    assert.equal(armored.cause, 'obstruction');
+    assert.equal(armored.material, 'wood');
+  });
 });
 
 describe('collisionWorldTracer', () => {

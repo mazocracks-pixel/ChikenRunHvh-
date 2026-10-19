@@ -13,7 +13,7 @@ import { LEGACY_MAX_CHOKE, shotRecordUsable } from '@game/shared';
 import { LATE_CSGO } from '@game/shared/hvh/v2';
 import { nativeOn, nativeValue, nativeColor } from './skeet/visualValues';
 import { skeetEffectiveConfig, skeetProfile } from './skeet/model';
-import { ResolverSystem, scanRage, buildHvhMatrix, hvhHitchance, afterArmor, directionFromAngles, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
+import { ResolverSystem, scanRage, buildHvhMatrix, hvhHitchance, directionFromAngles, DEFAULT_RAGE, defaultHvhCore, HvhExtensionHost, airStrafeInput, moveSpeedFor, SIM_DT,
   autoStopInput, planAutoStop, predictEnemyPeek, type AutoStopPlan, type PeekForecast, type ObservableRecord, type ShotCandidate, type ShotIntent } from '@game/shared';
 
 const DEG = Math.PI / 180;
@@ -151,11 +151,11 @@ export class DevRuntime implements DevHooks {
         matrix:buildHvhMatrix(target.record.origin,h.yaw,1-target.record.crouch*0.3,target.record.pitch)}));
       const estimate = hvhHitchance(w.def,eye,direction,buildHvhMatrix(target.record.origin,target.yaw,1-target.record.crouch*0.3,target.record.pitch),
         session.horizontalSpeed(),!session.local.onGround,this.dev.input.aiming || this.dev.input.assistedAds,session.collision,
-        c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined,32,w.heat,hypotheses);
+        c.hvh.aim.autowall && session.mode.wallbang ? softBoxTest(session.map) : undefined,32,w.heat,hypotheses,target.record.armor);
       const overridden=this.keyHeld(c.hvh.aim.overrideKey,false);
       const requiredDamage = !overridden && c.hvh.aim.hpRelative >= 0 ? target.record.hp+c.hvh.aim.hpRelative
         : Math.min(target.record.hp,overridden ? c.hvh.aim.damageOverride : c.hvh.aim.minDamage);
-      const damage = afterArmor(estimate.damage,target.record.armor);
+      const damage = estimate.damage;
       const state = damage+1e-9 < requiredDamage ? 'Waiting for damage'
         : estimate.chance+1e-9 < (session.local.onGround ? c.hvh.aim.hitchance : c.hvh.aim.airHitchance)/100 ? 'Waiting for accuracy' : 'Ready';
       Object.assign(this.diagnostics, { damage: Math.round(damage), chance: Math.round(estimate.chance*100), state });

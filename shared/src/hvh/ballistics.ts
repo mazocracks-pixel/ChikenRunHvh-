@@ -57,11 +57,21 @@ export function hvhHitDamage(w: WeaponDef, hit: HvhHit, cover: BallisticTrace): 
   return damageAt(w, hit.t) * multiplier * coverDamageScale(cover, hit.t);
 }
 export function afterArmor(damage: number, armor: number): number { return damage - Math.min(armor, damage * PLAYER.armorAbsorb); }
+/**
+ * Damage after armor as the shot deals it: a CS:GO weapon (v2, shot.ts) against any armor takes
+ * x armorPen on every hitgroup but the leg (armor never wears down); other weapons keep the legacy
+ * soak (afterArmor). `group` undefined counts as covered.
+ */
+export function armoredDamage(w: WeaponDef, damage: number, group: HvhHitgroup | undefined, armor: number): number {
+  if (!w.csgo) return afterArmor(damage, armor);
+  return armor > 0 && group !== 'leg' ? damage * w.csgo.armorPen : damage;
+}
+/** `damage`: the mean damage of a hit, after hvhHitchance's `armor`. */
 export interface HitchanceResult { chance: number; damage: number; samples: number }
 export interface HitchanceHypothesis { matrix: HvhMatrix; probability: number }
 export function hvhHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: HvhMatrix, speed: number,
   airborne: boolean, ads: boolean, world: CollisionWorld, isSoft?: (id: number) => boolean, samples = 32, heat = 0,
-  hypotheses: readonly HitchanceHypothesis[] = [{ matrix, probability: 1 }]): HitchanceResult {
+  hypotheses: readonly HitchanceHypothesis[] = [{ matrix, probability: 1 }], armor = 0): HitchanceResult {
   let hits = 0, damage = 0;
   const weight = hypotheses.reduce((n, h) => n + h.probability, 0);
   if (weight <= 0) return { chance: 0, damage: 0, samples };
@@ -70,9 +80,11 @@ export function hvhHitchance(w: WeaponDef, eye: Vec3, direction: Vec3, matrix: H
     const trial = hypotheses.map(() => 0);
     for (const dir of pelletDirections(w, direction, hvhSpread(w, speed, airborne, ads, heat), 4177 + n * 7919)) {
       const { cover, hits } = traceHvhMatrices(makeRay(eye, dir), matrices, world, w.range, isSoft);
-      hits.forEach((hit, i) => { if (hit) trial[i]! += hvhHitDamage(w, hit, cover); });
+      // CS:GO armor is per hitgroup, so per pellet; the legacy soak applies to the mean below.
+      hits.forEach((hit, i) => { if (hit) trial[i]! += w.csgo ? armoredDamage(w, hvhHitDamage(w, hit, cover), hit.group, armor) : hvhHitDamage(w, hit, cover); });
     }
     trial.forEach((amount, i) => { if (amount > 0) { const p = hypotheses[i]!.probability / weight; hits += p; damage += amount * p; } });
   }
-  return { chance: Math.min(1, hits / samples), damage: hits ? damage / hits : 0, samples };
+  const mean = hits ? damage / hits : 0;
+  return { chance: Math.min(1, hits / samples), damage: w.csgo ? mean : afterArmor(mean, armor), samples };
 }

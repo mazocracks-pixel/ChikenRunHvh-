@@ -28,7 +28,7 @@ import { peekResolve, resolve, type ResolverMemory, type VerdictCause } from './
  *   desync magnitude ('center' puts bodyYaw on eyeYaw).
  * - Obstruction is judged on the un-deviated aim, at the nearest hit on the real or guessed pose
  *   (guessed via the pure peekResolve, so obstructed shots never touch resolver memory): blocked
- *   when the world stops the bullet first, or when penetration leaves < ABSORBED_DAMAGE.
+ *   when the world stops the bullet first, or when penetration and armor leave < ABSORBED_DAMAGE.
  *   If the aim hits neither pose there is nothing to obstruct.
  * - resolve() runs once, only after the record is valid and not obstructed; guessed/real are set
  *   on every verdict after that point (hit, resolver, spread).
@@ -140,10 +140,15 @@ function nearest(a: HvhHit | null, b: HvhHit | null): HvhHit | null {
   return a && b ? (a.t <= b.t ? a : b) : a ?? b;
 }
 
-/** Material that stops or fully absorbs the bullet before `hit`, or null if it gets through. */
-function obstruction(w: WeaponDef, hit: HvhHit, trace: WorldTrace): string | null {
+/** The damage of one pellet's hit, after the target's armor (`armorPen`, absent when unarmored). */
+function pelletDamage(w: WeaponDef, hit: HvhHit, trace: WorldTrace, armorPen: number | undefined): number {
+  return hvhHitDamage(w, hit, trace) * (armorPen !== undefined && hit.group !== 'leg' ? armorPen : 1);
+}
+
+/** Material that stops or fully absorbs the bullet (after armor) before `hit`, or null if it gets through. */
+function obstruction(w: WeaponDef, hit: HvhHit, trace: WorldTrace, armorPen: number | undefined): string | null {
   if (trace.wallDistance < hit.t) return trace.material ?? UNKNOWN_MATERIAL;
-  if (hvhHitDamage(w, hit, trace) >= ABSORBED_DAMAGE) return null;
+  if (pelletDamage(w, hit, trace, armorPen) >= ABSORBED_DAMAGE) return null;
   const before = trace.passages.filter((p) => p.entry < hit.t);
   return before[before.length - 1]?.material ?? UNKNOWN_MATERIAL;
 }
@@ -183,7 +188,8 @@ export function processShot(ctx: ShotContext): ShotVerdict {
     rayHvhMatrix(aimRay, realMatrix, w.range),
     rayHvhMatrix(aimRay, poseMatrix(record, guessedPose(record.pose, peeked)), w.range),
   );
-  const blockedBy = aimHit ? obstruction(w, aimHit, aimTrace) : null;
+  const armorPen = target.armored ? w.csgo?.armorPen : undefined;
+  const blockedBy = aimHit ? obstruction(w, aimHit, aimTrace, armorPen) : null;
   if (blockedBy !== null) return { ...out, cause: 'obstruction', material: blockedBy };
 
   const guessed = resolve(ctx.resolver, target.id, ctx.observations, view).side;
@@ -191,14 +197,13 @@ export function processShot(ctx: ShotContext): ShotVerdict {
   out.real = record.pose.realSide;
 
   const spread = ctx.spread ?? hvhSpread(w, 0, false, false);
-  const armorPen = target.armored ? w.csgo?.armorPen : undefined;
   let damage = 0;
   let best: { group: string; damage: number } | null = null;
   for (const d of pelletDirections(w, dir, spread, ctx.spreadSeed)) {
     const trace = ctx.world.trace(origin, d, w.range);
     const hit = rayHvhMatrix(makeRay(origin, d), realMatrix, trace.wallDistance);
     if (!hit) continue;
-    const amount = hvhHitDamage(w, hit, trace) * (armorPen !== undefined && hit.group !== 'leg' ? armorPen : 1);
+    const amount = pelletDamage(w, hit, trace, armorPen);
     damage += amount;
     if (!best || amount > best.damage) best = { group: hit.group, damage: amount };
   }
