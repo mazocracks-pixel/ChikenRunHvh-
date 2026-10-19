@@ -54,9 +54,16 @@ describe('Tickbase charge and burst (v2)', () => {
     assert.equal(hs.next.charge, 0);
   });
 
-  it('rule 2: shot with no charge at all is rejected too', () => {
-    const r = stepTickbase(state({ charge: 0 }), { ...DT, fire: true }, LATE_CSGO, SEEN);
-    assert.deepEqual(r.action, { kind: 'reject', reason: 'dtNotCharged' });
+  it('a shot at charge 0 runs as a plain shot, no reject, and does not charge', () => {
+    for (const ctx of [SEEN, HIDDEN]) {
+      const s = state({ charge: 0 });
+      const r = stepTickbase(s, { ...DT, fire: true }, LATE_CSGO, ctx);
+      assert.deepEqual(r.action, { kind: 'run' });
+      assert.deepEqual(r.next, { tickbase: s.tickbase + 1, charge: 0, choked: 0, armed: true });
+      const c = stepTickbase(s, { ...HS, fire: true, choke: true }, LATE_CSGO, ctx);
+      assert.deepEqual(c.action, { kind: 'choke' });
+      assert.equal(c.next.charge, 0);
+    }
   });
 
   it('rule 3: turning the exploit off with full charge releases a burst', () => {
@@ -154,7 +161,9 @@ describe('Tickbase charge and burst (v2)', () => {
       s = stepTickbase(s, DT, LATE_CSGO, { enemyVisible: i % 2 === 1 }).next;
       assert.ok(s.charge <= 1, `charge ${s.charge} at tick ${i}`);
     }
-    assert.equal(stepTickbase(s, { ...DT, fire: true }, LATE_CSGO, HIDDEN).action.kind, 'reject');
+    // The loop ends on a visible tick, so the charge is 0 and a shot is a plain run.
+    assert.equal(s.charge, 0);
+    assert.equal(stepTickbase(s, { ...DT, fire: true }, LATE_CSGO, HIDDEN).action.kind, 'run');
   });
 
   it('a full charge stays full while an enemy is visible', () => {
@@ -177,7 +186,7 @@ describe('Tickbase charge and burst (v2)', () => {
     s = stepTickbase(s, { ...DT, choke: true }, LATE_CSGO, SEEN).next; // choke +1
     s = stepTickbase(s, DT, LATE_CSGO, HIDDEN).next; // charge +0
     s = stepTickbase(s, DT, LATE_CSGO, SEEN).next; // cancel +1
-    s = stepTickbase(s, { ...DT, fire: true }, LATE_CSGO, SEEN).next; // reject +1
+    s = stepTickbase(s, { ...DT, fire: true }, LATE_CSGO, SEEN).next; // charge 0 after the cancel: plain shot +1
     assert.equal(s.tickbase, 41);
     assert.equal(s.charge, 0);
   });

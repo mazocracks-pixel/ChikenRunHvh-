@@ -45,13 +45,16 @@ export type TickAction =
    * leave from the pre-burst position.
    */
   | { kind: 'burst'; ticks: number; reason: BurstReason }
-  /** Shot with DT or hide shots on but not fully charged: the command still runs as a plain shot. */
+  /**
+   * Shot with DT or hide shots on and a partial charge (0 < charge < full): the charge is lost and
+   * the command still runs as a plain shot. At charge 0 a shot is a plain run/choke, not a reject.
+   */
   | { kind: 'reject'; reason: TickbaseReject };
 
 // Pure and deterministic: same (s, intent, era, ctx) always yields the same result; inputs are never mutated.
 // Rules in priority order (exploit = doubleTap || hideShots):
 //   1. exploit and fire with full charge -> burst (doubleTap over hideShots).
-//   2. exploit and fire with less than full -> reject; the charge is lost.
+//   2. exploit and fire with a partial charge (0 < charge < full) -> reject; the charge is lost.
 //   3. armed last tick, exploit now off, full charge -> burst 'release'.
 //   4. exploit, below full, no enemy visible, not firing -> charge (+1; choke is ignored, tickbase holds).
 //   5. exploit, partial charge (0 < charge < full), enemy visible -> cancel; the charge is lost.
@@ -76,16 +79,18 @@ export function stepTickbase(
 
   if (exploit && intent.fire) {
     if (full) return burst(intent.doubleTap ? 'doubleTap' : 'hideShots');
-    return {
-      next: { ...ran, charge: 0 },
-      action: { kind: 'reject', reason: intent.doubleTap ? 'dtNotCharged' : 'hsNotCharged' },
-    };
+    if (s.charge > 0) {
+      return {
+        next: { ...ran, charge: 0 },
+        action: { kind: 'reject', reason: intent.doubleTap ? 'dtNotCharged' : 'hsNotCharged' },
+      };
+    }
   }
 
   if (!exploit) {
     if (s.armed && full) return burst('release');
     ran.charge = 0;
-  } else if (!full && !ctx.enemyVisible) {
+  } else if (!full && !ctx.enemyVisible && !intent.fire) {
     return { next: { ...ran, tickbase: s.tickbase, charge: s.charge + 1 }, action: { kind: 'charge' } };
   } else if (!full && s.charge > 0) {
     return { next: { ...ran, charge: 0 }, action: { kind: 'cancel' } };

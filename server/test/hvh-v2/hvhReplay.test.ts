@@ -65,8 +65,6 @@ function runMatch(seed: number): Run {
   }
 }
 
-const capped = (t: TickbaseState): TickbaseState => ({ ...t }); // Task 7: nothing is capped any more
-
 describe('HvH v2 determinism gate', () => {
   let first: Run;
   before(() => { first = runMatch(SEED); });
@@ -134,7 +132,7 @@ describe('HvH v2 determinism gate', () => {
             pitch: hvhPitch(c.frame.pitch, { ...defaultHvhLoadout(), antiAim: aa }),
           };
         }
-        assert.deepStrictEqual(capped(tb.state), capped(r.tickbaseAfter), `${where}: TickbaseState`);
+        assert.deepStrictEqual(tb.state, r.tickbaseAfter, `${where}: TickbaseState`);
         assert.deepStrictEqual(pose, r.poseAfter, `${where}: PoseState`);
         compared++;
       });
