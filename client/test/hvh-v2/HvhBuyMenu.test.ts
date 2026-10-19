@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { HvhBuyModel, HVH_BUY_STORAGE_KEY, isTypingTarget } from '../../src/ui/hvh/HvhBuyMenu';
+import { HvhBuyModel, HVH_BUY_STORAGE_KEY, isTypingTarget, menuKey } from '../../src/ui/hvh/HvhBuyMenu';
 
 function memoryStore(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial));
@@ -45,6 +45,20 @@ describe('HvhBuyModel', () => {
     assert.deepEqual(new HvhBuyModel(memoryStore({ [HVH_BUY_STORAGE_KEY]: '{not json' })).selected, { main: 'ssg08', pistol: 'deserteagle' });
     assert.deepEqual(new HvhBuyModel(memoryStore({ [HVH_BUY_STORAGE_KEY]: JSON.stringify({ main: 'r8', pistol: 'ak47' }) })).selected,
       { main: 'ssg08', pistol: 'deserteagle' });
+  });
+
+  it('the passive freeze menu leaves the weapon slot keys to the game; the opened menu picks with them (Minor 9)', () => {
+    for (const key of ['1', '2', '3', '4']) {
+      assert.equal(menuKey({ key, code: `Digit${key}` }, true, 4), null, `passive ${key}`);
+      assert.deepEqual(menuKey({ key, code: `Digit${key}` }, false, 4), { pick: Number(key) - 1 }, `opened ${key}`);
+    }
+    assert.equal(menuKey({ key: '5', code: 'Digit5' }, false, 4), null, 'past the last card');
+    for (const passive of [true, false]) {
+      assert.equal(menuKey({ key: 'Escape', code: 'Escape' }, passive, 4), 'close');
+      assert.equal(menuKey({ key: 'w', code: 'KeyW' }, passive, 4), null);
+    }
+    assert.equal(menuKey({ key: 'b', code: 'KeyB' }, false, 4), 'close');
+    assert.equal(menuKey({ key: 'b', code: 'KeyB' }, true, 4), null, 'passive: B goes to the game, which opens the menu to pick');
   });
 
   it('keys typed into chat or a text field are not menu keys', () => {

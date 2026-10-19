@@ -83,14 +83,28 @@ export function isTypingTarget(el: { tagName?: string; isContentEditable?: boole
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true);
 }
 
-/** Two columns (Main, Pistol); 1–4 pick, B / Esc close. */
+/**
+ * What a key does in the menu: pick card `pick` (0-based), close it, or nothing (the game gets the
+ * key). The passive freeze menu leaves 1–4 to the game (weapon slots) and B too (the game's B
+ * opens it with the mouse); Esc closes it.
+ */
+export function menuKey(e: { key: string; code: string }, passive: boolean, items: number): { pick: number } | 'close' | null {
+  if (e.key === 'Escape' || (!passive && e.code === 'KeyB')) return 'close';
+  if (!passive && /^[1-9]$/.test(e.key) && Number(e.key) <= items) return { pick: Number(e.key) - 1 };
+  return null;
+}
+
+/** Two columns (Main, Pistol); 1–4 pick and B / Esc close (passive: B opens it to pick, Esc closes). */
 export class HvhBuyMenu {
   readonly root = h('div', { class: 'buy-overlay hvh-buy' });
   private readonly timer = h('span', { class: 'buy-timer' });
   private readonly status = h('div', { class: 'buy-status', role: 'status', 'aria-live': 'polite' });
+  private readonly hint = h('small', null, '1–4 pick · B / Esc close');
   private readonly cards = new Map<WeaponId, HTMLButtonElement>();
   onPick: ((id: WeaponId) => void) | null = null;
   onClose: (() => void) | null = null;
+  /** Opened passive (freeze time's auto-open): the game keeps the mouse and the slot keys. */
+  private passive = false;
 
   constructor(container: HTMLElement, readonly model = new HvhBuyModel()) {
     const close = h('button', { type: 'button', class: 'buy-close', 'aria-label': 'Close the buy menu' }, '✕');
@@ -119,7 +133,7 @@ export class HvhBuyMenu {
       { class: 'buy-window', role: 'dialog', 'aria-label': 'Buy menu', 'aria-modal': 'true' },
       h('header', { class: 'buy-head' }, h('span', null, 'Loadout'), this.timer, close),
       columns,
-      h('footer', { class: 'buy-foot' }, this.status, h('small', null, '1–4 pick · B / Esc close')),
+      h('footer', { class: 'buy-foot' }, this.status, this.hint),
     ));
     this.root.addEventListener('click', (e) => {
       if (e.target === this.root) this.onClose?.();
@@ -140,7 +154,9 @@ export class HvhBuyMenu {
   setOpen(open: boolean, passive = false): void {
     if (open === this.open) return;
     this.root.hidden = !open;
-    this.root.classList.toggle('passive', open && passive);
+    this.passive = open && passive;
+    this.root.classList.toggle('passive', this.passive);
+    this.hint.textContent = this.passive ? 'B to pick · Esc close' : '1–4 pick · B / Esc close';
     if (open) {
       this.say('');
       prepareGunIcons();
@@ -193,9 +209,10 @@ export class HvhBuyMenu {
   private onKey = (e: KeyboardEvent): void => {
     if (e.repeat || isTypingTarget(document.activeElement)) return;
     const items = this.model.categories.flatMap((c) => c.items);
-    if (/^[1-9]$/.test(e.key) && Number(e.key) <= items.length) this.pick(items[Number(e.key) - 1]!);
-    else if (e.code === 'KeyB' || e.key === 'Escape') this.onClose?.();
-    else return;
+    const action = menuKey(e, this.passive, items.length);
+    if (action === null) return;
+    if (action === 'close') this.onClose?.();
+    else this.pick(items[action.pick]!);
     e.preventDefault();
     e.stopImmediatePropagation();
   };

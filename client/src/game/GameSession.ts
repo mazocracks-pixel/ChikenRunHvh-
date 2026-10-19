@@ -1462,7 +1462,7 @@ export class GameSession {
   private onHvhRound(r: RoundState, prev: RoundState | null): void {
     const window_ = r.phase === 'warmup' || r.phase === 'buy';
     if (window_ && prev?.phase !== r.phase) this.sendHvhPicks();
-    // Freeze time opens the menu without taking the mouse: 1–4 pick, and nobody can move anyway.
+    // Freeze time opens the menu without taking the mouse: 1–4 stay the weapon keys, and B opens it to pick.
     if (r.phase === 'buy' && prev?.phase !== 'buy') this.setHvhBuyOpen(true);
     if (!window_) this.setHvhBuyOpen(false);
   }
@@ -1489,7 +1489,9 @@ export class GameSession {
 
   /** B: open (taking the mouse) during warmup and freeze, or close. */
   private toggleHvhBuy(): void {
-    if (this.hvhBuy?.open) return this.setHvhBuyOpen(false);
+    if (this.hvhBuy?.open && this.hvhBuyReleased) return this.setHvhBuyOpen(false);
+    // The passive freeze menu reopens with the mouse.
+    if (this.hvhBuy?.open) this.setHvhBuyOpen(false);
     const phase = this.round?.phase;
     if (phase !== 'warmup' && phase !== 'buy') return this.ctx.hud.toast('Buying is closed: you can pick at the next freeze time', 'bad');
     this.setHvhBuyOpen(true, true);
