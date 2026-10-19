@@ -9,3 +9,4 @@ export * from './shot';
 export * from './hitlog';
 export * from './arsenal';
 export * from './rounds';
+export * from './visibility';
