@@ -121,10 +121,28 @@ export function fireIntervalTicks(w: WeaponDef, tickRate: number = LATE_CSGO.tic
 
 /**
  * The R8's hammer pull in commands, rounded up like the fire interval (0 for every other gun): bullet
- * 1 needs the trigger held since a command at least this many seqs before the shot's.
+ * 1 needs this many commands run with the trigger held before the shot's command.
  */
 export function hammerTicks(w: WeaponDef, tickRate: number = LATE_CSGO.tickRate): number {
   return w.csgo?.hammerMs ? Math.ceil((w.csgo.hammerMs * tickRate) / 1000) : 0;
+}
+
+/**
+ * Commands a pulled-back hammer waits for the shot (250 ms: the R8's cycle after a quick re-press,
+ * a switch, a scan). Past it the hammer drops and the held trigger pulls it again, so it cannot be
+ * kept cocked for an instant shot at any time (CS:GO fires a held R8 as soon as it is back).
+ */
+export const HAMMER_GRACE = 16;
+
+/**
+ * The trigger hold after one more command: the held commands so far (this one included), 0 when
+ * it is up. A hold already past hammerTicks + HAMMER_GRACE starts over at this command. The server,
+ * the client's prediction and the bots all step it once per command; a command fires bullet 1 when
+ * the commands before it, `hold - 1`, reach hammerTicks.
+ */
+export function stepHammerHold(hold: number, held: boolean, w: WeaponDef): number {
+  if (!held) return 0;
+  return hold > hammerTicks(w) + HAMMER_GRACE ? 1 : hold + 1;
 }
 
 function finite(v: Vec3): boolean {

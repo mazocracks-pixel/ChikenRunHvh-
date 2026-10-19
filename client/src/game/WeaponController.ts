@@ -1,6 +1,6 @@
 import { WEAPONS, WEAPON_SWITCH_MS, defaultHvhLoadout, fireIntervalFor, magazineSize, shotUsesAmmo, takeShot, type FireTiming, type DevMods, type PlayerState, type WeaponDef, type WeaponId, type ShotEvent } from '@game/shared';
 import { ExploitResource, exploitMode, hvhWeapon, trainingMods } from '@game/shared';
-import { hammerTicks } from '@game/shared/hvh/v2';
+import { hammerTicks, stepHammerHold } from '@game/shared/hvh/v2';
 
 /** After firing, trust our own ammo count over (older) snapshots for this long. */
 const AMMO_TRUST_MS = 400;
@@ -29,8 +29,10 @@ export class WeaponController {
   private triggerWasDown = false;
   /** When the R8's hammer pull began (null: not pulling). */
   private hammerFrom: number | null = null;
-  /** v2: the seq of the first command built with the trigger held (null: released). */
-  private hammerSeq: number | null = null;
+  /** v2: commands built in the current trigger hold, stepped as the server steps it (stepHammerHold). */
+  private hammerHold = 0;
+  /** v2: the command that carries our last shot: the hammer drops once it is built (as on the server). */
+  private hammerDropSeq: number | null = null;
   /** v2: the newest command built (null: commands are not counted, so the hammer is timed only). */
   private commandSeq: number | null = null;
   private assistedBurst = false;
@@ -90,7 +92,8 @@ export class WeaponController {
     this.timing.lastFireAt = this.timing.burstStart = -Infinity;
     this.timing.burstShots = 0;
     this.triggerWasDown = false;
-    this.hammerFrom = this.hammerSeq = null;
+    this.hammerFrom = null;
+    this.hammerHold = 0;
     this.resource.reset(); this.resourceTime = performance.now();
     this.heat = 0;
     for (const id of this.loadout) this.mags.set(id, this.magazineSize(id));
@@ -106,7 +109,8 @@ export class WeaponController {
     this.reloadEndsAt = 0;
     this.switchReadyAt = now + WEAPON_SWITCH_MS;
     this.timing.burstShots = 0;
-    this.hammerFrom = this.hammerSeq = null;
+    this.hammerFrom = null;
+    this.hammerHold = 0;
     return true;
   }
 
@@ -174,23 +178,28 @@ export class WeaponController {
     if (shotUsesAmmo(this.def, this.mods)) this.mags.set(this.weapon, Math.max(0, this.mag - permission.shots));
     this.shotSeq++;
     this.hammerFrom = null;
+    if (this.commandSeq !== null) this.hammerDropSeq = this.commandSeq + 1;
     return 'fire';
   }
 
   /**
-   * v2: a command was built with the trigger `held` (intent.trigger). The server times the R8 hammer
-   * in command seqs (HvhRoom), so the shot also waits for the pull in commands.
+   * v2: a command was built with the trigger `held` (intent.trigger). The server counts the R8 hammer
+   * in the commands it runs (HvhRoom, R69), so the shot also waits for the pull in commands, and a
+   * hammer kept back too long drops and is pulled again, as there.
    */
   commandBuilt(seq: number, held: boolean): void {
     this.commandSeq = seq;
-    if (!held) this.hammerSeq = null;
-    else this.hammerSeq ??= seq;
+    this.hammerHold = stepHammerHold(this.hammerHold, held, this.def);
+    if (seq === this.hammerDropSeq) {
+      this.hammerHold = 0;
+      this.hammerDropSeq = null;
+    }
   }
 
-  /** The pull spans hammerTicks commands by the next command, which carries the shot (always true while commands are not counted). */
+  /** The next command, which carries the shot, has hammerTicks held commands before it (always true while commands are not counted). */
   private hammerPulled(w: WeaponDef): boolean {
     if (this.commandSeq === null) return true;
-    return this.hammerSeq !== null && this.commandSeq + 1 - this.hammerSeq >= hammerTicks(w);
+    return stepHammerHold(this.hammerHold, true, w) - 1 >= hammerTicks(w);
   }
 
   /** Readiness for assists. It never consumes ammunition or advances a timer. */

@@ -50,6 +50,7 @@ import {
   createResolverMemory,
   enemyVisible,
   hammerTicks,
+  stepHammerHold,
   snapshotSightTargets,
   guessedPose,
   holdForCharge,
@@ -164,11 +165,13 @@ import type { ServerPlayer } from './ServerPlayer';
  *   ticks, however many queued commands (a choke batch, a backlog) ran before it in that tick; a
  *   second bullet-1 shot in the same tick sees 0 ticks since the last shot and is rejected
  *   'fire interval' (DT bullet 2 is the only accepted same-tick second bullet).
- * - The R8 hammer: bullet 1 of a gun with csgo.hammerMs is 'rejected / hammer' unless the trigger
- *   (intent.trigger, or the fire itself) has been held, on that gun, since a command at least
- *   hammerTicks seqs before the shot's (counted in seqs, so a lost command never shortens the pull
- *   for an honest client; rounded up like the fire interval). A shot drops the hammer. Bots and
- *   the client count the same seqs.
+ * - The R8 hammer: bullet 1 of a gun with csgo.hammerMs is 'rejected / hammer' unless hammerTicks
+ *   commands ran with the trigger (intent.trigger, or the fire itself) held, on that gun, before the
+ *   shot's command (R69: counted per command run, not by seq, so skipping seqs fakes nothing; a
+ *   choke batch counts as it runs; rounded up like the fire interval). A hammer back for more than
+ *   HAMMER_GRACE commands with no shot drops and the hold pulls it again, so it cannot stay cocked.
+ *   Every bullet-1 attempt (fired or rejected) drops the hammer. Bots and the client step the same
+ *   count (stepHammerHold).
  * - Rounds (v2 only; rounds.ts decides, the room applies): a warmup with free respawns, then
  *   rounds of freeze (everyone respawned at their team spawn and frozen, no shooting) -> live (no
  *   respawns) -> over, first to 13. The round is stepped once per tick after every player (and
@@ -231,7 +234,7 @@ interface PendingBullet {
   aim: { origin: Vec3; dir: Vec3 };
   viewTick: number;
   ticksSinceLastShot: number;
-  /** Commands (seqs) the trigger had been held for at bullet 1 (the R8 hammer). */
+  /** Commands run with the trigger held before bullet 1's (the R8 hammer). */
   hammered: number;
   spread: number;
   targetPid?: number;
@@ -284,8 +287,8 @@ export interface HvhPlayerV2 {
   peekSides: (1 | -1)[];
   /** The peekTicksLeft each of this tick's commands stepped its pose with, in order (headless matches replay prediction from it). */
   peek: number[];
-  /** Seq of the first command of the current trigger hold (intent.trigger or fire), null while released. */
-  hammerFrom: number | null;
+  /** Commands run in the current trigger hold (intent.trigger or fire), this tick's included (stepHammerHold). */
+  hammerHold: number;
   /** The gun the hold started on (a switch restarts the pull). */
   hammerWeapon: WeaponId | null;
   /** Loadout changes (buy): 2 at once (a main and a pistol), then 4 per second. */
@@ -449,7 +452,7 @@ export class HvhRoom extends GameRoom {
         peekSide: -1,
         peekSides: [],
         peek: [],
-        hammerFrom: null,
+        hammerHold: 0,
         hammerWeapon: null,
         buyLimiter: new TokenBucket(2, 4),
         lastRecordTick: -Infinity,
@@ -598,7 +601,7 @@ export class HvhRoom extends GameRoom {
       p.lastShotSeq = fireReq.shot;
       intent = { ...intent, fire: true };
     }
-    this.stepHammer(p, s, frame.seq, p.alive && (intent.fire || intent.trigger === true));
+    this.stepHammer(p, s, p.alive && (intent.fire || intent.trigger === true));
     if (!p.alive || p.hvhPreparing || p.removedForCheating) {
       if (fireReq) this.emitVerdict(p, this.rejected(p, 'actions blocked'));
       s.sight.push(false);
@@ -659,11 +662,14 @@ export class HvhRoom extends GameRoom {
     };
   }
 
-  /** The R8 hammer: the trigger hold runs from its first command's seq; a release or a gun switch ends it. */
-  private stepHammer(p: ServerPlayer, s: HvhPlayerV2, seq: number, held: boolean): void {
-    if (!held || s.hammerWeapon !== p.weapon) s.hammerFrom = null;
-    if (held && s.hammerFrom === null) s.hammerFrom = seq;
+  /**
+   * The R8 hammer, counted in commands the server runs (R69: a seq jump cannot fake the time); a
+   * release or a gun switch ends the hold, and a hammer kept back too long drops (stepHammerHold).
+   */
+  private stepHammer(p: ServerPlayer, s: HvhPlayerV2, held: boolean): void {
+    if (s.hammerWeapon !== p.weapon) s.hammerHold = 0;
     s.hammerWeapon = p.weapon;
+    s.hammerHold = stepHammerHold(s.hammerHold, held, WEAPONS[p.weapon]);
   }
 
   private acknowledge(p: ServerPlayer, frame: Readonly<InputFrame>): void {
@@ -870,7 +876,7 @@ export class HvhRoom extends GameRoom {
       aim: { origin, dir },
       viewTick,
       ticksSinceLastShot: tick - s.lastShotTick,
-      hammered: s.hammerFrom === null ? 0 : frame.seq - s.hammerFrom,
+      hammered: Math.max(0, s.hammerHold - 1),
       spread,
     };
     const targetPid = this.pickTarget(p, origin, dir, viewTick, bullet.weaponId, fireReq?.intent?.target);
@@ -958,13 +964,14 @@ export class HvhRoom extends GameRoom {
         learnFromVerdict(s.resolver, verdict.targetId, verdict.guessed, verdict.cause);
       }
     }
+    // Pulling the trigger drops the hammer, fired or rejected: the next shot needs a new pull (the
+    // bots, which cannot see a rejection, count the same).
+    if (n === 1) s.hammerHold = 0;
     // Bookkeeping for every shot that was really fired and traced (spawn-protected hits included).
     if (verdict.cause !== 'rejected') {
       const w = WEAPONS[p.weapon];
       if (shotUsesAmmo(w, p.mods)) p.mags.set(p.weapon, p.mag - 1);
       s.lastShotTick = tick;
-      // The shot drops the hammer: the next one needs a new pull.
-      s.hammerFrom = null;
       p.lastFireAt = now;
       p.shieldUntil = 0;
       p.weaponHeat = Math.min(3, p.weaponHeat + 0.25);

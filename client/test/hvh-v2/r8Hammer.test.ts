@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
+import { WEAPONS } from '@game/shared';
+import { HAMMER_GRACE, hammerTicks, stepHammerHold } from '@game/shared/hvh/v2';
 import { WeaponController } from '../../src/game/WeaponController';
 
 /** Holds the trigger from `from` to `until` (exclusive) at 1 ms steps; returns the fire times. */
@@ -62,41 +64,72 @@ it('the Desert Eagle fires on the press', () => {
 });
 
 /**
- * v2: holds the trigger from 0 to `until` at 1 ms steps, building a command (trigger held) every
- * 64 Hz tick unless `skip(n)` drops the tick's command (clock correction). Returns the fire times
- * and the seq each shot's command gets (the next one built).
+ * v2: holds the trigger (while `down`) from 0 to `until` at 1 ms steps, building a command (trigger held) every
+ * 64 Hz tick unless `skip(n)` drops the tick's command (clock correction); `each(now)` runs first
+ * every ms (reloads). The server's count runs alongside: each built command steps stepHammerHold,
+ * and a shot (carried by the next command built) records the held commands before it and drops the
+ * hammer, as HvhRoom does.
  */
-function holdWithCommands(w: WeaponController, until: number, skip: (tick: number) => boolean = () => false) {
-  const shots: { at: number; seq: number }[] = [];
+function holdWithCommands(w: WeaponController, until: number, skip: (tick: number) => boolean = () => false, each: (now: number) => void = () => {},
+  down: (now: number) => boolean = () => true) {
+  const shots: { at: number; pulled: number }[] = [];
   let seq = 0;
   let tick = 0;
-  let firstHeld: number | null = null;
+  let server = 0;
+  let shotAt: number | null = null;
   for (let now = 0; now < until; now++) {
+    each(now);
     while (tick * (1000 / 64) <= now) {
-      if (!skip(tick)) { w.commandBuilt(++seq, true); firstHeld ??= seq; }
+      if (!skip(tick)) {
+        w.commandBuilt(++seq, down(now));
+        // The shot's command counts as held (intent.fire).
+        server = stepHammerHold(server, down(now) || shotAt !== null, WEAPONS.r8);
+        if (shotAt !== null) { shots.push({ at: shotAt, pulled: server - 1 }); shotAt = null; server = 0; }
+      }
       tick++;
     }
-    if (w.trigger(true, now) === 'fire') shots.push({ at: now, seq: seq + 1 });
+    if (w.trigger(down(now), now) === 'fire') shotAt = now;
   }
-  return { shots, firstHeld: firstHeld! };
+  return shots;
 }
 
-it('v2: the R8 shot waits until its command is hammerTicks seqs after the first held one (the server rule)', () => {
+const PULL = hammerTicks(WEAPONS.r8);
+
+it('v2: the R8 shot waits for hammerTicks held commands before its own (the server rule, R69)', () => {
   const w = new WeaponController(['r8']);
-  const { shots, firstHeld } = holdWithCommands(w, 600);
+  const shots = holdWithCommands(w, 600);
   assert.equal(shots.length, 1);
   assert.ok(shots[0]!.at >= 400);
-  assert.ok(shots[0]!.seq - firstHeld >= 26, `elapsed ${shots[0]!.seq - firstHeld}`);
+  assert.ok(shots[0]!.pulled >= PULL, `pulled ${shots[0]!.pulled}`);
   // Never later than the 400 ms pull plus one command.
   assert.ok(shots[0]!.at <= 400 + 16);
 });
 
 it('v2: commands skipped by the clock correction delay the R8 shot instead of getting it rejected', () => {
   const w = new WeaponController(['r8']);
-  const { shots, firstHeld } = holdWithCommands(w, 900, (tick) => tick % 4 === 3);
+  const shots = holdWithCommands(w, 900, (tick) => tick % 4 === 3);
   assert.equal(shots.length, 1);
   assert.ok(shots[0]!.at > 450, `fired at ${shots[0]!.at}`);
-  assert.ok(shots[0]!.seq - firstHeld >= 26);
+  assert.ok(shots[0]!.pulled >= PULL);
+});
+
+it('v2: a hammer held through a reload drops and is pulled again as on the server, so the shot is accepted', () => {
+  const w = new WeaponController(['r8']);
+  let reloaded = false;
+  // A shot, a release, then a press held through the reload.
+  const shots = holdWithCommands(w, 6000, () => false, (now) => {
+    w.update(now);
+    if (!reloaded && now === 450) reloaded = w.reload(now);
+  }, (now) => now < 440 || now >= 500);
+  assert.ok(reloaded, 'the reload started after the first shot');
+  assert.ok(shots.length >= 2);
+  for (const shot of shots) {
+    assert.ok(shot.pulled >= PULL && shot.pulled <= PULL + HAMMER_GRACE, `pulled ${shot.pulled} at ${shot.at}`);
+  }
+  // The shot after the reload comes within one pull and its grace of the reload's end.
+  const reloadEnd = 450 + WEAPONS.r8.reloadTime;
+  const after = shots[1]!.at;
+  assert.ok(after >= reloadEnd && after <= reloadEnd + (PULL + HAMMER_GRACE + 1) * (1000 / 64), `shot after the reload at ${after}`);
 });
 
 it('v2: a command built with the trigger up restarts the counted pull', () => {
