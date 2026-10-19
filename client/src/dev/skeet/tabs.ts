@@ -4,6 +4,7 @@ import type { Dev } from '../Dev';
 import type { Binding, Control, Tab } from '../controls';
 import { buildTabs } from '../tabs';
 import { SKEET_PROFILE_IDS, skeetProfileId } from './model';
+import { NATIVE_CONFIG_PATHS } from './nativeFields';
 
 /** Each tab's picker selection, for this page session (not part of the saved config). */
 const picks = new Map<string, string>();
@@ -49,6 +50,12 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
       toggle('Defensive always', `hvh.v2AntiAim.defensive.${s}.always`),
       select('Defensive pitch', `hvh.v2AntiAim.defensive.${s}.pitch`), select('Defensive yaw', `hvh.v2AntiAim.defensive.${s}.yaw`, 'Flick snaps the yaw for a few ticks'),
     ] };
+  // Misc keeps one control per setting: the native menu owns bunny hop, air strafe, crosshair, hitmarker and
+  // third person; status readouts and the profiles' auto-stop switch live elsewhere.
+  const nativeOwned = new Set(Object.values(NATIVE_CONFIG_PATHS));
+  const miscItems = (items: Control[]) => items.filter(c => c.type !== 'info' && c.label !== 'Third person'
+    && !('path' in c && c.path && (nativeOwned.has(c.path) || c.path === 'hvh.movement.autoStop')))
+    .map(c => c.type === 'buttons' && c.label === 'Crosshair' ? { ...c, label: 'Crosshair style' } : c);
   const recipe = (label: string, run: () => void): Control => ({ type: 'buttons', label, items: [{ label: 'Apply', run: () => { run(); dev.menuRefresh(); dev.notify(`${label} applied`, 'good'); } }] });
   return [
     { id: 'rage', label: 'Rage', icon: '⌖', configKey: ['rage.aim', 'hvh.aim', 'skeet.profiles'], sections: [
@@ -84,10 +91,9 @@ export function buildSkeetTabs(dev: Dev): Tab[] {
     { id: 'legit', label: 'Trigger', icon: '◎', configKey: 'legit.trigger', sections: [sections('aim')[3]!] },
     { id: 'visuals', label: 'Visuals', icon: '◈', configKey: ['visuals', 'legit.wall', 'world'], sections: [...sections('visuals'), ...sections('world')] },
     { id: 'misc', label: 'Misc', icon: '☰', configKey: ['misc', 'hvh.feedback', 'skeet.indicators', 'legit.move', 'hvh.movement', 'settings'], sections: [
-      { title: 'Indicators', icon: '▤', items: [toggle('Keybind list', 'skeet.indicators.binds'), toggle('Watermark', 'skeet.indicators.watermark')] },
-      sections('telemetry')[0]!,
-      { ...sections('movement')[0]!, items: sections('movement')[0]!.items.filter(c => !('path' in c) || c.path !== 'hvh.movement.autoStop') },
-      sections('movement')[1]!, ...sections('settings'),
+      { title: 'HUD', icon: '▤', items: [toggle('Keybind list', 'skeet.indicators.binds'), toggle('Watermark', 'skeet.indicators.watermark'), ...miscItems(sections('telemetry')[0]!.items)] },
+      { title: 'Movement', icon: '➶', items: miscItems(sections('movement').flatMap(s => s.items)) },
+      ...sections('settings'),
     ] },
     { id: 'skins', label: 'Skins', icon: '✦', configKey: ['skeet.cosmetics', 'weapons.selected'], sections: [
       { title: 'Weapon finish', icon: '✦', items: [toggle('Custom weapon tint', 'skeet.cosmetics.enabled'), { type: 'color', label: 'Finish color', path: 'skeet.cosmetics.tint' },

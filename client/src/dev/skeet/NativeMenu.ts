@@ -2,7 +2,7 @@ import type { Dev } from '../Dev';
 import { h } from '../../ui/dom';
 import { CHOICES, RANGES, setPath } from '../config';
 import { buildSkeetTabs } from './tabs';
-import { NATIVE_FIELDS } from './nativeFields';
+import { NATIVE_CONFIG_PATHS, NATIVE_FIELDS } from './nativeFields';
 import type { Control } from '../controls';
 
 interface NativeModule {
@@ -18,10 +18,7 @@ const canvas = h('canvas', { id: 'skeet-native-canvas', width: 660, height: 560,
 export const menuText = (s: string): string => s.replace(/[\u2013\u2014]/g, '-').replace(/\u2026/g, '...').replace(/\u2192/g, '->').replace(/[^\x20-\x7e\xa0-\xff]/g, '').replace(/\s+/g, ' ').trim();
 const call = (m: NativeModule, name: string, ...values: (number | string)[]) => m.ccall(name, null, values.map(v => typeof v), values.map(v => typeof v === 'string' ? menuText(v) : v));
 const value = (m: NativeModule, name: string, id: number) => m.ccall(name, 'number', ['number'], [id]) as number;
-const mapped: Record<string,string> = {
-  'Misc.bunnyHop':'legit.move.bhop', 'Misc.airStrafe':'legit.move.autoStrafe',
-  'Visuals.Other.crosshair':'misc.crosshair', 'Visuals.Players.hitmarker':'misc.hitmarker',
-};
+const mapped = NATIVE_CONFIG_PATHS;
 
 /** Runs the supplied Menu.cpp and custom ImGui widgets, compiled to WebAssembly. */
 export class NativeMenu {

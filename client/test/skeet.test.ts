@@ -206,3 +206,22 @@ it('a picker renders an icon row; clicking an icon shows only that value\'s cont
     assert.deepEqual(icons.map(i => i.getAttribute('aria-pressed')), ['false', 'true']);
   });
 });
+
+it('every setting has one control across the Skeet tabs and the native menu; Misc is at most 4 short sections', async () => {
+  const { buildSkeetTabs } = await import('../src/dev/skeet/tabs');
+  const { NATIVE_CONFIG_PATHS } = await import('../src/dev/skeet/nativeFields');
+  const tabs = buildSkeetTabs((await fakeDev()) as never);
+  const owners = new Map<string, string[]>();
+  const own = (path: string, who: string) => owners.set(path, [...(owners.get(path) ?? []), who]);
+  for (const t of tabs) for (const c of controlsOf([t])) if ('path' in c && c.path) own(c.path, `${t.id}: ${c.label}`);
+  for (const [field, path] of Object.entries(NATIVE_CONFIG_PATHS)) own(path, `native ${field}`);
+  assert.ok(owners.size > 100, 'the tabs were built');
+  assert.deepEqual([...owners].filter(([, who]) => who.length > 1), []);
+  const misc = tabs.find(t => t.id === 'misc')!;
+  assert.ok(misc.sections.length <= 4, `${misc.sections.length} Misc sections`);
+  for (const s of misc.sections) assert.ok(s.items.length <= 9, `${s.title}: ${s.items.length} controls`);
+  const labels = controlsOf([misc]).map(c => c.label);
+  assert.equal(new Set(labels).size, labels.length, `repeated Misc labels: ${labels.join(', ')}`);
+  assert.ok(!labels.some(l => /third person/i.test(l)), 'the native Force third person covers it');
+  for (const kept of ['Keybind list', 'Watermark']) assert.ok(labels.includes(kept), kept);
+});
