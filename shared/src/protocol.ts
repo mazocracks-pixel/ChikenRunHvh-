@@ -395,6 +395,11 @@ export interface JoinRoomRequest {
 export interface InputCommand extends InputFrame {
   intent?: CommandIntent;
   clientTick?: number;
+  /**
+   * HvH v2 (R56): the `t` of the snapshot the client predicted this command's enemy sight from.
+   * The server traces the sight against what that snapshot showed (within the unlag window).
+   */
+  sightT?: number;
 }
 
 /**

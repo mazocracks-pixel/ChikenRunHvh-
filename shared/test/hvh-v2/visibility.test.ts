@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CollisionWorld, type Aabb } from '../../src/collision';
 import { buildHvhMatrix } from '../../src/hvh/geometry';
-import { enemyVisible } from '../../src/hvh/v2/visibility';
+import { enemyVisible, snapshotSightTargets } from '../../src/hvh/v2/visibility';
+import { packPlayer, unpackPlayer } from '../../src/protocol';
 
 const EYE = { x: 0, y: 1, z: 0 };
 const ENEMY = { x: 20, y: 0, z: 0, crouch: 0 };
@@ -55,5 +56,21 @@ describe('enemyVisible', () => {
   });
   it('no enemies gives false', () => {
     assert.equal(enemyVisible(EYE, [], new CollisionWorld(200)), false);
+  });
+});
+
+describe('snapshotSightTargets (R56)', () => {
+  it('lists the living enemies of a snapshot at their packed public position, crouch and yaw', () => {
+    const base = unpackPlayer([]);
+    const packed = [
+      packPlayer({ ...base, pid: 1, alive: true, x: 1, y: 0, z: 2 }),
+      packPlayer({ ...base, pid: 2, alive: true, x: 3.25, y: 0.5, z: -4, yaw: 1.5, crouching: true, crouchAmount: 0.5 }),
+      packPlayer({ ...base, pid: 3, alive: false, x: 9, y: 0, z: 9 }),
+      packPlayer({ ...base, pid: 4, alive: true, x: 7, y: 0, z: 7 }),
+    ];
+    const s2 = unpackPlayer(packed[1]!);
+    const targets = snapshotSightTargets(packed, (pid) => pid !== 1 && pid !== 4);
+    assert.deepEqual(targets, [{ x: s2.x, y: s2.y, z: s2.z, crouch: s2.crouchAmount, yaw: s2.yaw }]);
+    assert.equal(targets[0]!.crouch, 0.5);
   });
 });

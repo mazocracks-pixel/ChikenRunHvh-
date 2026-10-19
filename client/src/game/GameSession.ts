@@ -98,7 +98,7 @@ import {
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
-import { LATE_CSGO, enemyVisible, type SightTarget } from '@game/shared/hvh/v2';
+import { LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
 import { Indicators, indicatorModel, initHvhV2Ui } from '../ui/hvh/Indicators';
@@ -201,6 +201,8 @@ export class GameSession {
   private networkKey = '';
   /** Server tick being displayed (render time), sent as each command's clientTick. */
   private readonly tickClock = new TickClock();
+  /** HvH: the latest snapshot's `t` and the enemies it shows us, which v2 sight is predicted from (R56). */
+  private sightView: { t: number; enemies: SightTarget[] } | null = null;
   private readonly commandClock = new CommandClock();
   /** Seq of the command that carries the latest hitscan shot (the `fire` message references it). */
   private shotCommand: number | null = null;
@@ -491,7 +493,10 @@ export class GameSession {
           seq: frame.seq, shotSeq: this.shotCommand, hitscan,
           held: this.commandChoker.wouldHold(choke, flush, maxChoke), exploit,
         });
-        const batch = this.commandChoker.push(this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS), sight), choke, flush, maxChoke);
+        const cmd = this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS), sight);
+        // R56: the server traces this command's sight against the snapshot we predicted it from.
+        if (this.sightView) cmd.sightT = this.sightView.t;
+        const batch = this.commandChoker.push(cmd, choke, flush, maxChoke);
         if (batch.length) this.commandNetwork!.send(batch, now);
       } else net.socket.emit('input', frame);
     }
@@ -960,17 +965,12 @@ export class GameSession {
   }
 
   /**
-   * v2 tickbase sight, as the server's (HvhRoom.enemyInSight): a living enemy in actual line of
-   * sight from our eye. Remotes stand where their latest snapshot put them; their body yaw is never
-   * sent, so the head point uses the eye yaw the snapshot carries.
+   * v2 tickbase sight, as the server's (HvhRoom.enemyInSight, R56): a living enemy in actual line
+   * of sight from our eye, among the enemies of the latest snapshot. The command names that
+   * snapshot (`sightT`) and the server traces the same list, so the two agree.
    */
   private enemyInSight(): boolean {
-    const enemies: SightTarget[] = [];
-    for (const [pid, info] of this.infos) {
-      const s = pid === this.selfPid || this.isFriendly(info) ? null : this.remotes.get(pid)?.latest;
-      if (s?.alive) enemies.push({ x: s.x, y: s.y, z: s.z, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0), yaw: s.yaw });
-    }
-    return enemyVisible(this.eye(), enemies, this.collision);
+    return enemyVisible(this.eye(), this.sightView?.enemies ?? [], this.collision);
   }
 
   /** v2: the next command carries this shot (intent.fire). Legacy HvH and non-hitscan weapons keep the acked seq. */
@@ -1884,6 +1884,12 @@ export class GameSession {
     }
     this.remotes.pushSnapshot(snapshot, this.selfPid);
     this.vehicles.pushSnapshot(snapshot.t, snapshot.v);
+    if (this.mode.id === 'hvh') {
+      this.sightView = { t: snapshot.t, enemies: snapshotSightTargets(snapshot.p, (pid) => {
+        const info = this.infos.get(pid);
+        return pid !== this.selfPid && !(info && this.isFriendly(info));
+      }) };
+    }
   }
 
   private onPlayerInfo(info: PlayerInfo): void {

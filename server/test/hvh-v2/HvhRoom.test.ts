@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  PLAYER, SIM_DT, WEAPONS, hopMaxFor, makeRay, moveSpeedFor, normalize, rayHvhMatrix, stepPlayer, unpackPlayer,
+  MAX_REWIND_MS, PLAYER, SIM_DT, SNAPSHOT_RATE, WEAPONS, hopMaxFor, makeRay, moveSpeedFor, normalize, rayHvhMatrix, stepPlayer, unpackPlayer,
   type InputFrame, type MoveState, type Vec3,
 } from '@game/shared';
 import { LATE_CSGO, fireIntervalTicks, guessedPose, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
@@ -884,6 +884,75 @@ describe('charge and burst', () => {
     d.tick({ fire: true, doubleTap: true }, { forward: 1 });
     assert.deepEqual([a.state.x, a.state.y, a.state.z], [expected.x, expected.y, expected.z]);
     assert.ok(a.state.z < 18.5 - PLAYER.radius && a.state.y < 1, `the burst left the platform and fell (y ${a.state.y}, z ${a.state.z})`);
+  });
+
+  describe('lag-compensated sight (R56)', () => {
+    const VISIBLE = { x: 25, z: 20 };
+    const HIDDEN_AT = { x: 20, z: 10 };
+    const sight = (t: number) => ({ sightT: t }) as Partial<InputFrame>;
+    function charging() {
+      const made = hiddenDuel();
+      const d = driver(made.room, made.a);
+      for (let i = 0; i < 5; i++) d.tick({ doubleTap: true });
+      assert.equal(made.room.tickbaseOf(made.a.pid)?.charge, 5, 'precondition: a partial charge');
+      return { ...made, d };
+    }
+
+    it('an enemy only in the latest server state, not yet in the sent snapshot, does not cancel the charge', (t) => {
+      const { room, a, b, d } = charging();
+      t.after(() => room.close());
+      const snap = room.snapshotFor(a, d.now);
+      place(b, VISIBLE.x, VISIBLE.z);
+      d.tick({ doubleTap: true }, sight(snap.t));
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 6, 'traced against the sent snapshot: still hidden');
+      d.tick({ doubleTap: true });
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'control: start-of-tick sight sees B and cancels');
+    });
+
+    it('an enemy in the sent snapshot cancels the charge, wherever it stands now', (t) => {
+      const { room, a, b, d } = charging();
+      t.after(() => room.close());
+      place(b, VISIBLE.x, VISIBLE.z);
+      const snap = room.snapshotFor(a, d.now);
+      place(b, HIDDEN_AT.x, HIDDEN_AT.z);
+      d.tick({ doubleTap: true }, sight(snap.t));
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+    });
+
+    it('a claimed snapshot older than the unlag window falls back to start-of-tick sight', (t) => {
+      const { room, a, b, d } = charging();
+      t.after(() => room.close());
+      place(b, VISIBLE.x, VISIBLE.z);
+      const old = room.snapshotFor(a, d.now - MAX_REWIND_MS - 50);
+      place(b, HIDDEN_AT.x, HIDDEN_AT.z);
+      d.tick({ doubleTap: true }, sight(old.t));
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 6, 'the stale snapshot (B visible) is not used');
+    });
+
+    it('a claim older than every kept snapshot falls back too', (t) => {
+      const { room, a, b, d } = charging();
+      t.after(() => room.close());
+      room.snapshotFor(a, d.now);
+      place(b, VISIBLE.x, VISIBLE.z);
+      d.tick({ doubleTap: true }, sight(-1));
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'start-of-tick sight sees B');
+    });
+
+    it('a forged future snapshot is clamped to the last one sent', (t) => {
+      const { room, a, b, d } = charging();
+      t.after(() => room.close());
+      const snap = room.snapshotFor(a, d.now);
+      place(b, VISIBLE.x, VISIBLE.z);
+      d.tick({ doubleTap: true }, sight(snap.t + 1e6));
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 6, 'the last sent snapshot (B hidden), not start-of-tick sight');
+    });
+
+    it('keeps a fixed number of sent snapshots per viewer', (t) => {
+      const { room, a, d } = charging();
+      t.after(() => room.close());
+      for (let i = 0; i < 100; i++) room.snapshotFor(a, d.now + i);
+      assert.equal(room.v2State(a.pid)!.sentSight.length, Math.ceil((MAX_REWIND_MS * SNAPSHOT_RATE) / 1000) + 1);
+    });
   });
 
   it('hide shots: the burst skips the on-shot record', (t) => {

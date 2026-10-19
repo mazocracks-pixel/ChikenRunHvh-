@@ -1,6 +1,7 @@
 import {
   MAX_PENDING_FIRES,
   MAX_REWIND_MS,
+  SNAPSHOT_RATE,
   PLAYER,
   PLAYER_HULL_WIDTH,
   SIM_DT,
@@ -44,6 +45,7 @@ import {
   collisionWorldTracer,
   createResolverMemory,
   enemyVisible,
+  snapshotSightTargets,
   guessedPose,
   holdForCharge,
   hvhWarmup,
@@ -189,7 +191,12 @@ interface QueuedCommand {
   frame: Readonly<InputFrame>;
   intent: CommandIntent;
   clientTick?: number;
+  /** The snapshot `t` the client predicted the sight from (R56). */
+  sightT?: number;
 }
+
+/** Sent snapshots kept per viewer for sight (R56): enough to cover the unlag window. */
+const SIGHT_SNAPSHOTS = Math.ceil((MAX_REWIND_MS * SNAPSHOT_RATE) / 1000) + 1;
 
 interface PendingBullet {
   seq: number;
@@ -238,6 +245,8 @@ export interface HvhPlayerV2 {
   lastRecordTick: number;
   /** What other viewers saw at the newest pushed record (frozen while choking). */
   publicState: PlayerState | null;
+  /** The enemies the last SIGHT_SNAPSHOTS snapshots sent to this player showed, oldest first. */
+  sentSight: { t: number; targets: SightTarget[] }[];
 }
 
 function parseIntent(raw: unknown): CommandIntent {
@@ -376,6 +385,7 @@ export class HvhRoom extends GameRoom {
         sight: [],
         lastRecordTick: -Infinity,
         publicState: null,
+        sentSight: [],
       };
       this.v2Players.set(p.pid, s);
     }
@@ -403,6 +413,7 @@ export class HvhRoom extends GameRoom {
     const r = raw as Record<string, unknown>;
     const command: QueuedCommand = { frame: Object.freeze(frame), intent: parseIntent(r.intent) };
     if (isFiniteNumber(r.clientTick)) command.clientTick = Math.floor(r.clientTick);
+    if (isFiniteNumber(r.sightT)) command.sightT = r.sightT;
     s.lastQueuedSeq = frame.seq;
     s.queue.push(command);
     while (s.queue.length > 2 * this.era.maxProcessTicks) {
@@ -524,7 +535,7 @@ export class HvhRoom extends GameRoom {
     if (!p.hvhEnabled) intent = { ...IDLE, fire: intent.fire };
 
     const before = s.tickbase;
-    const visible = this.enemyInSight(p, before, intent);
+    const visible = this.enemyInSight(p, s, before, intent, command.sightT, now);
     s.sight.push(visible);
     const { next, action } = stepTickbase(before, intent, this.era, { enemyVisible: visible });
     s.tickbase = next;
@@ -596,14 +607,20 @@ export class HvhRoom extends GameRoom {
 
   /**
    * The tickbase's enemyVisible: a living enemy in actual line of sight (enemyVisible, not the
-   * wallhack) from the command's eye. Enemies are where they stood at the start of the tick
-   * (sightTargets, with their body yaw), so the answer does not depend on the order players are
-   * simulated in, and the owner's client, which knows last tick's positions at best, predicts the
-   * same. Traced only when it can change the action: an exploit on, not firing, below a full
-   * charge (stepTickbase rules 4 and 5); otherwise false, which stepTickbase then ignores.
+   * wallhack) from the command's eye. Lag-compensated (R56): the enemies are those of the snapshot
+   * the command names (`sightT`), as this player was sent them (public positions, so a choking
+   * enemy is seen as the viewer saw it), which the client predicts exactly. A claim newer than the
+   * last sent snapshot is clamped to it; one older than every kept snapshot or than the unlag
+   * window (MAX_REWIND_MS), or a missing one, falls back to R54: where enemies stood at the start
+   * of the tick (sightTargets, with their body yaw). Either way the answer does not depend on the
+   * order players are simulated in. Traced only when it can change the action: an exploit on, not
+   * firing, below a full charge (stepTickbase rules 4 and 5); otherwise false, which stepTickbase
+   * then ignores.
    */
-  private enemyInSight(p: ServerPlayer, tickbase: TickbaseState, intent: CommandIntent): boolean {
+  private enemyInSight(p: ServerPlayer, s: HvhPlayerV2, tickbase: TickbaseState, intent: CommandIntent, sightT: number | undefined, now: number): boolean {
     if (!(intent.doubleTap || intent.hideShots) || intent.fire || tickbase.charge >= this.era.chargeTicks) return false;
+    const sent = sightT === undefined ? null : this.sentSightAt(s, sightT, now);
+    if (sent) return enemyVisible(this.eyeOf(p), sent, this.world);
     const enemies: SightTarget[] = [];
     for (const q of this.players.values()) {
       if (q === p || !q.alive || this.areTeammates(p, q)) continue;
@@ -611,6 +628,28 @@ export class HvhRoom extends GameRoom {
       if (target) enemies.push(target);
     }
     return enemyVisible(this.eyeOf(p), enemies, this.world);
+  }
+
+  /** The newest snapshot sent to the player at or before `t`, if it is inside the unlag window. */
+  private sentSightAt(s: HvhPlayerV2, t: number, now: number): SightTarget[] | null {
+    let found: { t: number; targets: SightTarget[] } | null = null;
+    for (const e of s.sentSight) if (e.t <= t) found = e;
+    return found && now - found.t <= MAX_REWIND_MS ? found.targets : null;
+  }
+
+  /** v2: also keeps the enemies each sent snapshot shows the viewer, for lag-compensated sight. */
+  override snapshotFor(viewer: ServerPlayer, now = performance.now()): WorldSnapshot {
+    const snapshot = super.snapshotFor(viewer, now);
+    if (!this.v2) return snapshot;
+    const sent = this.stateOf(viewer).sentSight;
+    // Snapshots go out in time order; one with an older `t` (a test driving its own clock) restarts the ring.
+    if (sent.length && sent[sent.length - 1]!.t > now) sent.length = 0;
+    sent.push({ t: now, targets: snapshotSightTargets(snapshot.p, (pid) => {
+      const q = this.players.get(pid);
+      return q !== undefined && q !== viewer && !this.areTeammates(viewer, q);
+    }) });
+    if (sent.length > SIGHT_SNAPSHOTS) sent.shift();
+    return snapshot;
   }
 
   private captureSightTargets(): void {

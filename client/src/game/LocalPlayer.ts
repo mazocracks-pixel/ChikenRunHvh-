@@ -122,7 +122,7 @@ export class LocalPlayer {
    * commands the simulated link lost before it will never run: their prediction is taken back.
    */
   emitted(cmd: InputCommand): InputCommand | InputFrame {
-    if (!this.hvhV2 || !cmd.intent) { const { intent: _i, clientTick: _t, ...frame } = cmd; return frame; }
+    if (!this.hvhV2 || !cmd.intent) { const { intent: _i, clientTick: _t, sightT: _s, ...frame } = cmd; return frame; }
     const lost = this.tickbase.sent(cmd.seq);
     if (lost.length) this.pending = this.pending.filter((p) => !lost.includes(p.frame.seq));
     return cmd;

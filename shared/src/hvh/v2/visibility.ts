@@ -3,6 +3,7 @@ import type { Vec3 } from '../../math';
 import { makeRay, raycastWorld } from '../../raycast';
 import { chickenHeadCenter } from '../../chickenPose';
 import { buildHvhMatrix } from '../geometry';
+import { unpackPlayer, type PackedPlayer } from '../../protocol';
 
 /** `yaw` is the body yaw the hitboxes face (default 0); only the head point depends on it. */
 export interface SightTarget { x: number; y: number; z: number; crouch: number; yaw?: number }
@@ -13,6 +14,21 @@ export interface SightTarget { x: number; y: number; z: number; crouch: number; 
 // is offset forward, so it is placed per enemy yaw as buildHvhMatrix does (chickenHeadCenter).
 const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
 const CHEST_OFFSET = buildHvhMatrix(ORIGIN, 0).boxes.find(b => b.group === 'chest')!.center;
+
+/**
+ * The sight targets a snapshot shows its viewer (R56): every living player in it that `isEnemy`
+ * accepts, at its public position, crouch and yaw (the eye yaw; the body yaw is never sent). The
+ * client predicts sight from its latest snapshot and the server traces the list of the snapshot
+ * the command names, so both run enemyVisible on the same numbers.
+ */
+export function snapshotSightTargets(players: readonly PackedPlayer[], isEnemy: (pid: number) => boolean): SightTarget[] {
+  const targets: SightTarget[] = [];
+  for (const packed of players) {
+    const s = unpackPlayer(packed);
+    if (s.alive && isEnemy(s.pid)) targets.push({ x: s.x, y: s.y, z: s.z, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0), yaw: s.yaw });
+  }
+  return targets;
+}
 
 /**
  * Whether any enemy is in actual line of sight from `eye`: its head or chest point (crouch scale as
