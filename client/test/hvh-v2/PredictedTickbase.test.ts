@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type TickbaseState } from '@game/shared/hvh/v2';
+import { EMPTY_TICKBASE, LATE_CSGO, movementSteps, stepTickbase, type CommandIntent, type TickAction, type TickbaseState } from '@game/shared/hvh/v2';
 import { CommandChoker } from '@game/shared';
 import { CommandClock, PredictedTickbase, TickClock, commandIntent, shotReference } from '../../src/hvh/PredictedTickbase';
 
 const era = LATE_CSGO;
-const NONE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false }; // Task 8
-const HIDDEN = { enemyVisible: false }; // Task 8
+const NONE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false };
+const HIDDEN = { enemyVisible: false };
 const FIRE_DT: CommandIntent = { ...NONE, fire: true, doubleTap: true };
 const CHOKE: CommandIntent = { ...NONE, choke: true };
 
@@ -14,7 +14,7 @@ const CHOKE: CommandIntent = { ...NONE, choke: true };
 function serverRun(start: TickbaseState, intents: CommandIntent[]): TickbaseState {
   let s = start;
   for (const i of intents) s = stepTickbase(s, i, era, HIDDEN).next;
-  return { ...s }; // Task 8
+  return { ...s };
 }
 
 const script: CommandIntent[] = [
@@ -32,6 +32,52 @@ describe('PredictedTickbase', () => {
     }
     assert.equal(p.mismatches, 0);
     assert.deepEqual(p.state, serverRun(start, script));
+  });
+
+  it('charge x32, a DT shot, charge x32 and a release predict exactly what stepTickbase runs', () => {
+    const dt: CommandIntent = { ...NONE, doubleTap: true };
+    const seq: CommandIntent[] = [
+      ...Array.from({ length: era.chargeTicks }, () => dt), FIRE_DT,
+      ...Array.from({ length: era.chargeTicks }, () => dt), NONE, NONE,
+    ];
+    const start = EMPTY_TICKBASE(100);
+    const p = new PredictedTickbase(era, start);
+    let s = start;
+    const actions: TickAction['kind'][] = [];
+    seq.forEach((intent, i) => {
+      const step = stepTickbase(s, intent, era, HIDDEN);
+      assert.deepEqual(p.peek(i + 1, intent, HIDDEN), step.action, `peek ${i + 1}`);
+      p.apply(i + 1, intent, HIDDEN);
+      s = step.next;
+      actions.push(step.action.kind);
+      assert.deepEqual(p.state, s, `command ${i + 1}`);
+      assert.equal(p.stepsFor(i + 1), movementSteps(step.action));
+    });
+    const n = era.chargeTicks;
+    assert.deepEqual(actions, [...Array(n).fill('charge'), 'burst', ...Array(n).fill('charge'), 'burst', 'run']);
+    assert.equal(p.stepsFor(n + 1), 1 + n);
+    assert.equal(p.stepsFor(1), 0);
+    p.reconcile(serverRun(start, seq.slice(0, n)), n);
+    assert.equal(p.mismatches, 0);
+    assert.deepEqual(p.state, s);
+  });
+
+  it('peek changes nothing and counts a waiting fire message; needsSight mirrors the server gate', () => {
+    const p = new PredictedTickbase(era, { ...EMPTY_TICKBASE(0), charge: era.chargeTicks, armed: true });
+    const dt: CommandIntent = { ...NONE, doubleTap: true };
+    assert.equal(p.peek(1, dt).kind, 'run');
+    assert.equal(p.needsSight(1, dt), false, 'full charge: sight cannot change the action');
+    p.shot(1);
+    assert.equal(p.peek(1, dt).kind, 'burst');
+    assert.deepEqual(p.state, { ...EMPTY_TICKBASE(0), charge: era.chargeTicks, armed: true });
+    assert.equal(p.pendingCount, 0);
+    const empty = new PredictedTickbase(era, EMPTY_TICKBASE(0));
+    assert.equal(empty.needsSight(1, dt), true);
+    assert.equal(empty.needsSight(1, NONE), false, 'exploits off');
+    assert.equal(empty.needsSight(1, FIRE_DT), false, 'firing');
+    assert.equal(empty.peek(1, dt, { enemyVisible: true }).kind, 'run');
+    assert.equal(empty.peek(1, dt, HIDDEN).kind, 'charge');
+    assert.equal(empty.stepsFor(1), undefined, 'nothing predicted yet');
   });
 
   it('reconcile replays unacked', () => {
@@ -64,7 +110,7 @@ describe('PredictedTickbase', () => {
   });
 
   it('a fire message whose command was lost fires on the next command, as the server attaches it', () => {
-    const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks }; // Task 8
+    const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks };
     const p = new PredictedTickbase(era, start);
     const dtArmed: CommandIntent = { ...NONE, doubleTap: true };
     p.shot(3);
@@ -94,7 +140,7 @@ describe('PredictedTickbase', () => {
   });
 
   it('reset drops predictions and pending shots, and the next hvhState only snaps', () => {
-    const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks }; // Task 8
+    const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks };
     const p = new PredictedTickbase(era, start);
     p.apply(1, NONE);
     p.shot(5);
@@ -134,7 +180,7 @@ describe('PredictedTickbase', () => {
     const p = new PredictedTickbase(era, start);
     const intents = script.slice(0, 14);
     intents.forEach((intent, i) => p.apply(i + 1, intent));
-    const bad = { ...serverRun(start, intents.slice(0, 10)), charge: 3 }; // Task 8
+    const bad = { ...serverRun(start, intents.slice(0, 10)), charge: 3 };
     p.reconcile(bad, 10);
     assert.equal(p.mismatches, 1);
     let expected = bad;
@@ -159,7 +205,7 @@ describe('PredictedTickbase', () => {
 
   it('first reconcile without prior prediction is not a mismatch', () => {
     const p = new PredictedTickbase(era);
-    p.reconcile({ tickbase: 50, charge: 4, choked: 0, armed: false }, 7); // Task 8
+    p.reconcile({ tickbase: 50, charge: 4, choked: 0, armed: false }, 7);
     assert.equal(p.mismatches, 0);
     assert.equal(p.state.tickbase, 50);
   });
@@ -196,6 +242,12 @@ describe('PredictedTickbase', () => {
     }
     assert.deepEqual(bits, [true, true, true, false, true, true, true, false]);
     assert.deepEqual(batches, [0, 0, 0, 4, 0, 0, 0, 4]);
+  });
+
+  it('commandIntent has no defensive key', () => {
+    const intent = commandIntent({ seq: 1, shotSeq: null, hitscan: true, held: false, exploit: 'doubleTap' });
+    assert.deepEqual(Object.keys(intent).sort(), ['choke', 'doubleTap', 'fire', 'hideShots']);
+    assert.equal('defensive' in intent, false);
   });
 
   it('holding fire without a shot sets no fire intent; the shot command does', () => {

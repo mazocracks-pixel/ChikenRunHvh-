@@ -97,8 +97,8 @@ import {
   isPowerUp,
 } from '@game/shared';
 import type { Network } from '../net/Network';
-import { CommandClock, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
-import { LATE_CSGO } from '@game/shared/hvh/v2';
+import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
+import { LATE_CSGO, enemyVisible, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
 import { Indicators, indicatorModel, initHvhV2Ui } from '../ui/hvh/Indicators';
@@ -173,8 +173,6 @@ export interface DevHooks {
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame;
   /** Extra trigger pull (trigger assist, auto fire). */
   wantsFire(now?: number): boolean;
-  /** True once per Defensive bind press (HvH v2 intent.defensive); consuming clears it. */
-  takeDefensive?(): boolean;
   /** Replacement shot direction from the eye (aim lock), or null. */
   aimOverride(session: GameSession, eye: Vec3): Vec3 | null;
   /** Multiplier on camera recoil. */
@@ -466,7 +464,18 @@ export class GameSession {
       // With the bomb out, holding fire plants it (the same as holding E).
       if (this.bombOut && input.firing) frame = { ...frame, use: true };
       if (this.bombHolds(frame)) frame = { ...frame, forward: 0, right: 0, jump: false, crouch: true };
-      this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon));
+      // Melee and projectile weapons never fire a hitscan shot (the server rejects them as 'wrong weapon').
+      const def = this.weapons.def;
+      const hitscan = !def.melee && !def.projectile;
+      const exploit = exploitMode(this.weapons.hvh.exploit, def, this.weapons.mag);
+      // v2: the tickbase action decides the movement (the charging stop, the burst), with the enemy
+      // sight from the eye before this command's step. The choke bit is decided after the step.
+      let sight = NO_SIGHT;
+      const plan = this.mode.id === 'hvh' && this.local.hvhV2
+        ? { intent: commandIntent({ seq: frame.seq, shotSeq: this.shotCommand, hitscan, held: false, exploit }), ctx: sight }
+        : undefined;
+      if (plan && this.local.tickbase.needsSight(frame.seq, plan.intent)) plan.ctx = sight = { enemyVisible: this.enemyInSight() };
+      this.local.predict(frame, this.collision, hopMaxFor(this.weapons.weapon), moveSpeedFor(this.weapons.weapon), plan);
       if (this.mode.id === 'hvh') {
         const core = this.weapons.hvh.core ?? defaultHvhCore();
         const key = `${core.latencyMs}/${core.jitterMs}/${core.packetLoss}`;
@@ -478,16 +487,11 @@ export class GameSession {
         const choke = fakeLagTicks(core,frame.seq,speed,shooting,maxChoke);
         // Flush rule is unchanged from before v2: a shot flushes only via fakeLagBreakOnShot.
         const flush = !input.active || (core.fakeLagBreakOnShot && shooting);
-        // Melee and projectile weapons never fire a hitscan shot (the server rejects them as 'wrong weapon').
-        const def = this.weapons.def;
         const intent = commandIntent({
-          seq: frame.seq, shotSeq: this.shotCommand, hitscan: !def.melee && !def.projectile,
-          held: this.commandChoker.wouldHold(choke, flush, maxChoke),
-          exploit: exploitMode(this.weapons.hvh.exploit, def, this.weapons.mag),
-          // Only v2 rooms have a defensive intent; legacy rooms never consume the press.
-          defensive: this.local.hvhV2 && dev?.takeDefensive?.() === true,
+          seq: frame.seq, shotSeq: this.shotCommand, hitscan,
+          held: this.commandChoker.wouldHold(choke, flush, maxChoke), exploit,
         });
-        const batch = this.commandChoker.push(this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS)), choke, flush, maxChoke);
+        const batch = this.commandChoker.push(this.local.command(frame, intent, this.tickClock.viewedTick(this.serverNow() - INTERP_DELAY_MS), sight), choke, flush, maxChoke);
         if (batch.length) this.commandNetwork!.send(batch, now);
       } else net.socket.emit('input', frame);
     }
@@ -953,6 +957,20 @@ export class GameSession {
     }
     const s = this.local.state;
     return { x: s.x, y: s.y + eyeHeightOf(s), z: s.z };
+  }
+
+  /**
+   * v2 tickbase sight, as the server's (HvhRoom.enemyInSight): a living enemy in actual line of
+   * sight from our eye. Remotes stand where their latest snapshot put them; their body yaw is never
+   * sent, so the head point uses the eye yaw the snapshot carries.
+   */
+  private enemyInSight(): boolean {
+    const enemies: SightTarget[] = [];
+    for (const [pid, info] of this.infos) {
+      const s = pid === this.selfPid || this.isFriendly(info) ? null : this.remotes.get(pid)?.latest;
+      if (s?.alive) enemies.push({ x: s.x, y: s.y, z: s.z, crouch: s.crouchAmount ?? (s.crouching ? 1 : 0), yaw: s.yaw });
+    }
+    return enemyVisible(this.eye(), enemies, this.collision);
   }
 
   /** v2: the next command carries this shot (intent.fire). Legacy HvH and non-hitscan weapons keep the acked seq. */

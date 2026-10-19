@@ -192,10 +192,12 @@ describe('config loading with migration', () => {
 });
 
 describe('panel values reach intents through the shared rules only', () => {
-  it('Defensive press becomes intent.defensive; the rest of the intent is unchanged', () => {
+  it('the exploit setting reaches the intent; there is no defensive intent any more', () => {
     const base = { seq: 5, shotSeq: null, hitscan: true, held: false, exploit: 'off' as const };
-    assert.equal((commandIntent(base) as { defensive?: boolean }).defensive, false); // Task 8
-    assert.deepEqual(commandIntent({ ...base, defensive: true }), { ...commandIntent(base), defensive: true });
+    const none = { fire: false, choke: false, doubleTap: false, hideShots: false };
+    assert.deepEqual(commandIntent(base), none);
+    assert.deepEqual(commandIntent({ ...base, exploit: 'doubleTap' }), { ...none, doubleTap: true });
+    assert.deepEqual(commandIntent({ ...base, exploit: 'hideShots' }), { ...none, hideShots: true });
   });
 
   it('a 14-tick choke limit holds 14 commands in v2 rooms and stays capped at 12 in legacy rooms', () => {

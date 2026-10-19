@@ -6,94 +6,30 @@ import { Indicators, indicatorModel, initHvhV2Ui } from '../../src/ui/hvh/Indica
 
 describe('indicatorModel', () => {
   const era = LATE_CSGO;
+  const state = (charge: number, choked = 0): TickbaseState => ({ tickbase: 100, charge, choked, armed: true });
 
-  it('bank 14 → dt "ready"', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: 14, // Task 8
-      choked: 0,
-      armed: false, // Task 8
-    };
-    const toggles = { dt: true, hs: false };
-    const res = indicatorModel(s, toggles, era);
-    assert.equal(res.dt, 'ready');
-    assert.equal(res.hs, 'off');
-    assert.equal(res.choke, 0);
-    assert.equal(res.defensive, true);
+  it('a full charge is "ready" for the exploit that is on', () => {
+    assert.deepEqual(indicatorModel(state(era.chargeTicks), { dt: true, hs: false }, era), { dt: 'ready', hs: 'off', choke: 0 });
+    assert.deepEqual(indicatorModel(state(era.chargeTicks), { dt: false, hs: true }, era), { dt: 'off', hs: 'ready', choke: 0 });
   });
 
-  it('bank 6 → "charging"', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: 6, // Task 8
-      choked: 0,
-      armed: false, // Task 8
-    };
-    const toggles = { dt: true, hs: false };
-    const res = indicatorModel(s, toggles, era);
-    assert.equal(res.dt, 'charging');
-    assert.equal(res.hs, 'off');
-    assert.equal(res.choke, 0);
-    assert.equal(res.defensive, false);
+  it('a partial or empty charge is "charging"', () => {
+    for (const charge of [0, 1, era.chargeTicks - 1]) {
+      assert.equal(indicatorModel(state(charge), { dt: true, hs: false }, era).dt, 'charging', `charge ${charge}`);
+      assert.equal(indicatorModel(state(charge), { dt: false, hs: true }, era).hs, 'charging', `charge ${charge}`);
+    }
   });
 
-  it('ticksSinceShift < rechargeDelayTicks → "cooldown"', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: 14, // Task 8
-      choked: 0,
-      armed: false, // Task 8
-    };
-    const toggles = { dt: true, hs: false };
-    const res = indicatorModel(s, toggles, era);
-    assert.equal(res.dt, 'cooldown');
+  it('an exploit that is off shows "off", even with a full charge', () => {
+    assert.deepEqual(indicatorModel(state(era.chargeTicks), { dt: false, hs: false }, era), { dt: 'off', hs: 'off', choke: 0 });
   });
 
-  it('choked 14 with bank 14 → dt "charging" (budget 2) and choke 14', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: 14, // Task 8
-      choked: 14,
-      armed: false, // Task 8
-    };
-    const toggles = { dt: true, hs: false };
-    const res = indicatorModel(s, toggles, era);
-    assert.equal(res.dt, 'charging');
-    assert.equal(res.choke, 14);
-    assert.equal(res.defensive, false);
+  it('choke shows the choked commands', () => {
+    assert.equal(indicatorModel(state(0, 14), { dt: false, hs: false }, era).choke, 14);
   });
 
-  it('dt is "off" when toggles.dt is false even if bank is full', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: 14, // Task 8
-      choked: 0,
-      armed: false, // Task 8
-    };
-    const toggles = { dt: false, hs: false };
-    const res = indicatorModel(s, toggles, era);
-    assert.equal(res.dt, 'off');
-  });
-
-  it('hs is "on" when toggles.hs is true, "off" when false', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: 0, // Task 8
-      choked: 0,
-      armed: false, // Task 8
-    };
-    assert.equal(indicatorModel(s, { dt: false, hs: true }, era).hs, 'on');
-    assert.equal(indicatorModel(s, { dt: false, hs: false }, era).hs, 'off');
-  });
-
-  it('defensive is true when shiftBudget >= era.defensiveShift', () => {
-    const s: TickbaseState = {
-      tickbase: 100,
-      charge: era.chargeTicks, // Task 8
-      choked: 0,
-      armed: false, // Task 8
-    };
-    assert.equal(indicatorModel(s, { dt: false, hs: false }, era).defensive, true);
+  it('there is no defensive indicator (defensive is an anti-aim pattern, not a tickbase shift)', () => {
+    assert.equal('defensive' in indicatorModel(state(era.chargeTicks), { dt: true, hs: false }, era), false);
   });
 });
 

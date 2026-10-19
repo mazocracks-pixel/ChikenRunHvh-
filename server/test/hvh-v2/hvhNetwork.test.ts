@@ -69,7 +69,7 @@ const HAZARD_PER_ALIVE_TICK = 1 / 110;
  * The enemy sight a client predicts a command with: the shared enemyVisible from its own eye and
  * the living enemies, where they stood at the end of the last tick (as the server's sight). The
  * headless client sees those positions exactly, so this measures the tickbase reconciliation,
- * not a real client's view of the remotes (Task 8 wires GameSession).
+ * not a real client's view of the remotes (GameSession.enemyInSight uses their latest snapshots).
  */
 function inSight(room: HvhRoom, p: ServerPlayer): boolean {
   const enemies = [...room.players.values()]

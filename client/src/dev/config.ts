@@ -297,7 +297,7 @@ function leafPaths(o: unknown, prefix = ''): string[] {
  * them, so migration keeps their values and only reports them as unused in v2 rooms.
  */
 const UNMAPPED = [
-  'hvh.core.defensive', // automatic defensive transition on threat; v2 uses the Exploits tab Defensive bind
+  'hvh.core.defensive', // automatic defensive transition on threat (legacy rooms only)
   'hvh.core.antiBruteforce', // legacy server side flip; no AntiAimConfig field
   'hvh.core.fakeDuck', // no CommandIntent bit
   // Per-stance builder: AntiAimConfig has a single stance.

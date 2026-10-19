@@ -58,9 +58,6 @@ export class DevRuntime implements DevHooks {
   private lastInfoAt = 0;
   private readonly logs: string[] = [];
   private readonly playerRules = new Map<number, { ignore: boolean; body: boolean }>();
-  /** Defensive bind: a press arms one defensive intent; the command builder consumes it. */
-  private defensiveArmed = false;
-  private defensiveDown = false;
   private policySource: DevConfig | undefined;
   private policyWeapon = '';
   private policyValue: DevConfig | undefined;
@@ -110,7 +107,7 @@ export class DevRuntime implements DevHooks {
   }
   private reset(): void {
     this.pid = 0; this.acquiredAt = this.switchingUntil = 0;
-    this.peekAnchor = null; this.returning = this.peekHeld = false; this.defensiveArmed = this.defensiveDown = false;
+    this.peekAnchor = null; this.returning = this.peekHeld = false;
     this.logs.length = 0; this.info.hidden = true;
     this.playerRules.clear();
     this.coreResolver.clear(); this.coreTarget = null; this.coreReady = this.coreScoped = false; this.coreScanAt = -Infinity; this.coreShot = undefined;
@@ -141,12 +138,6 @@ export class DevRuntime implements DevHooks {
     }
   }
 
-  /** Called after movement, remote interpolation and the camera have updated for this frame. */
-  takeDefensive(): boolean {
-    const armed = this.defensiveArmed && this.playing;
-    this.defensiveArmed = false;
-    return armed;
-  }
   wantsFire(now = performance.now()): boolean {
     const session = this.session, c = this.policy, a = c.rage.aim, trigger = c.legit.trigger;
     if (session?.mode.id === 'hvh') {
@@ -207,11 +198,8 @@ export class DevRuntime implements DevHooks {
     }
   }
   modifyFrame(session: GameSession, frame: InputFrame): InputFrame {
-    if (session.mode.id !== 'hvh' || !this.playing) { this.defensiveArmed = this.defensiveDown = false; return frame; }
+    if (session.mode.id !== 'hvh' || !this.playing) return frame;
     const c = this.policy, s = session.local.state;
-    const defensiveDown = c.hvh.defensive && this.keyHeld(c.hvh.defensiveKey, false);
-    if (defensiveDown && !this.defensiveDown) this.defensiveArmed = true;
-    this.defensiveDown = defensiveDown;
     const out = this.extensions.command({ ...frame, invert: this.keyHeld(c.hvh.invertKey, false) });
     const core = c.hvh.core ?? defaultHvhCore();
     // Same engine-scoped choke cap as the command choker, so a stored 13/14 never changes legacy rooms.

@@ -22,8 +22,8 @@ import {
   DEFAULT_MODS,
   type UpgradeEffects,
 } from '@game/shared';
-import type { CommandIntent } from '@game/shared/hvh/v2';
-import { PredictedTickbase } from '../hvh/PredictedTickbase';
+import { holdForCharge, movementSteps, type CommandIntent, type TickContext } from '@game/shared/hvh/v2';
+import { NO_SIGHT, PredictedTickbase } from '../hvh/PredictedTickbase';
 import { Chicken } from './models/Chicken';
 
 /** Beyond this prediction error (metres) we teleport instead of smoothing, e.g. after a respawn. */
@@ -50,8 +50,11 @@ export class LocalPlayer {
 
   private readonly prev = new THREE.Vector3();
   private readonly errorOffset = new THREE.Vector3();
-  /** Inputs the server hasn't confirmed yet, with the hop cap of the weapon held at the time. */
-  private pending: { frame: InputFrame; hopMax: number; speed: number }[] = [];
+  /**
+   * Inputs the server hasn't confirmed yet, with the hop cap of the weapon held at the time and
+   * the movement steps predicted for them (HvH v2: 0 charging, 1 + chargeTicks on a burst).
+   */
+  private pending: { frame: InputFrame; hopMax: number; speed: number; steps: number }[] = [];
   private speed = 0;
   /** Predicted buggy while driving, else null. */
   car: CarState | null = null;
@@ -87,24 +90,34 @@ export class LocalPlayer {
     return this.state.onGround;
   }
 
-  /** @param hopMax bunny-hop cap for the weapon in hand (the server uses the same, see hopMaxFor). */
-  predict(frame: InputFrame, world: CollisionWorld, hopMax: number, speed = 1): void {
+  /**
+   * @param hopMax bunny-hop cap for the weapon in hand (the server uses the same, see hopMaxFor).
+   * @param plan HvH v2: the command's intent (its choke bit may be undecided) and enemy sight. The
+   *   predicted tickbase action picks the movement steps, as on the server: none while charging,
+   *   1 + chargeTicks on a burst, else one. Without it (or outside v2) the frame runs one step.
+   */
+  predict(frame: InputFrame, world: CollisionWorld, hopMax: number, speed = 1, plan?: { intent: CommandIntent; ctx: TickContext }): void {
     this.prev.set(this.state.x, this.state.y, this.state.z);
-    this.step(frame, world, hopMax, speed);
-    this.speed = Math.hypot(this.state.x - this.prev.x, this.state.z - this.prev.z) / SIM_DT;
-    this.pending.push({ frame, hopMax, speed });
+    const steps = this.hvhV2 && plan ? movementSteps(this.tickbase.peek(frame.seq, plan.intent, plan.ctx)) : 1;
+    this.step(frame, world, hopMax, speed, steps);
+    // Animation speed per step, so the burst's teleport does not read as a sprint.
+    this.speed = Math.hypot(this.state.x - this.prev.x, this.state.z - this.prev.z) / (SIM_DT * Math.max(1, steps));
+    this.pending.push({ frame, hopMax, speed, steps });
     if (this.pending.length > MAX_PENDING) this.pending.shift();
   }
 
-  /** Predicts the tickbase for this command and, on a v2 room, attaches the intent for the server. */
-  command(frame: InputFrame, intent: CommandIntent, clientTick: number): InputCommand {
+  /**
+   * Attaches the intent for the server and, on a v2 room, predicts the command's tickbase step now,
+   * with the sight `predict` used, so the next command's movement sees this one's charge.
+   */
+  command(frame: InputFrame, intent: CommandIntent, clientTick: number, ctx: TickContext = NO_SIGHT): InputCommand {
+    if (this.hvhV2) this.tickbase.apply(frame.seq, intent, ctx);
     return { ...frame, intent, clientTick };
   }
 
-  /** Called when a command leaves for the server: predicts exactly what the server will execute. */
+  /** Called when a command leaves for the server: legacy rooms get the plain frame. */
   emitted(cmd: InputCommand): InputCommand | InputFrame {
     if (!this.hvhV2 || !cmd.intent) { const { intent: _i, clientTick: _t, ...frame } = cmd; return frame; }
-    this.tickbase.apply(cmd.seq, cmd.intent);
     return cmd;
   }
 
@@ -118,11 +131,13 @@ export class LocalPlayer {
     this.tickbase.reconcile(e.tickbase, e.lastAckSeq);
   }
 
-  private step(frame: InputFrame, world: CollisionWorld, hopMax: number, speed: number): void {
+  private step(frame: InputFrame, world: CollisionWorld, hopMax: number, speed: number, steps: number): void {
     // A developer froze us: the server ignores our inputs, so don't predict any movement.
     if (this.server.frozen) { this.state.horizontalSpeed = 0; return; }
-    if (this.car) this.drive(frame, world);
-    else stepPlayer(this.state, frame, SIM_DT, world, this.moveMods(), hopMax, speed, this.tactical);
+    if (this.car) return this.drive(frame, world);
+    // The v2 charging stop: no step, no gravity, every velocity zeroed (HvhRoom.move).
+    if (steps === 0) return holdForCharge(this.state);
+    for (let i = 0; i < steps; i++) stepPlayer(this.state, frame, SIM_DT, world, this.moveMods(), hopMax, speed, this.tactical);
   }
 
   private moveMods(): MoveMods | null {
@@ -154,7 +169,8 @@ export class LocalPlayer {
     this.vehicleId = server.vehicle;
     this.car = server.vehicle && car ? { x: car.x, z: car.z, yaw: car.yaw, speed: car.speed, slip: car.slip, boost: car.boost } : null;
     if (!server.alive) this.pending = [];
-    for (const p of this.pending) this.step(p.frame, world, p.hopMax, p.speed);
+    // v2: replay each command with its tickbase action after the latest hvhState.
+    for (const p of this.pending) this.step(p.frame, world, p.hopMax, p.speed, (this.hvhV2 ? this.tickbase.stepsFor(p.frame.seq) : undefined) ?? p.steps);
 
     // Normally tiny, because both sides run the same deterministic stepPlayer.
     const ex = bx - this.state.x;

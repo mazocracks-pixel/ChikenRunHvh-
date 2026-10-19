@@ -7,11 +7,13 @@ export interface IndicatorToggles {
   hs: boolean;
 }
 
+/** DT and hide shots share one charge: 'ready' at a full charge, else 'charging'. */
+export type ExploitIndicator = 'ready' | 'charging' | 'off';
+
 export interface IndicatorState {
-  dt: 'ready' | 'charging' | 'cooldown' | 'off';
-  hs: 'on' | 'off';
+  dt: ExploitIndicator;
+  hs: ExploitIndicator;
   choke: number;
-  defensive: boolean;
 }
 
 export function indicatorModel(
@@ -19,20 +21,11 @@ export function indicatorModel(
   toggles: IndicatorToggles,
   era: EraTable = LATE_CSGO,
 ): IndicatorState {
-  let dt: IndicatorState['dt'];
-  if (!toggles.dt) {
-    dt = 'off';
-  } else if (s.charge >= era.chargeTicks) { // Task 8
-    dt = 'ready';
-  } else {
-    dt = 'charging';
-  }
-
+  const charge: ExploitIndicator = s.charge >= era.chargeTicks ? 'ready' : 'charging';
   return {
-    dt,
-    hs: toggles.hs ? 'on' : 'off',
+    dt: toggles.dt ? charge : 'off',
+    hs: toggles.hs ? charge : 'off',
     choke: s.choked,
-    defensive: false, // Task 8
   };
 }
 
@@ -40,7 +33,6 @@ export class Indicators {
   readonly root?: HTMLElement;
   private readonly dtEl?: HTMLElement;
   private readonly hsEl?: HTMLElement;
-  private readonly defEl?: HTMLElement;
   private readonly chokeEl?: HTMLElement;
 
   constructor(container?: HTMLElement) {
@@ -48,7 +40,6 @@ export class Indicators {
 
     this.dtEl = h('div', { class: 'hvh-ind-dt' });
     this.hsEl = h('div', { class: 'hvh-ind-hs' });
-    this.defEl = h('div', { class: 'hvh-ind-def' });
     this.chokeEl = h('div', { class: 'hvh-ind-choke' });
 
     this.root = h(
@@ -60,7 +51,6 @@ export class Indicators {
       },
       this.dtEl,
       this.hsEl,
-      this.defEl,
       this.chokeEl,
     );
 
@@ -72,28 +62,19 @@ export class Indicators {
   }
 
   render(model: IndicatorState): void {
-    if (!this.root || !this.dtEl || !this.hsEl || !this.defEl || !this.chokeEl) return;
+    if (!this.root || !this.dtEl || !this.hsEl || !this.chokeEl) return;
 
-    // DT indicator
-    this.dtEl.textContent = `DT`;
-    const dtColors: Record<IndicatorState['dt'], string> = {
+    // DT and HS indicators
+    const colors: Record<ExploitIndicator, string> = {
       ready: '#a4d052',
       charging: '#e5b842',
-      cooldown: '#e04040',
       off: '#666666',
     };
-    this.dtEl.style.color = dtColors[model.dt];
-    this.dtEl.hidden = model.dt === 'off';
-
-    // HS indicator
-    this.hsEl.textContent = `HS`;
-    this.hsEl.style.color = model.hs === 'on' ? '#a4d052' : '#666666';
-    this.hsEl.hidden = model.hs === 'off';
-
-    // Defensive indicator
-    this.defEl.textContent = `DEF`;
-    this.defEl.style.color = model.defensive ? '#a4d052' : '#666666';
-    this.defEl.hidden = !model.defensive;
+    for (const [el, label, state] of [[this.dtEl, 'DT', model.dt], [this.hsEl, 'HS', model.hs]] as const) {
+      el.textContent = label;
+      el.style.color = colors[state];
+      el.hidden = state === 'off';
+    }
 
     // Choke indicator
     this.chokeEl.textContent = `CHOKE: ${model.choke}`;

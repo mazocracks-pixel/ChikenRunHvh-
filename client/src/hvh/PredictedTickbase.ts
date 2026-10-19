@@ -1,12 +1,14 @@
 import { MAX_PENDING_FIRES } from '@game/shared';
-import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type EraTable, type TickContext, type TickbaseState } from '@game/shared/hvh/v2';
+import { EMPTY_TICKBASE, LATE_CSGO, movementSteps, stepTickbase, type CommandIntent, type EraTable, type TickAction, type TickContext, type TickbaseState } from '@game/shared/hvh/v2';
 
 /** Upper bound on commands kept while waiting for the server to execute them (about 2 s of ticks). */
 export const MAX_UNACKED = 128;
 
-interface Entry { seq: number; intent: CommandIntent; ctx: TickContext; after: TickbaseState }
+interface Entry { seq: number; intent: CommandIntent; ctx: TickContext; after: TickbaseState; action: TickAction }
 
-const NO_SIGHT: TickContext = Object.freeze({ enemyVisible: false });
+export const NO_SIGHT: TickContext = Object.freeze({ enemyVisible: false });
+/** What a command the server will not step through the tickbase does: one plain movement step. */
+const RUN: TickAction = Object.freeze({ kind: 'run' });
 
 /**
  * Client-side prediction of the server's per-player tickbase. It holds no HvH rules: every step
@@ -26,7 +28,7 @@ export class PredictedTickbase {
   private alive = true;
 
   constructor(private readonly era: EraTable = LATE_CSGO, initial?: TickbaseState) {
-    this.current = initial ? { ...initial } : EMPTY_TICKBASE(0); // Task 8
+    this.current = initial ? { ...initial } : EMPTY_TICKBASE(0);
     this.synced = initial !== undefined;
   }
 
@@ -36,25 +38,58 @@ export class PredictedTickbase {
 
   /**
    * Run one command the server can execute, in seq order. The server drops a command whose seq is
-   * not above the last one it accepted, so we skip those too; commands lost on the way (never
-   * emitted) are simply never applied. Returns false when skipped. `ctx` is the enemy sight the
-   * command is predicted with; reconcile replays the command with the same one.
+   * not above the last one it accepted, so we skip those too. Returns false when skipped. `ctx` is
+   * the enemy sight the command is predicted with; reconcile replays the command with the same one.
+   * LocalPlayer applies each command when it is built (its movement depends on the action), so a
+   * command the network then loses stays predicted until the next hvhState corrects it.
    */
   apply(seq: number, intent: CommandIntent, ctx: TickContext = NO_SIGHT): boolean {
     if (seq <= this.lastApplied) return false;
     this.lastApplied = seq;
     if (!this.alive) return false;
-    // The server attaches the oldest waiting fire message to the first command with seq >= its
-    // reference (HvhRoom.runCommand), also when the command that carried the shot was lost.
-    const shot = this.shots[0];
-    if (shot !== undefined && shot <= seq) {
+    if (this.attaches(seq)) {
       this.shots.shift();
       intent = { ...intent, fire: true };
     }
-    this.current = stepTickbase(this.current, intent, this.era, ctx).next;
-    this.unacked.push({ seq, intent, ctx, after: this.current });
+    const { next, action } = stepTickbase(this.current, intent, this.era, ctx);
+    this.current = next;
+    this.unacked.push({ seq, intent, ctx, after: next, action });
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
     return true;
+  }
+
+  /**
+   * The action `apply(seq, intent, ctx)` would take now, changing nothing. Movement is predicted
+   * before the command's choke bit is decided; that bit only picks 'choke' over 'run', so it never
+   * changes movementSteps.
+   */
+  peek(seq: number, intent: CommandIntent, ctx: TickContext = NO_SIGHT): TickAction {
+    if (seq <= this.lastApplied || !this.alive) return RUN;
+    return stepTickbase(this.current, this.attaches(seq) ? { ...intent, fire: true } : intent, this.era, ctx).action;
+  }
+
+  /**
+   * Whether the enemy sight can change command `seq`'s action (stepTickbase rules 4 and 5): an
+   * exploit on, not firing, below a full charge. The server traces sight only then (enemyInSight).
+   */
+  needsSight(seq: number, intent: CommandIntent): boolean {
+    return (intent.doubleTap || intent.hideShots) && !intent.fire && !this.attaches(seq)
+      && this.current.charge < this.era.chargeTicks;
+  }
+
+  /** Movement steps of predicted command `seq` (after the latest replay), or undefined if not held. */
+  stepsFor(seq: number): number | undefined {
+    const e = this.unacked.find((x) => x.seq === seq);
+    return e && movementSteps(e.action);
+  }
+
+  /**
+   * The server attaches the oldest waiting fire message to the first command with seq >= its
+   * reference (HvhRoom.runCommand), also when the command that carried the shot was lost.
+   */
+  private attaches(seq: number): boolean {
+    const shot = this.shots[0];
+    return shot !== undefined && shot <= seq;
   }
 
   /**
@@ -64,7 +99,7 @@ export class PredictedTickbase {
    * the next hvhState. With `alive` false (death), commands are not predicted until the next reset.
    */
   reset(state?: TickbaseState, alive = true): void {
-    this.current = state ? { ...state } : EMPTY_TICKBASE(0); // Task 8
+    this.current = state ? { ...state } : EMPTY_TICKBASE(0);
     this.unacked = [];
     this.shots = [];
     this.synced = false;
@@ -85,7 +120,6 @@ export class PredictedTickbase {
     const at = this.unacked.find((e) => e.seq === lastAckSeq);
     if (this.synced && at) {
       const p = at.after;
-      // Task 8
       const same = p.tickbase === server.tickbase && p.charge === server.charge && p.choked === server.choked
         && p.armed === server.armed;
       if (!same) this.mismatchCount++;
@@ -94,8 +128,9 @@ export class PredictedTickbase {
     this.unacked = this.unacked.filter((e) => e.seq > lastAckSeq);
     let s: TickbaseState = { ...server };
     for (const e of this.unacked) {
-      s = stepTickbase(s, e.intent, this.era, e.ctx).next;
-      e.after = s;
+      const step = stepTickbase(s, e.intent, this.era, e.ctx);
+      s = e.after = step.next;
+      e.action = step.action;
     }
     this.current = s;
   }
@@ -106,19 +141,18 @@ export class PredictedTickbase {
  * - fire: only the command that carries a shot (`shotSeq` is the seq the `fire` message references),
  *   and only for hitscan weapons. Holding the trigger without a shot never sets it.
  * - choke: only a frame the CommandChoker holds back; the frame that releases a batch is not choke.
- * - defensive: passed through from the panel's Defensive bind (one command per press, v2 rooms only).
+ * There is no defensive intent: defensive is an anti-aim pattern, not a tickbase shift.
  */
 export function commandIntent(o: {
   seq: number; shotSeq: number | null; hitscan: boolean; held: boolean;
   exploit: 'off' | 'doubleTap' | 'hideShots';
-  defensive?: boolean;
 }): CommandIntent {
   const fire = o.hitscan && o.shotSeq === o.seq;
   return {
     fire,
     choke: o.held && !fire,
     doubleTap: o.exploit === 'doubleTap',
-    hideShots: o.exploit === 'hideShots', // Task 8: o.defensive no longer reaches the tickbase intent
+    hideShots: o.exploit === 'hideShots',
   };
 }
 
