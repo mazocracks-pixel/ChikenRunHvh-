@@ -81,7 +81,6 @@ export interface ScriptStep {
   /** This command carries a hitscan shot. */
   fire: boolean;
   exploit: 'off' | 'doubleTap' | 'hideShots';
-  defensive: boolean;
   /** Replay gate: this command is a choke command. */
   choke: boolean;
   /** Network gate: the fake-lag setting (choke ticks) the client's CommandChoker uses. */
@@ -99,7 +98,8 @@ const FAKE_LAGS = [0, 0, 4, 14];
 
 /**
  * A seeded script for one player: moves, aims at the nearest living enemy, fires, chokes, uses
- * DT / HS / defensive, and toggles jitter / desync / inverted AA. Reads only state a client sees.
+ * DT / HS (charging, bursting and releasing), and toggles jitter / desync / inverted AA. Reads
+ * only state a client sees.
  */
 export class Script {
   private readonly rand: () => number;
@@ -122,12 +122,17 @@ export class Script {
   /** Called once per tick before the command; may change the AA config (the client's loadout message). */
   step(room: HvhRoom, p: ServerPlayer, seq: number, now: number): ScriptStep {
     const r = this.rand;
+    // The own charge, as the client's hvhState shows it.
+    const charge = room.tickbaseOf(p.pid)?.charge ?? 0;
+    const full = charge >= room.era.chargeTicks;
     if (this.moveLeft-- <= 0) {
       this.moveLeft = 20 + Math.floor(r() * 40);
       this.forward = this.opts.charge ? 1 : this.pick([-1, 0, 1, 1]);
       this.right = this.pick([-1, 0, 1]);
     }
     if (r() < 0.006) this.exploit = this.pick(EXPLOITS);
+    // Now and then turn the exploit off with a full charge: a release burst.
+    if (this.exploit !== 'off' && full && r() < 0.02) this.exploit = 'off';
     if (r() < 0.006) this.fakeLag = this.pick(FAKE_LAGS);
     if (r() < 0.007) {
       p.hvh.antiAim = { ...p.hvh.antiAim, enabled: true, mode: this.pick(AA_MODES), jitter: this.pick(JITTERS), desync: this.pick(DESYNCS) };
@@ -153,22 +158,24 @@ export class Script {
       pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
     }
 
+    // With DT / HS on, mostly hold fire while the charge fills: a shot then would only lose the
+    // partial charge (a reject), so most charges reach a burst.
+    const charging = this.exploit !== 'off' && charge > 0 && !full;
     let fire = false;
     if (p.mag <= 0) room.handleReload(p, now);
-    else if (best && p.reloadUntil === 0 && r() < (this.opts.fireChance ?? 0.2)) fire = true;
-    const defensive = r() < 0.01;
+    else if (best && p.reloadUntil === 0 && r() < (this.opts.fireChance ?? 0.2)) fire = !charging || r() < 0.03;
     if (this.chokeLeft <= 0 && r() < 0.03) this.chokeLeft = 1 + Math.floor(r() * 14);
     const choke = this.chokeLeft-- > 0 && !fire;
 
     const frame: InputFrame = {
       seq, forward: this.forward, right: this.right, jump: r() < 0.02, crouch: r() < 0.1, yaw, pitch, invert: this.invert,
     };
-    return { frame, fire, exploit: this.exploit, defensive, choke, fakeLag: this.fakeLag };
+    return { frame, fire, exploit: this.exploit, choke, fakeLag: this.fakeLag };
   }
 }
 
 export function intentOf(s: ScriptStep): CommandIntent {
-  return { fire: s.fire, choke: s.choke, doubleTap: s.exploit === 'doubleTap', hideShots: s.exploit === 'hideShots' }; // Task 7
+  return { fire: s.fire, choke: s.choke, doubleTap: s.exploit === 'doubleTap', hideShots: s.exploit === 'hideShots' };
 }
 
 /** What the room did for one player in one processPlayerTick call. */
@@ -179,6 +186,9 @@ export interface PlayerTickRecord {
   /** Movement state before the tick (the client's reconciled movement). */
   stateBefore: MoveState;
   executed: { frame: InputFrame; intent: CommandIntent }[];
+  /** The enemyVisible the server stepped each executed command with (HvhPlayerV2.sight). */
+  sight: boolean[];
+  stateAfter: MoveState;
   tickbaseAfter: TickbaseState;
   poseAfter: PoseState;
   antiAim: ServerPlayer['hvh']['antiAim'];
@@ -200,6 +210,6 @@ export function recordTicks(room: HvhRoom, sink: (pid: number, r: PlayerTickReco
       antiAim: { ...p.hvh.antiAim }, weapon: p.weapon,
     };
     original(playerId, now);
-    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
+    sink(p.pid, { ...before, executed: queued.slice(0, s.executed), sight: [...s.sight], stateAfter: structuredClone(p.state), tickbaseAfter: { ...s.tickbase }, poseAfter: { ...s.pose } });
   };
 }

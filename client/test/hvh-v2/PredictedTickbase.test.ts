@@ -47,6 +47,22 @@ describe('PredictedTickbase', () => {
     assert.equal(p.mismatches, 0);
   });
 
+  it('apply takes the enemy sight, and reconcile replays each command with the sight it was predicted with', () => {
+    const start = EMPTY_TICKBASE(0);
+    const p = new PredictedTickbase(era, start);
+    const dt: CommandIntent = { ...NONE, doubleTap: true };
+    const sight = [false, false, false, true, false, false];
+    sight.forEach((enemyVisible, i) => p.apply(i + 1, dt, { enemyVisible }));
+    let expected = start;
+    const after: TickbaseState[] = [];
+    for (const enemyVisible of sight) after.push(expected = stepTickbase(expected, dt, era, { enemyVisible }).next);
+    assert.deepEqual(p.state, expected);
+    assert.equal(after[3]!.charge, 0, 'the sighting cancelled the charge');
+    p.reconcile(after[1]!, 2);
+    assert.equal(p.mismatches, 0);
+    assert.deepEqual(p.state, expected, 'the replay keeps the sighting at command 4');
+  });
+
   it('a fire message whose command was lost fires on the next command, as the server attaches it', () => {
     const start = { ...EMPTY_TICKBASE(0), charge: era.chargeTicks }; // Task 8
     const p = new PredictedTickbase(era, start);

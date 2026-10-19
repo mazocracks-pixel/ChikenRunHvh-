@@ -78,17 +78,6 @@ describe('Lag records (v2)', () => {
     assert.equal(selectedTick(h.select(95, 97)), 95);
   });
 
-  it('defensive invalidates recent', () => {
-    const h = new RecordHistory(LATE_CSGO, HULL);
-    const now = 100;
-    fill(h, 85, now);
-    h.markDefensive(now - 3);
-    assert.deepEqual(h.select(now - 2, now), { invalid: 'defensive' });
-    assert.deepEqual(h.select(now - 3, now), { invalid: 'defensive' }, 'fromTick itself is included');
-    assert.equal(selectedTick(h.select(now - 4, now)), now - 4);
-    assert.equal(selectedTick(h.select(now - 5, now)), now - 5);
-  });
-
   it('choke gap uses last record', () => {
     const h = new RecordHistory(LATE_CSGO, HULL);
     h.push(rec(90));
@@ -113,12 +102,14 @@ describe('Lag records (v2)', () => {
     assert.deepEqual(empty.select(95, now), { invalid: 'choked' });
   });
 
-  it('choke gap after a defensive record inherits its cause', () => {
+  it('choke gap after an invalid record inherits its cause', () => {
     const h = new RecordHistory(LATE_CSGO, HULL);
-    h.push(rec(95));
-    h.markDefensive(95);
+    h.push(rec(93));
+    h.push(rec(94));
+    // ticks 95..97 choked, then a teleport
+    h.push(rec(98, { x: 5, y: 0, z: 0 }));
     const now = 100;
-    assert.deepEqual(h.select(97, now), { invalid: 'defensive' });
+    assert.deepEqual(h.select(96, now), { invalid: 'lagcompBreak' });
   });
 
   it('records are immutable to callers', () => {
@@ -145,17 +136,18 @@ describe('Lag records (v2)', () => {
 
   it('records() exposes valid and invalid records for the overlay', () => {
     const h = new RecordHistory(LATE_CSGO, HULL);
-    fill(h, 1, 5);
-    h.markDefensive(4);
+    fill(h, 1, 3);
+    h.push(rec(4, { x: 5, y: 0, z: 0 }));
+    h.push(rec(5, { x: 5, y: 0, z: 0 }));
     const all = h.records();
     assert.deepEqual(
       all.map((r) => [r.tick, r.valid, r.invalidCause]),
       [
-        [1, true, undefined],
-        [2, true, undefined],
-        [3, true, undefined],
-        [4, false, 'defensive'],
-        [5, false, 'defensive'],
+        [1, false, 'lagcompBreak'],
+        [2, false, 'lagcompBreak'],
+        [3, false, 'lagcompBreak'],
+        [4, true, undefined],
+        [5, true, undefined],
       ],
     );
   });
@@ -188,8 +180,8 @@ describe('Lag records (v2)', () => {
     const standing = h.select(10, 11);
     assert.ok('record' in standing);
     assert.equal('duck' in standing.record, false);
-    // Survives an invalidating re-freeze too.
-    h.markDefensive(11);
-    assert.equal(h.records()[1]!.duck, 0.6);
+    // Survives an invalidating re-freeze too (a break).
+    h.push(rec(12, { x: 5, y: 0, z: 0 }));
+    assert.deepEqual([h.records()[1]!.valid, h.records()[1]!.duck], [false, 0.6]);
   });
 });

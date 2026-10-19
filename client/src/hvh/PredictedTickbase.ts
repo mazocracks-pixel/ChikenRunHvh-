@@ -1,10 +1,12 @@
 import { MAX_PENDING_FIRES } from '@game/shared';
-import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type EraTable, type TickbaseState } from '@game/shared/hvh/v2';
+import { EMPTY_TICKBASE, LATE_CSGO, stepTickbase, type CommandIntent, type EraTable, type TickContext, type TickbaseState } from '@game/shared/hvh/v2';
 
 /** Upper bound on commands kept while waiting for the server to execute them (about 2 s of ticks). */
 export const MAX_UNACKED = 128;
 
-interface Entry { seq: number; intent: CommandIntent; after: TickbaseState }
+interface Entry { seq: number; intent: CommandIntent; ctx: TickContext; after: TickbaseState }
+
+const NO_SIGHT: TickContext = Object.freeze({ enemyVisible: false });
 
 /**
  * Client-side prediction of the server's per-player tickbase. It holds no HvH rules: every step
@@ -35,9 +37,10 @@ export class PredictedTickbase {
   /**
    * Run one command the server can execute, in seq order. The server drops a command whose seq is
    * not above the last one it accepted, so we skip those too; commands lost on the way (never
-   * emitted) are simply never applied. Returns false when skipped.
+   * emitted) are simply never applied. Returns false when skipped. `ctx` is the enemy sight the
+   * command is predicted with; reconcile replays the command with the same one.
    */
-  apply(seq: number, intent: CommandIntent): boolean {
+  apply(seq: number, intent: CommandIntent, ctx: TickContext = NO_SIGHT): boolean {
     if (seq <= this.lastApplied) return false;
     this.lastApplied = seq;
     if (!this.alive) return false;
@@ -48,8 +51,8 @@ export class PredictedTickbase {
       this.shots.shift();
       intent = { ...intent, fire: true };
     }
-    this.current = stepTickbase(this.current, intent, this.era, { enemyVisible: false }).next; // Task 8
-    this.unacked.push({ seq, intent, after: this.current });
+    this.current = stepTickbase(this.current, intent, this.era, ctx).next;
+    this.unacked.push({ seq, intent, ctx, after: this.current });
     if (this.unacked.length > MAX_UNACKED) this.unacked.shift();
     return true;
   }
@@ -91,7 +94,7 @@ export class PredictedTickbase {
     this.unacked = this.unacked.filter((e) => e.seq > lastAckSeq);
     let s: TickbaseState = { ...server };
     for (const e of this.unacked) {
-      s = stepTickbase(s, e.intent, this.era, { enemyVisible: false }).next; // Task 8
+      s = stepTickbase(s, e.intent, this.era, e.ctx).next;
       e.after = s;
     }
     this.current = s;

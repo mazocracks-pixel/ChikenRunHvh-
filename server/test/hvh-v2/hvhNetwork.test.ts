@@ -17,8 +17,10 @@ import {
   CommandChoker, INTERP_DELAY_MS, NetworkSimulator, defaultHvhCore, exploitMode, fakeLagTicks, WEAPONS,
   type HvhStateEvent, type InputCommand, type NetworkConfig,
 } from '@game/shared';
-import { LATE_CSGO } from '@game/shared/hvh/v2';
+import { LATE_CSGO, enemyVisible } from '@game/shared/hvh/v2';
 import { PredictedTickbase, TickClock, commandIntent, shotReference } from '../../../client/src/hvh/PredictedTickbase';
+import type { HvhRoom } from '../../src/rooms/HvhRoom';
+import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
 import { stepRoom } from '../helpers';
 import { CLOCK_BASE, Script, TICK_MS, makeMatch, prng, type ScriptOptions } from './hvhMatch';
 
@@ -62,6 +64,19 @@ interface Client {
  */
 const DEATHY: ScriptOptions = { charge: true, aimNoise: 0, fireChance: 0.6 };
 const HAZARD_PER_ALIVE_TICK = 1 / 110;
+
+/**
+ * The enemy sight a client predicts a command with: the shared enemyVisible from its own eye and
+ * the living enemies, where they stood at the end of the last tick (as the server's sight). The
+ * headless client sees those positions exactly, so this measures the tickbase reconciliation,
+ * not a real client's view of the remotes (Task 8 wires GameSession).
+ */
+function inSight(room: HvhRoom, p: ServerPlayer): boolean {
+  const enemies = [...room.players.values()]
+    .filter((q) => q !== p && q.alive && q.info.team !== p.info.team)
+    .map((q) => ({ x: q.state.x, y: q.state.y, z: q.state.z, crouch: q.state.crouchAmount ?? (q.state.crouching ? 1 : 0), yaw: room.v2State(q.pid)!.pose.bodyYaw }));
+  return enemyVisible(room.eyeOf(p), enemies, room.world);
+}
 
 /** `lifeResets` false skips the kill / spawn wiring (LocalPlayer.onOwnDeath / respawnAt), to measure what it fixes. */
 function runProfile(config: NetworkConfig, script: ScriptOptions = {}, lifeResets = true, hazard = 0) {
@@ -125,7 +140,6 @@ function runProfile(config: NetworkConfig, script: ScriptOptions = {}, lifeReset
             seq: frame.seq, shotSeq: c.shotCommand, hitscan: !def.melee && !def.projectile,
             held: c.choker.wouldHold(choke, flush, maxChoke),
             exploit: exploitMode(step.exploit, def, p.mag),
-            defensive: c.hvhV2 && step.defensive,
           });
           const command: InputCommand = { ...frame, intent, clientTick: c.clock.viewedTick(now - INTERP_DELAY_MS) };
           const batch = c.choker.push(command, choke, flush, maxChoke);
@@ -134,7 +148,7 @@ function runProfile(config: NetworkConfig, script: ScriptOptions = {}, lifeReset
         // After the loop: whatever the simulated link delivers now goes out (LocalPlayer.emitted).
         for (const batch of c.network.receive(now)) {
           for (const cmd of batch) {
-            if (c.hvhV2 && cmd.intent) c.tickbase.apply(cmd.seq, cmd.intent);
+            if (c.hvhV2 && cmd.intent) c.tickbase.apply(cmd.seq, cmd.intent, { enemyVisible: inSight(room, p) });
             room.handleInput(p, cmd);
             sentCommands++;
           }

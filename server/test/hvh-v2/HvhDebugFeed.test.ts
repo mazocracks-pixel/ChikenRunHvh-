@@ -45,7 +45,7 @@ function run(room: HvhRoom, players: ServerPlayer[], ticks: number): void {
     for (const p of players) {
       const seq = (seqs.get(p.pid) ?? 0) + 1;
       seqs.set(p.pid, seq);
-      room.handleInput(p, { seq, forward: 0, right: 0, jump: false, yaw: 0, pitch: 0, intent: { fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false } as CommandIntent });
+      room.handleInput(p, { seq, forward: 0, right: 0, jump: false, yaw: 0, pitch: 0, intent: { fire: false, choke: false, doubleTap: false, hideShots: false } as CommandIntent });
     }
     stepRoom(room, now);
   }

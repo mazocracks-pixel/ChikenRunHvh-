@@ -15,8 +15,7 @@ import type { PoseState } from './pose';
  * - Break: when a pushed record is more than lagCompBreakHulls x hullWidth horizontally from the
  *   previous record, every older record becomes 'lagcompBreak'. The new record stays valid, and
  *   the older ones stay invalid for good.
- * - markDefensive(fromTick) invalidates existing records with tick >= fromTick as 'defensive'.
- * - An invalid record keeps the first cause it received; later breaks or defensives don't relabel it.
+ * - An invalid record keeps the first cause it received; later breaks don't relabel it.
  * - Choke gap: a view tick with no exact record selects the last record before it, with that
  *   record's validity. If that record is expired or there is none, the answer is 'choked'.
  * - Pushed ticks must strictly increase. Records more than 2 windows behind the newest record
@@ -24,7 +23,7 @@ import type { PoseState } from './pose';
  * - Records are stored as frozen copies, so callers can't mutate history through select/records.
  */
 
-export type InvalidCause = 'expired' | 'defensive' | 'lagcompBreak' | 'choked';
+export type InvalidCause = 'expired' | 'lagcompBreak' | 'choked';
 
 export interface LagRecord {
   tick: number;
@@ -74,10 +73,6 @@ export class RecordHistory {
     }
     this.list.push(freezeRecord(r, r.valid, r.invalidCause));
     this.prune(r.tick);
-  }
-
-  markDefensive(fromTick: number): void {
-    this.invalidate((rec) => rec.tick >= fromTick, 'defensive');
   }
 
   select(viewTick: number, nowTick: number): RecordSelection {

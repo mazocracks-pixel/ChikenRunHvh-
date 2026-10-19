@@ -6,7 +6,9 @@
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
 import { SIM_DT, createCollisionWorld, defaultHvhLoadout, hopMaxFor, hvhPitch, moveSpeedFor, MAPS, PLAYER, clamp, stepPlayer, type MoveState } from '@game/shared';
-import { INITIAL_POSE, LATE_CSGO, stepPose, type PoseState, type ShotVerdict, type TickbaseState } from '@game/shared/hvh/v2';
+import {
+  INITIAL_POSE, LATE_CSGO, holdForCharge, movementSteps, stepPose, stepTickbase, type PoseState, type ShotVerdict, type TickbaseState,
+} from '@game/shared/hvh/v2';
 import { PredictedTickbase } from '../../../client/src/hvh/PredictedTickbase';
 import { stepRoom } from '../helpers';
 import { CLOCK_BASE, Script, TICK_MS, intentOf, makeMatch, recordTicks, type PlayerTickRecord } from './hvhMatch';
@@ -71,7 +73,7 @@ describe('HvH v2 determinism gate', () => {
 
   it('the scripted match exercises every mechanic', () => {
     const intents = [...first.records.values()].flat().flatMap((r) => r.executed.map((c) => c.intent));
-    for (const key of ['fire', 'choke', 'doubleTap', 'hideShots'] as const) { // Task 7
+    for (const key of ['fire', 'choke', 'doubleTap', 'hideShots'] as const) {
       assert.ok(intents.some((i) => i[key]), `some executed command has intent.${key}`);
     }
     const causes = new Set(first.verdicts.map((v) => v.cause));
@@ -79,9 +81,24 @@ describe('HvH v2 determinism gate', () => {
     assert.ok(first.verdicts.some((v) => v.bullet === 2), 'some DT bullet 2 fired');
     const recs = [...first.records.values()].flat();
     assert.ok(recs.some((r) => r.executed.length > 1), 'some tick ran a batch of commands (released choke)');
-    for (const key of ['doubleTap', 'hideShots'] as const) { // Task 7
+    for (const key of ['doubleTap', 'hideShots'] as const) {
       assert.ok(recs.some((r) => r.executed.at(-1)?.intent[key] && r.tickbaseBefore.charge === LATE_CSGO.chargeTicks && r.tickbaseAfter.charge === 0), `some ${key} burst was granted`);
     }
+    // Every tickbase action, recomputed from each command and the sight the server stepped it with.
+    const actions = new Set<string>();
+    for (const r of recs) {
+      if (!r.aliveBefore) continue;
+      let tb = r.tickbaseBefore;
+      r.executed.forEach((c, k) => {
+        const { next, action } = stepTickbase(tb, c.intent, LATE_CSGO, { enemyVisible: r.sight[k]! });
+        actions.add(action.kind === 'burst' ? `burst:${action.reason}` : action.kind);
+        tb = next;
+      });
+    }
+    for (const kind of ['run', 'choke', 'charge', 'cancel', 'reject', 'burst:doubleTap', 'burst:hideShots', 'burst:release']) {
+      assert.ok(actions.has(kind), `some command was a ${kind} (actions: ${[...actions].join(', ')})`);
+    }
+    assert.ok(recs.some((r) => r.sight.includes(true)) && recs.some((r) => r.sight.includes(false)), 'enemies are seen and unseen');
     assert.ok(first.kills.some((k) => k > 0), 'someone scored a kill');
     const poses = [...first.records.values()].flat().map((r) => r.poseAfter.realSide);
     assert.ok(poses.includes('left') && poses.includes('right') && poses.includes('center'), 'desync sides and no desync all occur');
@@ -117,10 +134,16 @@ describe('HvH v2 determinism gate', () => {
         wasAlive = true;
         const tb = predicted!;
         // Movement is reconciled to the authoritative state (LocalPlayer); pose is predicted from it.
+        // Each command is predicted with the enemy sight the server stepped it with, and moves as
+        // its tickbase action says: no step while charging, the own step then the rest on a burst.
         const move: MoveState = structuredClone(r.stateBefore);
-        for (const c of r.executed) {
-          tb.apply(c.frame.seq, c.intent);
-          stepPlayer(move, c.frame, SIM_DT, world, null, hopMaxFor(r.weapon), moveSpeedFor(r.weapon), true);
+        r.executed.forEach((c, k) => {
+          const ctx = { enemyVisible: r.sight[k]! };
+          const steps = movementSteps(stepTickbase(tb.state, c.intent, LATE_CSGO, ctx).action);
+          tb.apply(c.frame.seq, c.intent, ctx);
+          const step = () => stepPlayer(move, c.frame, SIM_DT, world, null, hopMaxFor(r.weapon), moveSpeedFor(r.weapon), true);
+          if (steps === 0) holdForCharge(move);
+          else step();
           const motion = {
             speedFraction: clamp(move.horizontalSpeed / (PLAYER.speed * moveSpeedFor(r.weapon)), 0, 1),
             duck: move.crouchAmount ?? (move.crouching ? 1 : 0),
@@ -131,9 +154,14 @@ describe('HvH v2 determinism gate', () => {
             ...stepPose(pose, c.frame.yaw, { base: aa.mode, jitterDeg: aa.jitter, desyncDeg: aa.desync, inverted: c.frame.invert === true }, motion, tb.state.tickbase, LATE_CSGO),
             pitch: hvhPitch(c.frame.pitch, { ...defaultHvhLoadout(), antiAim: aa }),
           };
-        }
+          for (let i = 1; i < steps; i++) step();
+        });
         assert.deepStrictEqual(tb.state, r.tickbaseAfter, `${where}: TickbaseState`);
         assert.deepStrictEqual(pose, r.poseAfter, `${where}: PoseState`);
+        // A tick with no command coasts on the server (not predicted), so only command ticks compare.
+        if (r.executed.length > 0) {
+          assert.deepStrictEqual([move.x, move.y, move.z], [r.stateAfter.x, r.stateAfter.y, r.stateAfter.z], `${where}: position (charge stop and burst)`);
+        }
         compared++;
       });
     }

@@ -43,7 +43,9 @@ import {
   RecordHistory,
   collisionWorldTracer,
   createResolverMemory,
+  enemyVisible,
   guessedPose,
+  holdForCharge,
   hvhWarmup,
   isHvhArsenal,
   learnFromVerdict,
@@ -66,6 +68,7 @@ import {
   type ResolverMemory,
   type ShotTarget,
   type ShotVerdict,
+  type SightTarget,
   type TickbaseState,
   type WorldTracer,
 } from '@game/shared/hvh/v2';
@@ -80,23 +83,36 @@ import type { ServerPlayer } from './ServerPlayer';
  * pipeline (shared/src/hvh/v2) instead of GameRoom.simulatePlayer:
  *
  *   per server tick, per player: refill the command budget by 1 (cap maxProcessTicks), then for
- *   each dequeued command (at most maxProcessTicks): stepTickbase -> movement -> stepPose ->
- *   shots through processShot -> learnFromVerdict -> emit verdicts. At the end of the player's
- *   tick one LagRecord is pushed for the server tick (unless every command was choked / banked).
- *   DT bullet 2 is held until every player has been simulated, then fired in the same server tick.
+ *   each dequeued command (at most maxProcessTicks): enemy sight -> stepTickbase -> movement ->
+ *   stepPose -> shots through processShot -> learnFromVerdict -> emit verdicts -> the burst's
+ *   extra movement steps. At the end of the player's tick one LagRecord is pushed for the server
+ *   tick (unless every command was choked or a hidden shot). DT bullet 2 is held until every player
+ *   has been simulated, then fired in the same server tick.
  *
  * Decisions:
  * - Input passes the legacy per-player token limiter first (R25; rejected input is dropped
  *   silently, as in legacy). Queue cap 2 x maxProcessTicks; overflow drops the oldest with a
  *   'rejected / command flood' verdict sent to the sender only. A per-tick budget (refills 1 per
- *   tick, cap maxProcessTicks) bounds execution: a burst of up to 16 runs at once.
+ *   tick, cap maxProcessTicks) bounds execution: a batch of up to 16 runs at once.
  * - Records are keyed by server tick (RecordHistory needs strictly increasing ticks), so several
  *   commands in one tick produce one record: the state after the last recordable command.
- *   Choke commands are not recordable. A command that fires with a hide-shots shift is
+ *   Choke commands are not recordable. A command that fires a hide-shots burst is
  *   not recordable either (its on-shot pose is skipped, not pushed invalid); a plain shot records
  *   the on-shot pose (eyes and body on the aim, side 'center').
- * - A bank command (R23) runs movement, pose and record capture like any other; only the
- *   tickbase counter does not advance (stepTickbase).
+ * - Charge and burst (v2 tickbase, tickbase.ts): with DT or hide shots on and no enemy in actual
+ *   line of sight (enemyVisible from room.eyeOf, the living enemies' positions and body yaw at the
+ *   start of the tick), a command charges. A charge command is acknowledged like any other
+ *   (lastSeq, so the client's CommandClock backlog keeps draining) and steps the pose (aim works),
+ *   but runs no movement step: every velocity is zeroed and position and gravity hold, even
+ *   mid-air. A burst
+ *   (a DT / HS shot with a full charge, or DT / HS turned off while full: 'release') runs the
+ *   command's own movement step, fires (bullets leave from that pre-burst eye), then runs `ticks`
+ *   more normal steps of the same frame (R47: 1 + chargeTicks in all), so it slides along walls
+ *   and a player standing still does not move. The teleport usually exceeds lagCompBreakHulls, so
+ *   RecordHistory turns the pre-burst records 'lagcompBreak' by itself. Sight is traced only when
+ *   it can change the action (stepTickbase rules 4 and 5). No other path runs more than one
+ *   movement step per command. Death and every spawn reset the tickbase (charge 0), and a dead
+ *   player's commands never reach stepTickbase, so a dead player never bursts.
  * - Targets (R24): the first enemy body the un-deviated aim ray intersects, traced against each
  *   enemy's lag record at the view tick (real pose, crouch scale; poseMatrix, as processShot).
  *   A client-named target (legacy fire intent.target) is only a hint: used when it is that body,
@@ -113,20 +129,18 @@ import type { ServerPlayer } from './ServerPlayer';
  *   legacy fakeLag cache does not apply in v2 rooms.
  * - A hit on a spawn-protected target is 'rejected / spawn protection' and deals no damage, but
  *   the shot was fired: ammo, fire interval and the shooter's own spawn shield are spent.
- * - Defensive shift of N ticks at server tick T: markDefensive(T - N) on the player's history,
- *   and records pushed for ticks T .. T + N - 1 are pushed valid:false / 'defensive'.
  * - Projectile and melee weapons are excluded from v2: their `fire` messages take the legacy
  *   GameRoom path (fire queue, executeFire), and intent fire / DT / HS are ignored for them.
  *   Hitscan `fire` messages (bots, older clients) are attached as intent.fire to the command
  *   they followed, aimed with the message's direction.
- * - Exploit intents (choke, DT, HS, defensive) need the HvH tools on (hvhEnabled); Manual play
+ * - Exploit intents (choke, DT, HS) need the HvH tools on (hvhEnabled); Manual play
  *   keeps plain fire only.
  * - Ack: hvhState.lastAckSeq is ServerPlayer.lastSeq, the same value as the snapshot's `ack`.
  * - R41: bullet 1's weapon fire interval is measured in server ticks since the shooter's last
- *   shot, not in tickbase, so bank ticks (which do not advance tickbase) never block firing. DT
- *   bullet 2 keeps ticksSinceLastShot = the shifted ticks (slow weapons still cannot double tap).
+ *   shot, not in tickbase, so charge ticks (which do not advance tickbase) never block firing. DT
+ *   bullet 2 keeps ticksSinceLastShot = the burst's ticks (slow weapons still cannot double tap).
  *   Within one server tick, the first shot is accepted once the interval has passed in server
- *   ticks, however many queued commands (a choke batch, a burst) ran before it in that tick; a
+ *   ticks, however many queued commands (a choke batch, a backlog) ran before it in that tick; a
  *   second bullet-1 shot in the same tick sees 0 ticks since the last shot and is rejected
  *   'fire interval' (DT bullet 2 is the only accepted same-tick second bullet).
  * - Rounds (v2 only; rounds.ts decides, the room applies): a warmup with free respawns, then
@@ -160,7 +174,7 @@ export function hvhEngineFrom(env: Readonly<Record<string, string | undefined>>)
   return env.HVH_ENGINE === 'v2' ? 'v2' : 'legacy';
 }
 
-const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false }); // Task 7
+const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false });
 const TICK_MS = SIM_DT * 1000;
 const OBSERVATIONS_KEPT = 32;
 const MAINS: readonly WeaponId[] = HVH_MAINS;
@@ -209,17 +223,17 @@ export interface HvhPlayerV2 {
   resolver: ResolverMemory;
   /**
    * Server tick of the last shot fired (R41): bullet 1's fire interval counts server ticks since
-   * it, not tickbase, so bank ticks (which freeze tickbase) never block firing.
+   * it, not tickbase, so charge ticks (which freeze tickbase) never block firing.
    */
   lastShotTick: number;
-  /** Records pushed for server ticks below this are invalid ('defensive'). */
-  defensiveUntilTick: number;
   /** Legacy `fire` messages for a hitscan weapon, waiting for their command, oldest first. */
   pendingFires: FireRequest[];
   /** DT bullet 2, fired after every player has been simulated this tick. */
   pendingBullet: PendingBullet | null;
   /** Commands executed this tick. */
   executed: number;
+  /** The enemyVisible each of this tick's commands was stepped with, in order (headless matches replay prediction from it). */
+  sight: boolean[];
   /** Server tick of the newest pushed record. */
   lastRecordTick: number;
   /** What other viewers saw at the newest pushed record (frozen while choking). */
@@ -232,7 +246,7 @@ function parseIntent(raw: unknown): CommandIntent {
     fire: raw.fire === true,
     choke: raw.choke === true,
     doubleTap: raw.doubleTap === true,
-    hideShots: raw.hideShots === true, // Task 7: defensive is no longer a tickbase intent
+    hideShots: raw.hideShots === true,
   };
 }
 
@@ -273,6 +287,8 @@ export class HvhRoom extends GameRoom {
   /** v2 round flow on (every v2 room but test harnesses). */
   private readonly rounds: boolean;
   private round: HvhRoundState = hvhWarmup();
+  /** Every player as they stood at the start of this tick (the end of the last), for enemy sight. */
+  private readonly sightTargets = new Map<number, SightTarget>();
 
   constructor(io: GameServer, options: HvhRoomOptions, hooks: RoomHooks = {}) {
     super(io, options, hooks);
@@ -348,16 +364,16 @@ export class HvhRoom extends GameRoom {
         queue: [],
         lastQueuedSeq: 0,
         budget: this.era.maxProcessTicks,
-        tickbase: EMPTY_TICKBASE(this.hvhTick), // Task 7
+        tickbase: EMPTY_TICKBASE(this.hvhTick),
         pose: INITIAL_POSE,
         history: new RecordHistory(this.era, PLAYER_HULL_WIDTH),
         observations: [],
         resolver: createResolverMemory(),
         lastShotTick: -Infinity,
-        defensiveUntilTick: 0,
         pendingFires: [],
         pendingBullet: null,
         executed: 0,
+        sight: [],
         lastRecordTick: -Infinity,
         publicState: null,
       };
@@ -425,6 +441,7 @@ export class HvhRoom extends GameRoom {
   // ---------------------------------------------------------------------------
 
   protected override fixedUpdate(now: number): void {
+    if (this.v2) this.captureSightTargets();
     super.fixedUpdate(now);
     if (!this.v2) return;
     this.flushPendingBullets(now);
@@ -448,6 +465,7 @@ export class HvhRoom extends GameRoom {
     const s = this.stateOf(p);
     s.budget = Math.min(this.era.maxProcessTicks, s.budget + 1);
     s.executed = 0;
+    s.sight = [];
     let capture: RecordCapture | null = null;
     while (s.executed < this.era.maxProcessTicks && s.budget >= 1 && s.queue.length > 0) {
       const command = s.queue.shift()!;
@@ -491,6 +509,7 @@ export class HvhRoom extends GameRoom {
     }
     if (!p.alive || p.hvhPreparing || p.removedForCheating) {
       if (fireReq) this.emitVerdict(p, this.rejected(p, 'actions blocked'));
+      s.sight.push(false);
       this.move(p, frame);
       return null;
     }
@@ -503,28 +522,35 @@ export class HvhRoom extends GameRoom {
     if (!p.hvhEnabled) intent = { ...IDLE, fire: intent.fire };
 
     const before = s.tickbase;
-    const { next, action } = stepTickbase(before, intent, this.era, { enemyVisible: false }); // Task 7
+    const visible = this.enemyInSight(p, before, intent);
+    s.sight.push(visible);
+    const { next, action } = stepTickbase(before, intent, this.era, { enemyVisible: visible });
     s.tickbase = next;
     if (action.kind === 'reject') {
       this.emitVerdict(p, { shooterId: String(p.pid), tick: this.hvhTick, bullet: 1, cause: 'tickbase', reason: tickbaseVerdictReason(action.reason) });
     }
-    this.move(p, frame);
+    // The charging stop runs no movement step; a burst runs its own step here, the rest after the shot.
+    const moved = this.move(p, frame, action.kind === 'charge' ? 0 : 1);
     const motion = this.motionOf(p);
     s.pose = this.stepPoseFor(p, s, frame, motion);
+    const burst = action.kind === 'burst' ? action : null;
 
     let recordPose = s.pose;
+    let hidden = false;
     if (intent.fire) {
-      const dt = action.kind === 'burst' && action.reason === 'doubleTap'; // Task 7
       const bullet = this.prepareBullet(p, s, frame, command, fireReq, now);
       this.fireBullet(p, s, bullet, 1, now);
-      // DT bullet 2: its interval is the shifted ticks (slow weapons cannot double tap).
-      if (dt) s.pendingBullet = { ...bullet, ticksSinceLastShot: action.ticks };
-      if (action.kind === 'burst' && action.reason === 'hideShots') return null; // Task 7
+      // DT bullet 2: its interval is the burst's ticks (slow weapons cannot double tap).
+      if (burst?.reason === 'doubleTap') s.pendingBullet = { ...bullet, ticksSinceLastShot: burst.ticks };
+      // Hide shots: the on-shot pose is skipped, not recorded.
+      hidden = burst?.reason === 'hideShots';
       // On-shot pose: eyes and body on the aim.
       const aimYaw = Math.atan2(-bullet.aim.dir.x, -bullet.aim.dir.z);
       recordPose = { ...s.pose, eyeYaw: aimYaw, bodyYaw: aimYaw, realSide: 'center', eyeOffsetDeg: 0 };
     }
-    if (action.kind === 'choke') return null;
+    // The teleport: the burst's other steps, after the bullets left from the pre-burst eye.
+    if (burst) this.stepMovement(p, moved, burst.ticks);
+    if (hidden || action.kind === 'choke') return null;
     return {
       position: { x: p.state.x, y: p.state.y, z: p.state.z },
       pose: recordPose,
@@ -541,17 +567,56 @@ export class HvhRoom extends GameRoom {
     p.lastInput = frame;
   }
 
-  /** GameRoom.applyInput without the legacy pose step. */
-  private move(p: ServerPlayer, input: Readonly<InputFrame>): void {
+  /**
+   * GameRoom.applyInput without the legacy pose step: acknowledges the command, then runs `steps`
+   * (0 or 1) movement steps of it. 0 is the charging stop. Returns the frame movement ran with.
+   */
+  private move(p: ServerPlayer, input: Readonly<InputFrame>, steps: 0 | 1 = 1): Readonly<InputFrame> {
     let frame = input;
     if ((frame.autoHop || frame.subtickStrafe) && (!p.hvhEnabled || p.hvhPreparing)) frame = { ...frame, autoHop: false, subtickStrafe: false };
     if (this.movementLocked(p)) frame = { ...frame, forward: 0, right: 0, jump: false, crouch: true };
     this.acknowledge(p, frame);
+    if (steps === 0 && p.alive && !p.immobile) holdForCharge(p.state);
+    else this.stepMovement(p, frame, 1);
+    return frame;
+  }
+
+  /** `n` normal movement steps of `frame` (collision as always); none for the dead and the immobile. */
+  private stepMovement(p: ServerPlayer, frame: Readonly<InputFrame>, n: number): void {
     if (!p.alive || p.immobile) {
       p.state.horizontalSpeed = 0;
       return;
     }
-    stepPlayer(p.state, frame, SIM_DT, this.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), true);
+    for (let i = 0; i < n; i++) {
+      stepPlayer(p.state, frame, SIM_DT, this.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), true);
+    }
+  }
+
+  /**
+   * The tickbase's enemyVisible: a living enemy in actual line of sight (enemyVisible, not the
+   * wallhack) from the command's eye. Enemies are where they stood at the start of the tick
+   * (sightTargets, with their body yaw), so the answer does not depend on the order players are
+   * simulated in, and the owner's client, which knows last tick's positions at best, predicts the
+   * same. Traced only when it can change the action: an exploit on, not firing, below a full
+   * charge (stepTickbase rules 4 and 5); otherwise false, which stepTickbase then ignores.
+   */
+  private enemyInSight(p: ServerPlayer, tickbase: TickbaseState, intent: CommandIntent): boolean {
+    if (!(intent.doubleTap || intent.hideShots) || intent.fire || tickbase.charge >= this.era.chargeTicks) return false;
+    const enemies: SightTarget[] = [];
+    for (const q of this.players.values()) {
+      if (q === p || !q.alive || this.areTeammates(p, q)) continue;
+      const target = this.sightTargets.get(q.pid);
+      if (target) enemies.push(target);
+    }
+    return enemyVisible(this.eyeOf(p), enemies, this.world);
+  }
+
+  private captureSightTargets(): void {
+    this.sightTargets.clear();
+    for (const q of this.players.values()) {
+      const crouch = q.state.crouchAmount ?? (q.state.crouching ? 1 : 0);
+      this.sightTargets.set(q.pid, { x: q.state.x, y: q.state.y, z: q.state.z, crouch, yaw: this.stateOf(q).pose.bodyYaw });
+    }
   }
 
   /** GameRoom's missing-command step: no presses are invented. */
@@ -587,15 +652,7 @@ export class HvhRoom extends GameRoom {
     // One record per server tick, even if processPlayerTick runs twice in a tick (headless drivers).
     if (tick <= s.lastRecordTick) return;
     s.lastRecordTick = tick;
-    const defensive = tick < s.defensiveUntilTick;
-    s.history.push({
-      tick,
-      position: c.position,
-      pose: c.pose,
-      duck: c.duck,
-      valid: !defensive,
-      ...(defensive ? { invalidCause: 'defensive' as const } : {}),
-    });
+    s.history.push({ tick, position: c.position, pose: c.pose, duck: c.duck, valid: true });
     s.observations.push(publicObservation(c.pose, c.motion, tick));
     if (s.observations.length > OBSERVATIONS_KEPT) s.observations.splice(0, s.observations.length - OBSERVATIONS_KEPT);
     s.publicState = this.publicView(p.toState(), c.pose.eyeYaw);
@@ -952,7 +1009,7 @@ export class HvhRoom extends GameRoom {
     const s = this.stateOf(victim);
     s.pendingBullet = null;
     this.blockPendingFires(victim, s);
-    s.tickbase = EMPTY_TICKBASE(this.hvhTick); // Task 7
+    s.tickbase = EMPTY_TICKBASE(this.hvhTick);
   }
 
   /** R26: fire requests still waiting when a life ends are answered, not dropped. */
@@ -970,15 +1027,14 @@ export class HvhRoom extends GameRoom {
     super.spawn(p, now, announce);
     p.eggs = p.smokes = p.flashes = 0;
     const s = this.stateOf(p);
-    // A new life: fresh bank, pose and lag records (the resolver keeps what it learned).
+    // A new life: no charge, a fresh pose and lag records (the resolver keeps what it learned).
     s.queue.length = 0;
     s.budget = this.era.maxProcessTicks;
-    s.tickbase = EMPTY_TICKBASE(this.hvhTick); // Task 7
+    s.tickbase = EMPTY_TICKBASE(this.hvhTick);
     s.pose = INITIAL_POSE;
     s.history = new RecordHistory(this.era, PLAYER_HULL_WIDTH);
     s.observations = [];
     s.lastShotTick = -Infinity;
-    s.defensiveUntilTick = 0;
     this.blockPendingFires(p, s);
     s.pendingBullet = null;
     s.lastRecordTick = -Infinity;

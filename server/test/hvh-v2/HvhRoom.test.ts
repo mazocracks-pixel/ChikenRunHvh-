@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { SIM_DT, WEAPONS, makeRay, normalize, rayHvhMatrix, unpackPlayer, type InputFrame, type Vec3 } from '@game/shared';
+import {
+  PLAYER, SIM_DT, WEAPONS, hopMaxFor, makeRay, moveSpeedFor, normalize, rayHvhMatrix, stepPlayer, unpackPlayer,
+  type InputFrame, type MoveState, type Vec3,
+} from '@game/shared';
 import { LATE_CSGO, fireIntervalTicks, guessedPose, poseMatrix, type CommandIntent, type LagRecord, type ShotVerdict } from '@game/shared/hvh/v2';
 import type { ServerPlayer } from '../../src/rooms/ServerPlayer';
-import { GameRoom } from '../../src/rooms/GameRoom';
+import { GameRoom, parseInput } from '../../src/rooms/GameRoom';
 import { HvhRoom, hvhEngineFrom, type HvhEngine } from '../../src/rooms/HvhRoom';
 import { createRoom } from '../../src/rooms/modes';
 import { addPlayer, fakeIo, place, stepRoom } from '../helpers';
 
 const TICK_MS = SIM_DT * 1000;
-const IDLE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false }; // Task 7
+const IDLE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false };
 
 function makeHvh(engine: HvhEngine) {
   const { io, events } = fakeIo();
@@ -78,6 +81,49 @@ function fakeSocket(p: ServerPlayer, sink: Sent[]): void {
   Object.defineProperty(p, 'socket', { value: socket });
 }
 
+/** A wall across the field between A (z 20) and B (z 10): no line of sight, so DT and hide shots charge. */
+const WALL = { minX: -40, maxX: 40, minY: 0, maxY: 20, minZ: 14, maxZ: 15 };
+const WALL_ID = 1_000_000;
+
+function hiddenDuel() {
+  const made = duel();
+  made.room.world.add(WALL_ID, WALL);
+  made.a.takeInputToken = made.b.takeInputToken = () => true;
+  return made;
+}
+
+/** Drives A with one command per server tick. */
+function driver(room: HvhRoom, p: ServerPlayer) {
+  let seq = 0;
+  let now = performance.now();
+  return {
+    get seq() { return seq; },
+    get now() { return now; },
+    /** The frame the server will run for the next command (as handleInput parses it). */
+    frame(over: Partial<InputFrame> = {}): InputFrame {
+      return parseInput({ ...command(seq + 1), ...over })!;
+    },
+    tick(intent: Partial<CommandIntent>, over: Partial<InputFrame> = {}, before?: () => void): void {
+      room.handleInput(p, { ...command(++seq, intent), ...over });
+      before?.();
+      stepRoom(room, (now += TICK_MS));
+    },
+  };
+}
+
+/** `p`'s movement state after `steps` plain stepPlayer calls of `frame`, on a copy. */
+function walked(room: HvhRoom, p: ServerPlayer, frame: InputFrame, steps: number): MoveState {
+  const copy = structuredClone(p.state);
+  for (let i = 0; i < steps; i++) stepPlayer(copy, frame, SIM_DT, room.world, p.moveMods(), hopMaxFor(p.weapon), moveSpeedFor(p.weapon), true);
+  return copy;
+}
+
+function holdDeagle(p: ServerPlayer): void {
+  const slot = p.info.loadout.indexOf('deserteagle');
+  assert.ok(slot >= 0, 'v2 spawns carry the Desert Eagle');
+  p.weaponSlot = slot;
+}
+
 function threePlayers(nearX: number) {
   const made = duel();
   const { room, a, b } = made;
@@ -94,20 +140,21 @@ function threePlayers(nearX: number) {
 }
 
 describe('HvhRoom v2 tick pipeline', () => {
-  it('bank ticks still simulate movement and reach a full bank', (t) => {
-    const { room, a } = duel();
+  it('with the exploits off every command moves and nothing charges, even with no enemy in view', (t) => {
+    const { room, a } = hiddenDuel();
     t.after(() => room.close());
-    a.takeInputToken = () => true;
     let now = performance.now();
-    for (let seq = 1; seq <= 20; seq++) {
+    const tickbase = room.tickbaseOf(a.pid)!.tickbase;
+    for (let seq = 1; seq <= 40; seq++) {
       const z = a.state.z;
       room.handleInput(a, { ...command(seq, {}), forward: 1 });
       stepRoom(room, (now += TICK_MS));
       assert.equal(a.lastSeq, seq, `command ${seq} executed this tick (no coasting)`);
       assert.ok(a.state.z < z, `command ${seq} moved the player`);
     }
-    assert.equal(a.lastSeq, 20);
-    assert.equal(room.tickbaseOf(a.pid)?.charge, LATE_CSGO.chargeTicks); // Task 7
+    assert.equal(a.lastSeq, 40);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+    assert.equal(room.tickbaseOf(a.pid)?.tickbase, tickbase + 40, 'tickbase advanced once per command');
   });
 
   it('a ray through only the guessed body names that target and is a resolver miss', (t) => {
@@ -355,16 +402,16 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.equal(a.lastSeq, 8 + 16, 'the 8 oldest were dropped, so execution starts at seq 9');
   });
 
-  it('R41: banking never blocks fire (the fire interval counts server ticks, not tickbase)', (t) => {
-    const { room, a, b, verdicts } = duel();
+  it('R41: charging never blocks fire (the fire interval counts server ticks, not tickbase)', (t) => {
+    const { room, a, b, verdicts } = hiddenDuel();
     t.after(() => room.close());
-    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'a fresh spawn has an empty bank'); // Task 7
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'a fresh spawn has no charge');
     // A gun that cycles within one DT shift (v2 spawns carry the slower arsenal).
     a.info.loadout.push('rifle');
     a.weaponSlot = a.info.loadout.length - 1;
     a.mags.set('rifle', a.magazineSize('rifle'));
     const interval = fireIntervalTicks(WEAPONS[a.weapon]);
-    assert.ok(interval > 1 && interval - 1 < LATE_CSGO.chargeTicks); // Task 7
+    assert.ok(interval > 1 && interval - 1 < LATE_CSGO.chargeTicks);
     let now = performance.now();
     let seq = 0;
     let bSeq = 0;
@@ -373,6 +420,7 @@ describe('HvhRoom v2 tick pipeline', () => {
       room.handleInput(b, command(++bSeq, {}));
       stepRoom(room, (now += TICK_MS));
     };
+    // Plain shots (DT off), through the wall.
     const fire = (): void => {
       const aim = anglesTo(room.eyeOf(a), boxCentre(room, b.pid, 'chest'));
       room.handleInput(a, { ...command(++seq, { fire: true }), yaw: aim.yaw, pitch: aim.pitch });
@@ -382,13 +430,13 @@ describe('HvhRoom v2 tick pipeline', () => {
     fire();
     const firstTick = room.hvhTick;
     const tickbase = room.tickbaseOf(a.pid)!.tickbase;
-    // Idle for interval - 1 ticks: every one is a bank tick (tickbase frozen).
+    // DT on for interval - 1 ticks with no enemy in view: every one is a charge tick (tickbase frozen).
     for (let i = 0; i < interval - 1; i++) {
-      room.handleInput(a, command(++seq, {}));
+      room.handleInput(a, command(++seq, { doubleTap: true }));
       step();
     }
-    assert.equal(room.tickbaseOf(a.pid)?.charge, interval - 1, 'the idle ticks banked'); // Task 7
-    assert.equal(room.tickbaseOf(a.pid)?.tickbase, tickbase, 'bank ticks did not advance tickbase');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, interval - 1, 'the idle ticks charged');
+    assert.equal(room.tickbaseOf(a.pid)?.tickbase, tickbase, 'charge ticks did not advance tickbase');
     fire();
     assert.equal(room.hvhTick, firstTick + interval, 'the first tick the weapon interval allows');
     const shots = verdicts.filter((v) => v.shooterId === String(a.pid));
@@ -397,31 +445,31 @@ describe('HvhRoom v2 tick pipeline', () => {
   });
 
   it('dt fires two bullets same tick', (t) => {
-    const { room, a, verdicts } = duel();
+    const { room, a, verdicts } = hiddenDuel();
     t.after(() => room.close());
     let now = performance.now();
     let seq = 0;
-    for (let i = 0; i < LATE_CSGO.chargeTicks; i++) { // Task 7
-      room.handleInput(a, command(++seq, {}));
+    for (let i = 0; i < LATE_CSGO.chargeTicks; i++) {
+      room.handleInput(a, command(++seq, { doubleTap: true }));
       stepRoom(room, (now += TICK_MS));
     }
-    assert.equal(room.tickbaseOf(a.pid)?.charge, LATE_CSGO.chargeTicks, 'full bank'); // Task 7
+    assert.equal(room.tickbaseOf(a.pid)?.charge, LATE_CSGO.chargeTicks, 'full charge');
     room.handleInput(a, command(++seq, { fire: true, doubleTap: true }));
     stepRoom(room, (now += TICK_MS));
     const shots = verdicts.filter((v) => v.shooterId === String(a.pid) && v.cause !== 'tickbase');
     assert.deepEqual(shots.map((v) => v.bullet), [1, 2]);
     assert.equal(shots[0]!.tick, shots[1]!.tick, 'same server tick');
     assert.equal(shots[0]!.tick, room.hvhTick);
-    assert.equal(room.tickbaseOf(a.pid)?.charge, 0); // Task 7
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
   });
 
   it('death cancels pending dt bullet', (t) => {
-    const { room, a, b, verdicts } = duel();
+    const { room, a, b, verdicts } = hiddenDuel();
     t.after(() => room.close());
     let now = performance.now();
     let seq = 0;
-    for (let i = 0; i < LATE_CSGO.chargeTicks; i++) { // Task 7
-      room.handleInput(a, command(++seq, {}));
+    for (let i = 0; i < LATE_CSGO.chargeTicks; i++) {
+      room.handleInput(a, command(++seq, { doubleTap: true }));
       stepRoom(room, (now += TICK_MS));
     }
     room.handleInput(a, command(++seq, { fire: true, doubleTap: true }));
@@ -437,46 +485,52 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.equal(verdicts.filter((v) => v.shooterId === String(a.pid) && v.bullet === 2).length, 0, 'no bullet-2 verdict');
     room.respawnPlayer(a, now);
     assert.equal(a.alive, true);
-    assert.equal(room.tickbaseOf(a.pid)?.charge, 0); // Task 7
-    // A death with a non-empty bank, then a respawn: the new life starts empty.
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+    // A death with a partial charge, then a respawn: the new life starts empty.
+    place(a, 20, 20);
     for (let i = 0; i < 5; i++) {
-      room.handleInput(a, command(++seq, {}));
+      room.handleInput(a, command(++seq, { doubleTap: true }));
       stepRoom(room, (now += TICK_MS));
     }
-    assert.ok(room.tickbaseOf(a.pid)!.charge > 0); // Task 7
+    assert.ok(room.tickbaseOf(a.pid)!.charge > 0);
     a.shieldUntil = 0;
     room.damage(a, b, 1000, true, b.weapon, room.eyeOf(b), now);
     assert.equal(a.alive, false);
     room.respawnPlayer(a, now);
-    assert.equal(room.tickbaseOf(a.pid)?.charge, 0); // Task 7
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
   });
 
   it('a tickbase reject becomes a verdict and the command still runs', (t) => {
-    const { room, a, verdicts } = duel();
+    const { room, a, verdicts } = hiddenDuel();
     t.after(() => room.close());
-    room.handleInput(a, { ...command(1, { fire: true, doubleTap: true }), forward: 1 });
+    const d = driver(room, a);
+    for (let i = 0; i < 5; i++) d.tick({ doubleTap: true });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 5, 'a partial charge');
     const z = a.state.z;
-    stepRoom(room, performance.now() + TICK_MS);
+    d.tick({ fire: true, doubleTap: true }, { forward: 1 });
     const tb = verdicts.filter((v) => v.cause === 'tickbase');
     assert.equal(tb.length, 1);
     assert.equal(tb[0]!.reason, 'double tap not charged');
-    assert.equal(a.lastSeq, 1);
+    assert.equal(a.lastSeq, d.seq);
     assert.ok(a.state.z < z, 'the rejected command still moved the player');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'the partial charge is lost');
+    assert.deepEqual(verdicts.filter((v) => v.cause !== 'tickbase').map((v) => v.bullet), [1], 'and it fired a plain shot');
   });
 
-  it('hvhState reports the own tickbase, era and acknowledged command', (t) => {
-    const { room, a } = duel();
+  it('hvhState reports the own tickbase (charge and armed), era and acknowledged command', (t) => {
+    const { room, a } = hiddenDuel();
     t.after(() => room.close());
     const sent: { event: string; data: unknown }[] = [];
     Object.defineProperty(a, 'socket', { value: { emit(event: string, data: unknown) { sent.push({ event, data }); }, to() { return { emit() {} }; }, leave() {}, volatile: { emit() {} } } });
-    room.handleInput(a, command(1, {}));
+    room.handleInput(a, command(1, { doubleTap: true }));
     stepRoom(room, performance.now() + TICK_MS);
-    const state = sent.filter((s) => s.event === 'hvhState').at(-1)?.data as { tickbase: { charge: number }; era: string; lastAckSeq: number }; // Task 7
+    const state = sent.filter((s) => s.event === 'hvhState').at(-1)?.data as { tickbase: { charge: number; armed: boolean }; era: string; lastAckSeq: number };
     assert.ok(state, 'hvhState sent to the owner');
     assert.equal(state.era, LATE_CSGO.id);
-    assert.equal(state.lastAckSeq, 1);
-    assert.equal(state.tickbase.charge, 1); // Task 7
-    assert.ok(!('ticksSinceShift' in state.tickbase), 'no recharge counter is sent'); // Task 7
+    assert.equal(state.lastAckSeq, 1, 'a charge command is acknowledged');
+    assert.equal(state.tickbase.charge, 1);
+    assert.equal(state.tickbase.armed, true);
+    assert.ok(!('ticksSinceShift' in state.tickbase), 'no recharge counter is sent');
   });
 
   it('hvhState reports how many of the owner commands are still queued (for client clock correction)', (t) => {
@@ -536,7 +590,7 @@ describe('HvhRoom v2 tick pipeline', () => {
     p.takeInputToken = () => true;
     const now = performance.now();
     for (let seq = 1; seq <= 20; seq++) {
-      room.handleInput(p, { ...command(seq, { fire: true, doubleTap: true, choke: true } /* Task 7 */), forward: 1 });
+      room.handleInput(p, { ...command(seq, { fire: true, doubleTap: true, choke: true }), forward: 1 });
       stepRoom(room, now + seq * TICK_MS);
     }
     assert.equal(p.lastSeq, 20, 'one command per tick, as always');
@@ -561,3 +615,233 @@ describe('HvhRoom v2 tick pipeline', () => {
     assert.equal(v2.mode.teamKills, true);
   });
 });
+
+describe('charge and burst', () => {
+  const N = LATE_CSGO.chargeTicks;
+
+  it('with DT on and no enemy visible, the commands stop the player dead and fill the charge', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    const at = { x: a.state.x, y: a.state.y, z: a.state.z };
+    for (let i = 1; i <= N; i++) {
+      d.tick({ doubleTap: true }, { forward: 1, right: 1 });
+      assert.deepEqual({ x: a.state.x, y: a.state.y, z: a.state.z }, at, `charge tick ${i}: no movement`);
+      // Acknowledged like any command, so the client's CommandClock sees no backlog.
+      assert.equal(a.lastSeq, d.seq, `charge tick ${i} is acknowledged`);
+      assert.equal(room.queuedCommands(a.pid), 0);
+    }
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N, 'full charge');
+    assert.equal(a.state.horizontalSpeed, 0);
+  });
+
+  it('a charge mid-air freezes the height (no gravity) and resumes the fall afterwards', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    place(a, 20, 20, 2);
+    a.state.vy = -3;
+    const d = driver(room, a);
+    for (let i = 1; i <= N; i++) {
+      d.tick({ doubleTap: true }, { forward: 1 });
+      assert.equal(a.state.y, 2, `charge tick ${i}: y unchanged`);
+      assert.equal(a.state.vy, 0, 'vertical velocity is zeroed');
+    }
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N);
+    d.tick({ doubleTap: true }, { forward: 1 });
+    assert.ok(a.state.y < 2, 'a charged player falls again');
+  });
+
+  it('a DT shot spends the charge: two bullets from the pre-burst eye, then 1 + chargeTicks steps of movement', (t) => {
+    const { room, a, verdicts } = hiddenDuel();
+    t.after(() => room.close());
+    holdDeagle(a);
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    const frame = d.frame({ forward: 1 });
+    const own = walked(room, a, frame, 1);
+    const expected = walked(room, a, frame, 1 + N);
+    const z = a.state.z;
+    room.handleInput(a, { ...command(d.seq + 1, { fire: true, doubleTap: true }), forward: 1 });
+    room.processPlayerTick(String(a.pid), d.now + TICK_MS);
+    // Bullet 2 waits for the end of the tick; it left from the eye after the command's own step.
+    const origin = room.v2State(a.pid)!.pendingBullet?.aim.origin;
+    assert.deepEqual([origin?.x, origin?.z], [own.x, own.z], 'the bullets leave from the pre-burst eye');
+    room.flushPendingBullets(d.now + TICK_MS);
+    const shots = verdicts.filter((v) => v.shooterId === String(a.pid));
+    assert.deepEqual(shots.map((v) => v.bullet), [1, 2], 'two bullet verdicts');
+    assert.ok(shots.every((v) => v.cause !== 'rejected' && v.cause !== 'tickbase'), shots.map((v) => `${v.cause}:${v.reason ?? ''}`).join(', '));
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], [expected.x, expected.y, expected.z], 'the burst is 1 + chargeTicks normal movement steps');
+    assert.ok(z - a.state.z > 1.5, `about ${N} ticks of walking (moved ${z - a.state.z} m)`);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+  });
+
+  it('after the burst every command moves one normal step again (no speed-up)', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    d.tick({ fire: true, doubleTap: true }, { forward: 1 });
+    // DT off: with it on and no enemy in view, these would charge again.
+    for (let i = 0; i < 5; i++) {
+      const next = walked(room, a, d.frame({ forward: 1 }), 1);
+      d.tick({}, { forward: 1 });
+      assert.deepEqual([a.state.x, a.state.z], [next.x, next.z], `command ${i + 1} after the burst: one step`);
+    }
+  });
+
+  it('bursting into a wall stops at the wall (the normal collision)', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    place(a, 20, WALL.maxZ + 1);
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1, right: 0.5 });
+    const expected = walked(room, a, d.frame({ forward: 1, right: 0.5 }), 1 + N);
+    const x = a.state.x;
+    d.tick({ fire: true, doubleTap: true }, { forward: 1, right: 0.5 });
+    assert.deepEqual([a.state.x, a.state.z], [expected.x, expected.z]);
+    assert.ok(a.state.z >= WALL.maxZ + PLAYER.radius - 1e-6, `stopped at the wall (z ${a.state.z})`);
+    assert.ok(a.state.x > x + 0.5, 'and slid along it');
+  });
+
+  it('a burst standing still gives no displacement', (t) => {
+    const { room, a, verdicts } = hiddenDuel();
+    t.after(() => room.close());
+    holdDeagle(a);
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true });
+    const at = [a.state.x, a.state.y, a.state.z];
+    d.tick({ fire: true, doubleTap: true });
+    assert.deepEqual(verdicts.filter((v) => v.shooterId === String(a.pid)).map((v) => v.bullet), [1, 2]);
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], at);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+  });
+
+  it('toggling DT off while charged releases the burst without a shot', (t) => {
+    const { room, a, verdicts } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    const expected = walked(room, a, d.frame({ forward: 1 }), 1 + N);
+    const mag = a.mag;
+    d.tick({}, { forward: 1 });
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], [expected.x, expected.y, expected.z]);
+    assert.equal(verdicts.length, 0, 'no shot');
+    assert.equal(a.mag, mag);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+  });
+
+  it('an enemy coming into view mid-charge cancels it, and that command moves', (t) => {
+    const { room, a, b } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    for (let i = 0; i < 10; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 10);
+    place(b, 25, 20);
+    const expected = walked(room, a, d.frame({ forward: 1 }), 1);
+    d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'the partial charge is lost');
+    assert.deepEqual([a.state.x, a.state.z], [expected.x, expected.z], 'the command ran one normal step');
+    // In view, nothing charges: every command moves.
+    for (let i = 0; i < 5; i++) {
+      const z = a.state.z;
+      d.tick({ doubleTap: true }, { forward: 1 });
+      assert.ok(a.state.z < z);
+      assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+    }
+  });
+
+  it('with DT on and an enemy in view, commands move and never charge', (t) => {
+    const { room, a } = duel();
+    t.after(() => room.close());
+    a.takeInputToken = () => true;
+    const d = driver(room, a);
+    for (let i = 0; i < 10; i++) {
+      const z = a.state.z;
+      d.tick({ doubleTap: true }, { forward: 1 });
+      assert.ok(a.state.z < z, `command ${i + 1} moved the player`);
+    }
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+  });
+
+  it('a teammate in view does not stop the charge', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    const c = addPlayer(room, 'C');
+    c.info.team = 1;
+    room.respawnPlayer(c, performance.now());
+    place(c, 25, 20);
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N);
+  });
+
+  it('death mid-charge, then a respawn, starts at charge 0', (t) => {
+    const { room, a, b } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    for (let i = 0; i < 10; i++) d.tick({ doubleTap: true });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 10);
+    room.damage(a, b, 1000, true, b.weapon, room.eyeOf(b), d.now);
+    assert.equal(a.alive, false);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'death drops the charge');
+    room.respawnPlayer(a, d.now);
+    assert.equal(a.alive, true);
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0, 'the new life starts empty');
+  });
+
+  it('a dead player never bursts: a fire queued with a full charge does nothing', (t) => {
+    const { room, a, b, verdicts } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N);
+    const at = [a.state.x, a.state.y, a.state.z];
+    room.handleFire(a, { shot: 1, weapon: a.weapon, dx: 0, dy: 0, dz: -1, t: d.now, aiming: false, command: d.seq + 1 });
+    d.tick({ fire: true, doubleTap: true }, { forward: 1 }, () => {
+      room.damage(a, b, 1000, true, b.weapon, room.eyeOf(b), d.now);
+    });
+    assert.equal(a.alive, false);
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], at, 'no burst');
+    assert.deepEqual(verdicts.filter((v) => v.shooterId === String(a.pid)).map((v) => [v.cause, v.reason]), [['rejected', 'actions blocked']],
+      'only the pending fire is answered, and nothing fired');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+  });
+
+  it('a moving burst breaks lag compensation: the pre-burst records are lagcompBreak for later enemy shots', (t) => {
+    const { room, a, b, verdicts } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    let bSeq = 0;
+    const bIdle = () => room.handleInput(b, command(++bSeq, {}));
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 }, bIdle);
+    const before = recordOf(room, a.pid);
+    d.tick({}, { forward: 1 }, bIdle); // the release burst
+    const after = recordOf(room, a.pid);
+    assert.ok(Math.hypot(after.position.x - before.position.x, after.position.z - before.position.z) > LATE_CSGO.lagCompBreakHulls * 2 * PLAYER.radius);
+    const history = room.v2State(a.pid)!.history.records();
+    assert.ok(history.slice(0, -1).every((r) => !r.valid && r.invalidCause === 'lagcompBreak'), 'every pre-burst record is invalid');
+    assert.equal(history.at(-1)!.valid, true, 'the post-burst record is valid');
+    // B shoots at where A stood, on the pre-burst tick.
+    const chest = poseMatrix(before, before.pose).boxes.find((x) => x.group === 'chest')!.center;
+    const aim = anglesTo(room.eyeOf(b), chest);
+    d.tick({}, {}, () => room.handleInput(b, { ...command(++bSeq, { fire: true }), yaw: aim.yaw, pitch: aim.pitch, clientTick: before.tick }));
+    const shot = verdicts.find((v) => v.shooterId === String(b.pid));
+    assert.deepEqual([shot?.targetId, shot?.cause, shot?.invalidCause], [String(a.pid), 'invalidRecord', 'lagcompBreak']);
+  });
+
+  it('hide shots: the burst skips the on-shot record', (t) => {
+    const { room, a, verdicts } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ hideShots: true }, { forward: 1 });
+    const last = recordOf(room, a.pid).tick;
+    const z = a.state.z;
+    d.tick({ fire: true, hideShots: true }, { forward: 1 });
+    assert.equal(verdicts.filter((v) => v.shooterId === String(a.pid) && v.bullet === 1 && v.cause !== 'rejected').length, 1, 'the shot fired');
+    assert.equal(verdicts.filter((v) => v.bullet === 2).length, 0, 'hide shots fires one bullet');
+    assert.equal(recordOf(room, a.pid).tick, last, 'no record for the burst tick');
+    assert.ok(z - a.state.z > 1.5, 'the burst moved the player');
+    assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
+  });
+});
+

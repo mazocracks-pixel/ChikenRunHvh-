@@ -404,6 +404,7 @@ export interface InputCommand extends InputFrame {
  */
 export interface HvhStateEvent {
   tick: number;
+  /** The owner's tickbase after lastAckSeq: counter, stored `charge` (0..chargeTicks), `choked` and `armed`. */
   tickbase: TickbaseState;
   era: string;
   lastAckSeq: number;

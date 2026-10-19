@@ -190,7 +190,7 @@ const DESYNC_DEG = 58;
 /** Aim noise, radians (uniform, per axis): the same aim skill for everyone. */
 const AIM_NOISE = 0.01;
 const WEAPON = 'rifle' as const;
-const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false, defensive: false });
+const IDLE: CommandIntent = Object.freeze({ fire: false, choke: false, doubleTap: false, hideShots: false });
 
 /** Per-shooter-config verdict counts and round outcomes (for the report). */
 export interface SweepStats {
@@ -297,7 +297,7 @@ function botCommand(room: HvhRoom, bot: Bot, enemy: ServerPlayer, shotTicks: Sho
   const intent: CommandIntent = { ...IDLE, fire };
   if (fire && config.exploit === 'dt') intent.doubleTap = true;
   if (fire && config.exploit === 'hs') intent.hideShots = true;
-  // Task 7: the 'defensive' config no longer has a tickbase intent to set.
+  // Task 10: the 'defensive' config no longer has a tickbase intent to set.
   if (config.exploit === 'fakelag14' && !fire && bot.held.length < era.maxChoke) intent.choke = true;
   const yaw = aim?.yaw ?? towards;
   const frame: InputFrame & { intent: CommandIntent; clientTick?: number } = {
@@ -359,7 +359,7 @@ function playRoom(a: SweepConfig, b: SweepConfig, rounds: number, seed: number, 
         bot.strafeLeft = 0;
       });
       // R42 'charged': hold until banks fill through ordinary commands (no state writes).
-      const hold = (opts.model ?? 'charged') === 'charged' ? era.chargeTicks : 0; // Task 7
+      const hold = (opts.model ?? 'charged') === 'charged' ? era.chargeTicks : 0; // Task 10
       for (let h = 0; h < hold; h++) {
         tick++;
         const now = CLOCK_BASE + tick * TICK_MS;
@@ -508,7 +508,7 @@ function main(argv: string[]): void {
   if (modelFlag !== 'charged' && modelFlag !== 'spawn') throw new Error('--model is charged or spawn');
   const model: SweepModel = modelFlag;
   const oracle = argv.includes('--oracle');
-  // Task 7: --hs, --def and --recharge tuned era fields the charge model removed.
+  // Task 10: --hs, --def and --recharge tuned era fields the charge model removed.
   const era: EraTable = { ...LATE_CSGO };
   const stats = createStats();
   const started = performance.now();
@@ -523,7 +523,7 @@ function main(argv: string[]): void {
   const seconds = (performance.now() - started) / 1000;
   const balance = checkBalance(m);
   console.log(`HvH v2 balance sweep: ${quick ? 'quick' : 'full'} grid, ${grid.length} configs, ${rounds} rounds per cell, seed ${seed}, model ${model}${oracle ? ' (ORACLE resolver control)' : ''}`);
-  console.log(`era tunables: chargeTicks ${era.chargeTicks}`); // Task 7
+  console.log(`era tunables: chargeTicks ${era.chargeTicks}`); // Task 10
   console.log(`rounds ${stats.rounds}, draws ${pct(stats.draws / stats.rounds)}, mean engagement ${(stats.roundTicks / stats.rounds).toFixed(1)} ticks, runtime ${seconds.toFixed(1)} s`);
   console.log('');
   console.log(summarize(m, grid));

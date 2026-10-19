@@ -5,8 +5,11 @@ import {
   type CommandIntent,
   type TickbaseState,
   EMPTY_TICKBASE,
+  holdForCharge,
+  movementSteps,
   stepTickbase,
 } from '../../src/hvh/v2/tickbase';
+import { createMoveState } from '../../src/physics';
 
 const IDLE: CommandIntent = { fire: false, choke: false, doubleTap: false, hideShots: false };
 const DT: CommandIntent = { ...IDLE, doubleTap: true };
@@ -202,5 +205,21 @@ describe('Tickbase charge and burst (v2)', () => {
     stepTickbase(s, { ...DT, fire: true }, LATE_CSGO, SEEN);
     stepTickbase(s, IDLE, LATE_CSGO, SEEN);
     assert.deepEqual(s, { tickbase: 100, charge: FULL, choked: 3, armed: true });
+  });
+});
+
+describe('charge movement', () => {
+  it('movementSteps: none on a charge tick, 1 + ticks on a burst, one otherwise', () => {
+    assert.equal(movementSteps({ kind: 'charge' }), 0);
+    assert.equal(movementSteps({ kind: 'burst', ticks: FULL, reason: 'release' }), 1 + FULL);
+    for (const action of [{ kind: 'run' }, { kind: 'choke' }, { kind: 'cancel' }, { kind: 'reject', reason: 'dtNotCharged' }] as const) {
+      assert.equal(movementSteps(action), 1, action.kind);
+    }
+  });
+
+  it('holdForCharge zeroes every velocity and keeps the position', () => {
+    const s = { ...createMoveState(1, 2, 3), vx: 1, vy: -4, vz: 2, walkVx: 3, walkVz: -3, horizontalSpeed: 5, onGround: false };
+    holdForCharge(s);
+    assert.deepEqual([s.x, s.y, s.z, s.vx, s.vy, s.vz, s.walkVx, s.walkVz, s.horizontalSpeed], [1, 2, 3, 0, 0, 0, 0, 0, 0]);
   });
 });

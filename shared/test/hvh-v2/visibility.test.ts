@@ -7,8 +7,8 @@ import { enemyVisible } from '../../src/hvh/v2/visibility';
 const EYE = { x: 0, y: 1, z: 0 };
 const ENEMY = { x: 20, y: 0, z: 0, crouch: 0 };
 const WALL: Aabb = { minX: 10, maxX: 11, minY: 0, maxY: 12, minZ: -5, maxZ: 5 };
-const centre = (group: 'head' | 'chest', crouch = 0) =>
-  buildHvhMatrix(ENEMY, 0, 1 - crouch * 0.3).boxes.find(b => b.group === group)!.center;
+const centre = (group: 'head' | 'chest', crouch = 0, yaw = 0) =>
+  buildHvhMatrix(ENEMY, yaw, 1 - crouch * 0.3).boxes.find(b => b.group === group)!.center;
 /** A thin slab just in front of the enemy, covering only `point` (±0.12 m). */
 const cover = (point: { y: number; z: number }): Aabb =>
   ({ minX: 19, maxX: 19.2, minY: point.y - 0.12, maxY: point.y + 0.12, minZ: point.z - 0.12, maxZ: point.z + 0.12 });
@@ -33,6 +33,16 @@ describe('enemyVisible', () => {
     assert.equal(enemyVisible(EYE, [crouched], standing), true);
     const low = new CollisionWorld(200, [cover(centre('head', 1)), cover(centre('chest', 1))]);
     assert.equal(enemyVisible(EYE, [crouched], low), false);
+  });
+  it('the head point follows the enemy yaw (R53)', () => {
+    const turned = { ...ENEMY, yaw: Math.PI };
+    assert.ok(Math.abs(centre('head', 0, Math.PI).z - centre('head').z) > 0.24, 'precondition: turning moves the head out of a 0.24 m slab');
+    // Covering the yaw-0 head and the chest hides a yaw-0 enemy, but not one facing the other way.
+    const yaw0 = new CollisionWorld(200, [cover(centre('head')), cover(centre('chest'))]);
+    assert.equal(enemyVisible(EYE, [ENEMY], yaw0), false);
+    assert.equal(enemyVisible(EYE, [turned], yaw0), true);
+    const yawPi = new CollisionWorld(200, [cover(centre('head', 0, Math.PI)), cover(centre('chest', 0, Math.PI))]);
+    assert.equal(enemyVisible(EYE, [turned], yawPi), false);
   });
   it('a see-through box does not block', () => {
     const world = new CollisionWorld(200, [WALL]);

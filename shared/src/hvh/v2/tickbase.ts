@@ -1,3 +1,4 @@
+import type { MoveState } from '../../physics';
 import type { EraTable } from './era';
 
 export interface TickbaseState {
@@ -101,4 +102,24 @@ export function stepTickbase(
   }
 
   return { next: ran, action: { kind: 'run' } };
+}
+
+/**
+ * Movement steps the command runs for its action, each the normal movement step with the
+ * command's frame: none while charging, 1 + ticks on a burst (R47), one otherwise. Nothing else
+ * ever runs more than one step per command.
+ */
+export function movementSteps(action: TickAction): number {
+  if (action.kind === 'charge') return 0;
+  return action.kind === 'burst' ? 1 + action.ticks : 1;
+}
+
+/**
+ * The charging stop, in place of the movement step: every velocity is zeroed, so the player holds
+ * position with no gravity, even mid-air, and starts the next step from rest.
+ */
+export function holdForCharge(s: MoveState): void {
+  s.vx = s.vy = s.vz = 0;
+  s.walkVx = s.walkVz = 0;
+  s.horizontalSpeed = 0;
 }

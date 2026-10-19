@@ -134,10 +134,11 @@ describe('Shot pipeline (v2)', () => {
     assert.equal(c.resolver.byTarget.size, 0);
   });
 
-  it('invalidRecord: a defensive record', () => {
-    const v = processShot(ctx({}, { history: history((h) => h.markDefensive(97)) }));
+  it('invalidRecord: a record broken by a later teleport (lagcompBreak)', () => {
+    const teleported = history((h) => h.push({ tick: 101, position: { x: 5, y: 0, z: 0 }, pose: POSE, valid: true }));
+    const v = processShot(ctx({}, { history: teleported }));
     assert.equal(v.cause, 'invalidRecord');
-    assert.equal(v.invalidCause, 'defensive');
+    assert.equal(v.invalidCause, 'lagcompBreak');
   });
 
   it('a future view tick is clamped to the current tick', () => {
