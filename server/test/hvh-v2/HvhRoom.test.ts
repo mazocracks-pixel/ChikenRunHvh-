@@ -829,18 +829,75 @@ describe('charge and burst', () => {
     assert.deepEqual([shot?.targetId, shot?.cause, shot?.invalidCause], [String(a.pid), 'invalidRecord', 'lagcompBreak']);
   });
 
+  it('a missing command mid-charge does not coast: a charging player in the air keeps y and vy (R55)', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    place(a, 20, 20, 2);
+    a.state.vy = -3;
+    const d = driver(room, a);
+    for (let i = 0; i < N / 2; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N / 2, 'precondition: a partial charge');
+    for (let i = 0; i < 3; i++) stepRoom(room, d.now + (i + 1) * TICK_MS);
+    assert.equal(a.lastSeq, d.seq, 'no command ran');
+    assert.deepEqual([a.state.x, a.state.y, a.state.z, a.state.vy], [20, 2, 20, 0], 'held: no gravity, no drift');
+  });
+
+  it('a missing command with a full charge or the exploits off coasts as before', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    place(a, 20, 20, 2);
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N);
+    stepRoom(room, d.now + TICK_MS);
+    assert.ok(a.state.y < 2, 'a charged player falls on a missing command');
+  });
+
+  it('an airborne burst is exactly 1 + chargeTicks normal movement steps', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    const d = driver(room, a);
+    d.tick({}, { forward: 1, jump: true });
+    assert.ok(!a.state.onGround && a.state.y > 0, 'precondition: airborne after the jump');
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N);
+    assert.ok(!a.state.onGround, 'precondition: the charge held A in the air');
+    const y = a.state.y;
+    const expected = walked(room, a, d.frame({ forward: 1 }), 1 + N);
+    d.tick({ fire: true, doubleTap: true }, { forward: 1 });
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], [expected.x, expected.y, expected.z]);
+    assert.ok(a.state.y < y, 'gravity runs during the burst steps');
+  });
+
+  it('a burst off a ledge is exactly 1 + chargeTicks normal movement steps, and falls', (t) => {
+    const { room, a } = hiddenDuel();
+    t.after(() => room.close());
+    // A 1 m platform A stands on; its edge is 1.5 m ahead, inside the burst (about 3 m).
+    room.world.add(WALL_ID + 1, { minX: 15, maxX: 25, minY: 0, maxY: 1, minZ: 18.5, maxZ: 22 });
+    place(a, 20, 20, 1);
+    a.state.onGround = true;
+    const d = driver(room, a);
+    for (let i = 0; i < N; i++) d.tick({ doubleTap: true }, { forward: 1 });
+    assert.equal(room.tickbaseOf(a.pid)?.charge, N);
+    assert.equal(a.state.y, 1, 'precondition: standing on the platform');
+    const expected = walked(room, a, d.frame({ forward: 1 }), 1 + N);
+    d.tick({ fire: true, doubleTap: true }, { forward: 1 });
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], [expected.x, expected.y, expected.z]);
+    assert.ok(a.state.z < 18.5 - PLAYER.radius && a.state.y < 1, `the burst left the platform and fell (y ${a.state.y}, z ${a.state.z})`);
+  });
+
   it('hide shots: the burst skips the on-shot record', (t) => {
     const { room, a, verdicts } = hiddenDuel();
     t.after(() => room.close());
     const d = driver(room, a);
     for (let i = 0; i < N; i++) d.tick({ hideShots: true }, { forward: 1 });
     const last = recordOf(room, a.pid).tick;
-    const z = a.state.z;
+    const expected = walked(room, a, d.frame({ forward: 1 }), 1 + N);
     d.tick({ fire: true, hideShots: true }, { forward: 1 });
     assert.equal(verdicts.filter((v) => v.shooterId === String(a.pid) && v.bullet === 1 && v.cause !== 'rejected').length, 1, 'the shot fired');
     assert.equal(verdicts.filter((v) => v.bullet === 2).length, 0, 'hide shots fires one bullet');
     assert.equal(recordOf(room, a.pid).tick, last, 'no record for the burst tick');
-    assert.ok(z - a.state.z > 1.5, 'the burst moved the player');
+    assert.deepEqual([a.state.x, a.state.y, a.state.z], [expected.x, expected.y, expected.z], 'the burst is 1 + chargeTicks normal movement steps');
     assert.equal(room.tickbaseOf(a.pid)?.charge, 0);
   });
 });

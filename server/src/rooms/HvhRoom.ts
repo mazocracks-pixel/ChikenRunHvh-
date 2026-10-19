@@ -104,7 +104,7 @@ import type { ServerPlayer } from './ServerPlayer';
  *   start of the tick), a command charges. A charge command is acknowledged like any other
  *   (lastSeq, so the client's CommandClock backlog keeps draining) and steps the pose (aim works),
  *   but runs no movement step: every velocity is zeroed and position and gravity hold, even
- *   mid-air. A burst
+ *   mid-air; a tick with no command does not coast during a partial charge either (R55). A burst
  *   (a DT / HS shot with a full charge, or DT / HS turned off while full: 'release') runs the
  *   command's own movement step, fires (bullets leave from that pre-burst eye), then runs `ticks`
  *   more normal steps of the same frame (R47: 1 + chargeTicks in all), so it slides along walls
@@ -473,7 +473,9 @@ export class HvhRoom extends GameRoom {
       s.executed++;
       capture = this.runCommand(p, s, command, now) ?? capture;
     }
-    if (s.executed === 0) this.coast(p);
+    // R55: a lost command never applies gravity during the charging stop.
+    const charging = s.tickbase.armed && s.tickbase.charge > 0 && s.tickbase.charge < this.era.chargeTicks;
+    if (s.executed === 0 && !charging) this.coast(p);
     p.simulationTime = now;
     p.weaponHeat = Math.max(0, p.weaponHeat - SIM_DT * 1.5);
     // The legacy resource still times projectile and melee weapons (legacy executeFire).
