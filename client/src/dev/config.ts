@@ -4,16 +4,16 @@ import {
 } from '@game/shared';
 import { defaultLook, type WorldLook } from '../game/look';
 import { storage } from '../ui/dom';
-import { SKEET_GROUPS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
+import { SKEET_PROFILE_IDS, defaultSkeetConfig, type SkeetConfig } from './skeet/model';
 import { HVH_STANCES, sanitizeSkeetAntiAim } from '@game/shared';
 import { NATIVE_FIELDS } from './skeet/nativeFields';
 import { DEFAULT_ERA_ID, ERAS, V2_STANCES } from '@game/shared/hvh/v2';
 
 /**
  * Config schema version. 2 = HvH v2 (tickbase intents), 3 = per-stance v2 anti-aim, 4 = no status box or
- * anti-bruteforce; older configs are migrated.
+ * anti-bruteforce, 5 = weapon profiles keyed by arsenal gun; older configs are migrated.
  */
-export const CONFIG_VERSION = 4;
+export const CONFIG_VERSION = 5;
 
 /** The loadout's core settings the panel keeps. Anti-bruteforce is gone: the panel always sends it off. */
 export type DevCore = Omit<HvhCoreSettings, 'antiBruteforce'>;
@@ -218,7 +218,7 @@ Object.assign(RANGES, {
   'skeet.resolver.missedShots': { min: 0, max: 4, step: 1 },
   'skeet.antiAim.interval': { min: 1, max: 600, step: 1 },
 });
-for (const id of SKEET_GROUPS) {
+for (const id of SKEET_PROFILE_IDS) {
   for (const [key, min, max] of [['minDamage', 1, 100], ['hitchance', 0, 100], ['pointScale', 0, 75]] as const)
     RANGES[`skeet.profiles.${id}.${key}`] = { min, max, step: 1 };
   CHOICES[`skeet.profiles.${id}.bodyAim`] = ['off', 'prefer', 'lethal'];
@@ -336,6 +336,36 @@ const DROPPED: readonly (readonly [version: number, fields: Readonly<Record<stri
   [4, { 'hvh.feedback.targetInfo': true, 'hvh.feedback.shotLog': true, 'skeet.indicators.resolver': true, 'hvh.core.antiBruteforce': true }],
 ];
 
+/** The version-4 weapon groups, with their defaults (before profiles were keyed by arsenal gun). */
+function v4GroupDefaults(): Record<string, Record<string, unknown>> {
+  const base = { enabled: true, minDamage: 20, hitchance: 60, bodyAim: 'lethal', multipoint: true, pointScale: 50, safePoints: true, autoStop: true, autoScope: false };
+  return { general: { ...base }, pistols: { ...base }, rifles: { ...base }, snipers: { ...base, minDamage: 45, hitchance: 75, pointScale: 35, autoScope: true },
+    shotguns: { ...base, minDamage: 25, hitchance: 55, bodyAim: 'prefer' }, smgs: { ...base, minDamage: 12, hitchance: 55 }, heavy: { ...base } };
+}
+
+/**
+ * Version-4 group profiles to arsenal profiles: snipers become ssg08 and scar20, pistols become
+ * deserteagle and r8 (a group whose override was off used the general profile, so that one moves).
+ * Returns the raw config with the arsenal profiles, and each customised group value no profile carries
+ * (and every customised override switch, which is gone).
+ */
+function arsenalProfilesFrom(old: Record<string, unknown>): { raw: Record<string, unknown>; dropped: string[] } {
+  const skeet = old.skeet && typeof old.skeet === 'object' ? old.skeet as Record<string, unknown> : undefined;
+  const groups = skeet?.profiles && typeof skeet.profiles === 'object' ? skeet.profiles as Record<string, unknown> : undefined;
+  if (!skeet || !groups) return { raw: old, dropped: [] };
+  const group = (id: string) => { const g = groups[id]; return g && typeof g === 'object' ? g as Record<string, unknown> : {}; };
+  const source = (id: string) => group(id).enabled === false ? 'general' : id;
+  const sniper = source('snipers'), pistol = source('pistols'), carried = new Set([sniper, pistol]), dropped: string[] = [];
+  for (const [id, defaults] of Object.entries(v4GroupDefaults())) {
+    for (const [key, was] of Object.entries(defaults)) {
+      const saved = group(id)[key];
+      if (saved !== undefined && saved !== was && (key === 'enabled' || !carried.has(id))) dropped.push(`skeet.profiles.${id}.${key}`);
+    }
+  }
+  const profiles = { ssg08: group(sniper), scar20: group(sniper), deserteagle: group(pistol), r8: group(pistol) };
+  return { raw: { ...old, skeet: { ...skeet, profiles } }, dropped };
+}
+
 /** True for a `reset` entry (optionally "<config name>: <path>") that names a kept legacy-only setting. */
 function isLegacyOnly(entry: string): boolean {
   const path = entry.slice(entry.lastIndexOf(': ') + 1).trim();
@@ -349,16 +379,18 @@ function isLegacyOnly(entry: string): boolean {
  * values are kept for legacy rooms. Unreadable values are dropped to defaults by sanitizeConfig.
  * A corrupt or non-object config gives the defaults with every field in `reset`.
  * Before version 3: the single anti-aim base, jitter and desync become all five v2 stances
- * (defensive off). Each customised setting a later version DROPPED is listed in `reset`.
+ * (defensive off). Before version 5: the weapon-group profiles become the four arsenal profiles
+ * (arsenalProfilesFrom). Each customised setting a later version dropped is listed in `reset`.
  */
 export function migrateConfig(old: unknown): { config: DevConfig; reset: string[] } {
   if (!old || typeof old !== 'object' || Array.isArray(old)) return { config: defaultConfig(), reset: leafPaths(defaultConfig()) };
-  const config = sanitizeConfig(old);
   const version = (old as { version?: unknown }).version;
   // Unversioned configs predate version 2.
   const from = typeof version === 'number' && Number.isFinite(version) ? version : 1;
+  const profiles = from < 5 ? arsenalProfilesFrom(old as Record<string, unknown>) : { raw: old, dropped: [] };
+  const config = sanitizeConfig(profiles.raw);
   if (from >= CONFIG_VERSION) return { config, reset: [] };
-  const defaults = defaultConfig(), reset: string[] = [];
+  const defaults = defaultConfig(), reset: string[] = [...profiles.dropped];
   // Version 2 configs were already told about the legacy-only settings.
   if (from < 2) {
     for (const prefix of UNMAPPED) {
@@ -404,7 +436,7 @@ export function presetConfigs(panel: 'lab' | 'skeet' = 'lab'): NamedConfig[] {
   if (panel === 'skeet') {
     const balanced = defaultConfig('skeet'); balanced.rage.aim.enabled = balanced.visuals.esp.enabled = true;
     const scout = structuredClone(balanced); scout.rage.aim.fov = 20; scout.hvh.exploit = 'hideShots';
-    scout.skeet.profiles.snipers.hitchance = 85;
+    scout.skeet.profiles.ssg08.hitchance = 85;
     const aggressive = structuredClone(balanced); aggressive.rage.aim.autoTarget = aggressive.hvh.antiAim.enabled = true;
     aggressive.skeet.antiAim.freestanding = true; aggressive.hvh.exploit = 'doubleTap';
     for (const s of V2_STANCES) aggressive.hvh.v2AntiAim.defensive[s] = { ...aggressive.hvh.v2AntiAim.defensive[s], enabled: true, onPeek: true, yaw: 'flick' };

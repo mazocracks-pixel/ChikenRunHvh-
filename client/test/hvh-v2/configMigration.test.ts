@@ -210,8 +210,6 @@ describe('migrateConfig: no status box or anti-bruteforce (config version 4)', (
     return c;
   }
 
-  it('is version 4', () => assert.equal(CONFIG_VERSION, 4));
-
   it('drops the fields; untouched ones are not listed, customised ones are', () => {
     const quiet = migrateConfig(v3Saved());
     assert.deepEqual(quiet.reset, []);
@@ -316,5 +314,78 @@ describe('panel values reach intents through the shared rules only', () => {
       for (let seq = 1; seq <= 20; seq++) { if (choker.push(frame(seq), 14, false, max).length) break; n++; }
       assert.equal(n, held);
     }
+  });
+});
+
+describe('migrateConfig: weapon profiles keyed by arsenal gun (config version 5)', () => {
+  /** The version-4 group profiles at their defaults (written out, not taken from the code under test). */
+  function v4Profiles(): Record<string, any> {
+    const base = { enabled: true, minDamage: 20, hitchance: 60, bodyAim: 'lethal', multipoint: true, pointScale: 50, safePoints: true, autoStop: true, autoScope: false };
+    return {
+      general: { ...base }, pistols: { ...base }, rifles: { ...base },
+      snipers: { ...base, minDamage: 45, hitchance: 75, pointScale: 35, autoScope: true },
+      shotguns: { ...base, minDamage: 25, hitchance: 55, bodyAim: 'prefer' }, smgs: { ...base, minDamage: 12, hitchance: 55 }, heavy: { ...base },
+    };
+  }
+  function v4Saved(): Record<string, any> {
+    const c = structuredClone(defaultConfig('skeet')) as unknown as Record<string, any>;
+    c.version = 4;
+    c.skeet.profiles = v4Profiles();
+    return c;
+  }
+
+  it('is version 5', () => assert.equal(CONFIG_VERSION, 5));
+
+  it('an untouched version-4 config migrates silently to the arsenal defaults', () => {
+    const { config, reset } = migrateConfig(v4Saved());
+    assert.deepEqual(reset, []);
+    assert.deepEqual(Object.keys(config.skeet.profiles), ['ssg08', 'scar20', 'deserteagle', 'r8']);
+    assert.deepEqual(config.skeet.profiles, defaultConfig('skeet').skeet.profiles);
+  });
+
+  it('snipers become ssg08 and scar20, pistols become deserteagle and r8; other groups are listed as dropped', () => {
+    const old = v4Saved();
+    Object.assign(old.skeet.profiles.snipers, { hitchance: 88, minDamage: 61, safePoints: false, autoScope: false });
+    Object.assign(old.skeet.profiles.pistols, { minDamage: 33, bodyAim: 'prefer' });
+    old.skeet.profiles.rifles.hitchance = 10;
+    old.skeet.profiles.smgs.autoStop = false;
+    old.skeet.profiles.general.pointScale = 70;
+    const { config, reset } = migrateConfig(old);
+    for (const id of ['ssg08', 'scar20'] as const) {
+      assert.equal(config.skeet.profiles[id].hitchance, 88, id);
+      assert.equal(config.skeet.profiles[id].minDamage, 61, id);
+      assert.equal(config.skeet.profiles[id].safePoints, false, id);
+      assert.equal(config.skeet.profiles[id].autoScope, false, id);
+    }
+    for (const id of ['deserteagle', 'r8'] as const) {
+      assert.equal(config.skeet.profiles[id].minDamage, 33, id);
+      assert.equal(config.skeet.profiles[id].bodyAim, 'prefer', id);
+    }
+    assert.deepEqual([...reset].sort(), ['skeet.profiles.general.pointScale', 'skeet.profiles.rifles.hitchance', 'skeet.profiles.smgs.autoStop']);
+    assert.match(migrationNotice(reset), /Reset to defaults: .*skeet\.profiles\.rifles\.hitchance/);
+    assert.deepEqual(migrateConfig(JSON.parse(JSON.stringify(config))).reset, [], 'migrated once');
+  });
+
+  it('a group that fell back to the general profile carries the general values, and the override switch is listed', () => {
+    const old = v4Saved();
+    old.skeet.profiles.snipers.enabled = false;
+    old.skeet.profiles.snipers.hitchance = 99; // unused while the override was off
+    old.skeet.profiles.general.hitchance = 44;
+    const { config, reset } = migrateConfig(old);
+    assert.equal(config.skeet.profiles.ssg08.hitchance, 44);
+    assert.equal(config.skeet.profiles.scar20.hitchance, 44);
+    assert.equal(config.skeet.profiles.deserteagle.hitchance, 60, 'pistols kept their own profile');
+    assert.ok(reset.includes('skeet.profiles.snipers.enabled'));
+    assert.ok(reset.includes('skeet.profiles.snipers.hitchance'));
+    assert.ok(!reset.includes('skeet.profiles.general.hitchance'), 'general was carried over');
+  });
+
+  it('unreadable old profile values are dropped to the new defaults', () => {
+    const old = v4Saved();
+    old.skeet.profiles.snipers.hitchance = 'high';
+    old.skeet.profiles.pistols.minDamage = 999;
+    const { config } = migrateConfig(old);
+    assert.equal(config.skeet.profiles.ssg08.hitchance, defaultConfig('skeet').skeet.profiles.ssg08.hitchance);
+    assert.equal(config.skeet.profiles.r8.minDamage, 100);
   });
 });
