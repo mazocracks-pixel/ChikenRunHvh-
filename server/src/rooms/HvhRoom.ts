@@ -48,7 +48,7 @@ import {
   RecordHistory,
   collisionWorldTracer,
   createResolverMemory,
-  enemyVisible,
+  SightMemo,
   hammerTicks,
   stepHammerHold,
   snapshotSightTargets,
@@ -296,6 +296,8 @@ export interface HvhPlayerV2 {
   hammerHold: number;
   /** The gun the hold started on (a switch restarts the pull). */
   hammerWeapon: WeaponId | null;
+  /** This player's last sight trace (enemyInSight), reused while nothing it reads has changed. */
+  sightMemo: SightMemo;
   /** Loadout changes (buy): 2 at once (a main and a pistol), then 4 per second. */
   buyLimiter: TokenBucket;
   /** Server tick of the newest pushed record. */
@@ -462,6 +464,7 @@ export class HvhRoom extends GameRoom {
         hammerHold: 0,
         hammerWeapon: null,
         buyLimiter: new TokenBucket(2, 4),
+        sightMemo: new SightMemo(),
         lastRecordTick: -Infinity,
         publicState: null,
         sentSight: [],
@@ -726,14 +729,14 @@ export class HvhRoom extends GameRoom {
    */
   private enemyInSight(p: ServerPlayer, s: HvhPlayerV2, sightT: number | undefined, now: number): boolean {
     const sent = sightT === undefined ? null : this.sentSightAt(s, sightT, now);
-    if (sent) return enemyVisible(this.eyeOf(p), sent, this.world);
+    if (sent) return s.sightMemo.visible(this.eyeOf(p), sent, this.world);
     const enemies: SightTarget[] = [];
     for (const q of this.players.values()) {
       if (q === p || !q.alive || this.areTeammates(p, q)) continue;
       const target = this.sightTargets.get(q.pid);
       if (target) enemies.push(target);
     }
-    return enemyVisible(this.eyeOf(p), enemies, this.world);
+    return s.sightMemo.visible(this.eyeOf(p), enemies, this.world);
   }
 
   /** Sight can change the tickbase action: an exploit on, not firing, below a full charge (stepTickbase rules 4 and 5). */

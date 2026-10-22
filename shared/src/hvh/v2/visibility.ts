@@ -49,3 +49,42 @@ export function enemyVisible(eye: Vec3, enemies: readonly SightTarget[], world: 
   }
   return false;
 }
+
+/**
+ * One viewer's last enemyVisible, kept for the next call (M6): the same eye, the same targets (by
+ * value, Object.is) and the same world (unchanged CollisionWorld.revision; player clips are fixed
+ * with the map) give the same answer, so a player standing still against still enemies (a choke
+ * batch, the on-peek watch every command) traces once. Answers are exactly enemyVisible's.
+ */
+export class SightMemo {
+  private eye: Vec3 | null = null;
+  private targets: SightTarget[] = [];
+  private world: CollisionWorld | null = null;
+  private revision = -1;
+  private result = false;
+  /** enemyVisible calls made (tests and profiling). */
+  traces = 0;
+
+  visible(eye: Vec3, enemies: readonly SightTarget[], world: CollisionWorld): boolean {
+    if (this.eye && this.world === world && this.revision === world.revision && sameVec(this.eye, eye) && sameTargets(this.targets, enemies)) return this.result;
+    this.traces++;
+    this.eye = { x: eye.x, y: eye.y, z: eye.z };
+    this.targets = enemies.map((e) => ({ ...e }));
+    this.world = world;
+    this.revision = world.revision;
+    return (this.result = enemyVisible(eye, enemies, world));
+  }
+}
+
+function sameVec(a: Vec3, b: Vec3): boolean {
+  return Object.is(a.x, b.x) && Object.is(a.y, b.y) && Object.is(a.z, b.z);
+}
+
+function sameTargets(a: readonly SightTarget[], b: readonly SightTarget[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const p = a[i]!, q = b[i]!;
+    if (!sameVec(p, q) || !Object.is(p.crouch, q.crouch) || !Object.is(p.yaw ?? 0, q.yaw ?? 0)) return false;
+  }
+  return true;
+}

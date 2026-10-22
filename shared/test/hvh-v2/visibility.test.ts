@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CollisionWorld, type Aabb } from '../../src/collision';
 import { buildHvhMatrix } from '../../src/hvh/geometry';
-import { enemyVisible, snapshotSightTargets } from '../../src/hvh/v2/visibility';
+import { SightMemo, enemyVisible, snapshotSightTargets, type SightTarget } from '../../src/hvh/v2/visibility';
 import { packPlayer, unpackPlayer } from '../../src/protocol';
 
 const EYE = { x: 0, y: 1, z: 0 };
@@ -72,5 +72,45 @@ describe('snapshotSightTargets (R56)', () => {
     const targets = snapshotSightTargets(packed, (pid) => pid !== 1 && pid !== 4);
     assert.deepEqual(targets, [{ x: s2.x, y: s2.y, z: s2.z, crouch: s2.crouchAmount, yaw: s2.yaw }]);
     assert.equal(targets[0]!.crouch, 0.5);
+  });
+});
+
+describe('SightMemo (M6)', () => {
+  it('answers exactly as enemyVisible over a seeded mix of repeated and changed queries', () => {
+    let seed = 12345;
+    const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32);
+    const world = new CollisionWorld(200, [WALL, cover(centre('head'))]);
+    const memo = new SightMemo();
+    let eye = { ...EYE };
+    let enemies: SightTarget[] = [{ ...ENEMY }];
+    let calls = 0;
+    for (let i = 0; i < 400; i++) {
+      const r = rand();
+      if (r < 0.15) eye = { x: rand() * 8 - 4, y: 1, z: rand() * 8 - 4 };
+      else if (r < 0.3) enemies = [{ x: 12 + rand() * 10, y: 0, z: rand() * 10 - 5, crouch: rand() < 0.5 ? 0 : 1, yaw: rand() * 6 }];
+      else if (r < 0.35) enemies = [...enemies, { x: 30, y: 0, z: rand() * 4, crouch: 0 }];
+      else if (r < 0.38) world.add(100 + i, { minX: 5, maxX: 6, minY: 0, maxY: 3, minZ: -1, maxZ: 1 });
+      else if (r < 0.41) world.remove(100 + i - 3);
+      // Same values in fresh objects (as each tick's snapshot builds them).
+      const fresh = enemies.map((e) => ({ ...e }));
+      assert.equal(memo.visible({ ...eye }, fresh, world), enemyVisible(eye, fresh, world), `query ${i}`);
+      calls++;
+    }
+    assert.ok(memo.traces < calls / 2, `repeats are answered from the memo (${memo.traces} traces for ${calls} queries)`);
+  });
+
+  it('a changed world, eye, crouch or yaw traces again', () => {
+    const world = new CollisionWorld(200);
+    const memo = new SightMemo();
+    assert.equal(memo.visible(EYE, [ENEMY], world), true);
+    assert.equal(memo.traces, 1);
+    assert.equal(memo.visible(EYE, [{ ...ENEMY }], world), true);
+    assert.equal(memo.traces, 1, 'same values: no trace');
+    world.add(1, WALL);
+    assert.equal(memo.visible(EYE, [ENEMY], world), false, 'the wall added since is seen');
+    memo.visible({ ...EYE, x: 0.5 }, [ENEMY], world);
+    memo.visible({ ...EYE, x: 0.5 }, [{ ...ENEMY, crouch: 1 }], world);
+    memo.visible({ ...EYE, x: 0.5 }, [{ ...ENEMY, crouch: 1, yaw: 1 }], world);
+    assert.equal(memo.traces, 5);
   });
 });

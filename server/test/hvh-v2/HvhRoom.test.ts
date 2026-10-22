@@ -1017,6 +1017,22 @@ describe('per-stance anti-aim and defensive patterns', () => {
     near(offsetOf(room, a.pid), -120, 'the second window flicks -120');
   });
 
+  it('the on-peek watch traces once while nothing moves, and again as soon as the enemy does (M6)', (t) => {
+    const { room, a, b, d } = peekDuel();
+    t.after(() => room.close());
+    d.tick({});
+    const memo = room.v2State(a.pid)!.sightMemo;
+    const first = memo.traces;
+    assert.ok(first >= 1, 'precondition: the watch traces');
+    for (let i = 0; i < 30; i++) d.tick({});
+    assert.equal(memo.traces, first, 'standing still against a still enemy: the last trace answers');
+    assert.equal(room.v2State(a.pid)!.peek.at(-1), 0, 'hidden: no window');
+    place(b, 25, 20);
+    d.tick({});
+    assert.equal(memo.traces, first + 1, 'the enemy moved: traced again');
+    assert.equal(room.v2State(a.pid)!.peek.at(-1), PEEK_TICKS, 'and the window opens on that command, as without the memo');
+  });
+
   it('the on-peek flick fires on the first FLICK_TICKS window commands at every tickbase alignment', (t) => {
     for (const align of [0, 2, 4, 6]) {
       const { room, a, b, d } = peekDuel();
