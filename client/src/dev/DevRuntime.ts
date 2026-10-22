@@ -60,7 +60,12 @@ export class DevRuntime implements DevHooks {
   private policyValue: DevConfig | undefined;
   private readonly binds = h('div', { class: 'skeet-binds', 'aria-label': 'Active panel binds' });
   private readonly watermark = h('div', { class: 'skeet-watermark' });
-  diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' };
+  /**
+   * The ragebot's last gate readout (estimated damage, hit chance %, and why it is or is not firing).
+   * Nothing renders it since the Telemetry panel went; it is kept on purpose as the observable the
+   * gate tests (hvh-runtime.test.ts) pin and for a debug overlay.
+   */
+  diagnostics = { damage: 0, chance: 0, state: 'Idle' };
 
   constructor(private readonly dev: Dev) {
     this.overlay = new DevOverlay(dev);
@@ -106,7 +111,7 @@ export class DevRuntime implements DevHooks {
     this.coreResolver.clear(); this.coreTarget = null; this.coreReady = this.coreScoped = false; this.coreScanAt = -Infinity; this.coreShot = undefined;
     this.peekForecast = null; this.peekForecastAt = this.autoStopShotAt = -Infinity; this.autoStopText = 'Inactive';
     this.binds.hidden = this.watermark.hidden = true; this.dev.input.assistedAds = false;
-    this.diagnostics = { target: 'No target', damage: 0, chance: 0, state: 'Idle' };
+    this.diagnostics = { damage: 0, chance: 0, state: 'Idle' };
   }
   applyServerMods(): void {
     if (!this.session) return;
@@ -318,7 +323,7 @@ export class DevRuntime implements DevHooks {
       this.coreTarget = next; this.pid = next?.target ?? 0;
     }
     const target = this.coreTarget;
-    if (!target) { this.coreReady = false; this.coreScoped = false; this.diagnostics = { target: 'No valid candidate', damage: 0, chance: 0, state: this.peekForecast ? 'Preparing for predicted peek' : 'Scanning' }; return; }
+    if (!target) { this.coreReady = false; this.coreScoped = false; this.diagnostics = { damage: 0, chance: 0, state: this.peekForecast ? 'Preparing for predicted peek' : 'Scanning' }; return; }
     const bodyRule = this.playerRule(target.target).body;
     if (bodyRule && target.group === 'head') { this.coreReady = false; this.coreScanAt = -Infinity; return; }
     this.coreScoped = session.weapons.def.scope && (this.coreScoped || target.scope);
@@ -328,7 +333,7 @@ export class DevRuntime implements DevHooks {
     const stopLimit = stop.kind === 'slowwalk' ? PLAYER.speed*moveSpeedFor(session.weapons.weapon)*PLAYER.slowWalkSpeed+0.1 : 0.5;
     this.coreReady = stable && !target.scope && !target.stop && (stop.kind === 'off' || session.horizontalSpeed() <= stopLimit);
     // Both manual and automatic assisted shots use shot angles; the view stays under player control.
-    this.diagnostics = { target: session.remotes.players.get(target.target)?.info.name ?? 'Opponent', damage: Math.round(target.damage),
+    this.diagnostics = { damage: Math.round(target.damage),
       chance: Math.round(target.chance * 100), state: target.scope ? 'Scoping' : !stable ? 'Acquiring target' : this.coreReady ? 'Ready' : stop.kind==='slowwalk' ? 'Slow walking for accuracy' : 'Waiting for accuracy' };
   }
   recoilScale(): number { return 1; }
