@@ -99,7 +99,7 @@ import {
 import type { Network } from '../net/Network';
 import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
 import { SmoothedPitch, SmoothedYaw, SpectateTarget } from '../hvh/Spectate';
-import { LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
+import { HVH_ROUNDS, LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog, initHvhV2Ui } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
 import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
@@ -410,6 +410,8 @@ export class GameSession {
     for (const s of join.smokes) this.onSmoke(s);
 
     ctx.hud.setRoom(join.room);
+    // Only v2 HvH rooms with rounds send a round on join.
+    if (this.mode.id === 'hvh' && join.round) ctx.hud.setRoundsRule(HVH_ROUNDS);
     ctx.hud.setVisible(true);
     if (this.mode.wallhack) ctx.hud.toast('HvH: everyone sees enemies through walls', 'bad');
     if (this.mode.bomb) ctx.hud.toast(this.self.team === 1 ? 'You are chikenT: plant the bomb on A or B' : 'You are chikenCT: stop the bomb, defuse it with E', 'info');
