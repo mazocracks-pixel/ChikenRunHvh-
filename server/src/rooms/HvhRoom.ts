@@ -1263,6 +1263,8 @@ export class HvhRoom extends GameRoom {
     s.queue.length = 0;
     s.budget = this.era.maxProcessTicks;
     s.silentTicks = 0;
+    s.hammerHold = 0;
+    s.hammerWeapon = null;
     s.tickbase = EMPTY_TICKBASE(this.hvhTick);
     s.pose = INITIAL_POSE;
     s.history = new RecordHistory(this.era, PLAYER_HULL_WIDTH);

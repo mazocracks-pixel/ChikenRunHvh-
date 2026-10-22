@@ -175,6 +175,22 @@ describe('R8 hammer on the server (I1)', () => {
     assert.deepEqual(shots().map((v) => v.reason ?? v.cause), ['hit', 'hammer']);
   });
 
+  it('a pull does not survive death: the first R8 shot of a new life needs its own pull (M1)', (t) => {
+    const { room, a, b, tick, aimAtChest, shots } = r8Duel();
+    t.after(() => room.close());
+    for (let i = 0; i < HAMMER; i++) tick({ trigger: true }, aimAtChest());
+    room.damage(a, b, 1000, false, 'world', { x: 0, y: 0, z: 0 }, performance.now());
+    assert.equal(a.alive, false);
+    for (let i = 0; i < 400 && !a.alive; i++) tick(null);
+    assert.ok(a.alive, 'respawned');
+    assert.equal(room.v2State(a.pid)!.hammerHold, 0);
+    place(a, 20, 20);
+    a.shieldUntil = b.shieldUntil = 0;
+    hold(a, 'r8');
+    tick({ fire: true }, aimAtChest());
+    assert.deepEqual(shots().map((v) => [v.cause, v.reason]), [['rejected', 'hammer']]);
+  });
+
   it('other guns fire on the press', (t) => {
     const { room, a, tick, aimAtChest, shots } = r8Duel();
     t.after(() => room.close());
