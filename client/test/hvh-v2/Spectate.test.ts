@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { SPECTATE_MAX_TURN, SmoothedYaw, SpectateTarget, livingTeammates, type SpectateCandidate } from '../../src/hvh/Spectate';
+import { SPECTATE_MAX_TURN, SPECTATE_PITCH_BAND, SmoothedPitch, SmoothedYaw, SpectateTarget, livingTeammates, type SpectateCandidate } from '../../src/hvh/Spectate';
 
 const P = (pid: number, team: number, alive = true): SpectateCandidate => ({ pid, team, alive });
 
@@ -103,5 +103,35 @@ describe('spectate view smoothing (anti-aim jitter)', () => {
       prev = now;
     }
     assert.ok(Math.abs(wrap(now - -170 * DEG)) < 1 * DEG, 'settles on the new yaw, the short way round');
+  });
+});
+
+describe('spectate view pitch (M2: defensive pitch flicks)', () => {
+  const DT = 1 / 64;
+  const DEG = Math.PI / 180;
+
+  it('snaps to the first pitch inside the calm band, and again after a reset', () => {
+    const p = new SmoothedPitch();
+    assert.equal(p.step(10 * DEG, DT), 10 * DEG);
+    p.reset();
+    assert.equal(p.step(-89 * DEG, DT), -SPECTATE_PITCH_BAND, 'clamped to the band');
+  });
+
+  it('a 4-tick flick to +-89 deg every 4 ticks keeps the view calm and inside the band', () => {
+    const p = new SmoothedPitch();
+    const out: number[] = [];
+    for (let i = 0; i < 256; i++) out.push(p.step((Math.floor(i / 4) % 2 === 0 ? 89 : -89) * DEG, DT));
+    assert.ok(out.every((v) => Math.abs(v) <= SPECTATE_PITCH_BAND + 1e-9));
+    const settled = out.slice(128);
+    const spread = Math.max(...settled) - Math.min(...settled);
+    assert.ok(spread < 5 * DEG, `the view swings ${spread / DEG} deg`);
+  });
+
+  it('a real look up or down inside the band is followed', () => {
+    const p = new SmoothedPitch();
+    p.step(0, DT);
+    let v = 0;
+    for (let i = 0; i < 128; i++) v = p.step(-15 * DEG, DT);
+    assert.ok(Math.abs(v - -15 * DEG) < 0.5 * DEG);
   });
 });

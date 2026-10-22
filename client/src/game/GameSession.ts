@@ -98,7 +98,7 @@ import {
 } from '@game/shared';
 import type { Network } from '../net/Network';
 import { CommandClock, NO_SIGHT, TickClock, commandIntent, shotReference } from '../hvh/PredictedTickbase';
-import { SmoothedYaw, SpectateTarget } from '../hvh/Spectate';
+import { SmoothedPitch, SmoothedYaw, SpectateTarget } from '../hvh/Spectate';
 import { LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog, initHvhV2Ui } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
@@ -291,6 +291,7 @@ export class GameSession {
   /** v2 HvH rounds (R63): the living teammate a dead player watches. */
   private readonly spectate = new SpectateTarget();
   private readonly spectateYaw = new SmoothedYaw();
+  private readonly spectatePitch = new SmoothedPitch();
   private spectated: RemotePlayer | null = null;
   private lastResultsKey = '';
   /** First-person gun, attached to the camera. */
@@ -2057,11 +2058,12 @@ export class GameSession {
     if (next !== before) {
       this.ctx.hud.toast(`Spectating ${next.info.name}`);
       this.spectateYaw.reset();
+      this.spectatePitch.reset();
     }
     // First person: inside their chicken, so hide the body. HvH third person keeps the camera behind them: show it.
     next.chicken.setBodyVisible(this.rig.hvhThirdPerson);
-    // Their eye yaw is anti-aimed: smoothed, so jitter does not shake the view.
-    this.rig.follow(next.position, this.spectateYaw.step(next.yaw, dt), next.latest?.pitch ?? 0, 1, dt, true, false, next.scale);
+    // Their eye yaw and pitch are anti-aimed: smoothed (the pitch kept near level), so jitter and flicks do not shake the view.
+    this.rig.follow(next.position, this.spectateYaw.step(next.yaw, dt), this.spectatePitch.step(next.latest?.pitch ?? 0, dt), 1, dt, true, false, next.scale);
     return true;
   }
 

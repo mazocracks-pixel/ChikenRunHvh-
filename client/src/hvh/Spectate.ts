@@ -88,3 +88,31 @@ export class SmoothedYaw {
     return this.yaw;
   }
 }
+
+/** The spectate view's pitch stays within this of level, radians (defensive pitch snaps to +-89 deg). */
+export const SPECTATE_PITCH_BAND = (30 * Math.PI) / 180;
+/** Time constant of the spectate view's pitch smoothing, seconds (pitch flicks come in 4-tick bursts). */
+export const SPECTATE_PITCH_TAU = 0.5;
+
+/**
+ * The spectate camera's pitch (M2). The public pitch is anti-aimed too ('down', 'random' and
+ * 'jitter' windows snap it to +-89 deg for a few ticks), so the target is clamped to a calm band
+ * around level, then eased like the yaw (SPECTATE_PITCH_TAU, at most SPECTATE_MAX_TURN).
+ */
+export class SmoothedPitch {
+  private pitch: number | null = null;
+
+  /** A new teammate: the next step snaps to their pitch. */
+  reset(): void {
+    this.pitch = null;
+  }
+
+  step(target: number, dt: number): number {
+    const calm = Math.max(-SPECTATE_PITCH_BAND, Math.min(SPECTATE_PITCH_BAND, target));
+    if (this.pitch === null) return (this.pitch = calm);
+    const delta = (calm - this.pitch) * (1 - Math.exp(-Math.max(0, dt) / SPECTATE_PITCH_TAU));
+    const limit = SPECTATE_MAX_TURN * Math.max(0, dt);
+    this.pitch += Math.max(-limit, Math.min(limit, delta));
+    return this.pitch;
+  }
+}
