@@ -76,6 +76,21 @@ export class HvhBuyModel {
     }
     return category;
   }
+
+  /**
+   * The server refused a pick: show what the player really carries (`loadout`, from playerUpdated).
+   * The saved pick stays, so the next buy window asks for it again. Returns whether anything changed.
+   */
+  sync(loadout: readonly string[]): boolean {
+    let next = this.pickState;
+    for (const id of loadout) {
+      const category = categoryOf(id);
+      if (category && next[category] !== id) next = { ...next, [category]: id as WeaponId };
+    }
+    if (next === this.pickState) return false;
+    this.pickState = next;
+    return true;
+  }
 }
 
 /** Keys typed into chat (or any text field) are not menu keys. */
@@ -188,6 +203,11 @@ export class HvhBuyMenu {
   dispose(): void {
     this.setOpen(false);
     this.root.remove();
+  }
+
+  /** The server refused a pick: the cards show the loadout the player kept. */
+  sync(loadout: readonly string[]): void {
+    if (this.model.sync(loadout)) this.render();
   }
 
   private pick(id: WeaponId): void {

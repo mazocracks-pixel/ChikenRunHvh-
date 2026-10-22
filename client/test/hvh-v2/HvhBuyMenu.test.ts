@@ -47,6 +47,21 @@ describe('HvhBuyModel', () => {
       { main: 'ssg08', pistol: 'deserteagle' });
   });
 
+  it('a refused pick re-syncs the selection from the loadout the server kept, without forgetting the saved pick (M4)', () => {
+    const store = memoryStore();
+    const model = new HvhBuyModel(store);
+    model.pick('scar20');
+    model.pick('r8');
+    // The server refused both (picking too fast): the player still carries SSG 08 + Desert Eagle.
+    assert.equal(model.sync(['ssg08', 'deserteagle']), true);
+    assert.deepEqual(model.selected, { main: 'ssg08', pistol: 'deserteagle' });
+    assert.equal(model.sync(['ssg08', 'deserteagle']), false, 'already in sync');
+    // Not a loadout from the arsenal (legacy kit, empty): the selection is left alone.
+    assert.equal(model.sync(['pistol', 'knife']), false);
+    assert.deepEqual(model.selected, { main: 'ssg08', pistol: 'deserteagle' });
+    assert.deepEqual(new HvhBuyModel(store).selected, { main: 'scar20', pistol: 'r8' }, 'the next window retries the saved pick');
+  });
+
   it('the passive freeze menu leaves the weapon slot keys to the game; the opened menu picks with them (Minor 9)', () => {
     for (const key of ['1', '2', '3', '4']) {
       assert.equal(menuKey({ key, code: `Digit${key}` }, true, 4), null, `passive ${key}`);

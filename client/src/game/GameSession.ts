@@ -1477,12 +1477,16 @@ export class GameSession {
 
   private sendHvhPicks(): void {
     const { main, pistol } = this.hvhBuy!.model.selected;
-    for (const id of [main, pistol]) this.ctx.net.socket.emit('buy', id, () => {});
+    // A refusal (window closed, picking too fast) leaves the loadout as it was: the menu shows that.
+    for (const id of [main, pistol]) this.ctx.net.socket.emit('buy', id, (res) => {
+      if (!res.ok) this.hvhBuy?.sync(this.weapons.loadout);
+    });
   }
 
   private hvhPick(id: WeaponId): void {
     this.ctx.net.socket.emit('buy', id, (res) => {
       if (!res.ok) {
+        this.hvhBuy?.sync(this.weapons.loadout);
         this.hvhBuy?.say(res.error ?? 'You can’t pick that.', true);
         this.ctx.audio.play('empty');
         return;
