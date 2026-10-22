@@ -28,6 +28,8 @@ export interface Settings {
   /** Multiplier on the base drag-to-look speed on touch screens. */
   touchSensitivity: number;
   invertY: boolean;
+  /** Scroll the wheel the other way to go through your weapons. */
+  invertScroll: boolean;
   /** Play matches full screen; in Chrome / Edge that also stops Ctrl+W (crouch + forward) closing the tab. */
   fullscreen: boolean;
   quality: Quality;
@@ -86,6 +88,7 @@ export function defaultSettings(): Settings {
     zoomSensitivity: 1,
     touchSensitivity: 1,
     invertY: false,
+    invertScroll: false,
     // On by default only where it fixes Ctrl+W (Keyboard Lock); never on touch screens.
     fullscreen: keyboardLockSupported() && !prefersLowPower(),
     quality: prefersLowPower() ? 'medium' : 'high',
@@ -110,6 +113,7 @@ function sanitize(raw: Partial<Settings> | null): Settings {
     zoomSensitivity: num(raw.zoomSensitivity, d.zoomSensitivity, L.zoomSensitivity.min, L.zoomSensitivity.max),
     touchSensitivity: num(raw.touchSensitivity, d.touchSensitivity, L.sensitivity.min, L.sensitivity.max),
     invertY: raw.invertY === true,
+    invertScroll: raw.invertScroll === true,
     fullscreen: typeof raw.fullscreen === 'boolean' ? raw.fullscreen : d.fullscreen,
     quality: pick(raw.quality, ['low', 'medium', 'high'], d.quality),
     fov: num(raw.fov, d.fov, L.fov.min, L.fov.max),

@@ -69,6 +69,11 @@ export function nightLook(): WorldLook {
 }
 
 /** Mirage: hard desert sun, a weaker sky fill (it washed the stone out) and a long view. */
+/** The title screen and shop on Mirage: a clear, warm late-afternoon sky. */
+export function menuLook(): WorldLook {
+  return { ...desertLook(), zenith: '#2b74cf', horizon: '#a9cfee', sunColor: '#ffd9a8', clouds: 0.5 };
+}
+
 export function desertLook(): WorldLook {
   return {
     ...defaultLook(),

@@ -9,7 +9,7 @@ import { CrosshairView } from './Crosshair';
 import { clear, formatTime, h, hex } from './dom';
 import { Radar } from './Radar';
 import { roundsObjective, scoreTarget, warmupBanner, type RoundsRule } from './hvh/roundsText';
-import { GRENADE_NAMES, grenadeCount, nextGrenade, weaponHotkey, weaponIndexForKey, type HeldGrenade, type GrenadeStock } from '../game/weaponSlots';
+import { GRENADE_NAMES, grenadeCount, weaponHotkey, weaponIndexForKey, type HeldGrenade, type GrenadeStock } from '../game/weaponSlots';
 
 const KILLFEED_MS = 6000;
 
@@ -120,6 +120,7 @@ export class Hud {
   private readonly ammo = h('div', { class: 'ammo' });
   private readonly reloadBar = h('div', { class: 'reload-bar' }, h('div'));
   private readonly slots = h('div', { class: 'weapon-slots' });
+  private slotsTimer = 0;
   private readonly grenades = h('div', { class: 'grenades' });
   /** Big moments in the middle of the screen ("BOMB PLANTED"). */
   private readonly announcer = h('div', { class: 'announce', hidden: true });
@@ -307,9 +308,17 @@ export class Hud {
         const id = loadout[i];
         if (id) this.slots.append(h('div', { class: `slot${!grenade && bomb !== 'out' && i === slot ? ' active' : ''}` }, icon(shapeSvg(weaponShape(id)), WEAPONS[id].name), h('span', null, WEAPONS[id].name), h('kbd', null, n)));
       }
-      const kind = grenade ?? nextGrenade(null, stock);
-      if (kind) this.slots.append(h('div', { class: `slot${grenade && bomb !== 'out' ? ' active' : ''}`, title: 'Press 4 again to cycle grenades' }, drawnIcon(kind === 'smoke' ? 'grenade' : kind), h('span', null, GRENADE_NAMES[kind]), h('kbd', null, '4')));
-      if (bomb) this.slots.append(h('div', { class: `slot bomb-slot${bomb === 'out' ? ' active' : ''}`, title: 'Hold fire (or E) on a site to plant' }, drawnIcon('bomb'), h('span', null, 'C4'), h('kbd', null, '5')));
+      // Slot 4: every grenade you carry, with how many (two flashbangs: x2).
+      for (const kind of ['egg', 'smoke', 'flash'] as const) {
+        const count = grenadeCount(kind, stock);
+        if (count <= 0) continue;
+        this.slots.append(h('div', { class: `slot${grenade === kind && bomb !== 'out' ? ' active' : ''}`, title: 'Press 4 again for the next grenade' }, drawnIcon(kind === 'smoke' ? 'grenade' : kind), h('span', null, GRENADE_NAMES[kind], count > 1 ? h('b', { class: 'slot-count' }, ` x${count}`) : null), h('kbd', null, '4')));
+      }
+      if (bomb) this.slots.append(h('div', { class: `slot bomb-slot${bomb === 'out' ? ' active' : ''}`, title: 'Hold left click (or E) on a site to plant · G drops it' }, drawnIcon('bomb'), h('span', null, 'C4'), h('kbd', null, '5')));
+      // Shown for a few seconds after anything changes (a switch, a throw, a buy), then it fades, as in CS2.
+      this.slots.classList.remove('idle');
+      window.clearTimeout(this.slotsTimer);
+      this.slotsTimer = window.setTimeout(() => this.slots.classList.add('idle'), 3000);
     }
   }
 

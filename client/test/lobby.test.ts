@@ -17,32 +17,43 @@ class Element {
   addEventListener(k: string, fn: () => void) { this.listeners[k] = fn; }
 }
 
-it('the friends rail shows real online status, requests, parties and escaped names', () => {
+it('the friends sidebar shows real online status, Invite, requests, parties and escaped names', () => {
   const oldDocument = globalThis.document;
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement: () => new Element(), createTextNode: (s: string) => s } });
   try {
     let opened = 0;
+    const invited: string[] = [];
     const menu = Object.assign(Object.create(MainMenu.prototype), {
       friendsBadge: new Element(), friendCount: new Element(), friendList: new Element(), partyStrip: new Element(),
-      playButton: new Element(), playLabel: new Element(), playButtons: [], actions: { friends: () => opened++ },
+      playLabel: Object.assign(new Element(), { dataset: {} }), searching: false,
+      actions: { friends: () => opened++, invite: (f: { name: string }) => invited.push(f.name) },
+      canInvite: (f: { online: boolean; inParty: boolean }) => f.online && !f.inParty,
     });
-    menu.playButtons = [menu.playButton];
     menu.setFriends(2, { names: ['Cluck'], leader: 'Cluck', isLeader: true }, [
       { userId: 1, name: 'Offline', online: false, mode: null, inParty: false },
       { userId: 2, name: '<img>', online: true, mode: 'bomb', inParty: true },
+      { userId: 3, name: 'Bob', online: true, mode: null, inParty: false },
     ]);
-    assert.equal(menu.friendCount.textContent, '1');
+    assert.equal(menu.friendCount.textContent, '2');
     assert.equal(menu.friendsBadge.hidden, false);
-    assert.equal(menu.friendList.children.length, 2);
-    const first = menu.friendList.children[0];
-    assert.equal(first.children[0].textContent, '<');
-    assert.match(first.attributes['aria-label'], /^<img> · /);
-    assert.match(first.className, /online.*in-party/);
-    first.listeners.click();
+    assert.equal(menu.friendList.children.length, 3);
+    // Online first, then by name: <img> (in your party), Bob (can be invited), Offline.
+    const [party, bob, offline] = menu.friendList.children;
+    const main = party.children[0];
+    assert.equal(main.children[0].textContent, '<');
+    assert.match(main.attributes['aria-label'], /^<img> · Playing ChikenBomb/);
+    assert.match(party.className, /online.*in-party/);
+    assert.equal(party.children.length, 1, 'already in your party: no Invite');
+    main.listeners.click();
     assert.equal(opened, 1);
+    assert.equal(bob.children.length, 2);
+    assert.match(bob.children[1].attributes['aria-label'], /^Invite Bob/);
+    bob.children[1].listeners.click();
+    assert.deepEqual(invited, ['Bob']);
+    assert.equal(offline.children.length, 1, 'offline: no Invite');
     assert.equal(menu.playLabel.textContent, 'Play with party (1)');
     menu.setFriends(0, null, []);
-    assert.equal(menu.friendList.children.length, 0);
+    assert.equal(menu.friendList.children.length, 1, 'just the "No friends yet" note');
     assert.equal(menu.friendsBadge.hidden, true);
     assert.equal(menu.playLabel.textContent, 'Play');
   } finally { Object.defineProperty(globalThis, 'document', { configurable: true, value: oldDocument }); }

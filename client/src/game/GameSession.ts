@@ -102,7 +102,7 @@ import { SmoothedPitch, SmoothedYaw, SpectateTarget } from '../hvh/Spectate';
 import { HVH_ROUNDS, LATE_CSGO, enemyVisible, snapshotSightTargets, type SightTarget } from '@game/shared/hvh/v2';
 import { HitLog, initHvhV2Ui } from '../ui/hvh/HitLog';
 import { HvhBuyMenu } from '../ui/hvh/HvhBuyMenu';
-import { nextGrenade, grenadeCount, weaponIndexForKey, type HeldGrenade } from './weaponSlots';
+import { nextGrenade, grenadeCount, slotItems, stepSlot, weaponIndexForKey, type HeldGrenade, type SlotItem } from './weaponSlots';
 import { getSettings } from '../settings';
 import { BuyMenu } from '../ui/BuyMenu';
 import type { Hud, ScoreLine } from '../ui/Hud';
@@ -281,6 +281,10 @@ export class GameSession {
   /** The mouse buttons last frame, for the grenade throw. */
   private throwButtons = { left: false, right: false };
   private chatOpen = false;
+  /** What the server was last told is in hand. */
+  private heldSent: 'gun' | HeldGrenade | 'bomb' = 'gun';
+  /** When "you must be in a bomb site" may show again. */
+  private plantHintAt = 0;
   /** The open chat box sends to the team only (U), not everyone (Y). */
   private chatTeamOnly = false;
   private hudTimer = 0;
@@ -600,6 +604,16 @@ export class GameSession {
       && fakeLagTicks(this.weapons.hvh.core ?? defaultHvhCore(), this.nextSeq - 1, this.horizontalSpeed(), false, this.local.hvhV2 ? LATE_CSGO.maxChoke : undefined) > 0);
     // In a buggy you can shoot (and throw) but not swing a melee weapon.
     if (!input.firing && !input.aiming) this.grenadeThrowHeld = false;
+    // Tell the server what's in hand (it checks we have it); planting needs the bomb out on a site.
+    const held = this.bombOut ? 'bomb' : this.heldGrenade ?? 'gun';
+    if (held !== this.heldSent && this.local.alive) {
+      this.heldSent = held;
+      net.socket.emit('hold', held);
+    }
+    if (this.bombOut && input.active && input.firing && !this.fireWasDown && !this.onBombSite() && now >= this.plantHintAt) {
+      this.plantHintAt = now + 1500;
+      hud.toast('You must be in a bomb site to plant', 'bad');
+    }
     this.stepGrenade(input.active && input.firing, input.active && input.aiming, input.active);
     if (this.bombOut && !this.carryingBomb()) this.bombOut = false;
     const canShoot = input.active && this.local.alive && !(this.local.car && this.weapons.def.melee) && !this.building && !this.buyTime && !this.heldGrenade && !this.bombOut && !this.grenadeThrowHeld && !dev?.blocksShooting();
@@ -783,39 +797,42 @@ export class GameSession {
       case 'slot7':
       case 'slot8':
       case 'slot9': {
+        // Counter-Strike's slots: 1 primary, 2 pistol, 3 knife, 4 grenades (again: the next kind), 5 the bomb.
         const n = Number(action.slice(4));
         if (this.buyMenu?.open) break;
-        this.bombOut = n === 5 && this.carryingBomb();
-        if (this.bombOut) {
-          this.heldGrenade = null;
-          this.scopeLevel = 0;
-          this.weapons.suspend();
+        if (n === 5) {
+          if (this.carryingBomb()) this.selectItem({ kind: 'bomb' }, now);
           break;
         }
         if (n === 4) {
-          this.heldGrenade = nextGrenade(this.heldGrenade, this.local.server);
-          this.scopeLevel = 0;
-          this.weapons.suspend();
+          const next = nextGrenade(this.heldGrenade, this.local.server);
+          if (next) this.selectItem({ kind: 'grenade', grenade: next }, now);
           break;
         }
-        const index = n <= 3 ? weaponIndexForKey(this.weapons.loadout, n) : n - 1;
-        if (index >= 0) {
-          this.heldGrenade = null;
-          this.switchWeapon(() => this.weapons.switchTo(index, now));
-        }
+        const index = n <= 3 ? weaponIndexForKey(this.weapons.loadout, n) : -1;
+        if (index >= 0) this.selectItem({ kind: 'weapon', index }, now);
         break;
       }
       case 'nextWeapon':
-        this.heldGrenade = null;
-        this.bombOut = false;
-        this.switchWeapon(() => this.weapons.cycle(1, now));
+      case 'prevWeapon': {
+        // The scroll wheel: through everything you have, in slot order, round and round. Not
+        // while a menu or chat has the mouse, or scoped in with a sniper.
+        if (this.buyMenuOpen || this.chatOpen || this.scopeLevel > 0) break;
+        const dir = (action === 'nextWeapon') !== getSettings().invertScroll ? 1 : -1;
+        const next = stepSlot(slotItems(this.weapons.loadout, this.local.server, this.carryingBomb()), this.currentItem(), dir);
+        if (next) this.selectItem(next, now);
         break;
-      case 'prevWeapon':
-        this.heldGrenade = null;
-        this.bombOut = false;
-        this.switchWeapon(() => this.weapons.cycle(-1, now));
-        break;
+      }
       case 'egg':
+        // G with the bomb in hand drops it for a teammate (as in Counter-Strike); otherwise it's the egg.
+        if (this.bombOut) {
+          net.socket.emit('dropBomb');
+          this.bombOut = false;
+          this.ctx.hud.toast('Bomb dropped');
+          break;
+        }
+        this.takeOutGrenade(action);
+        break;
       case 'smoke':
       case 'flash':
         this.takeOutGrenade(action);
@@ -1068,6 +1085,28 @@ export class GameSession {
     return (this.mode.bomb === true || this.mode.id === 'hvh') && this.round?.phase === 'buy';
   }
 
+  /** What's in hand now, as a slot item. */
+  private currentItem(): SlotItem {
+    if (this.bombOut) return { kind: 'bomb' };
+    if (this.heldGrenade) return { kind: 'grenade', grenade: this.heldGrenade };
+    return { kind: 'weapon', index: this.weapons.slot };
+  }
+
+  /** Takes `item` in hand (a gun by its loadout slot, a grenade, or the bomb). */
+  private selectItem(item: SlotItem, now: number): void {
+    if (item.kind === 'grenade') return this.takeOutGrenade(item.grenade);
+    this.heldGrenade = null;
+    this.scopeLevel = 0;
+    if (item.kind === 'bomb') {
+      this.bombOut = true;
+      this.weapons.suspend();
+      this.ctx.audio.play('equip');
+      return;
+    }
+    this.bombOut = false;
+    if (item.index !== this.weapons.slot) this.switchWeapon(() => this.weapons.switchTo(item.index, now));
+  }
+
   /** G, Q or the flashbang key: the grenade comes out; a mouse button then pulls the pin. */
   private takeOutGrenade(kind: HeldGrenade): void {
     const { audio, hud } = this.ctx;
@@ -1202,8 +1241,8 @@ export class GameSession {
   }
 
   private hintText(): string | null {
-    if (this.bombOut && this.local.alive) return 'Hold left-click on A or B · Plant the bomb · 1–3 · Weapon';
-    if (this.heldGrenade && this.local.alive) return 'Hold left-click · Throw far · Right-click · Toss · Both · Medium · 4 · Next grenade · 1–3 · Weapon';
+    if (this.bombOut && this.local.alive) return 'Hold left-click on A or B · Plant · G · Drop the bomb · Wheel · Switch';
+    if (this.heldGrenade && this.local.alive) return 'Hold left-click · Throw far · Right-click · Toss · Both · Medium · 4 · Next grenade · Wheel · Switch';
     const def = this.weapons.def;
     if (def.scope && this.local.alive && this.scopeLevel > 0) {
       const zoom = this.scopeLevel === 2 && def.zoom2 ? def.zoom2 : def.zoom;
@@ -1621,6 +1660,12 @@ export class GameSession {
   }
 
   /** You have the bomb in a live ChikenBomb round. */
+  /** Standing on a bomb site (the server's rule: within its circle, at about its height). */
+  private onBombSite(): boolean {
+    const s = this.local.state;
+    return (this.ctx.world.map.bombSites ?? []).some((site) => Math.hypot(s.x - site.x, s.z - site.z) <= site.radius && Math.abs(s.y - (site.y ?? 0)) < 1.5);
+  }
+
   private carryingBomb(): boolean {
     return this.local.alive && this.round?.phase === 'live' && this.round.bomb.carrier === this.selfPid;
   }
@@ -2078,6 +2123,7 @@ export class GameSession {
     this.spectated = null;
     this.spectate.reset();
     this.heldGrenade = null;
+    this.heldSent = 'gun';
     this.pinPulled = false;
     this.deathPos = null;
     this.weapons.refill();

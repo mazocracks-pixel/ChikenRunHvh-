@@ -518,6 +518,8 @@ export interface SpawnEvent {
 }
 
 export type GrenadeKind = 'egg' | 'smoke' | 'flash';
+/** The item in a player's hand. */
+export type HeldItem = 'gun' | GrenadeKind | 'bomb';
 
 export interface ThrowRequest {
   kind: GrenadeKind;
@@ -639,6 +641,10 @@ export interface ClientToServerEvents {
   throw: (req: ThrowRequest) => void;
   /** Pin pulled on the grenade in hand (null: put back). Dying with it drops it live. */
   pin: (kind: GrenadeKind | null) => void;
+  /** What's in your hand: your gun (see `switch`), a grenade (key 4), or the bomb (key 5). The server checks you have it. */
+  hold: (item: HeldItem) => void;
+  /** ChikenBomb: drop the bomb in front of you (G with the bomb in hand) for a teammate to pick up. */
+  dropBomb: () => void;
   aim: (aiming: boolean) => void;
   /** `teamOnly`: only your team hears it (in modes without teams it goes to everyone). */
   chat: (text: string, teamOnly?: boolean) => void;

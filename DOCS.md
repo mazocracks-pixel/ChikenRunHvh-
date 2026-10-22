@@ -3,6 +3,88 @@
 Working notes, one batch of work at a time (newest first). Each batch has its plan, what was done
 for each step, and a log of every mistake made along the way (what went wrong, and how it was fixed).
 
+# Batch 34 (18 Oct): your cluck on the menu chicken
+
+- Clicking your chicken on the title screen plays `client/public/sounds/chicken_cluck_1s.mp3` (from your Downloads folder) instead of the built-in cluck; if the file can't load, the built-in one plays. Matches keep the built-in cluck. Listed in SOUNDS.md: **confirm you have the rights to it.**
+- Checked in the browser: the file is served, a click on the chicken plays it, a click on the empty scene doesn't. Tests: 536; `npm run build` passes.
+
+# Batch 33 (18 Oct): the PLAY tab works
+
+- **Cause:** nothing covered the nav bar. Every tab (on the lobby and in the shop) was the top element under the mouse and got its clicks. On the lobby, PLAY's click only closed the News page, so on the lobby itself it did nothing you could see.
+- **PLAY tab:** from Inventory, Loadout or Store it goes back to the lobby (as before). On the lobby it now flashes the play panel with a short yellow glow and focuses the big PLAY button (Enter then starts). The active tab's underline is yellow.
+- **Mode tab:** the lobby opens on the selected mode's tab (Casual / Competitive / Fun) with its card highlighted; before, whichever tab you looked at last stayed open (Fun with ChikenBomb selected).
+- Checked in the browser: every tab from the lobby, News, Inventory, Loadout and Store; the glow, focus and underline; a drag on the scene turns the chicken, a drag on the play panel doesn't; PLAY in the panel starts a match. Tests: 536; `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | Batch 32 wired the PLAY tab to "close the News page", which does nothing on the lobby itself. | It points at the play panel. |
+| 2 | Batch 32 only picked the mode's tab once, when the menu was built. | Every time the lobby opens. |
+
+# Batch 32 (18 Oct): a polished main menu
+
+## Plan
+
+1. Scene (`Game.ts`): find the pink sky; reframe the camera; half-size blurred, warm-graded background with the chicken sharp on top; the AK out of the body; drag to turn, click to react; party chickens; pause under dialogs; show the menu before Mirage loads.
+2. Menu (`MainMenu.ts`): top bar, play panel bottom right, profile under the chicken, challenges and news on the left, friends with Invite on the right, footer links, a NEWS page, Esc.
+3. App and Friends: search timer and Cancel, invites, party chickens, pause hook, fast start, Esc in the shop, sounds on every button.
+4. CSS, then screenshots at 1920x1080 and 1366x768, every old lobby feature, FPS.
+
+## What was done
+
+- **Pink sky:** the developer World tab's colours are saved in the browser and were applied to the menu at boot, even without the dev code (the "Neon" look is a pink sky and pink stone). The menus now always use their own look (`menuLook()`: clear blue sky, warm sun); World tab colours only apply in matches.
+- **Scene:** the camera sits a little right, so the chicken stands at 40% of the width with the street behind it (`menuShot`). Mirage's wall lamps (the dark blob beside the head) are left out of the menu background only. The world is drawn at half size, softly blurred, warmly graded and vignetted; the chickens are drawn sharp on top (their own layer, still lit by the world and casting its shadows). The AK rests in front of the belly instead of inside it; the idle loop itself is unchanged. Drag to turn the chicken (it turns back after a moment); click it to cluck and flap. Up to four party members stand beside it.
+- **Play panel:** Casual / Competitive / Fun tabs, every mode as a card, the map (only that mode's maps; Zombie Apocalypse and the Backrooms show their one map), bots On/Off where allowed, a big yellow PLAY that becomes "Searching… 0:12" with Cancel, then Server browser, Create room and Join with code. The mouse isn't locked until a match is found, so Cancel can be clicked.
+- **Top bar, profile, sides:** logo, tabs, coins, profile chip (rank, name, level), music on/off and settings, all with tooltips. Under the chicken: name, rank badge, "Lv 1 Egg", XP bar and "0 / 100 XP". Left: daily challenges with progress and coin rewards, the latest news (opens the NEWS page), Leaderboard and How to play. Right: friends with online status and Invite. Footer: Save progress / Account, Privacy, Hide menu.
+- **Feel and speed:** hover and click sounds on every menu button; tabs and screens slide in; Esc closes the News page, shows a hidden menu, cancels a search, and leaves the shop. The menu draws at most 60 fps, not at all under a dialog or the News page, and shows straight away while Mirage loads behind it.
+- Checked in the browser (1920x1080, 1366x768, 1280x720, 1440x900, phone): no buttons without a label or tooltip; all 14 modes, maps, bots; every dialog; shop and back; loadout skin and gun on the chicken; drag, click, party; search, Cancel, a real match and back; L still asks for the dev code. Menu: 60 fps, about 1.2 ms of CPU per frame. Tests: 536; `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The chicken pass cleared the blurred background: a colour `scene.background` clears the screen even with autoClear off. | The background is taken off for that pass. |
+| 2 | The lamp filter's regex only matched `/`; Mirage's material names use `\`. | `[\\/]`. |
+| 3 | Two patch scripts went through bash heredocs and broke on quotes again. | Wrote them to files. |
+| 4 | A CSS patch didn't match: that part of `style.css` has CRLF line endings. | Edited it with the Edit tool. |
+| 5 | Narrow-screen rules hid every `span` in some buttons, icons too (blank logo and room buttons on phones). | `span:not(.ico)`. |
+| 6 | PLAY locked the mouse straight away, so Cancel couldn't be clicked while searching. | The pointer is locked when the match is found. |
+
+# Batch 31 (17 Oct): mega?dev config presets
+
+- **Where:** mega?dev (L, behind the dev code), Configs tab. Skeet and the HvH Lab are unchanged; dev mode is allowed in the same places as before.
+- **Built-ins** (`client/src/dev/classic/config.ts` `BUILTIN_CONFIGS`): Totally Legit™, Gaming Chair, Closet Cheater, $9 YouTube Config, Memesense, UID Issue, and three meme ones (Pasted from GitHub, Spinbot Supreme, Dev's Grandma). Each has a name, a one-line description and a difficulty tag from green (Legit) to red (HvH Rage), purple for Meme. They're built from the defaults, keep your menu look, World colours and selected weapon, and can't be renamed or deleted. Save with one selected makes your own copy.
+- **Panel** (`client/src/dev/panels/configs.ts`, used by both menus): built-ins only show when the menu passes them (mega?dev does; Lab doesn't). "Active: X" above the list becomes "Custom (modified)" after any change. A load toasts "Loaded config: X". New button: Reset to default (cheat settings only).
+- **Share code:** Export makes a short code `CRH1-...` (base64 of only the changed settings) and shows it in the box; Import takes a code or an old JSON file. Everything still goes through `sanitizeConfig`. The old seeded configs (Legit, Rage, Visuals, Testing, Fun) are no longer added for new players; anyone who has them keeps them as their own.
+- What maps where and what was skipped: CHECK_REPORT.md.
+- Checked in the browser: the code is still required; each preset loads and changes the settings; save, delete, export and import work. Tests: 536 (2 new); `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | The panel patch went through a bash heredoc and broke on quotes. | Wrote the script to a file. |
+| 2 | The panel file has CRLF line endings, so the patch strings wouldn't match. | The patch script converts to LF and back. |
+| 3 | My browser check expected a jumpscare on a wrong code; there isn't one (only "Wrong code." and a shake). | Noted in CHECK_REPORT.md; left unchanged. |
+
+# Batch 30 (17 Oct): CS2 weapon slots, scroll wheel, bomb on 5, weapon list
+
+- **Slots:** 1 primary, 2 pistol, 3 knife, 4 grenades (again: the next kind), 5 the bomb, only for its carrier (ChikenBomb, FaceChiken); other keys do nothing (key 5 used to be the knife). README controls table and the F1 guide updated.
+- **Scroll wheel** (`weaponSlots.ts` `slotItems` / `stepSlot`): guns by key, then each grenade you carry, then the bomb, round and round, skipping what you don't have. Settings → "Flip the weapon scroll wheel". Ignored while the buy / Training / zombie shop menu or chat is open, while scoped, and with a pin pulled.
+- **Grenades:** G / Q / the flashbang key still take one out directly; the last one thrown puts your gun back.
+- **Bomb:** key 5 takes the C4 out; hold left click on a site to plant (the same 3 s); off a site: "You must be in a bomb site to plant". Planting with the bomb in hand is called off by moving or jumping; E still plants, holding you still as before. G with the bomb in hand drops it a step ahead for a teammate (the dropper can't take it back for 1.5 s); otherwise G is the egg.
+- **Server:** a new `hold` message says what's in hand and is checked (a grenade you carry, the bomb only if you're its carrier); `dropBomb` only works with the bomb in hand.
+- **HUD:** the bottom-right list shows every slot (each grenade, "x2" for two flashbangs, C4 when carried), highlights the one in hand with a small pop, and fades 3 s after a change. The hand comes up again when a grenade or the bomb is taken out.
+- Checked in the browser on both teams. Tests: 534 (5 new); `npm run build` passes.
+
+## Mistakes log
+
+| # | Mistake | Fix |
+| --- | --- | --- |
+| 1 | One BombRoom patch line had the wrong indent, so that file's patch stopped (the other files were already written). | Re-ran only that part. |
+| 2 | The drop cooldown used the real clock; the room runs on its own tick time. | The room's clock. |
+
 # Batch 29 (17 Oct): one map for Zombie Apocalypse and Backrooms
 
 - Both modes now play only on the Graveyard (`maps: ['night']`). Mirage no longer carries the sealed Backrooms and Facility levels, which could be seen standing in the desert next to it; its half-size is 110 (its outermost collision is at x = -104.5) instead of 226.

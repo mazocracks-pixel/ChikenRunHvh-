@@ -8,6 +8,7 @@ import {
   CommandBuffer, ExploitResource, createAnimation, ResolverSystem,
   type DevMods,
   type GrenadeKind,
+  type HeldItem,
   type InputFrame,
   type MoveState,
   type PlayerInfo,
@@ -100,6 +101,8 @@ export class ServerPlayer {
   nextThrowAt = 0;
   /** The grenade in hand with its pin pulled: dying drops it live at your feet. */
   pinned: GrenadeKind | null = null;
+  /** What's in hand (checked when it changes: you can only hold a grenade you have, the bomb if you carry it). */
+  held: HeldItem = 'gun';
 
   /** Vehicle id being driven (0 = on foot). */
   vehicle = 0;
@@ -193,6 +196,7 @@ export class ServerPlayer {
     this.smokes = PLAYER.startSmokes;
     this.flashes = PLAYER.startFlashes;
     this.pinned = null;
+    this.held = 'gun';
     this.blindUntil = 0;
     this.vehicle = 0;
     for (const id of this.info.loadout) this.mags.set(id, this.magazineSize(id));

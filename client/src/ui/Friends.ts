@@ -283,10 +283,20 @@ export class Friends {
     }
   }
 
+  /** Online, not in your party yet, and you lead (or have no party): Invite works. */
+  canInvite(f: FriendEntry): boolean {
+    return f.online && !f.inParty && (!this.party || this.isLeader);
+  }
+
+  /** Asks the server to invite a friend to your party (it checks). */
+  invite(f: FriendEntry): void {
+    void this.ask('partyInvite', f.userId, `Invited ${f.name}.`);
+  }
+
   private friendRow(f: FriendEntry): HTMLElement {
     const rank = rankOf(f.rank);
     const status = !f.online ? 'Offline' : f.mode ? `Playing ${MODES[f.mode].name}` : 'Online';
-    const canInvite = f.online && !f.inParty && (!this.party || this.isLeader);
+    const canInvite = this.canInvite(f);
     let confirmRemove = false;
     const remove = h('button', { type: 'button', class: 'secondary small', title: `Remove ${f.name}` }, '✕');
     remove.addEventListener('click', () => {
@@ -302,7 +312,7 @@ export class Friends {
       { class: `friend-row${f.online ? ' online' : ''}` },
       h('span', { class: `presence ${!f.online ? 'off' : f.mode ? 'busy' : 'on'}`, 'aria-hidden': 'true' }),
       h('span', { class: 'friend-name' }, h('span', { title: `Level ${rank.level} · ${rank.name}` }, `${rank.icon} `), f.dev ? h('span', { class: 'rainbow' }, f.name) : f.name, h('small', null, ` @${f.username} · ${status}`)),
-      f.inParty ? h('span', { class: 'muted small' }, 'In your party') : canInvite ? h('button', { type: 'button', class: 'play small', onclick: () => void this.ask('partyInvite', f.userId, `Invited ${f.name}.`) }, 'Invite') : null,
+      f.inParty ? h('span', { class: 'muted small' }, 'In your party') : canInvite ? h('button', { type: 'button', class: 'play small', onclick: () => this.invite(f) }, 'Invite') : null,
       remove,
     );
   }

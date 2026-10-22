@@ -1,4 +1,4 @@
-import { MODES, type CreateRoomRequest, type JoinResponse, type JoinSuccess, type ModeId } from '@game/shared';
+import { MODES, type Appearance, type CreateRoomRequest, type JoinResponse, type JoinSuccess, type ModeId } from '@game/shared';
 import { toggleGuide } from '../ui/Guide';
 import { Dev as ClassicDev } from '../dev/classic/Dev';
 import { combineDevHooks } from '../dev/combine';
@@ -18,6 +18,13 @@ import { ShopScreen, type ShopSection } from '../ui/Shop';
 import { TouchControls, isTouchDevice } from '../ui/TouchControls';
 
 type Screen = 'boot' | 'menu' | 'shop' | 'game';
+
+/** A party member's chicken on the title screen: its own colours, the same every time. */
+const PARTY_SKINS = ['brown', 'black', 'blue', 'mint', 'purple', 'fire', 'pink', 'ice'];
+const PARTY_HATS = ['cap', 'none', 'party', 'cowboy', 'none', 'helmet'];
+function partyLook(userId: number): Appearance {
+  return { skin: PARTY_SKINS[userId % PARTY_SKINS.length]!, hat: PARTY_HATS[userId % PARTY_HATS.length]!, beak: 'orange', shoes: 'none' };
+}
 
 /** Top-level controller: boot, menus, joining rooms, pause and reconnects. */
 export class App {
@@ -43,6 +50,10 @@ export class App {
   private readonly cookieNotice: CookieNotice;
   private screen: Screen = 'boot';
   private joining = false;
+  /** Bumped by Cancel: a join answer for an older ticket is dropped (and its room left). */
+  private joinTicket = 0;
+  /** The music volume before the menu's mute button turned it off. */
+  private musicBefore = 0.4;
   private hvhSetup: HvhSetup | null = null;
   private setupVersion = 0;
   private touchPaused = false;
@@ -58,6 +69,19 @@ export class App {
 
     this.menu = new MainMenu(ui, {
       quickPlay: (mode, map, noBots) => this.enter(() => this.net.quickPlay(mode, map, noBots)),
+      cancelSearch: () => this.cancelJoin(),
+      invite: (friend) => this.friends.invite(friend),
+      toggleMusic: () => {
+        const audio = this.game.audio;
+        if (audio.musicVolume > 0) {
+          this.musicBefore = audio.musicVolume;
+          audio.musicVolume = 0;
+        } else audio.musicVolume = this.musicBefore || 0.4;
+        return audio.musicVolume === 0;
+      },
+      musicMuted: () => this.game.audio.musicVolume === 0,
+      turnChicken: (dx) => this.game.turnMenuChicken(dx),
+      pokeChicken: (x, y) => void this.game.pokeMenuChicken(x, y),
       browse: () => openServerBrowser(() => this.net.listRooms(), (roomId) => this.enter(() => this.net.joinRoom({ roomId }), true)),
       createRoom: () => openCreateRoom((req: CreateRoomRequest) => this.enter(() => this.net.createRoom(req), true)),
       joinCode: () => openJoinCode((code) => this.enter(() => this.net.joinRoom({ code }), true)),
@@ -71,12 +95,8 @@ export class App {
       guide: () => this.openGuide(),
       dailyStatus: () => this.api.daily(),
       online: () => this.api.online(),
-      sound: (kind) => {
-        // A button press is a user gesture: the moment the browser lets sound start.
-        if (kind === 'press') this.game.audio.unlock();
-        this.game.audio.play('click', undefined, kind === 'press' ? 0.8 : 0.22);
-      },
-    });
+    }, (f) => this.friends?.canInvite(f) ?? false);
+    this.bindMenuSounds(ui);
     // Friends and parties: the leader's Play brings the whole party along (the server moves them).
     this.friends = new Friends(this.net.socket, ui, {
       notice: (text) => (this.screen === 'game' ? this.game.hud.toast(text) : this.menu.setStatus(text)),
@@ -92,6 +112,8 @@ export class App {
       const names = p?.members.map((m) => m.name) ?? [];
       const leader = p?.members.find((m) => m.userId === p.leader)?.name ?? '';
       this.menu.setFriends(this.friends.waiting, p ? { names, leader, isLeader: this.friends.isLeader } : null, this.friends.state.friends);
+      // Your party members stand next to your chicken (their looks aren't sent: each gets its own colours).
+      this.game.setMenuParty((p?.members ?? []).filter((m) => m.userId !== this.friends.selfId).map((m) => partyLook(m.userId)));
     });
     this.cookieNotice = new CookieNotice(ui);
     // Developer menu: the menu key (Insert by default), or tap the logo five times on touch screens.
@@ -136,6 +158,15 @@ export class App {
       e.returnValue = '';
     });
     this.shop = new ShopScreen(ui, this.api, (appearance, weapon) => this.game.setPreview(appearance, weapon), () => this.showMenu());
+    // Esc goes back from Inventory, Loadout and Store to the lobby.
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || this.screen !== 'shop' || anyModalOpen() || this.dev.menuOpen || this.classicDev.menuOpen) return;
+      e.preventDefault();
+      this.showMenu();
+    });
+    // The menu scene isn't drawn while a dialog or the News page covers it.
+    this.game.menuCovered = () => this.screen === 'menu' && (anyModalOpen() || this.menu.coversScene);
+    this.game.onMenuAnchor = (x, y) => this.menu.setAnchor(x, y);
 
     this.loading = h('div', { class: 'loading' }, h('div', { class: 'egg-spinner' }, '🥚'), h('p', null, 'Hatching…'));
     ui.append(this.loading);
@@ -186,6 +217,24 @@ export class App {
     this.menu.setVisible(false);
   }
 
+  /** Every button in the menus (lobby, shop, dialogs) gives a soft hover tick and a click. */
+  private bindMenuSounds(ui: HTMLElement): void {
+    let hovered: Element | null = null;
+    const quiet = () => this.screen === 'game';
+    ui.addEventListener('pointerover', (e) => {
+      const b = (e.target as Element).closest?.('button:not(:disabled)') ?? null;
+      if (b === hovered) return;
+      hovered = b;
+      if (b && !quiet()) this.game.audio.play('click', undefined, 0.22);
+    });
+    ui.addEventListener('click', (e) => {
+      if (quiet() || !(e.target as Element).closest?.('button')) return;
+      // A button press is a user gesture: the moment the browser lets sound start.
+      this.game.audio.unlock();
+      this.game.audio.play('click', undefined, 0.8);
+    });
+  }
+
   /** Five quick taps on the title open the developer menu (there is no Insert key on phones). */
   private bindSecretTaps(): void {
     const logo = document.querySelector('.cs-lobby .logo');
@@ -212,13 +261,17 @@ export class App {
       this.showServerDown();
       return;
     }
-    this.loading.querySelector('p')!.textContent = 'Loading Mirage…';
-    let mapError = '';
-    try { await this.game.ready; }
-    catch { mapError = 'Mirage could not load. Refresh the page to retry.'; }
+    // The menu shows right away; Mirage appears behind it once it has loaded.
     this.net.connect();
     this.loading.hidden = true;
-    this.showMenu(mapError, Boolean(mapError));
+    this.showMenu();
+    this.menu.setSceneLoading(true);
+    try {
+      await this.game.ready;
+    } catch {
+      this.menu.setStatus('Mirage could not load. Refresh the page to retry.', true);
+    }
+    this.menu.setSceneLoading(false);
   }
 
   private showServerDown(): void {
@@ -310,23 +363,46 @@ export class App {
   private enter(request: () => Promise<JoinResponse>, explicitRoom = false): void {
     if (this.joining) return;
     this.joining = true;
+    const ticket = ++this.joinTicket;
     this.game.audio.unlock();
-    void this.game.input.requestLock();
     this.menu.setBusy(true);
+    this.menu.setSearching(true);
     this.menu.setStatus(explicitRoom ? 'Joining room…' : 'Finding a match…');
     void request()
       .then((res) => {
+        if (ticket !== this.joinTicket) {
+          // Cancelled: the server may still have put us in a room.
+          if (res.ok) this.net.leaveRoom();
+          return;
+        }
         if (!res.ok) {
           this.showMenu(res.error, true);
           return;
         }
+        // Locked only now, so the mouse can reach Cancel while searching. The click still counts
+        // as the gesture for a few seconds; after a longer search the match opens on "Click to resume".
+        void this.game.input.requestLock();
         this.startGame(res);
       })
-      .catch(() => this.showMenu('Could not reach the game server.', true))
+      .catch(() => {
+        if (ticket === this.joinTicket) this.showMenu('Could not reach the game server.', true);
+      })
       .finally(() => {
+        if (ticket !== this.joinTicket) return;
         this.joining = false;
         this.menu.setBusy(false);
+        this.menu.setSearching(false);
       });
+  }
+
+  /** Cancel on the Play button (or Esc): stop waiting for that join. */
+  private cancelJoin(): void {
+    if (!this.joining) return;
+    this.joinTicket++;
+    this.joining = false;
+    this.menu.setBusy(false);
+    this.menu.setSearching(false);
+    this.menu.setStatus('Search cancelled.');
   }
 
   private startGame(join: JoinSuccess): void {

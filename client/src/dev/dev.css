@@ -861,6 +861,51 @@
   padding: 6px 0;
 }
 
+.dev-cleft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dev-cactive {
+  color: var(--dev-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dev-clist .dev-sub {
+  margin: 4px 6px 0;
+}
+
+.dev-cname {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dev-ctag {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--tag);
+  border: 1px solid color-mix(in srgb, var(--tag) 55%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--tag) 14%, transparent);
+}
+
+.dev-cdesc {
+  display: block;
+  margin-top: 2px;
+  color: var(--dev-muted);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
 .dev-cside {
   display: flex;
   flex-direction: column;
