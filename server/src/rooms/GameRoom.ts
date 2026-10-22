@@ -1220,8 +1220,7 @@ export class GameRoom {
         else if (now >= (m.endsAt ?? 0)) this.startMatch(now);
         break;
       case 'playing':
-        // Needing a full lobby to start is not a reason to end a match when one person leaves.
-        if (this.players.size < (this.mode.noBots ? Math.min(2, this.mode.minPlayers) : this.mode.minPlayers)) this.setPhase('waiting', null);
+        if (!this.keepsPlayingWith(this.players.size)) this.setPhase('waiting', null);
         else if (m.endsAt !== null && now >= m.endsAt) this.endMatch(now);
         break;
       case 'ended':
@@ -1231,6 +1230,12 @@ export class GameRoom {
         }
         break;
     }
+  }
+
+  /** Whether a match in play goes on with `n` players (v2 HvH rounds: with one, paused in warmup). */
+  protected keepsPlayingWith(n: number): boolean {
+    // Needing a full lobby to start is not a reason to end a match when one person leaves.
+    return n >= (this.mode.noBots ? Math.min(2, this.mode.minPlayers) : this.mode.minPlayers);
   }
 
   /** Skips waiting/countdown (private-room hosts, tests). `now`: the room clock (headless drivers pass their tick time). */

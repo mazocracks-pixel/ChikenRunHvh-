@@ -181,7 +181,9 @@ import type { ServerPlayer } from './ServerPlayer';
  *   shot applies it (shot.ts armorPen), so GameRoom.damage does not soak damage with it again.
  *   A team left with no players loses the round in play; then (or at once in freeze) the match
  *   pauses in warmup, keeping the score, half, kills and deaths, and resumes at the next round once
- *   both teams have players again (R70), rather than awarding a round every ~10 s.
+ *   both teams have players again (R70), rather than awarding a round every ~10 s. The match stays
+ *   on while one player is left (a 1v1 refresh); a warmup's frags do not stick (the stats go back
+ *   to where they were as the warmup began when the round starts).
  *   `hvhRounds: false` (test harnesses only) keeps the room in warmup with the old kill scoring.
  * - Loadout (v2 only): every spawn carries exactly [main, pistol] (HVH_MAINS, HVH_PISTOLS), no
  *   knife and no grenades. The pick lives in p.info.loadout (default SSG 08 + Desert Eagle), so
@@ -193,6 +195,8 @@ import type { ServerPlayer } from './ServerPlayer';
  */
 
 export type HvhEngine = 'legacy' | 'v2';
+
+interface WarmupStats { kills: number; deaths: number; score: number; headshotKills: number }
 
 export interface HvhRoomOptions extends RoomOptions {
   /**
@@ -356,6 +360,8 @@ export class HvhRoom extends GameRoom {
   /** v2 round flow on (every v2 room but test harnesses). */
   private readonly rounds: boolean;
   private round: HvhRoundState = hvhWarmup();
+  /** Kills, deaths and score as the warmup began (pid -> stats; missing = 0), put back when the round starts. */
+  private warmupStats = new Map<number, WarmupStats>();
   /** Every player as they stood at the start of this tick (the end of the last), for enemy sight. */
   private readonly sightTargets = new Map<number, SightTarget>();
   /** Mixed with each pid into HvhPlayerV2.aaSeed: the room seed, or a random one. */
@@ -1041,6 +1047,7 @@ export class HvhRoom extends GameRoom {
           this.systemMessage('HALF-TIME: teams have switched sides.');
           break;
         case 'roundStart':
+          if (before.phase === 'warmup') this.restoreWarmupStats();
           this.startRound(now);
           break;
         case 'goLive':
@@ -1060,10 +1067,33 @@ export class HvhRoom extends GameRoom {
         case 'pause':
           // R70: warmup (free respawns) until both teams have players; the score, half, kills and deaths stay.
           this.systemMessage('A team has no players: warmup until both teams do. The score is kept.');
+          this.snapshotWarmupStats();
           break;
       }
     }
     this.emitRound();
+  }
+
+  /** A warmup's frags do not count: the match stats are kept as the warmup began (M3). */
+  private snapshotWarmupStats(): void {
+    this.warmupStats = new Map([...this.players.values()].map((p) => [p.pid, { kills: p.info.kills, deaths: p.info.deaths, score: p.info.score, headshotKills: p.headshotKills }]));
+  }
+
+  private restoreWarmupStats(): void {
+    for (const p of this.players.values()) {
+      const s = this.warmupStats.get(p.pid);
+      p.info.kills = s?.kills ?? 0;
+      p.info.deaths = s?.deaths ?? 0;
+      p.info.score = s?.score ?? 0;
+      p.headshotKills = s?.headshotKills ?? 0;
+    }
+    this.warmupStats.clear();
+    this.emitScores();
+  }
+
+  /** v2 rounds: the match goes on (paused in warmup, R70) while anyone is left, so a 1v1 refresh keeps it. */
+  protected override keepsPlayingWith(n: number): boolean {
+    return this.rounds ? n >= 1 : super.keepsPlayingWith(n);
   }
 
   /** A new round: everyone (but players still setting up) back at their team spawn, frozen. */
@@ -1144,6 +1174,7 @@ export class HvhRoom extends GameRoom {
     super.onMatchStart(now);
     if (!this.rounds) return;
     this.round = hvhWarmup();
+    this.warmupStats.clear();
     this.emitRound();
   }
 
